@@ -1,0 +1,740 @@
+2026-03-12 07:17:53,568 | INFO | __main__ | sentinel.py:658 | Bot detenido manualmente.
+2026-03-12 07:18:05,740 | INFO | __main__ | sentinel.py:624 | Bot operativo con Excepciones de Festivos y Cierre.
+2026-03-12 07:18:05,741 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 07:18:05 -------------------
+
+
+2026-03-12 07:18:05,983 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 07:18:05,990 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:05,990 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:18:08,728 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:18:17,738 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:17,738 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:18:28,268 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:28,269 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:18:29,727 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:18:38,735 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:38,735 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:18:39,993 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:18:49,000 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:49,000 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:18:50,375 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:18:59,382 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:18:59,382 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:00,573 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:19:09,580 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:19:09,580 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:10,736 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:19:19,743 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:19:19,744 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:20,959 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:19:29,966 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:19:29,967 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:31,169 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:19:40,176 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:19:40,176 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:41,405 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:19:50,417 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:19:50,418 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 07:19:51,686 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:20:00,687 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 07:20:00,687 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 10m 2s
+2026-03-12 07:30:02,671 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 07:30:02 -------------------
+
+
+2026-03-12 07:30:02,705 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 07:30:02,733 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:02,734 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:04,553 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:30:13,562 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:13,563 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:24,250 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:24,250 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:25,767 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:30:34,783 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:34,783 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:36,291 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:30:45,311 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:45,311 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:46,844 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:30:55,863 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:30:55,863 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:30:57,345 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:06,353 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:31:06,354 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:31:07,747 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:16,756 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:31:16,756 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:31:18,438 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:27,446 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:31:27,446 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:31:29,132 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:38,157 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:31:38,158 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:31:39,841 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:48,851 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:31:48,851 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 07:31:50,290 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:31:59,299 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 07:31:59,299 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 3s
+2026-03-12 07:45:02,141 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 07:45:02 -------------------
+
+
+2026-03-12 07:45:02,171 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 07:45:02,178 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:02,178 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:03,750 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:45:12,759 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:12,759 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:14,067 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:45:23,074 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:23,074 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:24,341 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:45:33,347 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:33,347 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:34,501 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:45:43,509 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:43,509 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:44,663 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:45:53,670 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:45:53,670 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:45:54,785 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:03,793 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:46:03,793 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:46:04,914 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:13,922 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:46:13,922 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:46:15,132 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:24,140 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:46:24,140 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:46:25,399 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:34,406 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:46:34,406 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:46:35,851 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:44,858 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 07:46:44,858 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 07:46:45,995 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 07:46:54,996 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 07:46:54,996 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 8s
+2026-03-12 08:00:02,952 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:00:02 -------------------
+
+
+2026-03-12 08:00:18,601 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:00:18,608 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:00:18,608 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:00:20,027 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:00:29,034 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:00:29,034 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:00:30,450 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:00:39,457 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:00:39,457 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:00:40,628 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:00:49,635 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:00:49,635 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:00:50,788 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:00:59,797 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:00:59,798 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:00,938 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:01:09,946 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:01:09,946 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:11,186 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:01:20,195 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:01:20,195 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:21,335 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:01:30,343 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:01:30,344 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:31,812 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:01:40,819 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:01:40,819 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:42,393 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:01:51,400 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:01:51,401 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:01:52,569 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:02:01,577 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:02:01,577 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:02:02,750 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:02:11,753 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 08:02:11,753 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 12m 51s
+2026-03-12 08:15:02,736 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:15:02 -------------------
+
+
+2026-03-12 08:15:02,744 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:15:02,750 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:02,750 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:03,923 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:15:12,931 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:12,931 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:14,135 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:15:23,143 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:23,143 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:24,616 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:15:33,624 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:33,624 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:34,955 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:15:43,963 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:43,963 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:45,136 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:15:54,145 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:15:54,145 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:15:55,317 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:04,325 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:16:04,325 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:16:05,489 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:14,497 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:16:14,497 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:16:15,739 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:24,748 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:16:24,748 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:16:26,045 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:35,053 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:16:35,053 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:16:36,511 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:45,519 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:16:45,519 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:16:46,807 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:16:55,808 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 08:16:55,808 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 7s
+2026-03-12 08:28:22,401 | INFO | __main__ | sentinel.py:658 | Bot detenido manualmente.
+2026-03-12 08:28:48,427 | INFO | __main__ | sentinel.py:624 | Bot operativo con Excepciones de Festivos y Cierre.
+2026-03-12 08:28:48,428 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:28:48 -------------------
+
+
+2026-03-12 08:28:48,452 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:28:48,459 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:28:48,459 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:28:52,634 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:29:01,643 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:29:01,643 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:29:02,738 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:29:11,747 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:29:11,747 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:29:12,921 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:29:21,928 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:29:21,929 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:29:23,227 | INFO | __main__ | sentinel.py:470 |  la volatilidad es BAJA ❄️ se descarta señal
+2026-03-12 08:29:32,235 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:29:32,235 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:29:33,326 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:29:38,144 | INFO | __main__ | sentinel.py:658 | Bot detenido manualmente.
+2026-03-12 08:29:58,008 | INFO | __main__ | sentinel.py:624 | Bot operativo con Excepciones de Festivos y Cierre.
+2026-03-12 08:29:58,008 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:29:58 -------------------
+
+
+2026-03-12 08:29:58,027 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:29:58,033 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:29:58,033 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:29:59,135 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:30:08,144 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:08,144 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:30:09,267 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:30:18,275 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:18,275 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:30:19,433 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:30:28,441 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:28,441 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:30:29,710 | INFO | __main__ | sentinel.py:470 |  la volatilidad es BAJA ❄️ se descarta señal
+2026-03-12 08:30:38,718 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:38,718 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:30:39,989 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:30:48,997 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:48,997 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:30:50,210 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:30:59,218 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:30:59,218 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:31:00,340 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:31:09,348 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:31:09,349 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:31:10,471 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:31:19,478 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:31:19,478 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:31:20,591 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:31:29,598 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:31:29,598 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:31:30,748 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:31:39,755 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:31:39,755 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:31:40,935 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:31:49,935 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 08:31:49,936 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 13s
+2026-03-12 08:33:02,522 | INFO | __main__ | sentinel.py:658 | Bot detenido manualmente.
+2026-03-12 08:33:46,416 | INFO | __main__ | sentinel.py:624 | Bot operativo con Excepciones de Festivos y Cierre.
+2026-03-12 08:33:46,416 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:33:46 -------------------
+
+
+2026-03-12 08:33:46,434 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:33:46,440 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:33:46,440 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:33:47,568 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:33:56,576 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:33:56,577 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:33:57,697 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:06,820 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:06,820 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:08,018 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:17,026 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:17,026 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:18,373 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:27,381 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:27,381 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:28,623 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:37,630 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:37,630 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:38,734 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:47,742 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:47,742 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:48,863 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:34:57,870 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:34:57,872 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:34:59,118 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:35:08,125 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:35:08,125 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:35:09,292 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:35:18,300 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:35:18,300 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:35:19,442 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:35:28,451 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:35:28,451 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 08:35:29,729 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:35:38,736 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 08:35:38,773 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 9m 24s
+2026-03-12 08:45:02,770 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 08:45:02 -------------------
+
+
+2026-03-12 08:45:02,804 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 08:45:02,810 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:02,810 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:45:10,163 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:45:19,170 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:19,170 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:45:20,275 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:45:29,282 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:29,282 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:45:30,374 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:45:39,382 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:39,382 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:45:40,775 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:45:49,783 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:49,783 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:45:50,864 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:45:59,872 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:45:59,872 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:00,990 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:46:09,997 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:46:09,998 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:18,577 | INFO | httpx | _client.py:1740 | HTTP Request: POST https://api.telegram.org/bot8709556193:AAGbqWrLlbr6WVp3fPjYmctDS09dvc9QvA8/sendMessage "HTTP/1.1 200 OK"
+2026-03-12 08:46:18,578 | INFO | core.comm | comm.py:25 | Mensaje enviado a Telegram 2o intento:
+ 🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩
+━━━━━━━━━━━━━━━━
+                *USD/CAD* (15min)
+     2026-03-12 08:46:11
+━━━━━━━━━━━━━━━━
+• RSI: 72.13 | Pend.: -1.70 🔴
+• CCI: 81.96 | Pend.: -7.95 🔴
+• MACD: ALCISTA 🟢
+• Volatilidad: *0.041%* (BAJA ❄️)
+• Vela:  ENVOLVENTE *ALCISTA 🟢*
+━━━━━━━━━━━━━━━━
+
+2026-03-12 08:46:18,578 | INFO | __main__ | sentinel.py:470 |  la volatilidad es BAJA ❄️ se descarta señal
+2026-03-12 08:46:27,585 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:46:27,585 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:28,698 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:46:37,705 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:46:37,706 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:38,855 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:46:47,863 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:46:47,863 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:49,229 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:46:58,236 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 08:46:58,236 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 08:46:59,351 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 08:47:08,352 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 08:47:08,352 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 12m 54s
+2026-03-12 09:00:02,356 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 09:00:02 -------------------
+
+
+2026-03-12 09:00:18,030 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 09:00:18,037 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:00:18,037 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:00:19,582 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:00:28,590 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:00:28,590 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:00:30,113 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:00:39,121 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:00:39,122 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:00:40,751 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:00:49,786 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:00:49,786 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:00:51,258 | INFO | __main__ | sentinel.py:470 |  la volatilidad es BAJA ❄️ se descarta señal
+2026-03-12 09:01:00,267 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:00,267 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:01,761 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:01:10,787 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:10,788 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:12,165 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:01:21,173 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:21,173 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:22,571 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:01:31,580 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:31,580 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:33,008 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:01:42,033 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:42,033 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:43,490 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:01:52,499 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:01:52,499 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:01:54,111 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:02:03,120 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:02:03,120 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:02:04,756 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:02:13,758 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 09:02:13,758 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 12m 49s
+2026-03-12 09:15:02,666 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 09:15:02 -------------------
+
+
+2026-03-12 09:15:02,701 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 09:15:02,707 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:15:02,707 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:15:11,173 | INFO | httpx | _client.py:1740 | HTTP Request: POST https://api.telegram.org/bot8709556193:AAGbqWrLlbr6WVp3fPjYmctDS09dvc9QvA8/sendMessage "HTTP/1.1 200 OK"
+2026-03-12 09:15:11,174 | INFO | core.comm | comm.py:21 | Mensaje enviado a Telegram:
+ 🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥
+━━━━━━━━━━━━━━━━
+                *AUD/USD* (15min)
+     2026-03-12 09:15:10
+━━━━━━━━━━━━━━━━
+• RSI: 29.81 | Pend.: -0.32 🔴
+• CCI: -151.71 | Pend.: 15.03 🟢
+• MACD: BAJISTA 🔴
+• Volatilidad: *0.137%* (NORMAL ⚡)
+• Vela:  ENVOLVENTE *BAJISTA 🔴*
+━━━━━━━━━━━━━━━━
+
+2026-03-12 09:15:20,183 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:15:20,183 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:15:30,289 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:15:30,289 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:15:31,376 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:15:40,383 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:15:40,383 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:15:41,499 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:15:50,506 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:15:50,506 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:00,700 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:00,701 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:02,835 | INFO | httpx | _client.py:1740 | HTTP Request: POST https://api.telegram.org/bot8709556193:AAGbqWrLlbr6WVp3fPjYmctDS09dvc9QvA8/sendMessage "HTTP/1.1 200 OK"
+2026-03-12 09:16:02,836 | INFO | core.comm | comm.py:21 | Mensaje enviado a Telegram:
+ 🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥
+━━━━━━━━━━━━━━━━
+                *NZD/USD* (15min)
+     2026-03-12 09:16:01
+━━━━━━━━━━━━━━━━
+• RSI: 26.88 | Pend.: -0.51 🔴
+• CCI: -153.71 | Pend.: 6.57 🟢
+• MACD: BAJISTA 🔴
+• Volatilidad: *0.114%* (NORMAL ⚡)
+• Vela:  ENVOLVENTE *BAJISTA 🔴*
+━━━━━━━━━━━━━━━━
+
+2026-03-12 09:16:11,847 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:11,847 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:12,949 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:16:21,956 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:21,956 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:23,080 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:16:32,087 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:32,087 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:33,212 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:16:42,220 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:42,220 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:43,415 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:16:52,423 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:16:52,423 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 09:16:53,538 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:17:02,539 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 09:17:02,540 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 0s
+2026-03-12 09:30:02,522 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 09:30:02 -------------------
+
+
+2026-03-12 09:30:02,552 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 09:30:02,558 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:02,558 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:04,672 | INFO | httpx | _client.py:1740 | HTTP Request: POST https://api.telegram.org/bot8709556193:AAGbqWrLlbr6WVp3fPjYmctDS09dvc9QvA8/sendMessage "HTTP/1.1 200 OK"
+2026-03-12 09:30:04,673 | INFO | core.comm | comm.py:21 | Mensaje enviado a Telegram:
+ 🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥
+━━━━━━━━━━━━━━━━
+                *AUD/USD* (15min)
+     2026-03-12 09:30:03
+━━━━━━━━━━━━━━━━
+• RSI: 29.64 | Pend.: -1.94 🔴
+• CCI: -148.13 | Pend.: -5.47 🔴
+• MACD: BAJISTA 🔴
+• Volatilidad: *0.134%* (NORMAL ⚡)
+• Vela:  MARTILLO *ALCISTA 🟢*
+━━━━━━━━━━━━━━━━
+
+2026-03-12 09:30:13,683 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:13,683 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:14,826 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:30:23,833 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:23,833 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:33,946 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:33,946 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:35,084 | INFO | __main__ | sentinel.py:470 |  la volatilidad es BAJA ❄️ se descarta señal
+2026-03-12 09:30:44,091 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:44,091 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:45,178 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:30:54,186 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:30:54,186 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:30:55,617 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:04,627 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:31:04,627 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:31:05,915 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:14,922 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:31:14,923 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:31:16,045 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:25,052 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:31:25,053 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:31:26,167 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:35,176 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:31:35,176 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:31:36,334 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:45,341 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:31:45,341 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 09:31:46,456 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:31:55,456 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 09:31:55,457 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 7s
+2026-03-12 09:45:02,457 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 09:45:02 -------------------
+
+
+2026-03-12 09:45:02,476 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 09:45:02,483 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:02,483 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:03,920 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:45:12,928 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:12,928 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:14,062 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:45:23,069 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:23,069 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:24,212 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:45:33,220 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:33,221 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:34,491 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:45:43,499 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:43,499 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:44,704 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:45:53,711 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:45:53,711 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:45:55,153 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:04,162 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:46:04,163 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:46:05,487 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:14,495 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:46:14,495 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:46:15,671 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:24,679 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:46:24,679 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:46:25,854 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:34,862 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:46:34,862 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:46:36,065 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:45,073 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 09:46:45,073 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 09:46:46,236 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 09:46:55,236 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 09:46:55,236 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 7s
+2026-03-12 10:00:02,221 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 10:00:02 -------------------
+
+
+2026-03-12 10:00:02,271 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 10:00:02,292 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:02,292 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:07,260 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:00:16,267 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:16,267 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:17,613 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:00:26,622 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:26,622 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:27,909 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:00:36,916 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:36,917 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:38,221 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:00:47,228 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:47,228 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:48,309 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:00:57,316 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:00:57,316 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:00:58,431 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:01:07,439 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:01:07,439 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:01:09,244 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:01:18,253 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:01:18,253 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:01:31,162 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:01:31,162 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:01:32,686 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:01:41,694 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:01:41,694 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:01:44,796 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:01:53,804 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:01:53,805 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:01:56,964 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:02:05,965 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 10:02:05,965 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 12m 57s
+2026-03-12 10:04:33,901 | INFO | __main__ | sentinel.py:658 | Bot detenido manualmente.
+2026-03-12 10:09:53,735 | INFO | __main__ | sentinel.py:624 | Bot operativo con Excepciones de Festivos y Cierre.
+2026-03-12 10:09:53,750 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 10:09:53 -------------------
+
+
+2026-03-12 10:09:53,776 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 10:09:53,784 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:09:53,784 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:09:56,067 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:10:05,078 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:05,079 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:10:06,643 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:10:15,650 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:15,651 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:10:17,649 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:10:26,657 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:26,658 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:10:28,242 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:10:37,252 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:37,253 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:10:38,904 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:10:47,912 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:47,912 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:10:58,411 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:10:58,411 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:11:00,531 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:11:09,539 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:11:09,539 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:11:10,801 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:11:19,808 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:11:19,808 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:11:30,013 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:11:30,013 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:11:31,438 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:11:40,446 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:11:40,446 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta JAIME (0) con temporalidad 15min
+2026-03-12 10:11:42,602 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:11:51,603 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 10:11:51,603 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 3m 11s
+2026-03-12 10:15:02,278 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 10:15:02 -------------------
+
+
+2026-03-12 10:15:02,285 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 10:15:02,291 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:02,291 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:12,765 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:12,765 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:14,230 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:15:23,238 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:23,238 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:25,235 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:15:34,243 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:34,244 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:35,735 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:15:44,743 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:44,743 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:45,974 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:15:54,982 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:15:54,982 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:15:57,403 | INFO | httpx | _client.py:1740 | HTTP Request: POST https://api.telegram.org/bot8709556193:AAGbqWrLlbr6WVp3fPjYmctDS09dvc9QvA8/sendMessage "HTTP/1.1 200 OK"
+2026-03-12 10:15:57,406 | INFO | core.comm | comm.py:21 | Mensaje enviado a Telegram:
+ 🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥
+━━━━━━━━━━━━━━━━
+                *NZD/USD* (15min)
+     2026-03-12 10:15:56
+━━━━━━━━━━━━━━━━
+• RSI: 30.36 | Pend.: -1.25 🔴
+• CCI: -101.47 | Pend.: 3.59 🟢
+• MACD: BAJISTA 🔴
+• Volatilidad: *0.128%* (NORMAL ⚡)
+• Vela:  ENVOLVENTE *BAJISTA 🔴*
+━━━━━━━━━━━━━━━━
+
+2026-03-12 10:16:06,417 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:16:06,417 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CAD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:16:07,995 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:16:17,004 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:16:17,004 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/CHF de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:16:18,271 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:16:27,280 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:16:27,281 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/JPY de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:16:29,034 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:16:38,043 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:16:38,044 | INFO | __main__ | sentinel.py:86 | Descargando datos para USD/MXN de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:16:39,710 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:16:48,720 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:16:48,721 | INFO | __main__ | sentinel.py:86 | Descargando datos para XAU/USD de la cuenta RAUL (1) con temporalidad 15min
+2026-03-12 10:16:50,551 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:16:59,552 | INFO | __main__ | sentinel.py:645 | ✅ Ciclo completado. Esperando próxima vela...
+2026-03-12 10:16:59,610 | INFO | scheduler.autoScheduler | autoScheduler.py:78 | ⏳ Sincronizando: Próximo escaneo en 13m 3s
+2026-03-12 10:30:02,687 | INFO | __main__ | sentinel.py:638 | 
+
+
+--------------------- Iniciando Escaneo con Intervalo: 15min  a las 10:30:02 -------------------
+
+
+2026-03-12 10:30:02,694 | INFO | database.dbManager | dbManager.py:145 | Se cargaron 11 símbolos activos.
+2026-03-12 10:30:02,700 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:02,700 | INFO | __main__ | sentinel.py:86 | Descargando datos para AUD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:13,010 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:13,010 | INFO | __main__ | sentinel.py:86 | Descargando datos para EUR/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:23,148 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:23,148 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/CAD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:33,523 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:33,523 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/JPY de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:34,691 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
+2026-03-12 10:30:43,699 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:43,699 | INFO | __main__ | sentinel.py:86 | Descargando datos para GBP/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:53,938 | INFO | database.dbManager | dbManager.py:127 | Se cargaron 4 cuentas activas.
+2026-03-12 10:30:53,938 | INFO | __main__ | sentinel.py:86 | Descargando datos para NZD/USD de la cuenta SEBASTIAN (2) con temporalidad 15min
+2026-03-12 10:30:55,086 | WARNING | __main__ | sentinel.py:439 | ⚠️  no es confiable la operacion por VELA LATERAL ⚪*
