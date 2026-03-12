@@ -1,15 +1,22 @@
-# 1. Ignorar TODO (archivos y carpetas)
+# 1. Ignorar TODO por defecto
 *
 
-# 2. Ignorar específicamente archivos y carpetas ocultos
+# 2. PERMITIR que Git entre en las carpetas
+!*/
+
+# 3. EXCEPCIONES: Ignorar carpetas pesadas u ocultas (Añadido aquí)
+.venv/
+venv/
+.vscode/
+.git/
 .*
 .*/
 
-# 3. EXCEPCIONES: Permitir solo tus extensiones
+# 4. EXCEPCIONES: Tus extensiones (Tus programas)
 !*.py
 !*.sql
 !*.txt
 !*.sh
 
-# 4. Permitir el propio archivo .gitignore para que la regla se guarde
+# 5. Permitir el propio archivo .gitignore
 !.gitignore
