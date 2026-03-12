@@ -40,45 +40,59 @@ warnings.filterwarnings("ignore")
 # ==============================
 # BOT LOGIC
 # ==============================
-def calcularPosicion( capital,ganancia, distanciaSl, symbols):
+def calcularPosicion(capital, porcentaje_ganancia, distanciaSl, symbols):
     try:
-        # Riesgo del 10% (Ej: $50 si capital es $500)
-        riesgoDinero = capital * (ganancia / 100 / 30)
-        tipo = symbols.get('tipo', '').upper()
+        # 1. Riesgo por trade: Si buscas 10% mensual, arriesgas ~0.33% diario.
+        # riesgoDinero es la cantidad máxima en USD a perder si toca el SL.
+        riesgoDinero = capital * (porcentaje_ganancia / 100 / 30)
         
-        # 1. METALES (XAU/USD) - 1 Lote = 100 Onzas
+        tipo = symbols.get('tipo', '').upper()
+        symbol = symbols.get('symbol', '').upper()
+        
+        if distanciaSl <= 0: return 0.01
+
+        # 2. METALES (XAU/USD) - 1 Lote = 100 Onzas. 1 pip (0.10) = $10 USD
         if tipo == "METALES":
-            unidades = riesgoDinero / (distanciaSl * 100)
-            return max(0.01, round(unidades, 2))
+            # distanciaSl en oro suele ser ej: 1.50 (15 pips). 
+            # Lotes = Riesgo / (Distancia * 100)
+            lotes = riesgoDinero / (distanciaSl * 100)
+            return max(0.01, round(lotes, 2))
 
-        # 2. ÍNDICES (SPX500, NAS100, US30)
-        # Basado en tu confirmación: 1 contrato = $1 por punto.
-        # 2. ÍNDICES (SPX500, NAS100, US30, HK50)
+        # 3. ÍNDICES (SPX500, NAS100, US30) - 1 Contrato = $1 por punto
         elif tipo == "INDICES":
-            # Si 1.0 lote = $1 por punto:
-            # contratos = Riesgo / Distancia_puntos
-            # Ejemplo: $50 riesgo / 10 puntos SL = 5.0 lotes
+            # Si el SL es de 10 puntos y arriesgas $50, son 5 contratos (5.0 lotes)
             contratos = riesgoDinero / distanciaSl
-            
-            # Redondeamos a 1 decimal para permitir micro-lotes de índice (0.1)
-            # El valor mínimo que retornará será 0.1
-            return max(0.1, round(contratos, 1))
+            contrato *= 10
+            return max(1, round(contratos, 1))
 
-        # 3. CRIPTOS (BTC/USD) - 1 Lote = 1 Unidad
+        # 4. CRIPTOS (BTC/USD) - 1 Lote = 1 Unidad (BTC)
         elif tipo == "CRIPTO":
             unidades = riesgoDinero / distanciaSl
             return max(0.01, round(unidades, 2))
 
-        # 4. FOREX (EUR/USD, GBP/JPY)
+        # 5. FOREX (EUR/USD, GBP/JPY, etc.) 
         else:
-            # En Forex (lote 100k), el riesgo por punto es aprox. 10 veces la distancia.
-            # Esta fórmula te da el lotaje (ej: 0.05 lotes) para arriesgar el 10%.
-            lotes = riesgoDinero / (distanciaSl)
-            return max(0.01, round(lotes, 2))
+            # ERROR ORIGINAL CORREGIDO:
+            # En Forex 1 lote estándar (100k) paga $10 USD por cada PIP (0.0001)
+            # Necesitamos convertir la distancia del precio a PIPS.
+            
+            pip_value = 0.01 if "JPY" in symbol else 0.0001
+            pips_distancia = distanciaSl / pip_value
+            
+            # Lotes = Riesgo / (Pips * 10 USD)
+            # Ejemplo: $50 riesgo / (50 pips * 10) = 0.10 lotes
+            lotes = riesgoDinero / (pips_distancia * 10)
+            
+            # Limite de seguridad para no sobreapalancar (máximo 1 lote por cada $1000)
+            max_lotes = (capital / 1000) * 1.0 
+            lote_final = min(lotes, max_lotes)
+            lotefinal *= 100000
+            return max(1000, round(lote_final, 2))
 
     except Exception as e:
         print(f"❌ Error en calcularPosicion: {e}")
-        return 0.01
+        return 1
+
 
 
 
@@ -657,4 +671,3 @@ if __name__ == "__main__":
         asyncio.run(iniciar_bot())
     except KeyboardInterrupt:
         logger.info("Bot detenido manualmente.")
-
