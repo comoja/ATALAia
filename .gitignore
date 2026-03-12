@@ -1,0 +1,15 @@
+# 1. Ignorar TODO (archivos y carpetas)
+*
+
+# 2. Ignorar específicamente archivos y carpetas ocultos
+.*
+.*/
+
+# 3. EXCEPCIONES: Permitir solo tus extensiones
+!*.py
+!*.sql
+!*.txt
+!*.sh
+
+# 4. Permitir el propio archivo .gitignore para que la regla se guarde
+!.gitignore
