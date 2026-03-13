@@ -464,7 +464,7 @@ async def analyzeSymbol(symbols, n_velas):
                 msg_rsi += (
                     f"━━━━━━━━━━━━━━━━\n"
                     f"                *{symbols['symbol']}* ({intervalo})\n"
-                    f"     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                     f"━━━━━━━━━━━━━━━━\n"
                     f"• RSI: {rsi_val:.2f} | "
                     f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
@@ -586,7 +586,7 @@ async def analyzeSymbol(symbols, n_velas):
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}"
                 f" *SEÑAL DE { 'COMPRA' if direction == 'LARGO' else 'VENTA' }* "
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}\n"
-                f"           {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"━━━━━━━━━━━━━━━\n"
                 f"           *{symbols['symbol']}* ({intervalo})\n"
                 f"          Confianza: *{confianza:.1f}%* \n"
