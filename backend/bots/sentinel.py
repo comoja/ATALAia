@@ -422,7 +422,133 @@ async def analyzeSymbol(symbols, n_velas):
         distancia_sl = atr_val * atr_multiplier
         vol_porcentaje = (atr_val / close) * 100
         fuerza_vol = "ALTA 🔥" if vol_porcentaje > 0.15 else "BAJA ❄️" if vol_porcentaje < 0.05 else "NORMAL ⚡"
+        vela_engulfing = ta.CDLENGULFING(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
+        vela_hammer = ta.CDLHAMMER(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
+        vela_star = ta.CDLSHOOTINGSTAR(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
+        # Resumen de señal de vela
+        msg_vela = ""
+        if vela_engulfing != 0:
+            msg_vela = " ENVOLVENTE"
+        if vela_hammer != 0:
+            msg_vela += " MARTILLO"
+        if vela_star != 0:
+            msg_vela += " ESTRELLA"
         
+        if (vela_engulfing > 0 or vela_hammer > 0):
+            msg_vela += " *ALCISTA 🟢*"
+        elif (vela_engulfing < 0 or vela_star < 0):
+            msg_vela += " *BAJISTA 🔴*"
+        else:
+            msg_vela += " *LATERAL ⚪*"
+            logger.warning(f"⚠️  no es confiable la operacion por VELA LATERAL ⚪*")
+            return
+        # 1. Alertas de Sobrecompra/Venta
+        msg_rsi = ""
+        if rsi_val >= 68:
+            msg_rsi = "🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩\n"
+        elif rsi_val <= 32:
+            msg_rsi = "🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥\n"        
+        if msg_rsi != "":
+            msg_rsi += (
+                f"━━━━━━━━━━━━━━━━\n"
+                f"                *{symbols['symbol']}* ({intervalo})\n"
+                f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"• RSI: {rsi_val:.2f} | "
+                f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
+                f"• CCI: {cci_val:.2f} | "
+                f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
+                f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
+                f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
+                f"• Vela: {msg_vela}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+            )
+            await enviar_alerta(1, cuenta['TokenMsg'], msg_rsi)
+
+        # --- 2. DECISIÓN EXPERTA (VERSIÓN SNIPER) ---
+        direction = None
+        confianza = 0
+        if  vol_porcentaje < 0.05:
+            logger.info(f" la volatilidad es {fuerza_vol} se descarta señal" )
+            return
+        
+        # Umbrales de Probabilidad Ajustados (Más exigentes)
+        # Antes: 0.65 / 0.35 | Ahora: 0.72 / 0.28
+        umbralLargo = 0.72
+        umbralCorto = 0.28
+
+        # --- LÓGICA DE FILTRADO TÉCNICO (EL VETO) ---
+        # Solo permitimos LARGO si el precio NO está cayendo con fuerza
+        tecnicoApoyaLargo = (pendiente_cci_val > 2 and pendiente_rsi_val > -0.2)
+        
+        # Solo permitimos CORTO si el precio NO está subiendo con fuerza
+        tecnicoApoyaCorto = (pendiente_cci_val < -2 and pendiente_rsi_val < 0.2)
+
+        # --- CONFLUENCIA MAESTRA ---
+        esLargoExperto = (
+            proba_val >= umbralLargo and 
+            hist_val > hist_anterior and 
+            tecnicoApoyaLargo and
+            rsi_val < 75 # Evitamos comprar en el techo absoluto
+        )
+
+        esCortoExperto = (
+            proba_val <= umbralCorto and 
+            hist_val < hist_anterior and 
+            tecnicoApoyaCorto and
+            rsi_val > 25 # Evitamos vender en el piso absoluto
+        )
+
+        # --- ASIGNACIÓN CON BONO DE CONFLUENCIA ---
+
+        # Identificamos el estado del MACD para los bonos
+        esCruceAlcista = (prev_hist_val <= 0 and hist_val > 0)
+        esCruceBajista = (prev_hist_val >= 0 and hist_val < 0)
+        impulsoCreciendo = (hist_val > prev_hist_val)
+        impulsoBajando = (hist_val < prev_hist_val)
+
+        # Aseguramos que proba_val sea un número simple (float)
+        probActual = float(proba_val[0]) if hasattr(proba_val, "__len__") else float(proba_val)
+
+        if esLargoExperto:
+            direction = "LARGO"
+            # Bono: +12 si cruza cero, +5 si el histograma solo está creciendo
+            bono = 12 if esCruceAlcista else 5 if impulsoCreciendo else 0
+            confianza = (probActual * 100) + bono
+            
+        elif esCortoExperto:
+            direction = "CORTO"
+            # Bono: +12 si cruza cero, +5 si el histograma solo está bajando
+            bono = 12 if esCruceBajista else 5 if impulsoBajando else 0
+            confianza = ((1 - probActual) * 100) + bono
+        else:
+            # Si no hay confluencia, saltamos a la siguiente símbolo
+            return 
+
+        # --- LÓGICA DE VELAS EN SCALPING ---
+        # Bono extra por patrón de vela a favor (+10%)
+        if direction == "LARGO" and (vela_engulfing > 0 or vela_hammer > 0):
+            confianza *= 1.10
+        elif direction == "CORTO" and (vela_engulfing < 0 or vela_star < 0):
+            confianza *= 1.10
+        else:
+            confianza *= 0.50
+        
+        # --- 3. FILTRO DE TENDENCIA DINÁMICO (EMA 50) ---
+        # Si no hay una confianza brutal (>90%), prohibido ir contra la EMA50
+
+        if confianza < 90:
+            if (direction == "LARGO" and close < ema50_last) or (direction == "CORTO" and close > ema50_last):
+                logger.info(f"⚠️ {symbols['symbol']} Filtrado: Intento de contratendencia con confianza baja.")
+                return
+
+        # FILTRO AGRESIVO: Si hay un patrón de vela fuerte EN CONTRA, cancelamos (Veto)
+        if direction == "LARGO" and (vela_engulfing < 0 or vela_star < 0):
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela bajista detectado en señal larga.")
+            return
+        if direction == "CORTO" and (vela_engulfing > 0 or vela_hammer > 0):
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela alcista detectado en señal corta.")
+            return
         # --- Bucle de Cuentas y Decisiones ---
         for cuenta in cuentas:
             # --- DETECCIÓN DE ACCIÓN DEL PRECIO (Scalping) ---
@@ -431,129 +557,8 @@ async def analyzeSymbol(symbols, n_velas):
                 "idCuenta": cuenta['idCuenta'],
                 "symbol": symbols['symbol']
             }
-            vela_engulfing = ta.CDLENGULFING(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
-            vela_hammer = ta.CDLHAMMER(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
-            vela_star = ta.CDLSHOOTINGSTAR(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
-
-            # Resumen de señal de vela
-            msg_vela = ""
-            if vela_engulfing != 0:
-                msg_vela = " ENVOLVENTE"
-            if vela_hammer != 0:
-                msg_vela += " MARTILLO"
-            if vela_star != 0:
-                msg_vela += " ESTRELLA"
             
-            if (vela_engulfing > 0 or vela_hammer > 0):
-                msg_vela += " *ALCISTA 🟢*"
-            elif (vela_engulfing < 0 or vela_star < 0):
-                msg_vela += " *BAJISTA 🔴*"
-            else:
-                msg_vela += " *LATERAL ⚪*"
-                logger.warning(f"⚠️  no es confiable la operacion por VELA LATERAL ⚪*")
-                return
             
-            # 1. Alertas de Sobrecompra/Venta
-            msg_rsi = ""
-            if rsi_val >= 68 and int(cuenta['idCuenta']) == 1:
-                msg_rsi = "🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩\n"
-            elif rsi_val <= 32 and int(cuenta['idCuenta']) == 1:
-                msg_rsi = "🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥\n"
-            tz = pytz.timezone(timeZone)    
-            if msg_rsi != "":
-                msg_rsi += (
-                    f"━━━━━━━━━━━━━━━━\n"
-                    f"                *{symbols['symbol']}* ({intervalo})\n"
-                    f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"━━━━━━━━━━━━━━━━\n"
-                    f"• RSI: {rsi_val:.2f} | "
-                    f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
-                    f"• CCI: {cci_val:.2f} | "
-                    f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
-                    f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
-                    f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
-                    f"• Vela: {msg_vela}\n"
-                    f"━━━━━━━━━━━━━━━━\n"
-                )
-                await enviar_alerta(cuenta['idGrupoMsg'], cuenta['TokenMsg'], msg_rsi)
-
-            # --- 2. DECISIÓN EXPERTA (VERSIÓN SNIPER) ---
-            direction = None
-            confianza = 0
-            if  vol_porcentaje < 0.05:
-                logger.info(f" la volatilidad es {fuerza_vol} se descarta señal" )
-                return
-            
-            # Umbrales de Probabilidad Ajustados (Más exigentes)
-            # Antes: 0.65 / 0.35 | Ahora: 0.72 / 0.28
-            umbralLargo = 0.72
-            umbralCorto = 0.28
-
-            # --- LÓGICA DE FILTRADO TÉCNICO (EL VETO) ---
-            # Solo permitimos LARGO si el precio NO está cayendo con fuerza
-            tecnicoApoyaLargo = (pendiente_cci_val > 2 and pendiente_rsi_val > -0.2)
-            
-            # Solo permitimos CORTO si el precio NO está subiendo con fuerza
-            tecnicoApoyaCorto = (pendiente_cci_val < -2 and pendiente_rsi_val < 0.2)
-
-            # --- CONFLUENCIA MAESTRA ---
-            esLargoExperto = (
-                proba_val >= umbralLargo and 
-                hist_val > hist_anterior and 
-                tecnicoApoyaLargo and
-                rsi_val < 75 # Evitamos comprar en el techo absoluto
-            )
-
-            esCortoExperto = (
-                proba_val <= umbralCorto and 
-                hist_val < hist_anterior and 
-                tecnicoApoyaCorto and
-                rsi_val > 25 # Evitamos vender en el piso absoluto
-            )
-
-            # --- ASIGNACIÓN CON BONO DE CONFLUENCIA ---
-
-            # Identificamos el estado del MACD para los bonos
-            esCruceAlcista = (prev_hist_val <= 0 and hist_val > 0)
-            esCruceBajista = (prev_hist_val >= 0 and hist_val < 0)
-            impulsoCreciendo = (hist_val > prev_hist_val)
-            impulsoBajando = (hist_val < prev_hist_val)
-
-            # Aseguramos que proba_val sea un número simple (float)
-            probActual = float(proba_val[0]) if hasattr(proba_val, "__len__") else float(proba_val)
-
-            if esLargoExperto:
-                direction = "LARGO"
-                # Bono: +12 si cruza cero, +5 si el histograma solo está creciendo
-                bono = 12 if esCruceAlcista else 5 if impulsoCreciendo else 0
-                confianza = (probActual * 100) + bono
-                
-            elif esCortoExperto:
-                direction = "CORTO"
-                # Bono: +12 si cruza cero, +5 si el histograma solo está bajando
-                bono = 12 if esCruceBajista else 5 if impulsoBajando else 0
-                confianza = ((1 - probActual) * 100) + bono
-            else:
-                # Si no hay confluencia, saltamos a la siguiente cuenta o símbolo
-                continue 
-
-            # --- LÓGICA DE VELAS EN SCALPING ---
-            # Bono extra por patrón de vela a favor (+10%)
-            if direction == "LARGO" and (vela_engulfing > 0 or vela_hammer > 0):
-                confianza *= 1.10
-            elif direction == "CORTO" and (vela_engulfing < 0 or vela_star < 0):
-                confianza *= 1.10
-            else:
-                confianza *= 0.50
-            
-            # --- 3. FILTRO DE TENDENCIA DINÁMICO (EMA 50) ---
-            # Si no hay una confianza brutal (>90%), prohibido ir contra la EMA50
-
-            if confianza < 90:
-                if (direction == "LARGO" and close < ema50_last) or (direction == "CORTO" and close > ema50_last):
-                    logger.info(f"⚠️ {symbols['symbol']} Filtrado: Intento de contratendencia con confianza baja.")
-                    return
-
             # 4. Parámetros de Operación
             miCapital = float(cuenta['Capital'])
             lote_sugerido = calcularPosicion(miCapital,cuenta['ganancia'], distancia_sl, symbols) / 10
@@ -573,13 +578,6 @@ async def analyzeSymbol(symbols, n_velas):
             punto_be = close + (distancia_sl * 0.5) if direction == "LARGO" else close - (distancia_sl * 0.5)
             
 
-            # FILTRO AGRESIVO: Si hay un patrón de vela fuerte EN CONTRA, cancelamos (Veto)
-            if direction == "LARGO" and (vela_engulfing < 0 or vela_star < 0):
-                logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela bajista detectado en señal larga.")
-                continue
-            if direction == "CORTO" and (vela_engulfing > 0 or vela_hammer > 0):
-                logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela alcista detectado en señal corta.")
-                continue
             # --- Aquí enviarías la orden a tu Exchange/Base de Datos ---
             
             text = (
