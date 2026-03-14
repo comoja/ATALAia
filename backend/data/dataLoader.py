@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 import time
 
-from config.settings import  MaxXminuto, MaxXdia,  minutosXdia, INTERVAL, API_KEYS
+from config.settings import  MaxXminuto, MaxXdia,  minutosXdia, INTERVAL, API_KEYS, INTERVALmax, timeframes
 from datetime import datetime
 import asyncio
 
@@ -28,7 +28,7 @@ def getParametros():
     nombre_key = f"{nombres[indice]} ({indice})"
     
     # 2. Selección de Intervalo (Cierre 23:00)
-    intervalo_actual = "8h" if ahora.hour == 23 else INTERVAL
+    intervalo_actual = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
 
     # 3. CÁLCULO DINÁMICO DE VELAS (Lookback de ~10 días)
     # Definimos cuántos minutos queremos ver hacia atrás (10 días = 14400 min)
@@ -43,8 +43,9 @@ def getParametros():
         horas = int(intervalo_actual.replace("h", ""))
         # Si es por horas, pedimos 40 días (57600 min) para asegurar > 100 velas
         minutos_objetivo_horas = 57600 
-        velas_a_pedir = 500 # minutos_objetivo_horas // (horas * 60)
+        velas_a_pedir = minutos_objetivo_horas // (horas * 60)
         esperaMin = horas * 60
+
     elif "day" in intervalo_actual:
         velas_a_pedir = 100 # Para diario, 100 velas es más que suficiente
         esperaMin = 24 * 60

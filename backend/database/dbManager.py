@@ -31,7 +31,7 @@ def cierraTradeEnDb(idTrade, precioCierre, fechaCierre, comentario):
         dbConn.commit()
         
     except Exception as error:
-        print(f"❌ Error al cerrar trade en DB: {error}")
+        logger.error(f"❌ Error al cerrar trade en DB: {error}")
     finally:
         dbCursor.close()
         dbConn.close()
@@ -98,7 +98,7 @@ def verificaCierreTrade(tradeData, dfVelas):
                     return True 
         conn.close()        
     except Exception as error:
-        print(f"❌ Error en verificaCierreTrade: {error}")
+        logger.error(f"❌ Error en verificaCierreTrade: {error}")
         return False
 
 
@@ -124,7 +124,7 @@ def getAccount():
         
         conn.close()
         if cuentas:
-            logger.info(f"Se cargaron {len(cuentas)} cuentas activas.")
+            #logger.info(f"Se cargaron {len(cuentas)} cuentas activas.")
             return cuentas
         return [] # Retorna lista vacía si no hay nada
     except Exception as e:
@@ -142,7 +142,7 @@ def getSymbols():
         
         conn.close()
         if symbols:
-            logger.info(f"Se cargaron {len(symbols)} símbolos activos.")
+            #logger.info(f"Se cargaron {len(symbols)} símbolos activos.")
             return symbols
         return [] # Retorna lista vacía si no hay nada
     except Exception as e:
@@ -178,14 +178,14 @@ def buscaTrade(tradeData):
         if tradeExistente:
             # Si existe y es de hoy, actualizamos (por ejemplo, el precio actual o SL/TP)
             actualizarTrade(tradeExistente['idTrade'], tradeData)
-            print(f"🔄 Trade {tradeExistente['idTrade']} actualizado para {tradeData['symbol']}")
+            logger.info(f"🔄 Trade {tradeExistente['idTrade']} actualizado para {tradeData['symbol']}")
         else:
             # Si no hay trade abierto HOY para ese símbolo/dirección, insertamos uno nuevo
             insertarTrade(tradeData)
-            print(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
+            logger.info(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
 
     except Exception as error:
-        print(f"❌ Error en buscaTrade: {error}")
+        logger.error(f"❌ Error en buscaTrade: {error}")
     finally:
         if 'dbCursor' in locals(): 
             dbCursor.close()
@@ -207,10 +207,10 @@ def actualizarTrade( idTrade, data):
         
         cursor.execute(sqlUpdate, valores)
         conn.commit()
-        print(f"✅ Trade {idTrade} actualizado.")
+        logger.info(f"✅ Trade {idTrade} actualizado.")
 
     except Exception as e:
-        print(f"❌ Error al actualizarTrade {idTrade}: {e}")
+        logger.error(f"❌ Error al actualizarTrade {idTrade}: {e}")
         if 'conn' in locals(): conn.rollback()
 
 def insertarTrade( data):
@@ -220,7 +220,7 @@ def insertarTrade( data):
 
         sqlInsert = """
             INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit,intervalo)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,%s)
         """
         valores = (
             data['idCuenta'], data['symbol'], data['direction'], 
@@ -230,8 +230,8 @@ def insertarTrade( data):
 
         cursor.execute(sqlInsert, valores)
         conn.commit()
-        print(f"🚀 Nuevo trade insertado: {data['symbol']}")
+        logger.info(f"🚀 Nuevo trade insertado: {data['symbol']}")
 
     except Exception as e:
-        print(f"❌ Error al insertarTrade: {e}")
+        logger.error(f"❌ Error al insertarTrade: {e}")
         if 'conn' in locals(): conn.rollback()

@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 # ===== GENERAL =====
 
 SYMBOLS = np.array(["XAU/USD","USD/MXN", "AUD/USD","EUR/USD", "GBP/USD","CAD/USD","JPY/USD"])
-timeframes = ["1h", "4h"]
+timeframes = [22,23,6,7,8,9,10,11,12,13,14]
 # --- DÍAS FESTIVOS (Añadir YYYY-MM-DD) ---
 FESTIVOS = ["2026-01-01", "2026-12-25", "2026-05-01"]
 # ===== TWELVE DATA =====
@@ -24,6 +24,7 @@ minutosXdia = 24 * 60
 
 # ===== STRATEGY DE SENTINEL=====
 INTERVAL = "15min"
+INTERVALmax = "1h"
 CAPITAL_ACTUAL = 500 # Esto debería leerse de tu balance real
 Riesgo_Por_Operacion = 0.02 # 2% de riesgo por trade ($10 USD)
 RISK_REWARD = 1.9

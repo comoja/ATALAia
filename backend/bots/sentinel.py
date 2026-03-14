@@ -24,7 +24,7 @@ from scheduler.autoScheduler import getTiempoEspera
 from core.comm import enviar_alerta
 from data.dataLoader import getParametros, nombre_key
 from config import settings
-from config.settings import SYMBOLS, RISK_REWARD, VELAS_HISTORIAL, tiempoEspera, FESTIVOS, INTERVAL, timeZone
+from config.settings import SYMBOLS, RISK_REWARD, VELAS_HISTORIAL, tiempoEspera, FESTIVOS, INTERVAL, timeZone,INTERVALmax
 from core.logger_config import setup_logging
 
 # 1. Configura el sistema de logs antes que nada
@@ -44,7 +44,7 @@ def calcularPosicion(capital, porcentaje_ganancia, distanciaSl, symbols):
     try:
         # 1. Riesgo por trade: Si buscas 10% mensual, arriesgas ~0.33% diario.
         # riesgoDinero es la cantidad máxima en USD a perder si toca el SL.
-        riesgoDinero = capital * (porcentaje_ganancia / 100 / 30)
+        riesgoDinero = capital * (porcentaje_ganancia / 100 )
         
         tipo = symbols.get('tipo', '').upper()
         symbol = symbols.get('symbol', '').upper()
@@ -79,19 +79,20 @@ def calcularPosicion(capital, porcentaje_ganancia, distanciaSl, symbols):
             pip_value = 0.01 if "JPY" in symbol else 0.0001
             pips_distancia = distanciaSl / pip_value
             
-            # Lotes = Riesgo / (Pips * 10 USD)
-            # Ejemplo: $50 riesgo / (50 pips * 10) = 0.10 lotes
-            lotes = riesgoDinero / (pips_distancia * 10)
-            
-            # Limite de seguridad para no sobreapalancar (máximo 1 lote por cada $1000)
-            max_lotes = (capital / 1000) * 1.0 
+            lotes =  int((riesgoDinero / pips_distancia) * (10 if pips_distancia<1 else 1)) 
+            lotes = 1 if lotes==0 else lotes
+            # Limite de seguridad para no sobreapalancar 
+            max_lotes = int(capital/lotes )
             lote_final = min(lotes, max_lotes)
-            lotefinal *= 100000
-            return max(1000, round(lote_final, 2))
+           
+            riesgoDinero *= max(1, lote_final)
+           
+            lote_final *= 1000
+            return max(1000, lote_final), riesgoDinero
 
     except Exception as e:
-        print(f"❌ Error en calcularPosicion: {e}")
-        return 1
+        logger.error(f"❌ Error en calcularPosicion: {e}")
+        return 0
 
 
 
@@ -317,16 +318,13 @@ def getPendiente( serie, periodos=3):
     m, b = np.polyfit(x, y, 1)
     return m
 
-
-
-
 async def analyzeSymbol(symbols, n_velas):
     cuentas = dbManager.getAccount()
     """
     Analiza un símbolo, entrena el modelo y genera alertas Sniper con gestión de riesgo.
     """
     
-    df = download12Data(symbols['symbol'], n_velas )    
+    df = download12Data(symbols['symbol'], n_velas )
 
     if df is None or len(df) < 100:
         logger.info( "velas descargadas: " + str(n_velas)+ " tamaño del df "+ str(len(df))  +"\n" )
@@ -425,51 +423,17 @@ async def analyzeSymbol(symbols, n_velas):
         vela_engulfing = ta.CDLENGULFING(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
         vela_hammer = ta.CDLHAMMER(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
         vela_star = ta.CDLSHOOTINGSTAR(df_clean['open'], df_clean['high'], df_clean['low'], df_clean['close']).iloc[-1]
-        # Resumen de señal de vela
-        msg_vela = ""
-        if vela_engulfing != 0:
-            msg_vela = " ENVOLVENTE"
-        if vela_hammer != 0:
-            msg_vela += " MARTILLO"
-        if vela_star != 0:
-            msg_vela += " ESTRELLA"
         
-        if (vela_engulfing > 0 or vela_hammer > 0):
-            msg_vela += " *ALCISTA 🟢*"
-        elif (vela_engulfing < 0 or vela_star < 0):
-            msg_vela += " *BAJISTA 🔴*"
-        else:
-            msg_vela += " *LATERAL ⚪*"
-            logger.warning(f"⚠️  no es confiable la operacion por VELA LATERAL ⚪*")
-            return
+
         # 1. Alertas de Sobrecompra/Venta
         msg_rsi = ""
-        if rsi_val >= 68:
-            msg_rsi = "🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩\n"
-        elif rsi_val <= 32:
-            msg_rsi = "🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥\n"        
-        if msg_rsi != "":
-            msg_rsi += (
-                f"━━━━━━━━━━━━━━━━\n"
-                f"                *{symbols['symbol']}* ({intervalo})\n"
-                f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"━━━━━━━━━━━━━━━━\n"
-                f"• RSI: {rsi_val:.2f} | "
-                f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
-                f"• CCI: {cci_val:.2f} | "
-                f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
-                f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
-                f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
-                f"• Vela: {msg_vela}\n"
-                f"━━━━━━━━━━━━━━━━\n"
-            )
-            await enviar_alerta(1, cuenta['TokenMsg'], msg_rsi)
+        
 
         # --- 2. DECISIÓN EXPERTA (VERSIÓN SNIPER) ---
         direction = None
         confianza = 0
         if  vol_porcentaje < 0.05:
-            logger.info(f" la volatilidad es {fuerza_vol} se descarta señal" )
+            logger.info(f" la volatilidad es {fuerza_vol}  se descarta señal" )
             return
         
         # Umbrales de Probabilidad Ajustados (Más exigentes)
@@ -522,8 +486,8 @@ async def analyzeSymbol(symbols, n_velas):
             bono = 12 if esCruceBajista else 5 if impulsoBajando else 0
             confianza = ((1 - probActual) * 100) + bono
         else:
-            # Si no hay confluencia, saltamos a la siguiente símbolo
-            return 
+            logger.info(f" Si no hay confluencia, {proba_val >= umbralLargo} and {hist_val > hist_anterior} and {tecnicoApoyaLargo} and {rsi_val < 75}  saltamos al siguiente símbolo")
+            return
 
         # --- LÓGICA DE VELAS EN SCALPING ---
         # Bono extra por patrón de vela a favor (+10%)
@@ -541,14 +505,34 @@ async def analyzeSymbol(symbols, n_velas):
             if (direction == "LARGO" and close < ema50_last) or (direction == "CORTO" and close > ema50_last):
                 logger.info(f"⚠️ {symbols['symbol']} Filtrado: Intento de contratendencia con confianza baja.")
                 return
+        # Resumen de señal de vela
+        msg_vela = ""
+        if vela_engulfing != 0:
+            msg_vela = " ENVOLVENTE"
+        if vela_hammer != 0:
+            msg_vela += " MARTILLO"
+        if vela_star != 0:
+            msg_vela += " ESTRELLA"
+        
+        if (vela_engulfing > 0 or vela_hammer > 0):
+            msg_vela += " *ALCISTA 🟢*"
+        elif (vela_engulfing < 0 or vela_star < 0):
+            msg_vela += " *BAJISTA 🔴*"
+        else:
+            msg_vela += " *LATERAL ⚪*"
+
 
         # FILTRO AGRESIVO: Si hay un patrón de vela fuerte EN CONTRA, cancelamos (Veto)
         if direction == "LARGO" and (vela_engulfing < 0 or vela_star < 0):
-            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela bajista detectado en señal larga.")
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela bajista {msg_vela} detectado en señal larga.")
             return
         if direction == "CORTO" and (vela_engulfing > 0 or vela_hammer > 0):
-            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela alcista detectado en señal corta.")
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela alcista {msg_vela} detectado en señal corta.")
             return
+        if vela_star != 0:
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela ESTRELLA {msg_vela} detectado en señal {direction}.")
+            return
+        
         # --- Bucle de Cuentas y Decisiones ---
         for cuenta in cuentas:
             # --- DETECCIÓN DE ACCIÓN DEL PRECIO (Scalping) ---
@@ -557,52 +541,85 @@ async def analyzeSymbol(symbols, n_velas):
                 "idCuenta": cuenta['idCuenta'],
                 "symbol": symbols['symbol']
             }
-            
+            if rsi_val >= 68:
+                msg_rsi = "🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩\n"
+            elif rsi_val <= 32:
+                msg_rsi = "🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥\n"        
+            if msg_rsi != "":
+                msg_rsi += (
+                    f"━━━━━━━━━━━━━━━━\n"
+                    f"                    *{symbols['symbol']}* ({intervalo})\n"
+                    f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"━━━━━━━━━━━━━━━━\n"
+                    f"• RSI: {rsi_val:.2f} | "
+                    f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
+                    f"• CCI: {cci_val:.2f} | "
+                    f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
+                    f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
+                    f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
+                    f"• Vela: {msg_vela}\n"
+                    f"━━━━━━━━━━━━━━━━\n"
+                )
+            if cuenta['idCuenta'] == 1:
+                await enviar_alerta(cuenta['idCuenta'], cuenta['TokenMsg'], msg_rsi)
             
             # 4. Parámetros de Operación
             miCapital = float(cuenta['Capital'])
-            lote_sugerido = calcularPosicion(miCapital,cuenta['ganancia'], distancia_sl, symbols) / 10
+            lote_sugerido , riesgoDinero = calcularPosicion(miCapital,cuenta['ganancia'], distancia_sl, symbols) 
             if lote_sugerido is None: continue
 
             # Ratio Dinámico
-            ratioBase = 2.5 if confianza > 85 else 2.0
-            bonoVolumen = 0.5 if vol_ratio > 1.5 else 0.2 if vol_ratio > 1.2 else 0.0
-            bonoImpulso = 0.3 if abs(pendiente_cci_val) > 15 else 0.0
-            ratioDinamico = min(ratioBase + bonoVolumen + bonoImpulso, 4.0)
+            ratioBase = 2.0 if confianza > 85 else 2.0
+            bonoVolumen = 0.3 if vol_ratio > 1.5 else 0.15 if vol_ratio > 1.2 else 0.0
+            bonoImpulso = 0.2 if abs(pendiente_cci_val) > 15 else 0.0
+            ratioDinamico = min(ratioBase + bonoVolumen + bonoImpulso, 2.2)
             
             
             # Niveles Finales
-            sl = (close - distancia_sl if direction == "LARGO" else close + distancia_sl)
-            tp = (close + (distancia_sl * ratioDinamico) if direction == "LARGO" else close - (distancia_sl * ratioDinamico)) * 0.97
+            logger.info(f"close {close} distanciasl {distancia_sl} ratio {ratioDinamico}")
+
+            sl = (close - distancia_sl if direction == "LARGO" else close + distancia_sl ) 
+            tp = (close + (distancia_sl * ratioDinamico ) if direction == "LARGO" else close - (distancia_sl * ratioDinamico)) 
             
             punto_be = close + (distancia_sl * 0.5) if direction == "LARGO" else close - (distancia_sl * 0.5)
             
 
             # --- Aquí enviarías la orden a tu Exchange/Base de Datos ---
+            ulabel = "TAKE PROFIT" if direction == "LARGO" else "STOP LOSS"
+            uemoji = "🟢" if direction == "LARGO" else "🔴"
+            uvalor = tp if direction == "LARGO" else sl
+            upmensaje = f"{uemoji} *{ulabel}: {uvalor:,.6f}*"
+            label = "TAKE PROFIT" if direction == "CORTO" else "STOP LOSS"
+            emoji = "🟢" if direction == "CORTO" else "🔴"
+            valor = tp if direction == "CORTO" else sl
+            dnmensaje = f"{emoji} *{label}: {valor:,.6f}*"
             
             text = (
+                
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}"
                 f" *SEÑAL DE { 'COMPRA' if direction == 'LARGO' else 'VENTA' }* "
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}\n"
-                f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"                 *{symbols['symbol']}* ({intervalo})    \n"
+                f"              {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"           *{symbols['symbol']}* ({intervalo})\n"
-                f"          Confianza: *{confianza:.1f}%* \n"
-                f" Vela: {msg_vela}\n"
+                f"               Confianza: *{confianza:.1f}%* \n"
+                f"            VELA: {msg_vela} {'\n        -> *CON PRECAUCION* <-\n' if msg_vela == ' *LATERAL ⚪*' else'\n' }"
                 f"━━━━━━━━━━━━━━━\n"
-                f"🟢 *TAKE PROFIT: {tp:.6f}*\n"
-                f"🛡️ Break even: {punto_be:.6f}\n"
-                f"🔹 Entrada: *{close:.6f}*\n"
-                f"🔴 *STOP LOSS: {sl:.6f}*\n"
+                f"{upmensaje}\n"
+                f"🛡️ Break even: {punto_be:,.6f}\n"
+                f"🔹 ENTRADA:   *{close:,.6f}*\n"
+                f"{dnmensaje}\n"
+                
                 f"━━━━━━━━━━━━━━━\n"
-                f"       *DATOS TÉCNICOS:* \n"
+                f"           *DATOS TÉCNICOS:* \n"
                 f"• RSI: {rsi_val:.2f} | "
                 f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
                 f"• CCI: {cci_val:.2f} | "
                 f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
                 f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
                 f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
-                f"• Cantidad (Contratos): *{int(lote_sugerido)}*\n"
+                f"• Cantidad (Contratos): *{int(lote_sugerido):,}*\n"
+                #f"• Riesgo estimado  {riesgoDinero:,.2f}\n"
                 f"━━━━━━━━━━━━━━━\n"
                 
             )
@@ -616,6 +633,10 @@ async def analyzeSymbol(symbols, n_velas):
                 "takeProfit": tp,
                 "size": int(lote_sugerido),
                 "intervalo": intervalo,
+                "closeTime": None,
+                "pnl": 0,
+                "slippage": 0,
+                "exitPrice": None,
                 "commission": 0
             }
 
@@ -645,19 +666,21 @@ async def iniciar_bot():
         # Actualizamos dinámicamente la configuración para que otros módulos la usen
         
         global api_key_activa, intervalo, nombre_key
-        key, inter, nom, n_velas,esperaMin = getParametros()
-        api_key_activa, intervalo, nombre_key = key, inter, nom
+        
         now_actual = datetime.now().strftime('%H:%M:%S')
-        logger.info(f"\n\n\n--------------------- Iniciando Escaneo con Intervalo: {intervalo}  a las {now_actual} -------------------\n\n")
+        logger.info(f"\n\n\n--------------------- Iniciando Escaneo a las {now_actual} -------------------\n\n")
         for s in dbManager.getSymbols():
+            key, inter, nom, n_velas,esperaMin = getParametros()
+            api_key_activa, intervalo, nombre_key = key, inter, nom
             try:
                 await analyzeSymbol(s, n_velas)
-                await asyncio.sleep(9)
+                await asyncio.sleep(8)
             except Exception as e:
                 logger.error(f"Error en {s['symbol']}: {e}")
         logger.info(f"✅ Ciclo completado. Esperando próxima vela...")
-        if intervalo == "8h":
+        if intervalo == INTERVALmax:
             intervalo = INTERVAL
+            esperaMin = 15
         await getTiempoEspera(esperaMin)
         
 
@@ -668,4 +691,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(iniciar_bot())
     except KeyboardInterrupt:
-        logger.info("Bot detenido manualmente.")
+        logger.info("Bot detenido manualmente.\n")
+        sys.exit(0)

@@ -26,22 +26,27 @@ def isRestTime():
 
     # Lunes-Viernes 00-06
     if weekday <= 4 and 0 <= hour < 6:
+        logger.info("horario nocturno laboral")
         return True
 
     # Lunes-Viernes 16-17
     if weekday <= 4 and 16 <= hour < 17:
+        logger.info("horario de comida laboral")
         return True
 
     # Viernes después 17:00
     if weekday == 4 and hour >= 17:
+        logger.info("horario de fin de semana")
         return True
 
     # Sábado
     if weekday == 5:
+        logger.info("horario de fin de sabatino ")
         return True
 
     # Domingo antes de 17
     if weekday == 6 and hour < 17:
+        logger.info("horario dominical")
         return True
 
     return False
@@ -69,9 +74,8 @@ async def getTiempoEspera(intervalo_minutos):
             await asyncio.sleep(segundos_espera)
         if now.hour == 23 and now.minute >= 0 and now.second <= 55:
             logger.info("🎯 DETECTADO CIERRE DIARIO (23:00). Iniciando escaneo de 8h...")
-        
-        if isRestTime():               
-            intervalo_minutos = 60 
+        if isRestTime():
+            intervalo_minutos = 60
         minutos_proximos = intervalo_minutos - (now.minute % intervalo_minutos)
         segundos_espera = (minutos_proximos * 60) - now.second + 2
         if segundos_espera > 20:
