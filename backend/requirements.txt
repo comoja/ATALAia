@@ -1,8 +1,8 @@
+
 python3 -m pip install -r /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/requirements.txt
 
+cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/backend/bots
 python3 -m pip install requests pandas TA-Lib scikit-learn mysql-connector-python pytz
-
-
 pm2 start sentinel.py --name "sentinelBot" --interpreter python3 
 pm2 start precios.py --name "preciosBot" --interpreter python3 --cron-restart "12 16 * * *" --no-autorestart
 
