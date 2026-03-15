@@ -41,7 +41,7 @@ def isRestTime():
 
     # Sábado
     if weekday == 5:
-        logger.info("horario de fin de sabatino ")
+        logger.info("horario sabatino ")
         return True
 
     # Domingo antes de 17

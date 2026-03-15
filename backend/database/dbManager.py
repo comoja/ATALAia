@@ -113,12 +113,15 @@ def logTrade(symbol, regime, pf, sharpe):
     conn.commit()
     conn.close()
 
-def getAccount():
+def getAccount(id=None):
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         # Traemos todas las cuentas activas
-        cursor.execute("SELECT * FROM CUENTA WHERE Activo=1")
+        if id:
+            cursor.execute("SELECT * FROM CUENTA WHERE idCuenta = %s ", (id,))
+        else:
+            cursor.execute("SELECT * FROM CUENTA WHERE Activo=1")
         
         cuentas = cursor.fetchall()  # <--- CAMBIO CLAVE: fetchall() devuelve una LISTA
         

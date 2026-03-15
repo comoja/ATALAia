@@ -1479,45 +1479,36 @@ CREATE TABLE signals (
     takeProfit DOUBLE
 );
 
-CREATE TABLE trades (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    openTime DATETIME,
-    closeTime DATETIME,
-    symbol VARCHAR(20),
-    direction VARCHAR(10),
-    size DOUBLE,
-    entryPrice DOUBLE,
-    exitPrice DOUBLE,
-    stopLoss DOUBLE,
-    takeProfit DOUBLE,
-    pnl DOUBLE,
-    slippage DOUBLE,
-    commission DOUBLE
-);
 
 
 INSERT INTO SentinelSymbol  (symbol) VALUES ("XAU/USD"),("USD/MXN") ,("USD/HKD"),("GBP/JPY"),("EUR/USD"),("GBP/USD"),("AUD/USD"),("NZD/USD"),("USD/JPY"),("USD/CAD"),("USD/CHF"),("GBP/CAD")
 
 
 DROP TABLE ATALAia.trades;
+
 CREATE TABLE `trades` (
-    `idTrade` int NOT NULL AUTO_INCREMENT,
-    `idCuenta` int NOT NULL,
-    `symbol` varchar(20) DEFAULT NULL,
-    `direction` varchar(10) DEFAULT NULL,
-    `openTime` datetime DEFAULT NULL,
-    `closeTime` datetime DEFAULT NULL,
-    `size` double DEFAULT NULL,
-    `entryPrice` double DEFAULT NULL,
-    `exitPrice` double DEFAULT NULL,
-    `stopLoss` double DEFAULT NULL,
-    `takeProfit` double DEFAULT NULL,
-    `pnl` double DEFAULT NULL,
-    `slippage` double DEFAULT NULL,
-    `commission` double DEFAULT NULL,
-    PRIMARY KEY (`idTrade`),
-    KEY `trades_idCuenta_IDX` (`idCuenta`,`symbol`,`direction`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  `idTrade` int NOT NULL AUTO_INCREMENT,
+  `ticketId` varchar(50) DEFAULT NULL COMMENT 'ID de la orden en el broker',
+  `idCuenta` int NOT NULL,
+  `status` enum('OPEN','CLOSED','CANCELLED') DEFAULT 'OPEN',
+  `symbol` varchar(20) DEFAULT NULL,
+  `direction` varchar(10) DEFAULT NULL,
+  `openTime` datetime DEFAULT NULL,
+  `closeTime` datetime DEFAULT NULL,
+  `size` double DEFAULT NULL,
+  `entryPrice` double DEFAULT NULL,
+  `exitPrice` double DEFAULT NULL,
+  `stopLoss` double DEFAULT NULL,
+  `takeProfit` double DEFAULT NULL,
+  `isBreakEven` tinyint(1) DEFAULT '0',
+  `pnl` double DEFAULT NULL,
+  `slippage` double DEFAULT NULL,
+  `commission` double DEFAULT NULL,
+  `intervalo` varchar(100) NOT NULL DEFAULT '15min',
+  `magicNumber` int DEFAULT NULL COMMENT 'Para identificar órdenes del bot',
+  PRIMARY KEY (`idTrade`),
+  KEY `trades_idCuenta_IDX` (`idCuenta`,`symbol`,`direction`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 drop TABLE StockPrices;
 CREATE TABLE StockPrices (
@@ -1537,4 +1528,21 @@ CREATE TABLE `RatioSymbol` (
     PRIMARY KEY (`symbol`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+
+-- ATALAia.Cuenta definition
+
+CREATE TABLE `Cuenta` (
+  `idCuenta` int NOT NULL AUTO_INCREMENT,
+  `Nombre` varchar(100) DEFAULT NULL,
+  `brokerType` varchar(50) DEFAULT 'MT5',
+  `TokenMsg` varchar(100) DEFAULT NULL,
+  `Capital` double DEFAULT NULL,
+  `Activo` tinyint(1) NOT NULL DEFAULT '1',
+  `idGrupoMsg` varchar(100) DEFAULT NULL,
+  `ganancia` double NOT NULL COMMENT 'Es la ganancia que desea el cliente a aganar mensualmente',
+  `riesgoPorOperacion` double DEFAULT '0.01' COMMENT 'Porcentaje de riesgo por trade (ej: 0.01 para 1%)',
+  `apiKey` varchar(255) DEFAULT NULL,
+  `apiSecret` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`idCuenta`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 INSERT INTO RatioSymbol  (symbol) VALUES ("XAU/USD"),("USD/MXN") ,("USD/HKD"),("GBP/JPY"),("EUR/USD"),("GBP/USD"),("AUD/USD"),("NZD/USD"),("USD/JPY"),("USD/CAD"),("USD/CHF"),("GBP/CAD")
