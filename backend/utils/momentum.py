@@ -1,0 +1,102 @@
+
+
+import sys
+import os
+import asyncio
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import warnings
+
+
+# Esto detecta la carpeta 'backend' y la registra en Python
+ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if ruta_raiz not in sys.path:
+    sys.path.insert(0, ruta_raiz)
+
+from core.comm import  alertaInmediata
+from core.logger_config import setup_logging
+
+# 1. Configura el sistema de logs antes que nada
+setup_logging()
+
+# 2. Crea el logger específico para este archivo
+import logging
+logger = logging.getLogger(__name__)
+
+warnings.filterwarnings("ignore")
+
+
+# Diccionario inicializado
+estadosPorSimbolo = {} 
+
+def calcularAngulos(df, ventana=14):
+    # Asegurar que las columnas sean numéricas para evitar el TypeError
+    columnasCalculo = ['close', 'rsi', 'cci', 'macd']
+    for col in columnasCalculo:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        else:
+            df[col] = np.nan # Evita errores si falta una métrica
+    
+    for col in columnasCalculo:
+        minV, maxV = df[col].rolling(ventana).min(), df[col].rolling(ventana).max()
+        rango = maxV - minV
+        # Evitar división por cero
+        dfNorm = 100 * (df[col] - minV) / rango.replace(0, np.nan)
+        df[f'ang_{col}'] = np.degrees(np.arctan(dfNorm.diff(1)))
+    return df
+
+def obtenerEstado(angR, angP):
+    if pd.isna(angR) or pd.isna(angP): return "☁️ SIN DATOS", "Esperando..."
+    if angP < -70 and angR > -20: return "💎 GIRO", "🎯 OPORTUNIDAD: Rebote detectado."
+    if angR <= -75: return "💸 LIQUIDACIÓN", "🚨 CRÍTICA: Desplome vertical."
+    if angR >= 75:  return "🌋 PARÁBOLA", "⚠️ ALERTA: Subida extrema."
+    if angR > 30:   return "🚀 ALCISTA", "✅ Tendencia positiva."
+    if angR < -30:  return "📉 BAJISTA", "🔻 Presión de venta."
+    return "☁️ NEUTRAL", "💤 Sin movimiento claro."
+
+def centrarTexto(texto, ancho=50):
+    espacios = (ancho - len(texto)) // 2
+    return " " * max(0, espacios) + texto
+
+async def momentum(symbol, df):   
+    global estadosPorSimbolo 
+    # 1. Procesar datos
+    df = calcularAngulos(df)
+    last = df.iloc[-1]
+    
+    # 2. Obtener estado actual (usamos 'ang_close')
+    estadoActual, notaMensaje = obtenerEstado(last.get('ang_rsi'), last.get('ang_close'))
+    # 3. FILTRO POR SÍMBOLO
+    estadoPrevio = estadosPorSimbolo.get(symbol)
+    if estadoActual != estadoPrevio:
+        def obtenerIcono(angulo): 
+            if pd.isna(angulo): return "⚪"
+            return "🧊" if angulo <= -75 else ("🔥" if angulo >= 75 else ("📈" if angulo > 0 else "📉"))
+        
+        # Formatear título con centrado manual
+        
+        mensajeFinal = (
+            f"<b><center>MOMENTUM - {symbol}</center></b>\n"
+            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"<b>ESTADO:</b> {estadoActual}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"<b>RSI:</b>  {obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}°\n"
+            f"<b>CCI:</b>  {obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}°\n"
+            f"<b>MACD:</b> {obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}°\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"<b>NOTA:</b> <i>{notaMensaje}</i>"
+        )
+
+        # 4. Enviar alerta
+        esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
+        await alertaInmediata(1, mensajeFinal, esCritico)
+        
+        
+        # 5. Actualizar el diccionario
+        estadosPorSimbolo[symbol] = estadoActual
+
+    # IMPORTANTE: Siempre retornar el diccionario para que la asignación externa funcione
+    return estadosPorSimbolo

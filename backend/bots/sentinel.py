@@ -21,8 +21,9 @@ if ruta_raiz not in sys.path:
 
 from database import dbManager
 from scheduler.autoScheduler import getTiempoEspera, isRestTime
-from core.comm import enviar_alerta 
-from core.comm import alertaInmediata
+from core.comm import enviarAlerta, alertaInmediata
+from utils.momentum import momentum
+
 from data.dataLoader import getParametros, nombre_key
 from config import settings
 from config.settings import SYMBOLS, RISK_REWARD, VELAS_HISTORIAL, tiempoEspera, FESTIVOS, INTERVAL, timeZone,INTERVALmax
@@ -35,10 +36,12 @@ setup_logging()
 import logging
 logger = logging.getLogger(__name__)
 
+# Silencia específicamente las advertencias de sklearn
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+# O silencia todas las advertencias (más radical)
 warnings.filterwarnings("ignore")
 
-
-
+estadosPorSimbolo = {}
 
 # ==============================
 # BOT LOGIC
@@ -105,7 +108,7 @@ async def verificar_emergencia_creditos(api_key, nombre):
         usado = res.get('current_usage', 0)
         restante = 750 - usado
         if restante < 50:
-            await enviar_alerta(f"⚠️ *EMERGENCIA:* Cuenta **{nombre}** casi vacía. Quedan solo {restante} créditos.")
+            await enviarAlerta(f"⚠️ *EMERGENCIA:* Cuenta **{nombre}** casi vacía. Quedan solo {restante} créditos.")
             logger.critical(f"¡CUENTA {nombre} AGOTÁNDOSE! Restan {restante}")
     except:
         pass
@@ -293,37 +296,8 @@ def getPendiente( serie, periodos=3):
     m, b = np.polyfit(x, y, 1)
     return m
 
-# ==========================================
-# LÓGICA DE ÁNGULOS Y ESTADOS
-# ==========================================
-def procesarSeñal(df):
-    ventana = 14
-    for col in ['precio', 'rsi', 'cci', 'macd']:
-        # Normalización Min-Max Móvil
-        min_v, max_v = df[col].rolling(ventana).min(), df[col].rolling(ventana).max()
-        df_norm = 100 * (df[col] - min_v) / (max_v - min_v)
-        # Cálculo del ángulo
-        df[f'ang_{col}'] = np.degrees(np.arctan(df_norm.diff(1)))
-    
-    last = df.iloc[-1]
-    
-    # Clasificación de estados
-    ang_r, ang_p = last['ang_rsi'], last['ang_precio']
-    
-    if ang_p < -70 and ang_r > -20: 
-        return last, "💎 GIRO", "🎯 OPORTUNIDAD: Divergencia alcista detectada."
-    if ang_r <= -75: 
-        return last, "💸 LIQUIDACIÓN", "🚨 CRÍTICA: Desplome vertical (Vértigo)."
-    if ang_r >= 75:  
-        return last, "🌋 PARÁBOLA", "⚠️ ALERTA: Sobrecompra extrema."
-    if ang_r > 30:   
-        return last, "🚀 ALCISTA", "✅ Fuerza de compra confirmada."
-    if ang_r < -30:  
-        return last, "📉 BAJISTA", "🔻 Tendencia negativa sólida."
-    
-    return last, "☁️ NEUTRAL", "💤 Mercado en calma o lateral."
 
-def download12Data(symbol, n_velas):
+async def download12Data(symbol, n_velas):
     logger.info(f"Descargando datos para {symbol} de la cuenta {nombre_key} con temporalidad {intervalo}")
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={intervalo}&outputsize={n_velas}&apikey={api_key_activa}"
     global response
@@ -336,6 +310,11 @@ def download12Data(symbol, n_velas):
         df = pd.DataFrame(response["values"])
         df["datetime"] = pd.to_datetime(df["datetime"])
         df = df.sort_values("datetime").set_index("datetime")
+        try:
+            global estadosPorSimbolo
+            estadosPorSimbolo = await momentum(symbol, df)
+        except Exception as e:
+            logger.error(f"Error procesando {symbol}: {e}")
         
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -386,7 +365,7 @@ async def analyzeSymbol(symbols, n_velas):
     global ultimoEstado
     ultimoEstado = None
     
-    df = download12Data(symbols['symbol'], n_velas )
+    df = await download12Data(symbols['symbol'], n_velas )
 
     if df is None or len(df) < 100:
         logger.info( "velas descargadas: " + str(n_velas)+ " tamaño del df "+ str(len(df))  +"\n" )
@@ -409,28 +388,7 @@ async def analyzeSymbol(symbols, n_velas):
             }
             """
         # dbManager.gestionarTrade(datosParaActualizar)
-        """
-        last, estado, nota = procesarSeñal(getSubdatos(symbols['symbol'],intervalo))
-        if estado != ultimoEstado:
-            def icon(a): return "🧊" if a <= -75 else ("🔥" if a >= 75 else ("📈" if a > 0 else "📉"))
-            
-            mensaje = (
-                f"<b>📊 {symbols['symbol']} ({intervalo})</b>\n"
-                f"<code>-------------------------------</code>\n"
-                f"<b>ESTADO:</b> {estado}\n"
-                f"<code>-------------------------------</code>\n"
-                f"<b>RSI:</b>  {icon(last['ang_rsi'])} {last['ang_rsi']:>6.1f}°\n"
-                f"<b>CCI:</b>  {icon(last['ang_cci'])} {last['ang_cci']:>6.1f}°\n"
-                f"<b>MACD:</b> {icon(last['ang_macd'])} {last['ang_macd']:>6.1f}°\n"
-                f"<code>-------------------------------</code>\n"
-                f"<b>NOTA:</b> <i>{nota}</i>"
-            )
-
-            prioridad = estado in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
-        # await bot.send_message(chat_id=CHAT_ID, text=mensaje, parse_mode='HTML', disable_notification=not prioridad)
-        
-        ultimoEstado = estado
-        """
+       
         # --- Cálculo de Indicadores Base ---
         ema20 = df["close"].ewm(span=20, adjust=False).mean()
         ema50 = df["close"].ewm(span=50, adjust=False).mean()
@@ -574,12 +532,7 @@ async def analyzeSymbol(symbols, n_velas):
             bono = 12 if esCruceBajista else 5 if impulsoBajando else 0
             confianza = ((1 - probActual) * 100) + bono
         else:
-            logger.info(f" Si no hay confluencia, {proba_val >= umbralLargo} and {hist_val > hist_anterior} and {tecnicoApoyaLargo} and {rsi_val < 75}  saltamos al siguiente símbolo")
-            mensaje = (
-                f"Procesando simbolo {symbols['symbol']} \n"  
-                f" sin correlacion entre RSI, CCI y MACD"
-            )
-            await alertaInmediata(1, mensaje)
+            logger.info(f" Si no hay confluencia, {proba_val >= umbralLargo} and {hist_val > hist_anterior} and {tecnicoApoyaLargo} and {rsi_val < 75}  saltamos al siguiente símbolo")            
             return
 
         # --- LÓGICA DE VELAS EN SCALPING ---
@@ -655,7 +608,7 @@ async def analyzeSymbol(symbols, n_velas):
                     f"━━━━━━━━━━━━━━━━\n"
                 )
             if cuenta['idCuenta'] == 1:
-                await enviar_alerta(cuenta['idCuenta'], cuenta['TokenMsg'], msg_rsi)
+                await enviarAlerta(cuenta['idCuenta'], cuenta['TokenMsg'], msg_rsi)
             
             # 4. Parámetros de Operación
             miCapital = float(cuenta['Capital'])
@@ -737,7 +690,7 @@ async def analyzeSymbol(symbols, n_velas):
             
             if cuenta['idCuenta'] != 1:
                 dbManager.buscaTrade(trade)
-                await enviar_alerta(cuenta['idGrupoMsg'], cuenta['TokenMsg'], text)
+                await enviarAlerta(cuenta['idGrupoMsg'], cuenta['TokenMsg'], text)
                 logger.info(f"✅ Alerta SNIPER enviada para {symbols['symbol']}")
 
     except Exception as e:
@@ -749,7 +702,9 @@ async def analyzeSymbol(symbols, n_velas):
 
 async def iniciar_bot():
     enviado_cierre = False
-    logger.info(f"Bot operativo con Excepciones de Festivos y Cierre.")
+    
+    logger.info(f"Bot operativo con Excepciones de Festivos")
+    await alertaInmediata(1,"<b><center>BOT OPERATIVO</center></b>",False)
 
     while True:
         now = datetime.now()
@@ -765,12 +720,13 @@ async def iniciar_bot():
         now_actual = datetime.now().strftime('%H:%M:%S')
         if not isRestTime():
             logger.info(f"\n\n\n--------------------- Iniciando Escaneo a las {now_actual} -------------------\n\n")
+
             for s in dbManager.getSymbols():
                 key, inter, nom, n_velas,esperaMin = getParametros()
                 api_key_activa, intervalo, nombre_key = key, inter, nom
                 try:
                     await analyzeSymbol(s, n_velas)
-                    await asyncio.sleep(8)
+                    await asyncio.sleep(9)
                 except Exception as e:
                     logger.error(f"Error en {s['symbol']}: {e}")
             logger.info(f"✅ Ciclo completado. Esperando próxima vela...")
