@@ -16,13 +16,9 @@ if ruta_raiz not in sys.path:
 
 from core.comm import  alertaInmediata
 from core.logger_config import setup_logging
-
-# 1. Configura el sistema de logs antes que nada
-setup_logging()
-
-# 2. Crea el logger específico para este archivo
 import logging
 logger = logging.getLogger(__name__)
+
 
 warnings.filterwarnings("ignore")
 
@@ -78,7 +74,7 @@ async def momentum(symbol, df):
         # Formatear título con centrado manual
         
         mensajeFinal = (
-            f"<b><center>MOMENTUM - {symbol}</center></b>\n"
+            f"<b><center>MOMENTUM  {symbol}</center></b>\n"
             f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"<b>ESTADO:</b> {estadoActual}\n"
@@ -92,7 +88,8 @@ async def momentum(symbol, df):
 
         # 4. Enviar alerta
         esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
-        await alertaInmediata(1, mensajeFinal, esCritico)
+        if estadoActual != "☁️ SIN DATOS":
+            await alertaInmediata(1, mensajeFinal, esCritico)
         
         
         # 5. Actualizar el diccionario

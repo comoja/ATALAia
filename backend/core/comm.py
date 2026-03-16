@@ -14,7 +14,7 @@ import re
 
 warnings.filterwarnings("ignore")
 
-def centraTexto(match, ancho_max=40):
+def centraTexto(match, ancho_max=45):
         contenido = match.group(1)
         # Calculamos espacios necesarios: (Ancho total - largo del texto) / 2
         espacios_necesarios = (ancho_max - len(contenido)) // 2
@@ -48,8 +48,8 @@ async def alertaInmediata(id, mensaje, prioridad=True):
 
 async def enviarAlerta(id, token, mensaje, prioridad=True):
     bot = Bot(token=token)
-    import httpx    
-    if mensaje is None or mensaje == "": return    
+    import httpx
+    if mensaje is None or mensaje == "": return
     try:
         await bot.send_message(chat_id=id, text=limpiarHtml(mensaje), parse_mode='HTML', disable_notification=not prioridad)
         #await bot.send_message(chat_id=id, text=mensaje, parse_mode='Markdown')
