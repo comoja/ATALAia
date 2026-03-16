@@ -72,8 +72,6 @@ async def getTiempoEspera(intervalo_minutos):
         if now.strftime("%Y-%m-%d") in FESTIVOS:
             logger.info(f"Dia festivo: {now.strftime('%Y-%m-%d')}")
             await asyncio.sleep(segundos_espera)
-        if now.hour == 23 and now.minute >= 0 and now.second <= 55:
-            logger.info("🎯 DETECTADO CIERRE DIARIO (23:00). Iniciando escaneo de 8h...")
         if isRestTime():
             intervalo_minutos = 60
         minutos_proximos = intervalo_minutos - (now.minute % intervalo_minutos)

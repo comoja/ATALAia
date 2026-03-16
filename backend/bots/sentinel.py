@@ -579,7 +579,9 @@ async def analyzeSymbol(symbols, n_velas):
         if vela_star != 0:
             logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela ESTRELLA {msg_vela} detectado en señal {direction}.")
             return
-        
+        if msg_vela == " LATERAL ⚪":
+            logger.info(f"⚠️ {symbols['symbol']} Veto: Patrón de vela {msg_vela} detectado en señal {direction}.")
+            return
         # --- Bucle de Cuentas y Decisiones ---
         for cuenta in cuentas:
             # --- DETECCIÓN DE ACCIÓN DEL PRECIO (Scalping) ---
