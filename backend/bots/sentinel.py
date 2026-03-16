@@ -62,19 +62,20 @@ def calcularPosicion(capital, porcentaje_ganancia, distanciaSl, symbols):
             # distanciaSl en oro suele ser ej: 1.50 (15 pips). 
             # Lotes = Riesgo / (Distancia * 100)
             lotes = riesgoDinero / (distanciaSl * 100)
-            return max(0.01, round(lotes, 2))
+            
+            return max(0.01, round(lotes, 2)), riesgoDinero
 
         # 3. ÍNDICES (SPX500, NAS100, US30) - 1 Contrato = $1 por punto
         elif tipo == "INDICES":
             # Si el SL es de 10 puntos y arriesgas $50, son 5 contratos (5.0 lotes)
             contratos = riesgoDinero / distanciaSl
             contrato *= 10
-            return max(1, round(contratos, 1))
+            return max(1, round(contratos, 1)), riesgoDinero
 
         # 4. CRIPTOS (BTC/USD) - 1 Lote = 1 Unidad (BTC)
         elif tipo == "CRIPTO":
             unidades = riesgoDinero / distanciaSl
-            return max(0.01, round(unidades, 2))
+            return max(0.01, round(unidades, 2)), riesgoDinero
 
         # 5. FOREX (EUR/USD, GBP/JPY, etc.) 
         else:
@@ -457,7 +458,7 @@ async def analyzeSymbol(symbols, n_velas):
         proba_val = model.predict_proba(X.iloc[-1:])[0][1]
 
         # --- Gestión de Riesgo Base ---
-        atr_multiplier = 1.15 if (proba_val >= 0.65 or proba_val <= 0.35) else 1.35
+        atr_multiplier = 1.15 if (proba_val >= 0.65 or proba_val <= 0.35) else 1.5
         distancia_sl = atr_val * atr_multiplier
         vol_porcentaje = (atr_val / close) * 100
         fuerza_vol = "ALTA 🔥" if vol_porcentaje > 0.15 else "BAJA ❄️" if vol_porcentaje < 0.05 else "NORMAL ⚡"
@@ -561,11 +562,11 @@ async def analyzeSymbol(symbols, n_velas):
             msg_vela += " ESTRELLA"
         
         if (vela_engulfing > 0 or vela_hammer > 0):
-            msg_vela += " *ALCISTA 🟢*"
+            msg_vela += " ALCISTA 🟢"
         elif (vela_engulfing < 0 or vela_star < 0):
-            msg_vela += " *BAJISTA 🔴*"
+            msg_vela += " BAJISTA 🔴"
         else:
-            msg_vela += " *LATERAL ⚪*"
+            msg_vela += " LATERAL ⚪"
 
 
         # FILTRO AGRESIVO: Si hay un patrón de vela fuerte EN CONTRA, cancelamos (Veto)
@@ -589,21 +590,21 @@ async def analyzeSymbol(symbols, n_velas):
                 "symbol": symbols['symbol']
             }
             if rsi_val >= 68:
-                msg_rsi = "🟩🟩🟩 *SOBRECOMPRA* 🟩🟩🟩\n"
+                msg_rsi = "🟩🟩🟩 <b>SOBRECOMPRA</b> 🟩🟩🟩\n"
             elif rsi_val <= 32:
-                msg_rsi = "🟥🟥🟥 *SOBREVENTA* 🟥🟥🟥\n"        
+                msg_rsi = "🟥🟥🟥 <b>SOBREVENTA</b> 🟥🟥🟥\n"        
             if msg_rsi != "":
                 msg_rsi += (
                     f"━━━━━━━━━━━━━━━━\n"
-                    f"                    *{symbols['symbol']}* ({intervalo})\n"
-                    f"          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"<center>{symbols['symbol']} ({intervalo})</center>\n"
+                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
                     f"━━━━━━━━━━━━━━━━\n"
                     f"• RSI: {rsi_val:.2f} | "
                     f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
                     f"• CCI: {cci_val:.2f} | "
                     f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
                     f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
-                    f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
+                    f"• Volatilidad: {vol_porcentaje:.3f}% ({fuerza_vol})\n"
                     f"• Vela: {msg_vela}\n"
                     f"━━━━━━━━━━━━━━━━\n"
                 )
@@ -616,7 +617,7 @@ async def analyzeSymbol(symbols, n_velas):
             if lote_sugerido is None: continue
 
             # Ratio Dinámico
-            ratioBase = 2.0 if confianza > 85 else 2.0
+            ratioBase = 2.2 if confianza > 85 else 2.0
             bonoVolumen = 0.3 if vol_ratio > 1.5 else 0.15 if vol_ratio > 1.2 else 0.0
             bonoImpulso = 0.2 if abs(pendiente_cci_val) > 15 else 0.0
             ratioDinamico = min(ratioBase + bonoVolumen + bonoImpulso, 2.2)
@@ -635,38 +636,38 @@ async def analyzeSymbol(symbols, n_velas):
             ulabel = "TAKE PROFIT" if direction == "LARGO" else "STOP LOSS"
             uemoji = "🟢" if direction == "LARGO" else "🔴"
             uvalor = tp if direction == "LARGO" else sl
-            upmensaje = f"{uemoji} *{ulabel}: {uvalor:,.6f}*"
+            upmensaje = f"{uemoji} <b>{ulabel}: {uvalor:,.5f}</b>"
             label = "TAKE PROFIT" if direction == "CORTO" else "STOP LOSS"
             emoji = "🟢" if direction == "CORTO" else "🔴"
             valor = tp if direction == "CORTO" else sl
-            dnmensaje = f"{emoji} *{label}: {valor:,.6f}*"
+            dnmensaje = f"{emoji} <b>{label}: {valor:,.5f}</b>"
             
             text = (
                 
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}"
-                f" *SEÑAL DE { 'COMPRA' if direction == 'LARGO' else 'VENTA' }* "
+                f" <b>SEÑAL DE { 'COMPRA' if direction == 'LARGO' else 'VENTA' }</b> "
                 f"{'🟩🟩🟩' if direction == 'LARGO' else '🟥🟥🟥'}\n"
-                f"                 *{symbols['symbol']}* ({intervalo})    \n"
-                f"              {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"<center><b>        {symbols['symbol']}</b> ({intervalo})</center>\n"
+                f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"               Confianza: *{confianza:.1f}%* \n"
-                f"            VELA: {msg_vela} {'\n        -> *CON PRECAUCION* <-\n' if msg_vela == ' *LATERAL ⚪*' else'\n' }"
+                f"<center>Confianza: <b>{confianza:.1f}%</b></center> \n"
+                f"<center>VELA: {msg_vela}</center>"
+                f"{'\n<center><b>CON PRECAUCION</b></center> \n' if msg_vela == ' LATERAL ⚪' else '\n'}"
                 f"━━━━━━━━━━━━━━━\n"
                 f"{upmensaje}\n"
                 f"🛡️ Break even: {punto_be:,.6f}\n"
-                f"🔹 ENTRADA:   *{close:,.6f}*\n"
+                f"🔹 ENTRADA:   <b>{close:,.6f}</b>\n"
                 f"{dnmensaje}\n"
                 
                 f"━━━━━━━━━━━━━━━\n"
-                f"           *DATOS TÉCNICOS:* \n"
+                f"<center><b>DATOS TÉCNICOS:</b></center>\n"
                 f"• RSI: {rsi_val:.2f} | "
                 f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
                 f"• CCI: {cci_val:.2f} | "
                 f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
                 f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
-                f"• Volatilidad: *{vol_porcentaje:.3f}%* ({fuerza_vol})\n"
-                f"• Cantidad (Contratos): *{int(lote_sugerido):,}*\n"
-                #f"• Riesgo estimado  {riesgoDinero:,.2f}\n"
+                f"• Volatilidad: <b>{vol_porcentaje:.3f}%</b> ({fuerza_vol})\n"
+                f"• Cantidad (Contratos): <b>{int(lote_sugerido):,}</b>\n"
                 f"━━━━━━━━━━━━━━━\n"
                 
             )
@@ -704,7 +705,6 @@ async def iniciar_bot():
     enviado_cierre = False
     
     logger.info(f"Bot operativo con Excepciones de Festivos")
-    await alertaInmediata(1,"<b><center>BOT OPERATIVO</center></b>",False)
 
     while True:
         now = datetime.now()
