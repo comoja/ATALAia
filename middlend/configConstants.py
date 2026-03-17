@@ -57,6 +57,9 @@ MIN_VOLATILITY_PERCENT = 0.10
 # Confidence level below which trading against the EMA50 is forbidden.
 CONTRARIAN_CONFIDENCE_THRESHOLD = 85
 
+# Minimum confidence required to accept a signal (below this, signal is discarded).
+MIN_CONFIDENCE_THRESHOLD = 70
+
 # --- Risk Management ---
 
 # Base ATR multiplier for setting the Stop Loss distance.

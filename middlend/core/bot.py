@@ -21,9 +21,7 @@ from middlend.ml import model as mlModel
 from middlend.core.communications import sendTelegramAlert
 from middlend import configConstants as config
 
-# --- External Project Imports ---
-# These are dependencies on the original `backend` structure.
-# This is not ideal, but necessary for compatibility without refactoring the whole project.
+
 from middlend.database import dbManager
 from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from middlend.data.dataLoader import getParametros
@@ -220,6 +218,11 @@ class TradingBot:
         else:
             confianza *= 0.50 # Penalty if no confirming candle
 
+        # --- Minimum Confidence Filter ---
+        if confianza < config.MIN_CONFIDENCE_THRESHOLD:
+            logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}% < {config.MIN_CONFIDENCE_THRESHOLD}%).")
+            return None
+
         # --- FINAL FILTERS ---
         if confianza < config.CONTRARIAN_CONFIDENCE_THRESHOLD:
             isAgainstTrend = (direction == "LARGO" and close < ema50) or (direction == "CORTO" and close > ema50)
@@ -300,22 +303,66 @@ class TradingBot:
     
     def _format_alert_message(self, signal: Dict, trade: Dict) -> str:
         """Formats the beautiful Telegram message from the original script."""
-        # This is a simplified version of the original message string building
-        directionStr = "COMPRA" if signal['direction'] == "LARGO" else "VENTA"
-        colorHeader = "🟩" if signal['direction'] == "LARGO" else "🟥"
+        direction = signal['direction']
+        directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
+        colorHeader = "🟩" if direction == "LARGO" else "🟥"
+        
+        close = signal['entryPrice']
+        tp = trade['takeProfit']
+        sl = trade['stopLoss']
+        confianza = signal['confidence']
+        
+        latest = signal['latestMetrics']
+        
+        rsi_val = latest.get('rsi', 0)
+        pendiente_rsi_val = latest.get('pendienteRsi', 0)
+        cci_val = latest.get('cci', 0)
+        pendiente_cci_val = latest.get('pendienteCci', 0)
+        hist_val = latest.get('macdHist', 0)
+        
+        currentAtr = latest.get('atr', 0)
+        avgAtr = latest.get('atr', currentAtr)
+        vol_porcentaje = (currentAtr / close) * 100 if close > 0 else 0
+        
+        if vol_porcentaje > 3:
+            fuerza_vol = "ALTA"
+        elif vol_porcentaje > 1.5:
+            fuerza_vol = "MEDIA"
+        else:
+            fuerza_vol = "BAJA"
+        
+        punto_be = close
+        
+        ulabel = "TAKE PROFIT" if direction == "LARGO" else "STOP LOSS"
+        uemoji = "🟢" if direction == "LARGO" else "🔴"
+        uvalor = tp if direction == "LARGO" else sl
+        
+        label = "TAKE PROFIT" if direction == "CORTO" else "STOP LOSS"
+        emoji = "🟢" if direction == "CORTO" else "🔴"
+        valor = tp if direction == "CORTO" else sl
+        
+        upmensaje = f"{uemoji} <b>{ulabel}: {uvalor:,.5f}</b>"
+        dnmensaje = f"{emoji} <b>{label}: {valor:,.5f}</b>"
         
         text = (
-            f"{colorHeader*3} <b>SEÑAL DE {directionStr}</b> {colorHeader*3}"
-            f"<center><b>{trade['symbol']}</b> ({trade['intervalo']})</center>"
-            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>"
-            f"━━━━━━━━━━━━━━━"
-            f"<center>Confianza: <b>{signal['confidence']:.1f}%</b></center>"
-            f"━━━━━━━━━━━━━━━"
-            f"🟢 TAKE PROFIT: {trade['takeProfit']:,.5f}"
-            f"🔹 ENTRADA:   <b>{trade['entryPrice']:,.5f}</b>"
-            f"🔴 STOP LOSS: {trade['stopLoss']:,.5f}"
-            f"━━━━━━━━━━━━━━━"
-            f"<center>Cantidad: <b>{trade['size']:.2f}</b></center>"
+            f"{colorHeader*3} <b>SEÑAL DE {directionStr}</b> {colorHeader*3}\n"
+            f"<center><b>{trade['symbol']}</b> ({trade['intervalo']})</center>\n"
+            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"<center>Confianza: <b>{confianza:.1f}%</b></center>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"{upmensaje}\n"
+            f"🛡️ Break even: {punto_be:,.6f}\n"
+            f"🔹 ENTRADA:   <b>{close:,.5f}</b>\n"
+            f"{dnmensaje}\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"<center><b>DATOS TÉCNICOS:</b></center>\n"
+            f"• RSI: {rsi_val:.2f} | Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
+            f"• CCI: {cci_val:.2f} | Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
+            f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
+            f"• Volatilidad: <b>{vol_porcentaje:.3f}%</b> ({fuerza_vol})\n"
+            f"• Cantidad: <b>{trade['size']:.2f}</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
         )
         return text
 

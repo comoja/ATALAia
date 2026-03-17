@@ -638,11 +638,11 @@ async def analyzeSymbol(symbols, n_velas):
             ulabel = "TAKE PROFIT" if direction == "LARGO" else "STOP LOSS"
             uemoji = "🟢" if direction == "LARGO" else "🔴"
             uvalor = tp if direction == "LARGO" else sl
-            upmensaje = f"{uemoji} <b>{ulabel}: {uvalor:,.5f}</b>"
+            upmensaje = f"{uemoji} <b>{ulabel}: {uvalor:,.5f}</b>\n"
             label = "TAKE PROFIT" if direction == "CORTO" else "STOP LOSS"
             emoji = "🟢" if direction == "CORTO" else "🔴"
             valor = tp if direction == "CORTO" else sl
-            dnmensaje = f"{emoji} <b>{label}: {valor:,.5f}</b>"
+            dnmensaje = f"{emoji} <b>{label}: {valor:,.5f}</b>\n"
             
             text = (
                 
@@ -656,11 +656,10 @@ async def analyzeSymbol(symbols, n_velas):
                 f"<center>VELA: {msg_vela}</center>"
                 f"{'\n<center><b>CON PRECAUCION</b></center> \n' if msg_vela == ' LATERAL ⚪' else '\n'}"
                 f"━━━━━━━━━━━━━━━\n"
-                f"{upmensaje}\n"
+                f"{upmensaje}"
                 f"🛡️ Break even: {punto_be:,.6f}\n"
                 f"🔹 ENTRADA:   <b>{close:,.6f}</b>\n"
-                f"{dnmensaje}\n"
-                
+                f"{dnmensaje}"
                 f"━━━━━━━━━━━━━━━\n"
                 f"<center><b>DATOS TÉCNICOS:</b></center>\n"
                 f"• RSI: {rsi_val:.2f} | "

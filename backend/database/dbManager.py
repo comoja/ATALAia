@@ -183,7 +183,6 @@ def buscaTrade(tradeData):
             actualizarTrade(tradeExistente['idTrade'], tradeData)
             logger.info(f"🔄 Trade {tradeExistente['idTrade']} actualizado para {tradeData['symbol']}")
         else:
-            # Si no hay trade abierto HOY para ese símbolo/dirección, insertamos uno nuevo
             insertarTrade(tradeData)
             logger.info(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
 

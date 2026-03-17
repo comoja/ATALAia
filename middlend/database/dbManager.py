@@ -156,8 +156,7 @@ def buscaTrade(tradeData):
         tradeExistente = dbCursor.fetchone()
 
         if tradeExistente:
-            actualizarTrade(tradeExistente['idTrade'], tradeData)
-            logger.info(f"🔄 Trade {tradeExistente['idTrade']} actualizado para {tradeData['symbol']}")
+            logger.info(f"⚠️ Trade ya existente {tradeExistente['idTrade']} para {tradeData['symbol']} - se omite actualización")
         else:
             insertarTrade(tradeData)
             logger.info(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
