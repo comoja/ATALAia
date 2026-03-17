@@ -48,7 +48,7 @@ PROBA_THRESHOLD_LONG = 0.65
 PROBA_THRESHOLD_SHORT = 0.35
 
 # RSI levels to avoid entering trades.
-RSI_OVERBOUGHT_THRESHOLD = 70
+RSI_OVERBOUGHT_THRESHOLD = 60
 RSI_SOLD_THRESHOLD = 30
 
 # Minimum volatility (ATR as % of close price) to consider a signal.
@@ -58,7 +58,7 @@ MIN_VOLATILITY_PERCENT = 0.10
 CONTRARIAN_CONFIDENCE_THRESHOLD = 85
 
 # Minimum confidence required to accept a signal (below this, signal is discarded).
-MIN_CONFIDENCE_THRESHOLD = 70
+MIN_CONFIDENCE_THRESHOLD = 65
 
 # --- Risk Management ---
 

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
+import asyncio
 
 # --- Module Imports ---
 # Assuming the new project structure allows these imports.
@@ -18,7 +19,7 @@ if rutaRaiz not in sys.path:
 from middlend.api import twelvedata
 from middlend.analysis import technical, risk
 from middlend.ml import model as mlModel
-from middlend.core.communications import sendTelegramAlert
+from middlend.core.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middlend import configConstants as config
 
 
@@ -32,6 +33,84 @@ class TradingBot:
     def __init__(self, mlModelInstance):
         self.model = mlModelInstance
         self.accounts = []
+        self.estadosPorSimbolo = {}
+        self.lastMessageIds = {}  # {symbol: message_id}
+
+    def calcularAngulos(self, df, ventana=14):
+        columnasCalculo = ['close', 'rsi', 'cci', 'macd']
+        for col in columnasCalculo:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            else:
+                df[col] = np.nan
+        
+        for col in columnasCalculo:
+            minV, maxV = df[col].rolling(ventana).min(), df[col].rolling(ventana).max()
+            rango = maxV - minV
+            dfNorm = 100 * (df[col] - minV) / rango.replace(0, np.nan)
+            df[f'ang_{col}'] = np.degrees(np.arctan(dfNorm.diff(1)))
+        return df
+
+    def obtenerEstado(self, angR, angP):
+        if pd.isna(angR) or pd.isna(angP): return "☁️ SIN DATOS", "Esperando..."
+        if angP < -70 and angR > -20: return "💎 GIRO", "🎯 OPORTUNIDAD: Rebote detectado."
+        if angR <= -75: return "💸 LIQUIDACIÓN", "🚨 CRÍTICA: Desplome vertical."
+        if angR >= 75:  return "🌋 PARÁBOLA", "⚠️ ALERTA: Subida extrema."
+        if angR > 30:   return "🚀 ALCISTA", "✅ Tendencia positiva."
+        if angR < -30:  return "📉 BAJISTA", "🔻 Presión de venta."
+        return "☁️ NEUTRAL", "💤 Sin movimiento claro."
+
+    def obtenerIcono(self, angulo): 
+        if pd.isna(angulo): return "⚪"
+        return "🧊" if angulo <= -75 else ("🔥" if angulo >= 75 else ("📈" if angulo > 0 else "📉"))
+
+    async def momentum(self, symbol, df, intervalo=None):   
+        from middlend.database import dbManager
+        
+        df = self.calcularAngulos(df)
+        last = df.iloc[-1]
+        
+        closePrice = last.get('close', 0)
+        estadoActual, notaMensaje = self.obtenerEstado(last.get('ang_rsi'), last.get('ang_close'))
+        estadoPrevio = self.estadosPorSimbolo.get(symbol)
+        
+        if estadoActual != estadoPrevio:
+            intervalText = f"({intervalo})" if intervalo else ""
+            mensajeFinal = (
+                f"<b><center>MOMENTUM {symbol} {intervalText}</center></b>\n"
+                f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"<b>PRECIO:</b> ${closePrice:,.2f}\n"
+                f"<b>ESTADO:</b> {estadoActual}\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"<b>RSI:</b>  {self.obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}°\n"
+                f"<b>CCI:</b>  {self.obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}°\n"
+                f"<b>MACD:</b> {self.obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}°\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"<b>NOTA:</b> <i>{notaMensaje}</i>"
+            )
+
+            esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
+            if estadoActual != "☁️ SIN DATOS" and estadoActual != "☁️ NEUTRAL":
+                # Delete previous message if 1h interval
+                if intervalo == '1h' and symbol in self.lastMessageIds:
+                    cuentas = dbManager.getAccount(1)
+                    if cuentas:
+                        cuenta = cuentas[0]
+                        prevMsgId = self.lastMessageIds[symbol]
+                        await deleteTelegramMessage(cuenta['TokenMsg'], cuenta['idGrupoMsg'], prevMsgId)
+                
+                # Send new message
+                cuentas = dbManager.getAccount(1)
+                if cuentas:
+                    cuenta = cuentas[0]
+                    msgId = await sendTelegramAlert(cuenta['TokenMsg'], cuenta['idGrupoMsg'], mensajeFinal, esCritico)
+                    if msgId:
+                        self.lastMessageIds[symbol] = msgId
+                        
+            self.estadosPorSimbolo[symbol] = estadoActual
+
+        return self.estadosPorSimbolo
 
     async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str) -> pd.DataFrame | None:
         """Fetches, prepares, and enriches data with technical features."""
@@ -51,7 +130,7 @@ class TradingBot:
         
         return dfFinal
 
-    def _get_signal(self, df: pd.DataFrame, symbol: str) -> Dict[str, Any] | None:
+    async def _get_signal(self, df: pd.DataFrame, symbol: str) -> Dict[str, Any] | None:
         """Analyzes the data to generate a trading signal dictionary."""
         
         X, _ = mlModel.cleanDataForModel(df)
@@ -116,6 +195,27 @@ class TradingBot:
         emaTrendShort = ema20 < ema50
         
         # --- 5. RSI Momentum & Divergence
+        msg_rsi = ""
+        if rsi >= 68:
+                msg_rsi = "🟩🟩🟩 <b>SOBRECOMPRA</b> 🟩🟩🟩\n"
+        elif rsi <= 32:
+            msg_rsi = "🟥🟥🟥 <b>SOBREVENTA</b> 🟥🟥🟥\n"        
+        if msg_rsi != "":
+            msg_rsi += (
+                f"━━━━━━━━━━━━━━━━\n"
+                f"<center>{symbol}</center>\n"
+                f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                # f"• RSI: {rsi:.2f} | "
+                #  f"Pend.: {pendiente_rsi_val:.2f} {'🟢' if pendiente_rsi_val > 0 else '🔴'}\n"
+                #  f"• CCI: {cci_val:.2f} | "
+                #  f"Pend.: {pendiente_cci_val:.2f} {'🟢' if pendiente_cci_val > 0 else '🔴'}\n"
+                #  f"• MACD: {'ALCISTA 🟢' if hist_val > 0 else 'BAJISTA 🔴'}\n"
+                #  f"• Volatilidad: {vol_porcentaje:.3f}% ({fuerza_vol})\n"
+                #  f"• Vela: {msg_vela}\n"
+                # f"━━━━━━━━━━━━━━━━\n"
+            )
+            await alertaInmediata(1, msg_rsi)
         rsiImprovingLong = rsi > prevRsi
         rsiImprovingShort = rsi < prevRsi
         
@@ -141,6 +241,19 @@ class TradingBot:
         # --- Technical Confirmation (momentum)
         techConfLong = (latestFullData["pendienteCci"] > 0.5 and latestFullData["pendienteRsi"] > 0.1)
         techConfShort = (latestFullData["pendienteCci"] < -0.5 and latestFullData["pendienteRsi"] < -0.1)
+        
+        # --- MOMENTUM FILTER ---
+        dfWithAngles = self.calcularAngulos(df.copy())
+        lastAngle = dfWithAngles.iloc[-1]
+        momentumEstado, _ = self.obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
+        
+        momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]
+        momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
+        momentumBearish = momentumEstado in ["📉 BAJISTA"]
+        
+        if momentumVeto:
+            logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado crítico ({momentumEstado}). Señal vetada.")
+            return None
         
         # --- MAIN SIGNAL CONDITIONS ---
         # LARGOS: ML proba + (MACD improving OR zero cross OR cross) + (EMA trend OR RSI improving)
@@ -203,6 +316,26 @@ class TradingBot:
                 
         else:
             return None # No signal
+        
+        # --- Apply Momentum Bonus/Penalty ---
+        momentumBonus = 0
+        momentumPenalty = 0
+        
+        if direction == "LARGO" and momentumBullish:
+            momentumBonus = 10
+        elif direction == "LARGO" and momentumBearish:
+            momentumPenalty = 15
+        elif direction == "CORTO" and momentumBearish:
+            momentumBonus = 10
+        elif direction == "CORTO" and momentumBullish:
+            momentumPenalty = 15
+        
+        if momentumBonus > 0:
+            logger.info(f"[{symbol}] MOMENTUM favorable ({momentumEstado}): +{momentumBonus}% confianza")
+            confianza += momentumBonus
+        elif momentumPenalty > 0:
+            logger.info(f"[{symbol}] MOMENTUM desfavorable ({momentumEstado}): -{momentumPenalty}% confianza")
+            confianza -= momentumPenalty
             
         # --- Apply Bonuses/Penalties ---
         # Candle patterns
@@ -298,7 +431,20 @@ class TradingBot:
                 
                 # Format and send alert
                 message = self._format_alert_message(signal, trade)
-                await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
+                
+                # Delete previous message if 1h interval
+                intervalo = symbolInfo.get('intervalo', '')
+                symbol = symbolInfo['symbol']
+                
+                if intervalo == '1h' and symbol in self.lastMessageIds:
+                    prevMsgId = self.lastMessageIds[symbol]
+                    await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
+                
+                # Send new message and save message_id
+                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
+                if msgId:
+                    self.lastMessageIds[symbol] = msgId
+                    
                 logger.info(f"✅ Alerta SNIPER enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
     
     def _format_alert_message(self, signal: Dict, trade: Dict) -> str:
@@ -333,13 +479,13 @@ class TradingBot:
         
         punto_be = close
         
-        ulabel = "TAKE PROFIT" if direction == "LARGO" else "STOP LOSS"
-        uemoji = "🟢" if direction == "LARGO" else "🔴"
-        uvalor = tp if direction == "LARGO" else sl
+        ulabel = "TAKE PROFIT" if directionStr == "LARGO" else "STOP LOSS"
+        uemoji = "🟢" if directionStr == "LARGO" else "🔴"
+        uvalor = tp if directionStr == "LARGO" else sl
         
-        label = "TAKE PROFIT" if direction == "CORTO" else "STOP LOSS"
-        emoji = "🟢" if direction == "CORTO" else "🔴"
-        valor = tp if direction == "CORTO" else sl
+        label = "TAKE PROFIT" if directionStr == "CORTO" else "STOP LOSS"
+        emoji = "🟢" if directionStr == "CORTO" else "🔴"
+        valor = tp if directionStr == "CORTO" else sl
         
         upmensaje = f"{uemoji} <b>{ulabel}: {uvalor:,.5f}</b>"
         dnmensaje = f"{emoji} <b>{label}: {valor:,.5f}</b>"
@@ -365,6 +511,8 @@ class TradingBot:
             f"━━━━━━━━━━━━━━━\n"
         )
         return text
+    
+    
 
     async def runAnalysisCycle(self):
         """The main operational loop of the bot."""
@@ -388,11 +536,15 @@ class TradingBot:
             if data is None:
                 continue
             
-            signal = self._get_signal(data, symbolInfo['symbol'])
+            await self.momentum(symbolInfo['symbol'], data, interval)
+            
+            signal = await self._get_signal(data, symbolInfo['symbol'])
             if signal:
                 logger.info(f"[{symbolInfo['symbol']}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
                 await self._execute_trades(signal, symbolInfo)
             else:
                 logger.debug(f"[{symbolInfo['symbol']}] Sin señal en intervalo {interval}.")
-        
+            await asyncio.sleep(5)
         logger.info("✅ Ciclo de análisis completado.")
+
+
