@@ -30,7 +30,8 @@ MODEL_PARAMS = {
 # Features used for the Random Forest model.
 MODEL_FEATURES = [
     "rsi", "atr", "emaDist", "emaTrend", "slopeEma50", "volRatio", "cci",
-    "lag1", "lag2", "lag3", "volRegime", "macdHist", "macdNorm", "pendienteRsi"
+    "lag1", "lag2", "lag3", "volRegime", "macdHist", "macdNorm", "pendienteRsi",
+    "sarTrend", "sarDist"
 ]
 
 # The prediction horizon for the ML target variable.
@@ -43,18 +44,18 @@ ML_TARGET_HORIZON_NORMAL_VOL = 8
 # --- Trading Logic Thresholds & Parameters ---
 
 # Probability thresholds from the ML model to consider a signal.
-PROBA_THRESHOLD_LONG = 0.72
-PROBA_THRESHOLD_SHORT = 0.28
+PROBA_THRESHOLD_LONG = 0.65
+PROBA_THRESHOLD_SHORT = 0.35
 
 # RSI levels to avoid entering trades.
-RSI_OVERBOUGHT_THRESHOLD = 75
-RSI_SOLD_THRESHOLD = 25
+RSI_OVERBOUGHT_THRESHOLD = 70
+RSI_SOLD_THRESHOLD = 30
 
 # Minimum volatility (ATR as % of close price) to consider a signal.
 MIN_VOLATILITY_PERCENT = 0.05
 
 # Confidence level below which trading against the EMA50 is forbidden.
-CONTRARIAN_CONFIDENCE_THRESHOLD = 90
+CONTRARIAN_CONFIDENCE_THRESHOLD = 85
 
 # --- Risk Management ---
 

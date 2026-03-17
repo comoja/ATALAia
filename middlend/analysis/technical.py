@@ -57,7 +57,7 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     """
     dfFeatured = df.copy()
     
-    logger.info(f"Columnas recibidas en calculateFeatures: {dfFeatured.columns.tolist()}")
+    #logger.info(f"Columnas recibidas en calculateFeatures: {dfFeatured.columns.tolist()}")
     
     # --- Base Indicators ---
     ema20 = dfFeatured["close"].ewm(span=20, adjust=False).mean()
@@ -68,6 +68,9 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     dfFeatured["emaTrend"] = (ema20 - ema50) / dfFeatured["close"]
     dfFeatured["slopeEma50"] = ema50.pct_change(12)
     dfFeatured["atr"] = ta.ATR(dfFeatured["high"], dfFeatured["low"], dfFeatured["close"], 14)
+    dfFeatured["sar"] = ta.SAR(dfFeatured["high"], dfFeatured["low"], acceleration=0.02, maximum=0.2)
+    dfFeatured["sarTrend"] = np.where(dfFeatured["close"] > dfFeatured["sar"], 1, -1)
+    dfFeatured["sarDist"] = (dfFeatured["close"] - dfFeatured["sar"]) / dfFeatured["close"]
     
     # --- Dynamic Period Indicators ---
     periods = _calculate_dynamic_periods(dfFeatured)
@@ -102,6 +105,6 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     dfFeatured["cdlHammer"] = ta.CDLHAMMER(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
     dfFeatured["cdlShootingStar"] = ta.CDLSHOOTINGSTAR(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
 
-    logger.info(f"Features calculadas. Columnas: {dfFeatured.columns.tolist()}")
+    #logger.info(f"Features calculadas. Columnas: {dfFeatured.columns.tolist()}")
     
     return dfFeatured

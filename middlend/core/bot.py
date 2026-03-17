@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any
 import pandas as pd
+import numpy as np
 
 # --- Module Imports ---
 # Assuming the new project structure allows these imports.
@@ -77,59 +78,160 @@ class TradingBot:
         if proba is None:
             return None
 
-        # --- STRATEGY LOGIC (SNIPER) ---
+        # --- STRATEGY LOGIC (SNIPER ADVANCED) ---
         direction = None
         confianza = 0
         
+        # Get current and previous values
         histVal = latestFullData["macdHist"]
         prevHistVal = df["macdHist"].iloc[-2]
+        prev2HistVal = df["macdHist"].iloc[-3]
         
-        # Technical confirmation
-        techConfLong = (latestFullData["pendienteCci"] > 2 and latestFullData["pendienteRsi"] > -0.2)
-        techConfShort = (latestFullData["pendienteCci"] < -2 and latestFullData["pendienteRsi"] < 0.2)
+        macdLine = latestFullData["macd"]
+        macdSignal = latestFullData["macdSig"]
         
+        rsi = latest["rsi"]
+        prevRsi = df["rsi"].iloc[-2]
+        
+        close = latestFullData["close"]
+        prevClose = df["close"].iloc[-2]
+        
+        ema20 = latestFullData["ema20"]
+        ema50 = latestFullData["ema50"]
+        
+        # --- 1. MACD Signal Line Crossover (More reliable than histogram)
+        macdCrossLong = (macdLine > macdSignal) and (prevClose <= df["macd"].iloc[-2] < df["macdSig"].iloc[-2])
+        macdCrossShort = (macdLine < macdSignal) and (prevClose >= df["macd"].iloc[-2] > df["macdSig"].iloc[-2])
+        
+        # --- 2. MACD Histogram Momentum (improving or weakening)
+        histImprovingLong = histVal > prevHistVal  # Histogram getting bigger (more bullish)
+        histImprovingShort = histVal < prevHistVal  # Histogram getting smaller (more bearish)
+        
+        # --- 3. MACD Zero Line Cross (strong signal)
+        macdZeroCrossLong = (prevHistVal <= 0 and histVal > 0)
+        macdZeroCrossShort = (prevHistVal >= 0 and histVal < 0)
+        
+        # --- 4. EMA Trend Confirmation (EMA20 above EMA50 = bullish)
+        emaTrendLong = ema20 > ema50
+        emaTrendShort = ema20 < ema50
+        
+        # --- 5. RSI Momentum & Divergence
+        rsiImprovingLong = rsi > prevRsi
+        rsiImprovingShort = rsi < prevRsi
+        
+        # RSI Divergence: Price makes higher low but RSI makes lower low (bullish hidden divergence)
+        # Or: Price makes lower high but RSI makes higher high (bearish hidden divergence)
+        priceHigherLow = close > df["low"].iloc[-2]
+        rsiLowerLow = rsi < prevRsi
+        
+        priceLowerHigh = close < df["high"].iloc[-2]
+        rsiHigherHigh = rsi > prevRsi
+        
+        # --- 6. MACD Divergence (Regular)
+        # Find local extrema in last 5 bars
+        prices = df["close"].iloc[-5:].values
+        hists = df["macdHist"].iloc[-5:].values
+        
+        priceHigherHigh = prices[-1] > np.max(prices[:-1])
+        histLowerHigh = hists[-1] < np.max(hists[:-1])
+        
+        priceLowerLow = prices[-1] < np.min(prices[:-1])
+        histHigherLow = hists[-1] > np.min(hists[:-1])
+        
+        # --- Technical Confirmation (momentum)
+        techConfLong = (latestFullData["pendienteCci"] > 0.5 and latestFullData["pendienteRsi"] > 0.1)
+        techConfShort = (latestFullData["pendienteCci"] < -0.5 and latestFullData["pendienteRsi"] < -0.1)
+        
+        # --- MAIN SIGNAL CONDITIONS ---
+        # LARGOS: ML proba + (MACD improving OR zero cross OR cross) + (EMA trend OR RSI improving)
         isLongCandidate = (
             proba >= config.PROBA_THRESHOLD_LONG and
-            histVal > prevHistVal and
-            techConfLong and
-            latest["rsi"] < config.RSI_OVERBOUGHT_THRESHOLD
+            (histImprovingLong or macdZeroCrossLong or macdCrossLong) and
+            (emaTrendLong or rsiImprovingLong or techConfLong) and
+            rsi < config.RSI_OVERBOUGHT_THRESHOLD and
+            not (priceHigherHigh and histLowerHigh)  # No bearish divergence
         )
+        
+        # CORTOS: ML proba + (MACD weakening OR zero cross OR cross) + (EMA trend OR RSI improving)
         isShortCandidate = (
             proba <= config.PROBA_THRESHOLD_SHORT and
-            histVal < prevHistVal and
-            techConfShort and
-            latest["rsi"] > config.RSI_SOLD_THRESHOLD
+            (histImprovingShort or macdZeroCrossShort or macdCrossShort) and
+            (emaTrendShort or rsiImprovingShort or techConfShort) and
+            rsi > config.RSI_SOLD_THRESHOLD and
+            not (priceLowerLow and histHigherLow)  # No bullish divergence
         )
         
         if isLongCandidate:
             direction = "LARGO"
-            isCross = (prevHistVal <= 0 and histVal > 0)
-            bonus = 12 if isCross else 5
-            confianza = (proba * 100) + bonus
+            # Calculate base confidence
+            confianza = proba * 100
+            
+            # Bonifications
+            if macdZeroCrossLong:
+                confianza += 15
+            elif macdCrossLong:
+                confianza += 10
+            else:
+                confianza += 5
+                
+            if emaTrendLong:
+                confianza += 8
+            if rsiImprovingLong:
+                confianza += 5
+            if priceLowerLow and histHigherLow:  # Hidden bullish divergence
+                confianza += 12
+                
         elif isShortCandidate:
             direction = "CORTO"
-            isCross = (prevHistVal >= 0 and histVal < 0)
-            bonus = 12 if isCross else 5
-            confianza = ((1 - proba) * 100) + bonus
+            # Calculate base confidence
+            confianza = (1 - proba) * 100
+            
+            # Bonifications
+            if macdZeroCrossShort:
+                confianza += 15
+            elif macdCrossShort:
+                confianza += 10
+            else:
+                confianza += 5
+                
+            if emaTrendShort:
+                confianza += 8
+            if rsiImprovingShort:
+                confianza += 5
+            if priceHigherHigh and histLowerHigh:  # Hidden bearish divergence
+                confianza += 12
+                
         else:
             return None # No signal
             
         # --- Apply Bonuses/Penalties ---
         # Candle patterns
-        cdlEngulfing = latestFullData["cdlEngulfing"]
-        cdlHammer = latestFullData["cdlHammer"]
-        cdlShootingStar = latestFullData["cdlShootingStar"]
+        cdlEngulfing = latestFullData.get("cdlEngulfing", 0)
+        cdlHammer = latestFullData.get("cdlHammer", 0)
+        cdlShootingStar = latestFullData.get("cdlShootingStar", 0)
+        cdlDoji = latestFullData.get("cdlDoji", 0)
 
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
-            confianza *= 1.10
+            confianza *= 1.15
+        elif cdlDoji != 0:
+            confianza *= 0.70  # Doji = indecision
         else:
             confianza *= 0.50 # Penalty if no confirming candle
 
         # --- FINAL FILTERS ---
         if confianza < config.CONTRARIAN_CONFIDENCE_THRESHOLD:
-            isAgainstTrend = (direction == "LARGO" and close < latestFullData["ema50"]) or (direction == "CORTO" and close > latestFullData["ema50"])
+            isAgainstTrend = (direction == "LARGO" and close < ema50) or (direction == "CORTO" and close > ema50)
             if isAgainstTrend:
                 logger.info(f"[{symbol}] Filtrado: Intento de contratendencia con confianza baja ({confianza:.1f}%).")
+                return None
+        
+        # --- SAR Filter (VETO) ---
+        sarTrend = latestFullData.get("sarTrend")
+        if sarTrend is not None and not pd.isna(sarTrend):
+            sarFilterLong = direction == "LARGO" and sarTrend < 0
+            sarFilterShort = direction == "CORTO" and sarTrend > 0
+            if sarFilterLong or sarFilterShort:
+                logger.info(f"[{symbol}] Filtrado SAR: Señal {direction} contra tendencia SAR ({sarTrend}).")
                 return None
 
         return {
@@ -230,13 +332,18 @@ class TradingBot:
             # These parameters are now fetched per symbol, as in the original logic
             apiKey, interval, _, nVelas, waitMin = getParametros()
             symbolInfo['intervalo'] = interval # Augment symbolInfo
+            
+            logger.debug(f"Analizando {symbolInfo['symbol']} en intervalo {interval}...")
 
             data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval)
             if data is None:
                 continue
-                
+            
             signal = self._get_signal(data, symbolInfo['symbol'])
             if signal:
+                logger.info(f"[{symbolInfo['symbol']}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
                 await self._execute_trades(signal, symbolInfo)
+            else:
+                logger.debug(f"[{symbolInfo['symbol']}] Sin señal en intervalo {interval}.")
         
         logger.info("✅ Ciclo de análisis completado.")

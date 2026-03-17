@@ -33,7 +33,7 @@ async def main():
     Main execution function.
     """
     logger.info("=============================================")
-    logger.info("====== Initializing Middlend Trading Bot ======")
+    logger.info("====== Inicializando Bot de Trading Middlend ======")
     logger.info("=============================================")
 
     # --- Model Loading/Training ---
@@ -41,8 +41,8 @@ async def main():
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
 
     if model is None:
-        logger.warning("No pre-trained model found. Attempting to train a new one.")
-        logger.info("Fetching a large dataset for initial model training...")
+        logger.warning("No se encontró modelo pre-entrenado. Intentando entrenar uno nuevo.")
+        logger.info("Obteniendo gran dataset para entrenamiento inicial del modelo...")
         
         # We need data to train. We'll use the old API module temporarily
         # to get a large chunk of data. This should be a separate, offline script in a real scenario.
@@ -52,7 +52,7 @@ async def main():
         trainingDf = await oldTwelvedataApi.getTimeSeries("EUR/USD", interval, apiKey, nVelas=5000)
 
         if trainingDf is not None and not trainingDf.empty:
-            logger.info("Calculating features (including ATR) for training data...")
+            logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")
             trainingDf = calculateFeatures(trainingDf)
             # This is a synchronous call, which is fine for a one-off training task
             mlModel.trainAndSaveModel(trainingDf, config.MODEL_FILE_PATH)
@@ -60,31 +60,60 @@ async def main():
             model = mlModel.loadModel(config.MODEL_FILE_PATH)
         
         if model is None:
-            logger.critical("Failed to train or load the model. The bot cannot continue without a model.")
+            logger.critical("Error al entrenar o cargar el modelo. El bot no puede continuar sin un modelo.")
             return
 
     # --- Bot Initialization ---
     bot = TradingBot(mlModelInstance=model)
     
-    logger.info("Bot initialized successfully. Starting main loop...")
+    logger.info("Bot inicializado correctamente. Iniciando bucle principal...")
 
     # --- Main Loop ---
+    wasOperating = True  # Assume we're operating initially
+    
     while True:
         try:
-            if not isRestTime():
-                logger.info("Not rest time. Starting analysis cycle.")
+            isOperating = not isRestTime()
+            
+            # Detectar cambio de estado
+            if wasOperating and not isOperating:
+                # Se acaba de detener (viernes 17:00)
+                logger.info("====== MERCADO CERRADO - Bot detenido hasta el domingo 17:00 ======")
+            elif not wasOperating and isOperating:
+                # Se acaba de iniciar (domingo 17:00)
+                logger.info("====== MERCADO ABIERTO - Bot iniciado ======")
+            
+            wasOperating = isOperating
+            
+            if isOperating:
+                logger.info("Iniciando ciclo de análisis...")
+                # Obtener parámetros ANTES del análisis
+                apiKey, intervaloActual, nombreKey, nVelas, _ = getParametros()
                 await bot.runAnalysisCycle()
+                
+                # Calcular espera para el PRÓXIMO ciclo (intervalo que será)
+                # Si minuto < 15, el próximo será 1h; si no, será 15min
+                from datetime import datetime
+                ahora = datetime.now()
+                from middlend.config.settings import INTERVAL, INTERVALmax, timeframes
+                proximoIntervalo = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
+                
+                # Calcular tiempo de espera según el próximo intervalo
+                if "min" in proximoIntervalo:
+                    proximaEspera = int(proximoIntervalo.replace("min", ""))
+                else:
+                    proximaEspera = int(proximoIntervalo.replace("h", "")) * 60
+                
+                logger.info(f"Ciclo completado. Próximo análisis en {proximaEspera}min ({proximoIntervalo})")
+                await getTiempoEspera(proximaEspera)
             else:
-                logger.info("Market is closed or in rest time. Sleeping.")
-
-            # Get the wait time for the next candle
-            # Note: This logic is inherited from the original project.
-            _, _, _, _, esperaMin = getParametros()
-            await getTiempoEspera(esperaMin)
+                logger.info("Mercado cerrado o en horario de descanso. Durmiendo.")
+                _, _, _, _, esperaMin = getParametros()
+                await getTiempoEspera(esperaMin)
 
         except Exception as e:
-            logger.critical(f"An unexpected error occurred in the main loop: {e}", exc_info=True)
-            logger.info("Restarting loop after a 60-second delay...")
+            logger.critical(f"Ocurrió un error inesperado en el bucle principal: {e}", exc_info=True)
+            logger.info("Reiniciando bucle después de 60 segundos de espera...")
             await asyncio.sleep(60)
 
 
@@ -92,8 +121,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped manually. Goodbye!")
+        logger.info("Bot detenido manualmente. ¡Adiós!")
         sys.exit(0)
     except Exception as e:
-        logger.critical(f"A fatal error occurred outside the main loop: {e}", exc_info=True)
+        logger.critical(f"Ocurrió un error fatal fuera del bucle principal: {e}", exc_info=True)
         sys.exit(1)

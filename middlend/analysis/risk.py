@@ -10,17 +10,20 @@ logger = logging.getLogger(__name__)
 def calculatePositionSize(capital: float, riskPercentage: float, slDistance: float, symbolInfo: Dict[str, Any]) -> tuple[float, float] | tuple[None, None]:
     """
     Calculates the appropriate position size based on risk parameters.
-    (Original logic from `calcularPosicion`)
 
     Returns:
         A tuple of (positionSize, riskInCurrency) or (None, None) on error.
+        
+    Note:
+        - METALS: returns units (min 1)
+        - FOREX: returns thousands of units (min 1000)
+        - INDICES/CRYPTO: returns units (min 1)
     """
     try:
         if slDistance <= 0:
-            logger.warning("Stop loss distance is zero or negative. Cannot calculate position size.")
+            logger.warning("La distancia del stop loss es cero o negativa. No se puede calcular el tamaño de posición.")
             return None, None
 
-        # Maximum amount of capital to risk on this single trade
         riskInCurrency = capital * (riskPercentage / 100)
         
         symbolType = symbolInfo.get('tipo', 'FOREX').upper()
@@ -28,47 +31,48 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         
         # --- METALS (e.g., XAU/USD) ---
         if symbolType == "METALES":
-            # 1 Lot = 100 Ounces. 1 pip (0.10) movement = $10 USD.
-            # Assuming slDistance is in price points, and 1 point = 10 pips.
-            lots = riskInCurrency / (slDistance * 100)
-            return max(0.01, round(lots, 2)), riskInCurrency
+            # XAU/USD: 1 lot = 100 ounces, 1 pip (0.10) = $10 per ounce = $1000 per pip per lot
+            # To get units (ounces): risk = units * pips * $10
+            pips = slDistance / 0.10
+            if pips <= 0:
+                return None, None
+            units = riskInCurrency / (pips * 10)
+            return max(1.0, round(units, 2)), riskInCurrency
 
-        # --- INDICES (e.g., US30) ---
+        # --- INDICES (e.g., US30, SP500) ---
         elif symbolType == "INDICES":
-            # 1 Contract = $1 per point.
+            # 1 Contract = $1 per point typically
             contracts = riskInCurrency / slDistance
-            # The original code had `contrato *= 10`, which seems arbitrary.
-            # Sticking to a clearer 1 contract = 1 lot definition for now.
             return max(1.0, round(contracts, 1)), riskInCurrency
 
         # --- CRYPTO (e.g., BTC/USD) ---
         elif symbolType == "CRIPTO":
-            # 1 Lot = 1 unit of the crypto (e.g., 1 BTC).
+            # 1 unit of the crypto
             units = riskInCurrency / slDistance
-            return max(0.01, round(units, 2)), riskInCurrency
+            return max(0.01, round(units, 4)), riskInCurrency
 
         # --- FOREX (e.g., EUR/USD) ---
-        else: # Default to Forex logic
-            # For a standard lot (100,000 units), value of a pip is ~$10.
+        else:
             pipValue = 0.01 if "JPY" in symbolName else 0.0001
             pipsDistance = slDistance / pipValue
             
-            if pipsDistance == 0: return None, None
+            if pipsDistance == 0:
+                return None, None
 
-            # Value per pip for a standard lot
-            valuePerPip = 10 
+            # Value per pip for 1 standard lot (100,000 units) = $10
+            valuePerPip = 10
             
-            # lots = (Risk amount) / (pips to SL * value per pip)
+            # Standard lots needed
             lots = riskInCurrency / (pipsDistance * valuePerPip)
             
-            # The original logic had complex multipliers `* (10 if ...)` and `* 1000`.
-            # This is simplified to standard lot calculation. The final unit might need
-            # adjustment based on the broker's contract size specification.
-            # For now, returning standard lots.
-            return max(0.01, round(lots, 2)), riskInCurrency
+            # Convert to thousands of units (broker format)
+            thousandsOfUnits = lots * 100
+            
+            # Minimum 1000 (micro lot)
+            return max(1000, int(round(thousandsOfUnits))), riskInCurrency
 
     except Exception as e:
-        logger.error(f"❌ Error in calculatePositionSize: {e}", exc_info=True)
+        logger.error(f"Error en calculatePositionSize: {e}", exc_info=True)
         return None, None
 
 
@@ -101,7 +105,7 @@ def checkTradeClosure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]) -> 
         return None  # Trade remains open
 
     except Exception as e:
-        logger.error(f"Error checking trade closure: {e}", exc_info=True)
+        logger.error(f"Error al verificar cierre de trade: {e}", exc_info=True)
         return None
 
 def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> float:
@@ -126,5 +130,5 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         return netPnl
 
     except Exception as e:
-        logger.error(f"Error calculating PNL: {e}", exc_info=True)
+        logger.error(f"Error al calcular PNL: {e}", exc_info=True)
         return 0.0

@@ -18,29 +18,27 @@ def isRestTime():
     weekday = now.weekday()
     hour = now.hour
 
-    # Lunes-Viernes 00-06
+    # Lunes-Viernes 00-06 (horario nocturno - no opera)
     if weekday <= 4 and 0 <= hour < 6:
-        logger.info("horario nocturno laboral")
+        logger.info("horario nocturno - no opera")
         return True
 
-    # Lunes-Viernes 16-17
-    if weekday <= 4 and 16 <= hour < 17:
-        logger.info("horario de comida laboral")
+    # Lunes-Jueves 16:03-17:00 (horario de lunch - no opera)
+    if weekday <= 3 and hour == 16 and now.minute >= 3:
+        logger.info("horario de lunch - no opera")
+        return True
+    if weekday <= 3 and hour == 17:
+        logger.info("horario de lunch - no opera")
         return True
 
-    # Viernes después 17:00
+    # Viernes desde 17:00 - no opera hasta domingo 17:00
     if weekday == 4 and hour >= 17:
-        logger.info("horario de fin de semana")
+        logger.info("viernes noche - no opera")
         return True
 
-    # Sábado
-    if weekday == 5:
-        logger.info("horario sabatino ")
-        return True
-
-    # Domingo antes de 17
-    if weekday == 6 and hour < 17:
-        logger.info("horario dominical")
+    # Sábado y Domingo - no opera
+    if weekday >= 5:
+        logger.info("fin de semana - no opera")
         return True
 
     return False

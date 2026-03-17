@@ -43,7 +43,7 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
     Retries once on failure.
     """
     if not message or not token or not chatId:
-        logger.warning("Telegram alert skipped due to missing message, token, or chatId.")
+        logger.warning("Alerta de Telegram omitida por falta de mensaje, token o chatId.")
         return
 
     bot = Bot(token=token)
@@ -56,9 +56,9 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
             parseMode='HTML', 
             disableNotification=not highPriority
         )
-        logger.debug(f"Telegram alert sent to chatId {chatId}")
+        logger.debug(f"Alerta de Telegram enviada a chatId {chatId}")
     except TelegramError as e:
-        logger.error(f"Failed to send Telegram message to {chatId} on first attempt: {e}")
+        logger.error(f"Error al enviar mensaje de Telegram a {chatId} en el primer intento: {e}")
         # Retry once after a short delay
         await asyncio.sleep(1)
         try:
@@ -68,7 +68,7 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
                 parseMode='HTML', 
                 disableNotification=not highPriority
             )
-            logger.info(f"Successfully sent Telegram message to {chatId} on second attempt.")
+            logger.info(f"Mensaje de Telegram enviado exitosamente a {chatId} en el segundo intento.")
         except TelegramError as eRetry:
-            logger.critical(f"❌ Failed to send Telegram message to {chatId} after two attempts: {eRetry}")
+            logger.critical(f"❌ Error al enviar mensaje de Telegram a {chatId} después de dos intentos: {eRetry}")
 

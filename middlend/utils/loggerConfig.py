@@ -30,3 +30,6 @@ def setupLogging():
         rootLogger.setLevel(logging.INFO)
         rootLogger.addHandler(fileHandler)
         rootLogger.addHandler(consoleHandler)
+
+    # Silenciar logs de httpx (solo mostrar advertencias y errores)
+    logging.getLogger("httpx").setLevel(logging.WARNING)

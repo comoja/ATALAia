@@ -29,23 +29,22 @@ def getParametros():
     nombres = ["JAIME", "RAUL", "SEBASTIAN"]
     nombreKey = f"{nombres[indice]} ({indice})"
     
-    # 2. Selección de Intervalo (Cierre 23:00)
+    # 2. Selección de Intervalo (hora = 1h, resto = 15min)
+    # Si el minuto es 00-14, usamos 1h (para caso de inicio temprano); si es 15, 30 o 45, usamos 15min
     intervaloActual = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
 
-    # 3. CÁLCULO DINÁMICO DE VELAS (Lookback de ~10 días)
-    # Definimos cuántos minutos queremos ver hacia atrás (10 días = 14400 min)
-    minutosObjetivo = 14400 
-    esperaMin = 5 # Valor por defecto para el tiempo de espera entre llamadas a la API
+    # 3. CÁLCULO DINÁMICO DE VELAS (~20 días para ambos)
+    esperaMin = 5
 
     if "min" in intervaloActual:
         mins = int(intervaloActual.replace("min", ""))
-        velasAPedir = minutosObjetivo // mins
-        esperaMin = mins 
+        # 15min * 2000 = 30000 min = ~20 días
+        velasAPedir = 2000
+        esperaMin = mins
     elif "h" in intervaloActual:
         horas = int(intervaloActual.replace("h", ""))
-        # Si es por horas, pedimos 40 días (57600 min) para asegurar > 100 velas
-        minutosObjetivoHoras = 57600 
-        velasAPedir = minutosObjetivoHoras // (horas * 60)
+        # 1h * 500 = 500 horas = ~20 días
+        velasAPedir = 500
         esperaMin = horas * 60
 
     elif "day" in intervaloActual:
