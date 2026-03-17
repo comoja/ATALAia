@@ -83,15 +83,27 @@ class TradingBot:
                 f"<b>PRECIO:</b> ${closePrice:,.2f}\n"
                 f"<b>ESTADO:</b> {estadoActual}\n"
                 f"━━━━━━━━━━━━━━━━\n"
-                f"<b>RSI:</b>  {self.obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}°\n"
-                f"<b>CCI:</b>  {self.obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}°\n"
-                f"<b>MACD:</b> {self.obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}°\n"
+                f"<b>RSI:</b>  {self.obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}° ({last.get('rsi', 0):.1f})\n"
+                f"<b>CCI:</b>  {self.obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}° ({last.get('cci', 0):.1f})\n"
+                f"<b>MACD:</b> {self.obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}° ({last.get('macd', 0):.2f})\n"
                 f"━━━━━━━━━━━━━━━━\n"
                 f"<b>NOTA:</b> <i>{notaMensaje}</i>"
             )
 
             esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
-            if estadoActual != "☁️ SIN DATOS" and estadoActual != "☁️ NEUTRAL":
+            
+            esLateral = False
+            cambioPorcentual = 0
+            if len(df) >= 2:
+                precioActual = float(last.get('close', 0))
+                precioAnterior = float(df.iloc[-2].get('close', 0))
+                if precioAnterior > 0:
+                    cambioPorcentual = abs((precioActual - precioAnterior) / precioAnterior * 100)
+                    esLateral = cambioPorcentual < 0.5
+            
+            if esLateral:
+                logger.info(f"[{symbol}] Filtrado MOMENTUM: Movimiento lateral ({cambioPorcentual:.2f}%)")
+            elif estadoActual not in ["☁️ SIN DATOS", "☁️ NEUTRAL"]:
                 # Delete previous message if 1h interval
                 if intervalo == '1h' and symbol in self.lastMessageIds:
                     cuentas = dbManager.getAccount(1)
