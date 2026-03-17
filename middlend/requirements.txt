@@ -1,0 +1,16 @@
+# Core libraries for data handling and machine learning
+pandas
+numpy
+scikit-learn
+joblib
+
+# Library for technical analysis
+# Note: This may require TA-Lib to be installed on the system first.
+# See https://github.com/mrjbq7/ta-lib for installation instructions.
+TA-Lib
+
+# Asynchronous HTTP client for API interaction
+httpx
+
+# For Telegram notifications
+python-telegram-bot
