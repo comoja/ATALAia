@@ -69,5 +69,5 @@ async def getTiempoEspera(intervaloMinutos):
         minutosProximos = intervaloMinutos - (now.minute % intervaloMinutos)
         segundosEspera = (minutosProximos * 60) - now.second + 2
         if segundosEspera > 20:
-            logger.info(f"⏳ Sincronizando: Próximo escaneo en {segundosEspera // 60}m {segundosEspera % 60}s")
+            logger.info(f"⏳ Sincronizando: Próximo escaneo en {segundosEspera // 60}m {segundosEspera % 60}s\n\n")
             await asyncio.sleep(segundosEspera)

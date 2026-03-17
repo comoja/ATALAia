@@ -28,7 +28,7 @@ def getParametros():
     nombre_key = f"{nombres[indice]} ({indice})"
     
     # 2. Selección de Intervalo (Cierre 23:00)
-    intervalo_actual = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
+    intervalo_actual = INTERVALmax if (ahora.hour in timeframes and 0 < ahora.minute < 15) else INTERVAL
 
     # 3. CÁLCULO DINÁMICO DE VELAS (Lookback de ~10 días)
     # Definimos cuántos minutos queremos ver hacia atrás (10 días = 14400 min)

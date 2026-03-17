@@ -6,6 +6,8 @@ import re
 import asyncio
 from telegram import Bot
 from telegram.error import TelegramError
+from middlend.database import dbManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,12 @@ def _clean_html_for_telegram(text: str) -> str:
 
     return re.sub(r'<(/?\w+).*?>', stripUnsupportedTags, text)
 
+async def alertaInmediata(id, mensaje, prioridad=True):
+    cuentas = dbManager.getAccount(id)
+    
+    if cuentas:
+        cuenta = cuentas[0]
+        await sendTelegramAlert(cuenta['idGrupoMsg'], cuenta['TokenMsg'], mensaje=mensaje) 
 
 async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True):
     """
@@ -50,11 +58,11 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
     cleanedMessage = _clean_html_for_telegram(message)
     
     try:
-        await bot.sendMessage(
-            chatId=chatId, 
+        await bot.send_message(
+            chat_id=chatId, 
             text=cleanedMessage, 
-            parseMode='HTML', 
-            disableNotification=not highPriority
+            parse_mode='HTML', 
+            disable_notification=not highPriority
         )
         logger.debug(f"Alerta de Telegram enviada a chatId {chatId}")
     except TelegramError as e:
@@ -62,11 +70,11 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
         # Retry once after a short delay
         await asyncio.sleep(1)
         try:
-            await bot.sendMessage(
-                chatId=chatId, 
+            await bot.send_message(
+                chat_id=chatId, 
                 text=cleanedMessage, 
-                parseMode='HTML', 
-                disableNotification=not highPriority
+                parse_mode='HTML', 
+                disable_notification=not highPriority
             )
             logger.info(f"Mensaje de Telegram enviado exitosamente a {chatId} en el segundo intento.")
         except TelegramError as eRetry:

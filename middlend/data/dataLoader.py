@@ -30,8 +30,8 @@ def getParametros():
     nombreKey = f"{nombres[indice]} ({indice})"
     
     # 2. Selección de Intervalo (hora = 1h, resto = 15min)
-    # Si el minuto es 00-14, usamos 1h (para caso de inicio temprano); si es 15, 30 o 45, usamos 15min
-    intervaloActual = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
+    # Si el minuto es 01-14, usamos 1h (para caso de inicio temprano); si es 15, 30 o 45, usamos 15min
+    intervaloActual = INTERVALmax if (ahora.hour in timeframes and  ahora.minute < 15) else INTERVAL
 
     # 3. CÁLCULO DINÁMICO DE VELAS (~20 días para ambos)
     esperaMin = 5

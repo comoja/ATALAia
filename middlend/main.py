@@ -22,6 +22,7 @@ from middlend import configConstants as config
 # --- External Project Imports ---
 from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from middlend.data.dataLoader import getParametros
+from middlend.config.settings import INTERVAL, INTERVALmax
 from middlend.api import twelvedata as oldTwelvedataApi # For training data
 
 # 1. Set up logging at the very beginning
@@ -91,21 +92,18 @@ async def main():
                 apiKey, intervaloActual, nombreKey, nVelas, _ = getParametros()
                 await bot.runAnalysisCycle()
                 
-                # Calcular espera para el PRÓXIMO ciclo (intervalo que será)
-                # Si minuto < 15, el próximo será 1h; si no, será 15min
-                from datetime import datetime
-                ahora = datetime.now()
-                from middlend.config.settings import INTERVAL, INTERVALmax, timeframes
-                proximoIntervalo = INTERVALmax if (ahora.hour in timeframes and ahora.minute < 15) else INTERVAL
+                # Calcular espera para el PRÓXIMO ciclo
+                # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
+                proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL
                 
-                # Calcular tiempo de espera según el próximo intervalo
                 if "min" in proximoIntervalo:
                     proximaEspera = int(proximoIntervalo.replace("min", ""))
                 else:
                     proximaEspera = int(proximoIntervalo.replace("h", "")) * 60
                 
-                logger.info(f"Ciclo completado. Próximo análisis en {proximaEspera}min ({proximoIntervalo})")
+                logger.info(f"Ciclo completado ({intervaloActual}). Próximo análisis en {proximaEspera}min ({proximoIntervalo})\n\n")
                 await getTiempoEspera(proximaEspera)
+            
             else:
                 logger.info("Mercado cerrado o en horario de descanso. Durmiendo.")
                 _, _, _, _, esperaMin = getParametros()

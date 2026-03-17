@@ -17,4 +17,11 @@ minutosXdia = 24 * 60
 INTERVAL = "15min"
 INTERVALmax = "1h"
 
-timeZone = "America/New_York"
+timeZone = "America/Mexico_City"
+
+dbConfig = {
+    "host": "localhost",
+    "user": "root",
+    "password": "M1x&J34ny",
+    "database": "ATALAia"
+}

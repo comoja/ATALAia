@@ -24,9 +24,9 @@ from middlend import configConstants as config
 # --- External Project Imports ---
 # These are dependencies on the original `backend` structure.
 # This is not ideal, but necessary for compatibility without refactoring the whole project.
-from backend.database import dbManager
-from backend.scheduler.autoScheduler import getTiempoEspera, isRestTime
-from backend.data.dataLoader import getParametros
+from middlend.database import dbManager
+from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
+from middlend.data.dataLoader import getParametros
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +66,13 @@ class TradingBot:
         latestFullData = df.iloc[-1]
         
         close = latestFullData["close"]
-        volPercent = (latest["atr"] / close) * 100
+        currentAtr = latest["atr"]
+        avgAtr = df["atr"].iloc[-20:].mean()
+        volPercent = (currentAtr / close) * 100
         
         # --- FILTERS (VETO) ---
-        if volPercent < config.MIN_VOLATILITY_PERCENT:
-            logger.info(f"[{symbol}] Volatilidad ({volPercent:.3f}%) demasiado baja. Señal descartada.")
+        if currentAtr < avgAtr * 0.5:
+            logger.info(f"[{symbol}] Volatilidad baja (ATR: {currentAtr:.4f} < 50% avg: {avgAtr:.4f}). Señal descartada.")
             return None
         
         # --- PREDICTION ---
@@ -239,7 +241,7 @@ class TradingBot:
             "confidence": confianza,
             "entryPrice": close,
             "slDistance": latest["atr"] * (config.ATR_MULTIPLIER_HIGH_CONFIDENCE if proba >= 0.65 or proba <= 0.35 else config.ATR_MULTIPLIER_DEFAULT),
-            "latestMetrics": latestFullData.toDict(),
+            "latestMetrics": latestFullData.to_dict(),
             "symbolInfo": symbol
         }
     

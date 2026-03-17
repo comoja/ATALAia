@@ -11,7 +11,7 @@ TWELVE_DATA_CREDIT_LIMIT = 750
 TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD = 50
 
 # --- Time and Scheduling ---
-TIMEZONE = "America/New_York"
+TIMEZONE = "America/Mexico_City"
 # Default interval for analysis. Can be overridden by dynamic parameters.
 DEFAULT_INTERVAL = "15min"
 MAX_INTERVAL = "1h"
@@ -52,7 +52,7 @@ RSI_OVERBOUGHT_THRESHOLD = 70
 RSI_SOLD_THRESHOLD = 30
 
 # Minimum volatility (ATR as % of close price) to consider a signal.
-MIN_VOLATILITY_PERCENT = 0.05
+MIN_VOLATILITY_PERCENT = 0.10
 
 # Confidence level below which trading against the EMA50 is forbidden.
 CONTRARIAN_CONFIDENCE_THRESHOLD = 85
