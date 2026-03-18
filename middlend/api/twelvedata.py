@@ -42,11 +42,12 @@ async def checkApiCredits(apiKey: str, accountName: str):
         logger.error(f"Error inesperado al verificar créditos de API para {accountName}: {e}")
 
 
-async def getTimeSeries(symbol: str, interval: str, apiKey: str, nVelas: int = 200) -> pd.DataFrame | None:
+async def getTimeSeries(symbol: str, interval: str, apiKey: str, nVelas: int = 200, accountName: str = None) -> pd.DataFrame | None:
     """
     Downloads time series data for a given symbol.
     """
-    logger.info(f"Descargando {nVelas} velas para {symbol} en intervalo {interval}")
+    accountInfo = f" [{accountName}]" if accountName else ""
+    logger.info(f"Descargando {nVelas} velas para {symbol} en intervalo {interval}{accountInfo}")
     url = f"{TWELVE_DATA_API_URL}/time_series"
     params = {
         "symbol": symbol,

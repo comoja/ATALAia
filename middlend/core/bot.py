@@ -124,15 +124,19 @@ class TradingBot:
 
         return self.estadosPorSimbolo
 
-    async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str) -> pd.DataFrame | None:
+    async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, raw_df: pd.DataFrame = None) -> pd.DataFrame | None:
         """Fetches, prepares, and enriches data with technical features."""
         symbol = symbolInfo['symbol']
         
-        # 1. Download data
-        df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas)
-        if df is None or len(df) < 100:
-            logger.warning(f"[{symbol}] Datos insuficientes para análisis ({len(df) if df is not None else 0} velas).")
-            return None
+        # 1. Download data or use provided raw data
+        if raw_df is not None and len(raw_df) >= 100:
+            df = raw_df.copy()
+        else:
+            logger.info(f"[{symbol}] Obteniendo datos de 12Data para estrategia Sniper...")
+            df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas)
+            if df is None or len(df) < 100:
+                logger.warning(f"[{symbol}] Datos insuficientes para análisis ({len(df) if df is not None else 0} velas).")
+                return None
         
         # 2. Calculate features
         dfFeatured = technical.calculateFeatures(df)
@@ -504,6 +508,7 @@ class TradingBot:
         
         text = (
             f"{colorHeader*3} <b>SEÑAL DE {directionStr}</b> {colorHeader*3}\n"
+            f"<center><i>Estrategia: ML SNIPER</i></center>\n"
             f"<center><b>{trade['symbol']}</b> ({trade['intervalo']})</center>\n"
             f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
             f"━━━━━━━━━━━━━━━\n"
@@ -526,7 +531,7 @@ class TradingBot:
     
     
 
-    async def runAnalysisCycle(self):
+    async def runAnalysisCycle(self, preloaded_data: Dict = None):
         """The main operational loop of the bot."""
         self.accounts = dbManager.getAccount()
         if not self.accounts:
@@ -538,25 +543,56 @@ class TradingBot:
         symbolsToScan = dbManager.getSymbols()
         
         for symbolInfo in symbolsToScan:
+            symbol = symbolInfo['symbol']
             # These parameters are now fetched per symbol, as in the original logic
             apiKey, interval, _, nVelas, waitMin = getParametros()
             symbolInfo['intervalo'] = interval # Augment symbolInfo
             
-            logger.debug(f"Analizando {symbolInfo['symbol']} en intervalo {interval}...")
+            logger.debug(f"Analizando {symbol} en intervalo {interval}...")
 
-            data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval)
+            # Use preloaded data if available
+            raw_df = preloaded_data.get(symbol) if preloaded_data else None
+            data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, raw_df)
             if data is None:
                 continue
             
-            await self.momentum(symbolInfo['symbol'], data, interval)
+            await self.momentum(symbol, data, interval)
             
-            signal = await self._get_signal(data, symbolInfo['symbol'])
+            signal = await self._get_signal(data, symbol)
             if signal:
-                logger.info(f"[{symbolInfo['symbol']}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
+                logger.info(f"[{symbol}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
                 await self._execute_trades(signal, symbolInfo)
             else:
-                logger.debug(f"[{symbolInfo['symbol']}] Sin señal en intervalo {interval}.")
+                logger.debug(f"[{symbol}] Sin señal en intervalo {interval}.")
             await asyncio.sleep(5)
         logger.info("✅ Ciclo de análisis completado.")
+
+    async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None):
+        """Procesa un solo símbolo (usado para análisis secuencial)."""
+        if not self.accounts:
+            return
+        
+        symbol = symbolInfo['symbol']
+        interval = symbolInfo.get('intervalo', '1h')
+        if apiKey is None:
+            apiKey, _, _, nVelas, _ = getParametros()
+        else:
+            _, _, _, nVelas, _ = getParametros()
+        
+        logger.debug(f"Analizando {symbol} con Sniper en intervalo {interval}...")
+
+        raw_df = preloaded_data.get(symbol) if preloaded_data else None
+        data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, raw_df)
+        if data is None:
+            return
+        
+        await self.momentum(symbol, data, interval)
+        
+        signal = await self._get_signal(data, symbol)
+        if signal:
+            logger.info(f"[{symbol}] Señal Sniper: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
+            await self._execute_trades(signal, symbolInfo)
+        else:
+            logger.debug(f"[{symbol}] Sin señal Sniper en intervalo {interval}.")
 
 
