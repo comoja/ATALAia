@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sys
 import os
+import time
 
 # --- Path Setup ---
 
@@ -15,15 +16,94 @@ if rutaRaiz not in sys.path:
 # --- Module Imports ---
 from middlend.utils.loggerConfig import setupLogging
 from middlend.core.bot import TradingBot
+from middlend.core.SMA20_200 import SMABot
+from middlend.core.SCLPNG1h_1min import SCLPNGBot
 from middlend.ml import model as mlModel
 from middlend.analysis.technical import calculateFeatures
 from middlend import configConstants as config
+from middlend.database import dbManager
 
 # --- External Project Imports ---
 from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from middlend.data.dataLoader import getParametros
 from middlend.config.settings import INTERVAL, INTERVALmax
-from middlend.api import twelvedata as oldTwelvedataApi # For training data
+from middlend.api import twelvedata as tdApi
+
+async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
+    """
+    Obtiene los datos de time series una sola vez para todos los símbolos.
+    Retorna un diccionario: {symbol: dataframe}
+    """
+    preloaded_data = {}
+    for symbolInfo in symbolsToScan:
+        symbol = symbolInfo['symbol']
+        logger.info(f"Obteniendo datos de 12Data para {symbol}...")
+        df = await tdApi.getTimeSeries(symbol, interval, apiKey, nVelas)
+        if df is not None and len(df) >= 100:
+            preloaded_data[symbol] = df
+        else:
+            logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
+    return preloaded_data
+
+
+async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, interval, nVelas):
+    """
+    Ejecuta el análisis de forma secuencial:
+    1. Obtener API key para este símbolo (rota entre cuentas)
+    2. Descargar símbolo
+    3. Ejecutar Sniper
+    4. Ejecutar SMA20-200
+    5. Ejecutar SCLPNG1h_1min
+    6. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
+    """
+    MIN_WAIT_SECONDS = 3
+    
+    for idx, symbolInfo in enumerate(symbolsToScan):
+        symbol = symbolInfo['symbol']
+        start_time = time.time()
+        
+        # Obtener API key para este símbolo (rota entre cuentas)
+        symbolApiKey, _, nombreKey, _, _ = getParametros()
+        logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...")
+        
+        # Guardar nombreKey en symbolInfo para usar en logs de descarga
+        symbolInfo['cuenta'] = nombreKey
+        
+        # 1. Descargar datos para este símbolo
+        logger.info(f"Descargando datos de 12Data para {symbol} [{nombreKey}]...")
+        df = await tdApi.getTimeSeries(symbol, interval, symbolApiKey, nVelas, nombreKey)
+        
+        if df is None or len(df) < 100:
+            logger.warning(f"[{symbol}] Datos insuficientes. Saltando...")
+            if idx < len(symbolsToScan) - 1:
+                await asyncio.sleep(MIN_WAIT_SECONDS)
+            continue
+        
+        # Crear diccionario con los datos para este símbolo
+        preloaded_data = {symbol: df}
+        symbolInfo['intervalo'] = interval
+        
+        # 2. Ejecutar Sniper
+        logger.info(f"Ejecutando estrategia Sniper para {symbol}...")
+        await bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        
+        # 3. Ejecutar SMA20-200
+        logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
+        await sma_bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        
+        # 4. Ejecutar SCLPNG1h_1min
+        logger.info(f"Ejecutando estrategia SCLPNG1h_1min para {symbol}...")
+        await sclpng_bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        
+        # 5. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
+        elapsed = time.time() - start_time
+        wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
+        
+        if wait_time > 0:
+            logger.info(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...")
+            await asyncio.sleep(wait_time)
+        else:
+            logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)")
 
 # 1. Set up logging at the very beginning
 setupLogging()
@@ -50,7 +130,7 @@ async def main():
         apiKey, interval, _, nVelas, _ = getParametros()
         
         # Fetch a large number of candles just for training
-        trainingDf = await oldTwelvedataApi.getTimeSeries("EUR/USD", interval, apiKey, nVelas=5000)
+        trainingDf = await tdApi.getTimeSeries("EUR/USD", interval, apiKey, nVelas=5000)
 
         if trainingDf is not None and not trainingDf.empty:
             logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")
@@ -66,6 +146,8 @@ async def main():
 
     # --- Bot Initialization ---
     bot = TradingBot(mlModelInstance=model)
+    sma_bot = SMABot()
+    sclpng_bot = SCLPNGBot()
     
     logger.info("Bot inicializado correctamente. Iniciando bucle principal...")
 
@@ -79,10 +161,10 @@ async def main():
             # Detectar cambio de estado
             if wasOperating and not isOperating:
                 # Se acaba de detener (viernes 17:00)
-                logger.info("====== MERCADO CERRADO - Bot detenido hasta el domingo 17:00 ======")
+                logger.info("\n\n====== MERCADO CERRADO - Bot detenido ======\n\n")
             elif not wasOperating and isOperating:
                 # Se acaba de iniciar (domingo 17:00)
-                logger.info("====== MERCADO ABIERTO - Bot iniciado ======")
+                logger.info("\n\n====== MERCADO ABIERTO - Bot iniciado ======\n\n")
             
             wasOperating = isOperating
             
@@ -90,7 +172,13 @@ async def main():
                 logger.info("Iniciando ciclo de análisis...")
                 # Obtener parámetros ANTES del análisis
                 apiKey, intervaloActual, nombreKey, nVelas, _ = getParametros()
-                await bot.runAnalysisCycle()
+                
+                # Obtener símbolos a analizar
+                symbolsToScan = dbManager.getSymbols()
+                
+                # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
+                logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
+                await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
                 
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
