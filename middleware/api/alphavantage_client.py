@@ -8,14 +8,9 @@ import pandas as pd
 import pytz
 from datetime import datetime
 
+from middleware.config.constants import ALPHA_VANTAGE_API_KEY
+
 logger = logging.getLogger(__name__)
-
-rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if rutaRaiz not in sys.path:
-    sys.path.insert(0, rutaRaiz)
-
-from alpha_vantage.foreignexchange import ForeignExchange
-from middlend.configConstants import ALPHA_VANTAGE_API_KEY
 
 
 async def getAlphaVantageForex(symbol: str, interval: str, nVelas: int = 200) -> pd.DataFrame | None:

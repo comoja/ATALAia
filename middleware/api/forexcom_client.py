@@ -8,13 +8,9 @@ import pandas as pd
 import pytz
 from datetime import datetime
 
+from middleware.config.constants import FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
+
 logger = logging.getLogger(__name__)
-
-rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if rutaRaiz not in sys.path:
-    sys.path.insert(0, rutaRaiz)
-
-from middlend.configConstants import FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
 
 
 async def getForexComCandles(symbol: str, interval: str, nVelas: int = 200) -> pd.DataFrame | None:

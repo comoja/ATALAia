@@ -2,12 +2,14 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import os
 
-def setupLogging(logPara :str):
-    logDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
+def setupLogging(logPara: str = "app", projectDir: str = None):
+    if projectDir is None:
+        projectDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    logDir = os.path.join(projectDir, 'logs')
     if not os.path.exists(logDir):
         os.makedirs(logDir)
 
-    logFilename = os.path.join(logDir, logPara +".log")
+    logFilename = os.path.join(logDir, f"{logPara}.log")
     
     # Manejador para archivo diario
     fileHandler = TimedRotatingFileHandler(

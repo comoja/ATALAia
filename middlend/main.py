@@ -9,26 +9,28 @@ import time
 import pandas as pd
 
 # --- Path Setup ---
-
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
 # --- Module Imports ---
-from middlend.utils.loggerConfig import setupLogging
+from middlend.utils.loggerConfig import setupLoggingMiddlend as setupLogging
 from middlend.core.bot import TradingBot
 from middlend.core.SMA20_200 import SMABot
 from middlend.core.SCLPNG1h_1min import SCLPNGBot
 from middlend.ml import model as mlModel
 from middlend.analysis.technical import calculateFeatures
-from middlend import configConstants as config
-from middlend.database import dbManager
+from middleware.config import constants as config
+from middleware.database import dbManager
 
 # --- External Project Imports ---
-from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
+from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from middlend.data.dataLoader import getParametros
-from middlend.config.settings import INTERVAL, INTERVALmax
-from middlend.api import twelvedata as tdApi
+from middleware.config import settings
+from middleware.api import twelvedata as tdApi
+
+INTERVAL = settings.INTERVAL
+INTERVALmax = settings.INTERVALmax
 
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """

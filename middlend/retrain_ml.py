@@ -10,12 +10,12 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from middlend.utils.loggerConfig import setupLogging
+from middlend.utils.loggerConfig import setupLoggingMiddlend as setupLogging
+from middleware.config import constants as config
 from middlend.ml import model as mlModel
 from middlend.analysis.technical import calculateFeatures
-from middlend import configConstants as config
 from middlend.data.dataLoader import getParametros
-from middlend.api import twelvedata
+from middleware.api import twelvedata
 
 setupLogging()
 

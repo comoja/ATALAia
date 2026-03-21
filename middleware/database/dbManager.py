@@ -7,7 +7,7 @@ import logging
 import asyncio
 logger = logging.getLogger(__name__)
 
-from middlend.database import dbConnection
+from middleware.database import dbConnection
 
 def cierraTradeEnDb(idTrade, precioCierre, fechaCierre, comentario):
     try:
@@ -261,25 +261,16 @@ async def getLastCandleDatetime(symbol: str, timeframe: str):
 
     return await asyncio.to_thread(query)
 
-# --- Insertar nuevas velas ---
 async def insertNewCandlesToDb(df, timeframe: str) -> int:
     """
     Inserta velas en la tabla 'candles' de forma segura y asincrónica.
-    
-    Args:
-        df (pd.DataFrame): DataFrame con columnas ['symbol','datetime','open','high','low','close','volume'].
-        timeframe (str): Intervalo de las velas, ej. '5min', '15min', '1h'.
-    
-    Returns:
-        int: Número de velas insertadas.
     """
     if df.empty:
         logger.info(f"No hay velas para insertar en {timeframe}.")
         return 0
 
-    # Asegurar que la columna 'volume' exista
     if 'volume' not in df.columns:
-        df['volume'] = None  # o 0 si prefieres
+        df['volume'] = None
 
     def insert():
         try:
@@ -314,5 +305,4 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
             return 0
 
     inserted_count = await asyncio.to_thread(insert)
-    #logger.info(f"Insertadas {inserted_count} velas en '{timeframe}'")
     return inserted_count

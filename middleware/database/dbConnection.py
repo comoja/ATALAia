@@ -1,5 +1,5 @@
 import mysql.connector
-from middlend.config.settings import dbConfig
+from middleware.config.settings import dbConfig
 import logging
 logger = logging.getLogger(__name__)
 

@@ -9,13 +9,9 @@ import pandas as pd
 import pytz
 from datetime import datetime
 
+from middleware.config.constants import FINNHUB_API_KEY
+
 logger = logging.getLogger(__name__)
-
-rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if rutaRaiz not in sys.path:
-    sys.path.insert(0, rutaRaiz)
-
-from middlend.configConstants import FINNHUB_API_KEY
 
 
 async def getFinnhubForex(symbol: str, interval: str, nVelas: int = 200) -> pd.DataFrame | None:

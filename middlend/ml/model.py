@@ -9,8 +9,7 @@ import joblib
 import os
 from typing import Tuple
 
-# Assuming new structure allows these imports
-from middlend.configConstants import (
+from middleware.config.constants import (
     MODEL_PARAMS, MODEL_FEATURES, MODEL_FILE_PATH,
     ML_TARGET_HORIZON_LOW_VOL, ML_TARGET_HORIZON_HIGH_VOL, ML_TARGET_HORIZON_NORMAL_VOL
 )

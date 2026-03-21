@@ -15,12 +15,12 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from middlend.api import twelvedata
+from middleware.api import twelvedata
+from middleware.config import constants as config
 from middlend.analysis import technical, risk
 from middlend.core.communications import sendTelegramAlert, alertaInmediata
-from middlend import configConstants as config
-from middlend.database import dbManager
-from middlend.scheduler.autoScheduler import getTiempoEspera, isRestTime
+from middleware.database import dbManager
+from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from middlend.data.dataLoader import getParametros
 
 logger = logging.getLogger(__name__)

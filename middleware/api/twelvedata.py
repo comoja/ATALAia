@@ -8,18 +8,13 @@ import httpx
 import pandas as pd
 import pytz
 import asyncio
-# --- Path Setup ---
 
-rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if rutaRaiz not in sys.path:
-    sys.path.insert(0, rutaRaiz)
-
-# Assuming the new project structure allows this import.
-# If running as a script, this might need path adjustments.
-from middlend.configConstants import TWELVE_DATA_API_URL, TWELVE_DATA_CREDIT_LIMIT, TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD
-# A placeholder for alert functions, which should also be modularized.
-# from ..core.communications import sendAlert
-from middlend.database import dbManager, dbConnection
+from middleware.config.constants import (
+    TWELVE_DATA_API_URL, 
+    TWELVE_DATA_CREDIT_LIMIT, 
+    TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD
+)
+from middleware.database import dbManager, dbConnection
 
 
 logger = logging.getLogger(__name__)

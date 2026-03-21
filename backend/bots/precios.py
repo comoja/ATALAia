@@ -8,6 +8,8 @@ import requests
 import pytz
 from datetime import datetime, timedelta
 
+from middlend.database import dbConnection
+
 # Esto detecta la carpeta 'backend' y la registra en Python
 ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ruta_raiz not in sys.path:
@@ -20,7 +22,7 @@ setup_logging()
 from config import settings
 from scheduler.autoScheduler import getTiempoEspera
 from core.comm import enviar_alerta
-from database import dbConnection, dbManager
+from database import dbManager
 from data.dataLoader import getParametros, nombre_key
 
 import logging
