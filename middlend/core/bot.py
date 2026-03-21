@@ -573,7 +573,7 @@ class TradingBot:
             return
         
         symbol = symbolInfo['symbol']
-        interval = symbolInfo.get('intervalo', '1h')
+        interval = symbolInfo.get('intervalo', '15min')
         if apiKey is None:
             apiKey, _, _, nVelas, _ = getParametros()
         else:

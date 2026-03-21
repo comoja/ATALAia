@@ -4,6 +4,7 @@ import mysql.connector
 import pandas as pd
 from datetime import datetime
 import logging
+import asyncio
 logger = logging.getLogger(__name__)
 
 from middlend.database import dbConnection
@@ -130,6 +131,34 @@ def getSymbols():
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return []
+
+def getSymbol(symbol: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM SentinelSymbol WHERE symbol = %s", (symbol,))
+        
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"Error en la DB: {e}", exc_info=True)
+        return None
+
+def getSymbolTypeConfig(tipo: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM SymbolTypeConfig WHERE tipo = %s", (tipo,))
+        
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"Error en la DB: {e}", exc_info=True)
+        return None
     
 def buscaTrade(tradeData):
     try:
@@ -212,3 +241,78 @@ def insertarTrade(data):
     except Exception as e:
         logger.error(f"❌ Error al insertarTrade: {e}")
         if 'conn' in locals(): conn.rollback()
+
+
+async def getLastCandleDatetime(symbol: str, timeframe: str):
+    def query():
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT MAX(datetime) FROM candles WHERE symbol=%s AND timeframe=%s",
+                (symbol, timeframe)
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return result[0] if result[0] else None
+        except Exception as e:
+            logger.error(f"Error en getLastCandleDatetime: {e}", exc_info=True)
+            return None
+
+    return await asyncio.to_thread(query)
+
+# --- Insertar nuevas velas ---
+async def insertNewCandlesToDb(df, timeframe: str) -> int:
+    """
+    Inserta velas en la tabla 'candles' de forma segura y asincrónica.
+    
+    Args:
+        df (pd.DataFrame): DataFrame con columnas ['symbol','datetime','open','high','low','close','volume'].
+        timeframe (str): Intervalo de las velas, ej. '5min', '15min', '1h'.
+    
+    Returns:
+        int: Número de velas insertadas.
+    """
+    if df.empty:
+        logger.info(f"No hay velas para insertar en {timeframe}.")
+        return 0
+
+    # Asegurar que la columna 'volume' exista
+    if 'volume' not in df.columns:
+        df['volume'] = None  # o 0 si prefieres
+
+    def insert():
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            insert_query = """
+                INSERT IGNORE INTO candles 
+                (symbol, timeframe, datetime, open, high, low, close, volume)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            values = [
+                (
+                    row['symbol'], 
+                    timeframe, 
+                    row['datetime'], 
+                    row['open'], 
+                    row['high'], 
+                    row['low'], 
+                    row['close'], 
+                    row['volume']
+                )
+                for _, row in df.iterrows()
+            ]
+
+            cursor.executemany(insert_query, values)
+            conn.commit()
+            inserted = cursor.rowcount
+            conn.close()
+            return inserted
+        except Exception as e:
+            logger.error(f"Error en insertNewCandlesToDb: {e}", exc_info=True)
+            return 0
+
+    inserted_count = await asyncio.to_thread(insert)
+    #logger.info(f"Insertadas {inserted_count} velas en '{timeframe}'")
+    return inserted_count

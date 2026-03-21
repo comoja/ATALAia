@@ -17,21 +17,19 @@ def isRestTime():
 
     weekday = now.weekday()
     hour = now.hour
+    logger.info( f"------ hora de hoy  {now.strftime("%Y-%m-%d %H:%M:%S" )} weekday: {weekday} hour: {hour} minute: {now.minute} ")
 
     # Lunes-Viernes 00:01-06:00 (horario nocturno - no opera)
-    if weekday <= 4:
-        if hour == 0 and now.minute >= 1:
-            logger.info("horario nocturno - no opera")
-            return True
-        if 1 <= hour < 6:
-            logger.info("horario nocturno - no opera")
-            return True
+    #if weekday <= 4:
+     #   if hour == 0 and now.minute >= 1:
+      #      logger.info("horario nocturno - no opera")
+      #      return True
+      #  if 1 <= hour < 6:
+      #      logger.info("horario nocturno - no opera")
+      #      return True
 
     # Lunes-Jueves 16:03-17:00 (horario de lunch - no opera)
-    if weekday <= 3 and hour == 16 and now.minute >= 3:
-        logger.info("horario de lunch - no opera")
-        return True
-    if weekday <= 3 and hour < 17:
+    if weekday <= 3 and (hour == 16 and now.minute >= 3) and hour < 17 :
         logger.info("horario de lunch - no opera")
         return True
 

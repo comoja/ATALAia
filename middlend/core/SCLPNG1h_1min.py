@@ -197,7 +197,7 @@ class SCLPNGBot:
     def _format_alert_message(self, signal: Dict, trade: Dict) -> str:
         direction = signal['direction']
         directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
-        colorHeader = "🟢" if direction == "LARGO" else "🔴"
+        colorHeader = "🟩" if direction == "LARGO" else "🟥"
         
         close = signal['entryPrice']
         tp = trade['takeProfit']
@@ -210,7 +210,7 @@ class SCLPNGBot:
         
         text = (
             f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>SEÑAL SCLPNG DE {directionStr}</b> "
+            f"<b>SEÑAL DE {directionStr}</b> "
             f"{colorHeader}{colorHeader}{colorHeader}\n"
             f"<center><i>Estrategia: SCLPNG1h_1min</i></center>\n"
             f"<center><b>{trade['symbol']}</b> (1H breakout + 1min FVG)</center>\n"
@@ -220,8 +220,8 @@ class SCLPNGBot:
             f"<center>Confianza: <b>{confianza}%</b></center>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"🔹 ENTRADA:   <b>{close:,.6f}</b>\n"
-            f"🛡️ SL: <b>{sl:,.6f}</b>\n"
-            f"🎯 TP: <b>{tp:,.6f}</b>\n"
+            f"🔴 SL: <b>{sl:,.6f}</b>\n"
+            f"🟢 TP: <b>{tp:,.6f}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"• 1H High: {maximo_h1:.6f}\n"
             f"• 1H Low: {minimo_h1:.6f}\n"
@@ -270,7 +270,7 @@ class SCLPNGBot:
             return
         
         symbol = symbolInfo['symbol']
-        interval = symbolInfo.get('intervalo', '1h')
+        interval = symbolInfo.get('intervalo', '15min')
         if apiKey is None:
             apiKey, _, _, nVelas, _ = getParametros()
         else:

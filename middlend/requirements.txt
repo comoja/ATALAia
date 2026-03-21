@@ -14,3 +14,6 @@ httpx
 
 # For Telegram notifications
 python-telegram-bot
+
+
+ /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/.venv/bin/activate && cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/middlend && python main.py

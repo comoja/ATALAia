@@ -10,6 +10,20 @@ TWELVE_DATA_CREDIT_LIMIT = 750
 # Credit threshold to trigger an emergency alert.
 TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD = 50
 
+# Finnhub API key for forex data (get from https://finnhub.io/)
+FINNHUB_API_KEY = "d63po69r01ql6dj11hbgd63po69r01ql6dj11hc0"
+
+# Tradermade API key for forex data (get from https://tradermade.com/)
+TRADERMADE_API_KEY = ""
+
+# Alpha Vantage API key for forex data (get from https://www.alphavantage.co/)
+ALPHA_VANTAGE_API_KEY = "YGKNWXFES0X0UL5J"
+
+# Forex.com credentials (NO guardar en repositorio público)
+FOREXCOM_USERNAME = "comoja66@gmail.com"
+FOREXCOM_PASSWORD = "Trade123@"
+FOREXCOM_APP_KEY = "Ja.Morales"
+
 # --- Time and Scheduling ---
 TIMEZONE = "America/Mexico_City"
 # Default interval for analysis. Can be overridden by dynamic parameters.

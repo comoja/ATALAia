@@ -6,6 +6,7 @@ import logging
 import sys
 import os
 import time
+import pandas as pd
 
 # --- Path Setup ---
 
@@ -71,6 +72,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         
         # 1. Descargar datos para este símbolo
         logger.info(f"Descargando datos de 12Data para {symbol} [{nombreKey}]...")
+        #df = await tdApi.getTimeSeriesSymbolWithDB ( symbol, interval, symbolApiKey, nVelas, nombreKey)
         df = await tdApi.getTimeSeries(symbol, interval, symbolApiKey, nVelas, nombreKey)
         
         if df is None or len(df) < 100:
@@ -89,7 +91,19 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         
         # 3. Ejecutar SMA20-200
         logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
-        await sma_bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        try:
+            logger.info(f"[MAIN] >>> Entrando SMA BOT para {symbol}")
+            
+            await sma_bot.runAnalysisCycle_for_symbol(
+                symbolInfo, 
+                preloaded_data, 
+                symbolApiKey
+            )
+            
+            logger.info(f"[MAIN] <<< SMA BOT terminó para {symbol}")
+
+        except Exception as e:
+            logger.error(f"[MAIN] ERROR en SMA BOT para {symbol}: {e}", exc_info=True)
         
         # 4. Ejecutar SCLPNG1h_1min
         logger.info(f"Ejecutando estrategia SCLPNG1h_1min para {symbol}...")
@@ -170,6 +184,8 @@ async def main():
             
             if isOperating:
                 logger.info("Iniciando ciclo de análisis...")
+                await asyncio.sleep(5)
+                
                 # Obtener parámetros ANTES del análisis
                 apiKey, intervaloActual, nombreKey, nVelas, _ = getParametros()
                 
@@ -178,8 +194,8 @@ async def main():
                 
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
-                await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
-                
+                #await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
+                await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
                 proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL
