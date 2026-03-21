@@ -1,6 +1,6 @@
 """
 Script para reentrenar el modelo de ML.
-Ejecutar: python -m middlend.retrain_ml
+Ejecutar: python -m Sentinel.retrain_ml
 """
 import asyncio
 import sys
@@ -10,11 +10,11 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from middlend.utils.loggerConfig import setupLoggingMiddlend as setupLogging
+from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
 from middleware.config import constants as config
-from middlend.ml import model as mlModel
-from middlend.analysis.technical import calculateFeatures
-from middlend.data.dataLoader import getParametros
+from Sentinel.ml import model as mlModel
+from Sentinel.analysis.technical import calculateFeatures
+from Sentinel.data.dataLoader import getParametros
 from middleware.api import twelvedata
 
 setupLogging()

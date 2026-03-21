@@ -14,18 +14,18 @@ if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
 # --- Module Imports ---
-from middlend.utils.loggerConfig import setupLoggingMiddlend as setupLogging
-from middlend.core.bot import TradingBot
-from middlend.core.SMA20_200 import SMABot
-from middlend.core.SCLPNG1h_1min import SCLPNGBot
-from middlend.ml import model as mlModel
-from middlend.analysis.technical import calculateFeatures
+from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
+from Sentinel.core.bot import TradingBot
+from Sentinel.core.SMA20_200 import SMABot
+from Sentinel.core.SCLPNG1h_1min import SCLPNGBot
+from Sentinel.ml import model as mlModel
+from Sentinel.analysis.technical import calculateFeatures
 from middleware.config import constants as config
 from middleware.database import dbManager
 
 # --- External Project Imports ---
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
-from middlend.data.dataLoader import getParametros
+from Sentinel.data.dataLoader import getParametros
 from middleware.config import settings
 from middleware.api import twelvedata as tdApi
 

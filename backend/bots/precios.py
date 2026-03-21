@@ -8,7 +8,7 @@ import requests
 import pytz
 from datetime import datetime, timedelta
 
-from middlend.database import dbConnection
+from Sentinel.database import dbConnection
 
 # Esto detecta la carpeta 'backend' y la registra en Python
 ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

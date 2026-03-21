@@ -1,5 +1,5 @@
 """
-Scheduler for middlend - re-exports from middleware.
+Scheduler for Sentinel - re-exports from middleware.
 """
 from middleware.scheduler import autoScheduler
 

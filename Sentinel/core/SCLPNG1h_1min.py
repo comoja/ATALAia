@@ -17,11 +17,11 @@ if rutaRaiz not in sys.path:
 
 from middleware.api import twelvedata
 from middleware.config import constants as config
-from middlend.analysis import technical, risk
-from middlend.core.communications import sendTelegramAlert, alertaInmediata
+from Sentinel.analysis import technical, risk
+from middleware.utils.communications import sendTelegramAlert, alertaInmediata
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
-from middlend.data.dataLoader import getParametros
+from Sentinel.data.dataLoader import getParametros
 
 logger = logging.getLogger(__name__)
 

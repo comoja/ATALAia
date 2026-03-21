@@ -15,12 +15,12 @@ if rutaRaiz not in sys.path:
 
 from middleware.api import twelvedata
 from middleware.config import constants as config
-from middlend.analysis import technical, risk
-from middlend.ml import model as mlModel
-from middlend.core.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
+from Sentinel.analysis import technical, risk
+from Sentinel.ml import model as mlModel
+from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
-from middlend.data.dataLoader import getParametros
+from Sentinel.data.dataLoader import getParametros
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class TradingBot:
         return "🧊" if angulo <= -75 else ("🔥" if angulo >= 75 else ("📈" if angulo > 0 else "📉"))
 
     async def momentum(self, symbol, df, intervalo=None):   
-        from middlend.database import dbManager
+        from Sentinel.database import dbManager
         
         df = self.calcularAngulos(df)
         last = df.iloc[-1]

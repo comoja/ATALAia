@@ -1,5 +1,5 @@
 """
-API clients for middlend - re-exports from middleware.
+API clients for Sentinel - re-exports from middleware.
 """
 from middleware.api import twelvedata
 from middleware.api import alphavantage_client

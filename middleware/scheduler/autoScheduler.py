@@ -4,7 +4,7 @@ import pytz
 from datetime import datetime
 import asyncio
 
-from middleware.config.settings import timeZone, FESTIVOS
+from middleware.config.constants import timeZone, FESTIVOS
 import logging
 logger = logging.getLogger(__name__)
 from apscheduler.schedulers.blocking import BlockingScheduler

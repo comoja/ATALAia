@@ -12,11 +12,11 @@ rutaProyecto = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaProyecto not in sys.path:
     sys.path.insert(0, rutaProyecto)
 
-from middlend.api import twelvedata
-from middlend.core.SMA20_200 import SMABot
-from middlend.core.communications import sendTelegramAlert
-from middlend.database import dbManager
-from middlend.data.dataLoader import getParametros
+from Sentinel.api import twelvedata
+from Sentinel.core.SMA20_200 import SMABot
+from middleware.utils.communications import sendTelegramAlert
+from Sentinel.database import dbManager
+from Sentinel.data.dataLoader import getParametros
 import talib as ta
 import logging
 
