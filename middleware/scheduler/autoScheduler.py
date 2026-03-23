@@ -10,10 +10,9 @@ logger = logging.getLogger(__name__)
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 
-def isRestTime():
-    # Configuración de la zona horaria
+def isRestTime(dt=None):
     tz = pytz.timezone(timeZone)
-    now = datetime.now(tz)
+    now = dt if dt is not None else datetime.now(tz)
 
     weekday = now.weekday()
     hour = now.hour
@@ -39,7 +38,7 @@ def isRestTime():
         return True
 
     # Sábado y Domingo - no opera
-    if weekday >= 5:
+    if weekday >=5 and (weekday <= 6 and hour < 17):
         logger.info("fin de semana - no opera")
         return True
 

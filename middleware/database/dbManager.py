@@ -146,6 +146,18 @@ def getSymbol(symbol: str):
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return None
 
+def getSymbolStartDate(symbol: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT startDate FROM SentinelSymbol WHERE symbol = %s", (symbol,))
+        result = cursor.fetchone()
+        conn.close()
+        return result['startDate'] if result else None
+    except Exception as e:
+        logger.error(f"Error en getSymbolStartDate: {e}", exc_info=True)
+        return None
+
 def getSymbolTypeConfig(tipo: str):
     try:
         conn = dbConnection.getConnection()

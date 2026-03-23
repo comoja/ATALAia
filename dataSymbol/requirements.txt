@@ -1,0 +1,6 @@
+pandas
+mysql-connector-python
+sqlalchemy
+httpx
+python-dotenv
+pytz
