@@ -48,7 +48,7 @@ async def checkApiCredits(apiKey: str, accountName: str):
         logger.error(f"Error inesperado al verificar créditos de API para {accountName}: {e}")
 
 
-async def getTimeSeries(symbol: str, interval: str, apiKey: str, nVelas: int = 200, accountName: str = None) -> pd.DataFrame | None:
+async def getTimeSeries(symbol: str, interval: str, apiKey: str, nVelas: int = 5000, accountName: str = None) -> pd.DataFrame | None:
     """
     Downloads time series data for a given symbol.
     """

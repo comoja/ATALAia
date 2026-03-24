@@ -22,7 +22,7 @@ if ruta_raiz not in sys.path:
 from database import dbManager
 from scheduler.autoScheduler import getTiempoEspera, isRestTime
 from core.comm import enviarAlerta, alertaInmediata
-from utils.momentum import momentum
+from middleware.utils.momentum import momentum
 
 from data.dataLoader import getParametros, nombre_key
 from config import settings

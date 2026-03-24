@@ -22,6 +22,7 @@ from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
+from middleware.utils.alertBuilder import buildSMAAlertMessage
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
@@ -100,7 +101,7 @@ class SMABot:
         m, b = np.polyfit(x, y, 1)
         return m
     
-    def es_senal_duplicada(self, symbol, direction, candle_time):
+    def esSenalDuplicada(self, symbol, direction, candleTime):
         """
         Evita enviar la misma señal en la misma vela
         """
@@ -110,7 +111,7 @@ class SMABot:
         
         last = self.lastSignals[symbol]
         
-        if last["direction"] == direction and last["candle_time"] == candle_time:
+        if last["direction"] == direction and last["candle_time"] == candleTime:
             return True
         
         return False
@@ -242,44 +243,59 @@ class SMABot:
         logger.warning(f"[TOQUES] [{symbol}] No se encontró doble toque válido para confirmar señal")
         return None, None
     
-    def identificar_tendencia(self, df, precio_actual, sma20):
-        pendiente_sma20 = self.getPendiente(df["sma20"].tail(10), 10)
+    def identificarTendencia(self, df, precioActual, sma20):
+        pendienteSma20 = self.getPendiente(df["sma20"].tail(10), 10)
         
-        atr_relativo = df["atr"].iloc[-1] / precio_actual
-        slope_threshold = max(0.0002, atr_relativo * 0.5)
+        atrRelativo = df["atr"].iloc[-1] / precioActual
+        slopeThreshold = max(0.0002, atrRelativo * 0.5)
         
-        if precio_actual > sma20 and pendiente_sma20 > slope_threshold:
+        if precioActual > sma20 and pendienteSma20 > slopeThreshold:
             return "ALCISTA"
-        elif precio_actual < sma20 and pendiente_sma20 < -slope_threshold:
+        elif precioActual < sma20 and pendienteSma20 < -slopeThreshold:
             return "BAJISTA"
         return "NEUTRAL"
 
-    async def validar_tendencia_1h(self, symbol: str, tendencia_15m: str, apiKey: str) -> bool:
+    async def validarTendencia1h(self, symbol: str, tendencia15m: str, df15m: pd.DataFrame) -> bool:
         """
         Valida que la tendencia en 1H coincida con la tendencia en 15M.
-        Si 1H está NEUTRAL, no se genera señal aunque 15M tenga tendencia.
+        Usa los datos de 15min para resamplear a 1H (sin llamada adicional a API).
         """
         try:
-            df_1h = await twelvedata.getTimeSeries(symbol, "1h", apiKey, nVelas=100)
+            df1h = df15m.resample('1H').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            }).dropna()
             
-            if df_1h is None or df_1h.empty or len(df_1h) < 50:
+            if df1h.empty or len(df1h) < 50:
                 logger.warning(f"[{symbol}] No se pudieron obtener datos de 1H - omitiendo filtro multi-tiempo")
                 return True
             
-            df_1h = technical.calculateFeatures(df_1h)
+            df1h = technical.calculateFeatures(df1h)
+            if "sma20" not in df1h.columns:
+                df1h["sma20"] = ta.SMA(df1h["close"], timeperiod=20)
+            if "atr" not in df1h.columns:
+                df1h["atr"] = ta.ATR(df1h["high"], df1h["low"], df1h["close"], 14)
+            df1h = df1h.dropna()
             
-            close_1h = df_1h["close"].iloc[-1]
-            sma20_1h = df_1h["sma20"].iloc[-1]
-            tendencia_1h = self.identificar_tendencia(df_1h, close_1h, sma20_1h)
+            if len(df1h) < 50:
+                logger.warning(f"[{symbol}] Datos 1H insuficientes tras procesar - omitiendo filtro multi-tiempo")
+                return True
             
-            logger.info(f"[{symbol}] Tendencia 1H: {tendencia_1h} | Tendencia 15M: {tendencia_15m}")
+            close1h = df1h["close"].iloc[-1]
+            sma20_1h = df1h["sma20"].iloc[-1]
+            tendencia1h = self.identificarTendencia(df1h, close1h, sma20_1h)
             
-            if tendencia_1h == "NEUTRAL":
+            logger.info(f"[{symbol}] Tendencia 1H: {tendencia1h} | Tendencia 15M: {tendencia15m}")
+            
+            if tendencia1h == "NEUTRAL":
                 logger.info(f"[{symbol}] ❌ Tendencia NEUTRAL en 1H - señal invalidada por multi-tiempo")
                 return False
             
-            if tendencia_1h != tendencia_15m:
-                logger.info(f"[{symbol}] ⚠️ Tendencias divergentes: 1H={tendencia_1h} vs 15M={tendencia_15m}")
+            if tendencia1h != tendencia15m:
+                logger.info(f"[{symbol}] ⚠️ Tendencias divergentes: 1H={tendencia1h} vs 15M={tendencia15m}")
             
             return True
             
@@ -482,29 +498,60 @@ class SMABot:
             return df["close"].iloc[-1] > df["open"].iloc[-1] and df["close"].iloc[-2] > df["open"].iloc[-2]
         return False
 
-    async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, raw_df: pd.DataFrame = None) -> pd.DataFrame | None:
+    async def _getAndPrepareData(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, rawDf: pd.DataFrame = None) -> pd.DataFrame | None:
 
         symbol = symbolInfo['symbol']
+        minAfterDropna = 50
 
-        if raw_df is not None and len(raw_df) >= 200:
-            df = raw_df.copy()
-        else:
-            df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas)
-            if df is None or len(df) < 200:
-                logger.warning(f"[{symbol}] Datos insuficientes para análisis SMA20-200 ({len(df) if df is not None else 0} velas).")
+        def prepareDf(dfInput):
+            dfInput = dfInput.copy()
+            nanCounts = dfInput[['close', 'high', 'low', 'open', 'volume']].isna().sum()
+            logger.info(f"[{symbol}] rawDf velas={len(dfInput)}, NaN en cols clave: {nanCounts.to_dict()}")
+            dfInput = dfInput.dropna(subset=['close', 'high', 'low'])
+            logger.info(f"[{symbol}] Tras dropna(OHLC): {len(dfInput)} velas")
+            if len(dfInput) < 200:
+                logger.warning(f"[{symbol}] Solo {len(dfInput)} velas válidas tras dropna(subset).")
                 return None
+            for col in ['close', 'high', 'low']:
+                dfInput[col] = pd.to_numeric(dfInput[col], errors='coerce')
+            invalidMask = (dfInput['close'] <= 0) | (dfInput['high'] <= 0) | (dfInput['low'] <= 0)
+            invalidCount = invalidMask.sum()
+            if invalidCount > 0:
+                logger.info(f"[{symbol}] Velas con valores inválidos (≤0): {invalidCount}")
+                dfInput = dfInput[~invalidMask]
+            if len(dfInput) < 200:
+                logger.warning(f"[{symbol}] Solo {len(dfInput)} velas tras filtrar valores inválidos.")
+                return None
+            if "sma20" not in dfInput.columns:
+                dfInput["sma20"] = ta.SMA(dfInput["close"].values, timeperiod=20)
+            if "sma200" not in dfInput.columns:
+                dfInput["sma200"] = ta.SMA(dfInput["close"].values, timeperiod=200)
+            if "atr" not in dfInput.columns:
+                dfInput["atr"] = ta.ATR(dfInput["high"].values, dfInput["low"].values, dfInput["close"].values, 14)
+            nanAfterIndics = dfInput[['sma20', 'sma200', 'atr']].isna().sum()
+            logger.info(f"[{symbol}] NaN tras indicadores: {nanAfterIndics.to_dict()}")
+            result = dfInput.dropna(subset=['sma20', 'sma200', 'atr'])
+            logger.info(f"[{symbol}] Tras dropna final: {len(result)} velas")
+            return result
+
+        if rawDf is not None and len(rawDf) >= 200:
+            df = prepareDf(rawDf)
+            if df is not None and len(df) >= minAfterDropna:
+                logger.info(f"[{symbol}] Usando rawDf pre-cargado: {len(df)} velas")
+                return df
+            logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
         
-        if "sma20" not in df.columns:
-            df["sma20"] = ta.SMA(df["close"], timeperiod=20)
-        if "sma200" not in df.columns:
-            df["sma200"] = ta.SMA(df["close"], timeperiod=200)
-        if "atr" not in df.columns:
-            df["atr"] = ta.ATR(df["high"], df["low"], df["close"], 14)
+        df = await twelvedata.getTimeSeries(symbol, interval, apiKey, 5000)
+        if df is None:
+            logger.warning(f"[{symbol}] Error obteniendo datos de 12Data.")
+            return None
         
-        df = df.dropna()
+        logger.info(f"[{symbol}] Descarga 12Data: {len(df)} velas")
+        df = prepareDf(df)
+        logger.info(f"[{symbol}] Tras prepareDf: {len(df) if df is not None else 'None'} velas")
         
-        if len(df) < 50:
-            logger.warning(f"[{symbol}] Datos insuficientes tras calcular SMAs.")
+        if df is None or len(df) < minAfterDropna:
+            logger.warning(f"[{symbol}] Datos insuficientes para SMA20-200 ({len(df) if df is not None else 0} velas).")
             return None
         
         return df
@@ -541,7 +588,7 @@ class SMABot:
         sma200 = df["sma200"].iloc[-1]
         atr = df["atr"].iloc[-1]
 
-        tendencia = self.identificar_tendencia(df, close, sma20)
+        tendencia = self.identificarTendencia(df, close, sma20)
 
         if tendencia == "NEUTRAL":
             pendiente = self.getPendiente(df["sma20"].tail(10), 10)
@@ -550,11 +597,12 @@ class SMABot:
         
         logger.info(f"[{symbol}] ✓ Tendencia: {tendencia}")
 
-        if apiKey:
-            tendencia_1h_ok = await self.validar_tendencia_1h(symbol, tendencia, apiKey)
-            if not tendencia_1h_ok:
-                return None
-
+        # Filtro multi-tiempo 1H deshabilitado
+        # if apiKey:
+        #     tendencia1hOk = await self.validarTendencia1h(symbol, tendencia, df)
+        #     if not tendencia1hOk:
+        #         return None
+        
         # 🔥 FILTRO DISTANCIA MÍNIMA AL SMA20
         distancia_pct = abs(close - sma20) / close * 100
         umbral_distancia = 0.1
@@ -823,41 +871,7 @@ class SMABot:
 
 
     def _format_alert_message(self, signal: Dict, trade: Dict) -> str:
-        direction = signal['direction']
-        directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
-        colorHeader = "🟩" if direction == "LARGO" else "🟥"
-        
-        close = signal['entryPrice']
-        tp = trade['takeProfit']
-        sl = trade['stopLoss']
-        confianza = signal['confidence']
-        setup = signal['setup']
-        tendencia = signal['tendencia']
-        
-        text = (
-            f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>SEÑAL DE {directionStr}</b> "
-            f"{colorHeader}{colorHeader}{colorHeader}\n"
-            f"<center><i>ESTRATEGIA: SMA20-200</i></center>\n"
-            f"<center><b>  {trade['symbol']}</b> ({trade['intervalo']})</center>\n"
-            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"<center>Setup: <b>{setup}</b></center>\n"
-            f"<center>  Tendencia: <b>{tendencia}</b></center>\n"
-            f"<center>  Confianza: <b>{confianza}%</b></center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🔹 ENTRADA:     <b>{close:,.4f}</b>\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.4f}</b>\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.4f}</b>\n"
-            f"   CANTIDAD:  <b>{trade['size']:,f}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"• SMA20: {signal['sma20']:,.6f}\n"
-            f"• SMA200: {signal['sma200']:,.6f}\n"
-            f"• ATR: {signal['atr']:.6f}\n"
-            
-            f"━━━━━━━━━━━━━━━\n"
-        )
-        return text
+        return buildSMAAlertMessage(signal, trade)
 
     def _filtrar_velas_completas(self, df: pd.DataFrame, ahora_cdmx, interval: str) -> pd.DataFrame:
         interval_map = {
@@ -887,14 +901,11 @@ class SMABot:
         
         return df_filtered
 
-    async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None):
-        # logger.info("🔥 ENTRANDO A SMA BOT")
+    async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
         symbol = symbolInfo['symbol']
-        # logger.info(f"[SMA BOT] INICIO {symbol}")
-
-        self.debug_log(symbol, "==== INICIO ANALISIS SMA ====")
-
-        df = preloaded_data.get(symbol)
+        
+        if preloadedData:
+            df = preloadedData.get(symbol)
 
         if df is None:
             logger.info(f"[SMA BOT] ❌ df es None")
@@ -916,7 +927,7 @@ class SMABot:
        
         _, _, _, nVelas, _ = getParametros()
        
-        data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, df)
+        data = await self._getAndPrepareData(symbolInfo, apiKey, nVelas, interval, df)
 
         if data is None:
             return
@@ -926,10 +937,10 @@ class SMABot:
 
         if signal:
             direction = signal['direction']
-            candle_time = signal['candle_time']
+            candleTime = signal['candle_time']
 
             # 🔥 CONTROL DUPLICADOS
-            if self.es_senal_duplicada(symbol, direction, candle_time):
+            if self.esSenalDuplicada(symbol, direction, candleTime):
                 logger.info(f"[{symbol}] Señal duplicada evitada.")
                 return
 

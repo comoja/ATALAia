@@ -8,17 +8,9 @@ import numpy as np
 from datetime import datetime
 import warnings
 
-
-# Esto detecta la carpeta 'backend' y la registra en Python
-ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if ruta_raiz not in sys.path:
-    sys.path.insert(0, ruta_raiz)
-
-from core.comm import  alertaInmediata
-from core.logger_config import setup_logging
+from middleware.core.communications import alertaInmediata
 import logging
 logger = logging.getLogger(__name__)
-
 
 warnings.filterwarnings("ignore")
 

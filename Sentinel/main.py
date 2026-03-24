@@ -7,6 +7,8 @@ import sys
 import os
 import time
 import pandas as pd
+import pytz
+from datetime import datetime
 
 # --- Path Setup ---
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -17,9 +19,10 @@ if rutaRaiz not in sys.path:
 from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
 from Sentinel.core.bot import TradingBot
 from Sentinel.core.SMA20_200 import SMABot
-from Sentinel.core.SCLPNG1h_1min import SCLPNGBot
+from Sentinel.core.SclpngNY import SCLPNGBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures
+from middleware.utils.momentum import momentum as momentumAnalyzer
 from middleware.config import constants as config
 from middleware.database import dbManager
 
@@ -27,6 +30,27 @@ from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config import settings
+
+
+def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
+    if targetInterval == "5min":
+        return df
+    intervalMap = {
+        "15min": "15T",
+        "30min": "30T",
+        "1h": "1H",
+        "2h": "2H",
+        "4h": "4H"
+    }
+    rule = intervalMap.get(targetInterval, targetInterval)
+    dfResampled = df.resample(rule).agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }).dropna()
+    return dfResampled
 from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
@@ -40,8 +64,8 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     preloaded_data = {}
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
-        logger.info(f"Obteniendo datos de 12Data para {symbol}...")
-        df = await tdApi.getTimeSeries(symbol, interval, apiKey, nVelas)
+        logger.info(f"Obteniendo datos de 12Data para {symbol} (intervalo base 5min)...")
+        df = await tdApi.getTimeSeries(symbol, "5min", apiKey, nVelas)
         if df is not None and len(df) >= 100:
             preloaded_data[symbol] = df
         else:
@@ -56,7 +80,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
     2. Descargar símbolo
     3. Ejecutar Sniper
     4. Ejecutar SMA20-200
-    5. Ejecutar SCLPNG1h_1min
+    5. Ejecutar SclpngNY
     6. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
     """
     MIN_WAIT_SECONDS = 3
@@ -72,10 +96,9 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         # Guardar nombreKey en symbolInfo para usar en logs de descarga
         symbolInfo['cuenta'] = nombreKey
         
-        # 1. Descargar datos para este símbolo
-        logger.info(f"Descargando datos de 12Data para {symbol} [{nombreKey}]...")
-        #df = await tdApi.getTimeSeriesSymbolWithDB ( symbol, interval, symbolApiKey, nVelas, nombreKey)
-        df = await tdApi.getTimeSeries(symbol, interval, symbolApiKey, nVelas, nombreKey)
+        # 1. Descargar datos para este símbolo (siempre 5min - intervalo base)
+        logger.info(f"Descargando datos de 12Data para {symbol} [{nombreKey}] (5min)...")
+        df = await tdApi.getTimeSeries(symbol, "5min", symbolApiKey, 5000, nombreKey)
         
         if df is None or len(df) < 100:
             logger.warning(f"[{symbol}] Datos insuficientes. Saltando...")
@@ -83,22 +106,44 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
                 await asyncio.sleep(MIN_WAIT_SECONDS)
             continue
         
-        # Crear diccionario con los datos para este símbolo
-        preloaded_data = {symbol: df}
-        symbolInfo['intervalo'] = interval
+        # Limpiar NaN básicos de los datos descargados
+        df = df.dropna(subset=['close', 'high', 'low', 'open'])
+        logger.info(f"[{symbol}] Tras limpieza inicial: {len(df)} velas válidas")
         
-        # 2. Ejecutar Sniper
+        if len(df) < 200:
+            logger.warning(f"[{symbol}] Datos insuficientes tras limpieza. Saltando...")
+            if idx < len(symbolsToScan) - 1:
+                await asyncio.sleep(MIN_WAIT_SECONDS)
+            continue
+        
+        # Calcular momentum para este símbolo
+        logger.info(f"Calculando momentum para {symbol}...")
+        try:
+            estadosMomentum = await momentumAnalyzer(symbol, df)
+            symbolInfo['momentum'] = estadosMomentum
+        except Exception as e:
+            logger.error(f"[{symbol}] Error calculando momentum: {e}")
+            symbolInfo['momentum'] = None
+        
+        # Resamplear datos para cada estrategia
+        df15m = resampleData(df, "15min") if interval != "15min" else df
+        
+        # 2. Ejecutar Sniper (usa intervalo configurado)
         logger.info(f"Ejecutando estrategia Sniper para {symbol}...")
-        await bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        preloadedDataSniper = {symbol: df15m if interval != "15min" else df}
+        symbolInfo['intervalo'] = interval
+        await bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
-        # 3. Ejecutar SMA20-200
+        # 3. Ejecutar SMA20-200 (usa 15min)
         logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
+        preloadedDataSMA = {symbol: df15m}
+        symbolInfo['intervalo'] = "15min"
         try:
             logger.info(f"[MAIN] >>> Entrando SMA BOT para {symbol}")
             
             await sma_bot.runAnalysisCycle_for_symbol(
                 symbolInfo, 
-                preloaded_data, 
+                preloadedDataSMA, 
                 symbolApiKey
             )
             
@@ -107,9 +152,77 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         except Exception as e:
             logger.error(f"[MAIN] ERROR en SMA BOT para {symbol}: {e}", exc_info=True)
         
-        # 4. Ejecutar SCLPNG1h_1min
-        logger.info(f"Ejecutando estrategia SCLPNG1h_1min para {symbol}...")
-        await sclpng_bot.runAnalysisCycle_for_symbol(symbolInfo, preloaded_data, symbolApiKey)
+        # 4. Ejecutar SclpngNY (solo después de 9:00 NY)
+        ahoraMX = datetime.now(pytz.timezone('America/Mexico_City'))
+        
+        esDST = SCLPNGBot.isNyDST(ahoraMX)
+        if esDST:
+            inicioAperturaNY = ahoraMX.replace(hour=6, minute=0, second=0, microsecond=0)
+            finAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
+            cierreNY = ahoraMX.replace(hour=12, minute=0, second=0, microsecond=0)
+            horaNY = 8
+            horaFinNY = 9
+            horaCierreNY = 14
+        else:
+            inicioAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
+            finAperturaNY = ahoraMX.replace(hour=8, minute=0, second=0, microsecond=0)
+            cierreNY = ahoraMX.replace(hour=13, minute=0, second=0, microsecond=0)
+            horaNY = 8
+            horaFinNY = 9
+            horaCierreNY = 14
+        
+        logger.info(f"[SCLPNG] Hora MX: {ahoraMX.hour}, Inicio NY: {horaNY}:00 NY ({inicioAperturaNY.hour}:00 MX), Fin: {horaFinNY}:00 NY ({finAperturaNY.hour}:00 MX), Cierre: {horaCierreNY}:00 NY ({cierreNY.hour}:00 MX)")
+        
+        horasDesdeFinApertura = (ahoraMX - finAperturaNY).total_seconds() / 3600
+        
+        if ahoraMX <= finAperturaNY:
+            logger.info(f"[SCLPNG] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
+        elif horasDesdeFinApertura > 2:
+            logger.info(f"[SCLPNG] Han pasado más de 2 horas ({horasDesdeFinApertura:.1f}h) desde fin apertura NY, saltando...")
+        elif sclpng_bot.signalGenerada:
+            logger.info(f"[SCLPNG] Señales ya generadas, saltando...")
+        else:
+            logger.info(f"Ejecutando estrategia SclpngNY para {symbol}...")
+            
+            dfIndex = df.index
+            if dfIndex.tz is None:
+                dfIndex = dfIndex.tz_localize('America/Mexico_City')
+            
+            maskApertura = (dfIndex >= inicioAperturaNY) & (dfIndex < finAperturaNY)
+            dfApertura = df.loc[maskApertura]
+            
+            if len(dfApertura) > 0:
+                precioMaximo = dfApertura['high'].max()
+                precioMinimo = dfApertura['low'].min()
+                
+                logger.info(f"[SCLPNG] Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}")
+                
+                from middleware.utils.communications import alertaInmediata
+                textNivel = (
+                    f"<b>NIVELES APERTURA NY - {symbol}</b>\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"<center><b>Sesión: {inicioAperturaNY.strftime('%H:%M')} - {finAperturaNY.strftime('%H:%M')}</b></center>\n\n"
+                    f"  🔴 MAX: {precioMaximo:,.4f}\n"
+                    f"  🟢 MIN: {precioMinimo:,.4f}\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                )
+                await alertaInmediata(1, textNivel)
+                
+                maskPostApertura = dfIndex >= finAperturaNY
+                dfPostApertura = df.loc[maskPostApertura]
+                
+                logger.info(f"[SCLPNG] Velas post-apertura: {len(dfPostApertura)}")
+                
+                preloadedDataSCLPNG = {symbol: dfPostApertura}
+                symbolInfo['intervalo'] = "5min"
+                symbolInfo['precioMaximo'] = precioMaximo
+                symbolInfo['precioMinimo'] = precioMinimo
+                symbolInfo['finAperturaNY'] = finAperturaNY
+                symbolInfo['cierreNY'] = cierreNY
+                
+                await sclpng_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSCLPNG, symbolApiKey)
+            else:
+                logger.warning(f"[SCLPNG] No se encontraron velas en período de apertura NY")
         
         # 5. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
         elapsed = time.time() - start_time
