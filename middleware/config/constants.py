@@ -80,3 +80,4 @@ BASE_RISK_REWARD_RATIO = 2.0
 HIGH_CONFIDENCE_RISK_REWARD_RATIO = 2.2
 
 MODEL_FILE_PATH = "Sentinel/ml/trainedModel.joblib"
+MODEL_REG_FILE_PATH = "Sentinel/ml/trainedRegModel.joblib"

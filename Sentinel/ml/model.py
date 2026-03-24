@@ -4,13 +4,13 @@ Module for training, saving, loading, and using the ML model.
 import logging
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import joblib
 import os
 from typing import Tuple
 
 from middleware.config.constants import (
-    MODEL_PARAMS, MODEL_FEATURES, MODEL_FILE_PATH,
+    MODEL_PARAMS, MODEL_FEATURES, MODEL_FILE_PATH, MODEL_REG_FILE_PATH,
     ML_TARGET_HORIZON_LOW_VOL, ML_TARGET_HORIZON_HIGH_VOL, ML_TARGET_HORIZON_NORMAL_VOL
 )
 
@@ -134,4 +134,80 @@ def predictProba(model: RandomForestClassifier, X: pd.DataFrame) -> float | None
         return float(probaForClass1)
     except Exception as e:
         logger.error(f"Error durante la predicción de probabilidad: {e}", exc_info=True)
+        return None
+
+
+def defineRegTarget(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Defines the target for regression: future return as percentage.
+    """
+    dfTarget = df.copy()
+    
+    if "atr" not in dfTarget.columns:
+        dfTarget["atr"] = calculateAtr(dfTarget)
+    
+    atrAvg = dfTarget["atr"].rolling(60).mean()
+    volRelativeVal = (dfTarget["atr"] / atrAvg).iloc[-1]
+    
+    if volRelativeVal < 0.8:
+        horizon = ML_TARGET_HORIZON_LOW_VOL
+    elif volRelativeVal > 1.2:
+        horizon = ML_TARGET_HORIZON_HIGH_VOL
+    else:
+        horizon = ML_TARGET_HORIZON_NORMAL_VOL
+    
+    futurePrice = dfTarget["close"].shift(-horizon)
+    currentPrice = dfTarget["close"]
+    
+    dfTarget["reg_target"] = ((futurePrice - currentPrice) / currentPrice) * 100
+    
+    return dfTarget
+
+
+def trainAndSaveRegModel(df: pd.DataFrame, modelPath: str = MODEL_REG_FILE_PATH):
+    """
+    Trains a RandomForestRegressor and saves it to a file.
+    """
+    logger.info("Iniciando entrenamiento del modelo de regresión ML...")
+    
+    dfWithTarget = defineRegTarget(df)
+    dfClean = dfWithTarget.replace([np.inf, -np.inf], np.nan).dropna(subset=MODEL_FEATURES + ["reg_target"])
+    
+    X = dfClean[MODEL_FEATURES]
+    y = dfClean["reg_target"]
+    
+    if len(X) < 100:
+        logger.warning(f"No hay suficientes datos para entrenar el regresor (solo {len(X)} filas).")
+        return
+    
+    X_train = X.iloc[:-12]
+    y_train = y.iloc[:-12]
+    
+    try:
+        model = RandomForestRegressor(**MODEL_PARAMS)
+        model.fit(X_train, y_train)
+        
+        os.makedirs(os.path.dirname(modelPath), exist_ok=True)
+        joblib.dump(model, modelPath)
+        
+        logger.info(f"✅ Modelo de regresión entrenado y guardado en: {modelPath}")
+
+    except Exception as e:
+        logger.critical(f"❌ Error durante entrenamiento del regresor: {e}", exc_info=True)
+
+
+def loadRegModel(modelPath: str = MODEL_REG_FILE_PATH) -> RandomForestRegressor | None:
+    """
+    Loads a pre-trained regression model from a file.
+    """
+    try:
+        if not os.path.exists(modelPath):
+            logger.warning(f"No se encontró modelo de regresión en {modelPath}.")
+            return None
+            
+        model = joblib.load(modelPath)
+        logger.info(f"Modelo de regresión cargado desde: {modelPath}")
+        return model
+    except Exception as e:
+        logger.error(f"Error al cargar el regresor desde {modelPath}: {e}", exc_info=True)
         return None

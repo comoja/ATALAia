@@ -21,7 +21,7 @@ from middleware.api import twelvedata
 from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
 from Sentinel.ml import model as mlModel
-from middleware.utils.communications import sendTelegramAlert, alertaInmediata
+from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
@@ -33,10 +33,64 @@ class SMABot:
     def __init__(self):
         self.accounts = []
         self.lastMessageIds = {}
-        self.lastSignals = {}  # {symbol: {direction, candle_time}}
+        self.lastSignals = {}
+        self.sentMessages = []
+        
+        self.model_clf = mlModel.loadModel(config.MODEL_FILE_PATH)
+        if self.model_clf is None:
+            logger.warning("[SMA BOT] No se pudo cargar el modelo clasificador ML")
+        
+        self.model_reg = mlModel.loadRegModel(config.MODEL_REG_FILE_PATH)
+        if self.model_reg is None:
+            logger.warning("[SMA BOT] No se pudo cargar el modelo regresor ML")
+        
+        logger.info("[SMA BOT] ML inicializado")
+
+    async def cleanupOldMessages(self, token: str, chatId: str):
+        ahora = datetime.now()
+        maxAntiguedad = timedelta(hours=2)
+        
+        mensajesAEliminar = [
+            msg for msg in self.sentMessages
+            if msg["token"] == token 
+            and msg["chatId"] == chatId
+            and (ahora - msg["sentTime"]) > maxAntiguedad
+        ]
+        
+        if mensajesAEliminar:
+            logger.info(f"[SMA BOT] Limpiando {len(mensajesAEliminar)} mensajes antiguos de Telegram")
+        
+        for msg in mensajesAEliminar:
+            success = await deleteTelegramMessage(msg["token"], msg["chatId"], msg["msgId"])
+            if success:
+                self.sentMessages.remove(msg)
 
     def debug_log(self, symbol, msg):
         logger.info(f"[SMA DEBUG] [{symbol}] {msg}")
+
+    def build_features(self, df):
+        row = df.iloc[-1]
+
+        features = {
+            "close": row["close"],
+            "atr": row["atr"],
+            "atr_norm": row["atr"] / row["close"],
+            "sma20": row["sma20"],
+            "sma200": row["sma200"],
+            "dist_sma20": (row["close"] - row["sma20"]) / row["close"],
+            "dist_sma200": (row["close"] - row["sma200"]) / row["close"],
+            "log_return": np.log(df["close"].iloc[-1] / df["close"].iloc[-2]),
+            "range": (row["high"] - row["low"]) / row["close"],
+        }
+
+        # pendiente SMA (mejor que tu getPendiente corto)
+        sma_series = df["sma20"].tail(10)
+        x = np.arange(len(sma_series))
+        slope = np.polyfit(x, sma_series.values, 1)[0]
+
+        features["sma_slope"] = slope
+
+        return pd.DataFrame([features])
 
     def getPendiente(self, serie, periodos=3):
         y = serie.iloc[-periodos:].values
@@ -62,13 +116,6 @@ class SMABot:
         return False
 
     def detectar_rebote_sma_doble(self, df, sma20, intervalo, symbol=None):
-        """
-        Doble toque de MECHAS en la misma dirección, separados por al menos 1 vela terminada.
-        Toma las últimas 4 velas y filtra las que tocan el SMA20.
-        Los datos de 12Data ya vienen en CDT gracias al parametro timezone.
-        Retorna (direction, double_touch_time) o (None, None) si no hay doble toque válido.
-        """
-
         cdmx_tz = pytz.timezone("America/Mexico_City")
         ahora_cdmx = datetime.now(cdmx_tz)
 
@@ -128,10 +175,6 @@ class SMABot:
             elif dist_high > 0 and dist_high < tolerancia_pips and dist_high < max_wick_pips:
                 toque_direccion = "BAJISTA"
                 toque_dist = dist_high
-            elif i >= len(df) - 10:
-                toca_low = low <= sma
-                toca_high = high >= sma
-                logger.debug(f"[DEBUG] vela {candle_time_cdmx.strftime('%H:%M')} | {'VERDE' if is_green else 'ROJO'} | toca_low={toca_low} dist_low={dist_low:.2f} | toca_high={toca_high} dist_high={dist_high:.2f} | tol={tolerancia_pips:.2f} max={max_wick_pips:.2f}")
 
             if toque_direccion:
                 touches.append({
@@ -145,11 +188,15 @@ class SMABot:
                 })
                 color = "VERDE" if is_green else "ROJO"
                 logger.info(
-                    f"[TOQUE MECHA] {ahora_cdmx.strftime('%H:%M:%S')} | vela({candle_time_cdmx.strftime('%H:%M')}) | {color} | {toque_direccion} | dist={toque_dist:.2f} tol={tolerancia_pips:.2f} max={max_wick_pips:.2f}"
+                    f"[TOQUE] [{symbol}] {candle_time_cdmx.strftime('%H:%M')} | {color} | {toque_direccion} | dist={toque_dist:.4f} tol={tolerancia_pips:.4f}"
                 )
 
+        logger.info(f"[TOQUES] [{symbol}] Total toques detectados: {len(touches)}")
+        for t in touches:
+            logger.info(f"  -> {t['time_cdmx'].strftime('%H:%M')} | {t['direccion']} | dist={t['dist']:.4f}")
+
         if len(touches) < 2:
-            logger.info(f"[INFO] {ahora_cdmx.strftime('%H:%M:%S')} | Velas con toque: {len(touches)} (< 2)")
+            logger.warning(f"[TOQUES] [{symbol}] No hay suficientes toques ({len(touches)} < 2)")
             return None, None
 
         for idx in range(len(touches) - 1, 0, -1):
@@ -157,53 +204,218 @@ class SMABot:
             t2 = touches[idx]
 
             if t1["direccion"] != t2["direccion"]:
+                logger.debug(f"[TOQUES] [{symbol}] Direcciones diferentes: {t1['direccion']} vs {t2['direccion']}")
                 continue
 
             separacion = t2["idx"] - t1["idx"]
 
-            if separacion < 1:
+            if separacion < 0:
+                logger.debug(f"[TOQUES] [{symbol}] Separación inválida: {separacion}")
                 continue
 
             double_touch_time = t2["time_cdmx"]
 
-            """logger.info(
-                f"[DOBLE TOQUE] {ahora_cdmx.strftime('%H:%M:%S')} | "
-                f"t1({t1['time_cdmx'].strftime('%H:%M')})->t2({t2['time_cdmx'].strftime('%H:%M')}) | "
-                f"{t1['direccion']} | sep={separacion}"
-            )"""
-
             vela_actual = df.iloc[-1]
             close_actual = vela_actual["close"]
 
-            if t1["direccion"] == "ALCISTA":
-                if close_actual > sma20:
-                    return "LARGO", double_touch_time
-                """else:
-                    logger.info(
-                        f"[DOBLE TOQUE] Condición no cumplida LARGO: "
-                        f"close={close_actual:.2f} {'<' if close_actual < sma20 else '>'} sma20={sma20:.2f}"
-                    )"""
-            else:
-                if close_actual < sma20:
-                    return "CORTO", double_touch_time
-                """ else:
-                    logger.info(
-                        f"[DOBLE TOQUE] Condición no cumplida CORTO: "
-                        f"close={close_actual:.2f} {'>' if close_actual > sma20 else '<'} sma20={sma20:.2f}"
-                    )"""
+            if separacion > 12:
+                logger.debug(f"[TOQUES] [{symbol}] Separacion muy grande: {separacion} > 12")
+                continue
 
+            logger.info(f"[TOQUES] [{symbol}] Doble toque: {t1['time_cdmx'].strftime('%H:%M')} -> {t2['time_cdmx'].strftime('%H:%M')} | sep={separacion} | direccion={t1['direccion']}")
+
+            umbral_Confirmacion = 0.5
+
+            if t1["direccion"] == "ALCISTA":
+                if close_actual >= sma20 * (1 - umbral_Confirmacion / 100):
+                    logger.info(f"[TOQUES] [{symbol}] ✓ SEÑAL LARGO confirmada | close={close_actual:.4f} >= {umbral_Confirmacion}% debajo sma20={sma20:.4f}")
+                    return "LARGO", double_touch_time
+                else:
+                    logger.info(f"[TOQUES] [{symbol}] ✗ LARGO no confirmada | close={close_actual:.4f} muy debajo sma20={sma20:.4f}")
+            else:
+                if close_actual <= sma20 * (1 + umbral_Confirmacion / 100):
+                    logger.info(f"[TOQUES] [{symbol}] ✓ SEÑAL CORTO confirmada | close={close_actual:.4f} <= {umbral_Confirmacion}% arriba sma20={sma20:.4f}")
+                    return "CORTO", double_touch_time
+                else:
+                    logger.info(f"[TOQUES] [{symbol}] ✗ CORTO no confirmada | close={close_actual:.4f} muy arriba sma20={sma20:.4f}")
+
+        logger.warning(f"[TOQUES] [{symbol}] No se encontró doble toque válido para confirmar señal")
         return None, None
     
     def identificar_tendencia(self, df, precio_actual, sma20):
         pendiente_sma20 = self.getPendiente(df["sma20"].tail(10), 10)
         
-        slope_threshold = 0.0002
+        atr_relativo = df["atr"].iloc[-1] / precio_actual
+        slope_threshold = max(0.0002, atr_relativo * 0.5)
         
         if precio_actual > sma20 and pendiente_sma20 > slope_threshold:
             return "ALCISTA"
         elif precio_actual < sma20 and pendiente_sma20 < -slope_threshold:
             return "BAJISTA"
         return "NEUTRAL"
+
+    async def validar_tendencia_1h(self, symbol: str, tendencia_15m: str, apiKey: str) -> bool:
+        """
+        Valida que la tendencia en 1H coincida con la tendencia en 15M.
+        Si 1H está NEUTRAL, no se genera señal aunque 15M tenga tendencia.
+        """
+        try:
+            df_1h = await twelvedata.getTimeSeries(symbol, "1h", apiKey, nVelas=100)
+            
+            if df_1h is None or df_1h.empty or len(df_1h) < 50:
+                logger.warning(f"[{symbol}] No se pudieron obtener datos de 1H - omitiendo filtro multi-tiempo")
+                return True
+            
+            df_1h = technical.calculateFeatures(df_1h)
+            
+            close_1h = df_1h["close"].iloc[-1]
+            sma20_1h = df_1h["sma20"].iloc[-1]
+            tendencia_1h = self.identificar_tendencia(df_1h, close_1h, sma20_1h)
+            
+            logger.info(f"[{symbol}] Tendencia 1H: {tendencia_1h} | Tendencia 15M: {tendencia_15m}")
+            
+            if tendencia_1h == "NEUTRAL":
+                logger.info(f"[{symbol}] ❌ Tendencia NEUTRAL en 1H - señal invalidada por multi-tiempo")
+                return False
+            
+            if tendencia_1h != tendencia_15m:
+                logger.info(f"[{symbol}] ⚠️ Tendencias divergentes: 1H={tendencia_1h} vs 15M={tendencia_15m}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[{symbol}] Error validando tendencia 1H: {e}")
+            return True
+
+    def detectar_consolidacion_oro_puro(self, df: pd.DataFrame, sma20: float, direction: str, symbol: str) -> dict | None:
+        """
+        Detecta consolidación "Oro Puro":
+        - Precio formando base lateral (mínimo 5 velas)
+        - La base coincide con la SMA20
+        - Retorna niveles de ruptura si detecta consolidación válida
+        """
+        ventana = 10
+        tolerancia_cerca_sma = 0.003
+
+        velas_consolidacion = []
+        for i in range(-ventana, 0):
+            close_i = df["close"].iloc[i]
+            open_i = df["open"].iloc[i]
+            
+            precio_medio = (close_i + open_i) / 2
+            distancia_sma = abs(precio_medio - sma20) / sma20
+            
+            if distancia_sma < tolerancia_cerca_sma:
+                velas_consolidacion.append({
+                    "idx": i,
+                    "high": df["high"].iloc[i],
+                    "low": df["low"].iloc[i],
+                    "close": close_i,
+                    "open": open_i
+                })
+        
+        if len(velas_consolidacion) < 5:
+            logger.debug(f"[{symbol}] Consolidación: solo {len(velas_consolidacion)} velas cerca SMA20 (necesario 5+)")
+            return None
+        
+        base_high = max(v["high"] for v in velas_consolidacion)
+        base_low = min(v["low"] for v in velas_consolidacion)
+        
+        rango_base = base_high - base_low
+        
+        vela_actual = df.iloc[-1]
+        close_actual = vela_actual["close"]
+        high_actual = vela_actual["high"]
+        low_actual = vela_actual["low"]
+        
+        if direction == "CORTO":
+            if close_actual < base_low and high_actual < base_high:
+                umbral_ruptura = base_low - rango_base * 0.3
+                if close_actual < umbral_ruptura:
+                    logger.info(f"[{symbol}] ✓ Consolidación CORTO detectada | base_high={base_high:.5f} base_low={base_low:.5f}")
+                    return {
+                        "type": "CORTO",
+                        "base_high": base_high,
+                        "base_low": base_low,
+                        "ruptura_nivel": base_low,
+                        "sl": base_high + rango_base * 0.2
+                    }
+        else:
+            if close_actual > base_high and low_actual > base_low:
+                umbral_ruptura = base_high + rango_base * 0.3
+                if close_actual > umbral_ruptura:
+                    logger.info(f"[{symbol}] ✓ Consolidación LARGO detectada | base_high={base_high:.5f} base_low={base_low:.5f}")
+                    return {
+                        "type": "LARGO",
+                        "base_high": base_high,
+                        "base_low": base_low,
+                        "ruptura_nivel": base_high,
+                        "sl": base_low - rango_base * 0.2
+                    }
+        
+        logger.debug(f"[{symbol}] Consolidación detectada pero sin ruptura clara")
+        return None
+
+    def detectar_volumen_anormal(self, df: pd.DataFrame, symbol: str, multiplicador: float = 2.5) -> dict | None:
+        """
+        Detecta volumen anormal (picos enormes).
+        Retorna info si hay pico de volumen > multiplicador * promedio.
+        """
+        if "volume" not in df.columns:
+            return None
+        
+        volumen_promedio = df["volume"].tail(20).mean()
+        volumen_actual = df["volume"].iloc[-1]
+        
+        if volumen_promedio == 0:
+            return None
+        
+        ratio = volumen_actual / volumen_promedio
+        
+        if ratio > multiplicador:
+            logger.warning(f"[{symbol}] ⚠️ Volumen anormal: {ratio:.1f}x promedio ({volumen_actual:.0f} vs {volumen_promedio:.0f})")
+            return {
+                "ratio": ratio,
+                "volumen_actual": volumen_actual,
+                "volumen_promedio": volumen_promedio
+            }
+        
+        return None
+
+    def detectar_extension_extrema(self, df: pd.DataFrame, sma20: float, symbol: str) -> dict | None:
+        """
+        Detecta si el precio está extremadamente extendido de la SMA20.
+        Combina: distancia extrema + aceleración + volumen (opcional).
+        """
+        close = df["close"].iloc[-1]
+        distancia = abs(close - sma20) / sma20 * 100
+        
+        atr_promedio = df["atr"].tail(20).mean()
+        distancia_atr = distancia / (atr_promedio / close * 100) if (atr_promedio / close * 100) > 0 else 0
+        
+        if distancia_atr > 4:
+            body_actual = abs(df["close"].iloc[-1] - df["open"].iloc[-1])
+            body_anterior = abs(df["close"].iloc[-2] - df["open"].iloc[-2])
+            
+            es_aceleracion = body_actual > body_anterior * 1.3
+            
+            resultado = {
+                "distancia_pct": distancia,
+                "distancia_atr": distancia_atr,
+                "es_aceleracion": es_aceleracion,
+                "body_actual": body_actual,
+                "body_anterior": body_anterior
+            }
+            
+            logger.warning(
+                f"[{symbol}] ⚠️ Extensión extrema detectada: "
+                f"dist={distancia:.2f}% ({distancia_atr:.1f}x ATR) | "
+                f"aceleración={es_aceleracion}"
+            )
+            
+            return resultado
+        
+        return None
 
     def validar_sma200_cercano(self, precio_actual, sma200, umbral_pct=0.02):
         distancia_pct = abs(precio_actual - sma200) / precio_actual * 100
@@ -298,7 +510,7 @@ class SMABot:
         return df
     
 
-    async def _get_signal(self, df: pd.DataFrame, symbol: str, intervalo: str):
+    async def _get_signal(self, df: pd.DataFrame, symbol: str, intervalo: str, apiKey: str = None):
         cdmx_tz = pytz.timezone("America/Mexico_City")
         ahora_cdmx = datetime.now(cdmx_tz)
         
@@ -332,72 +544,191 @@ class SMABot:
         tendencia = self.identificar_tendencia(df, close, sma20)
 
         if tendencia == "NEUTRAL":
+            pendiente = self.getPendiente(df["sma20"].tail(10), 10)
+            logger.info(f"[{symbol}] ❌ Tendencia NEUTRAL (pendiente={pendiente:.6f}) - descartado")
             return None
+        
+        logger.info(f"[{symbol}] ✓ Tendencia: {tendencia}")
+
+        if apiKey:
+            tendencia_1h_ok = await self.validar_tendencia_1h(symbol, tendencia, apiKey)
+            if not tendencia_1h_ok:
+                return None
 
         # 🔥 FILTRO DISTANCIA MÍNIMA AL SMA20
         distancia_pct = abs(close - sma20) / close * 100
         umbral_distancia = 0.1
         
         if distancia_pct < umbral_distancia:
-            logger.info(f"[{symbol}] Precio muy cerca del SMA20 ({distancia_pct:.3f}% < {umbral_distancia}%) - lateral descartado")
+            logger.info(f"[{symbol}] ❌ Precio muy cerca del SMA20 ({distancia_pct:.3f}% < {umbral_distancia}%) - lateral descartado")
             return None
+        
+        logger.info(f"[{symbol}] ✓ Distancia SMA20: {distancia_pct:.3f}%")
 
         # 🔥 FILTRO LATERALIDAD (ATR dinámico)
         rango = (df["high"].tail(20).max() - df["low"].tail(20).min()) / close
         umbral = (atr / close) * 3
 
         if rango < umbral:
-            logger.info(f"[{symbol}] Mercado lateral - descartado")
+            logger.info(f"[{symbol}] ❌ Mercado lateral (rango={rango:.4f} < umbral={umbral:.4f}) - descartado")
             return None
+        
+        logger.info(f"[{symbol}] ✓ Rango correcto: {rango:.4f}")
 
-        # 🔥 FILTRO SMA200 (deshabilitado para estrategia SMA20 only)
-        # if abs(close - sma200) / close < 0.02:
-        #     return None
+        distancia_sma200 = abs(close - sma200) / close * 100
+        if distancia_sma200 < 2.0:
+            logger.info(f"[{symbol}] ❌ SMA200 muy cerca ({distancia_sma200:.2f}% < 2%) - muro")
+            return None
+        
+        logger.info(f"[{symbol}] ✓ Distancia SMA200: {distancia_sma200:.2f}%")
+
+        distancia_ext = abs(close - sma20) / close * 100
+        atr_promedio = df["atr"].tail(20).mean()
+        atr_relativo = atr_promedio / close * 100
+        extension_threshold = atr_relativo * 3
+        
+        if distancia_ext > extension_threshold:
+            logger.warning(f"[{symbol}] ⚠️ Precio extendido ({distancia_ext:.3f}% > {extension_threshold:.3f}%) - posible corrección")
 
         # 🔥 REBOTE SMA20 DOBLE
         direction, double_touch_time = self.detectar_rebote_sma_doble(df, sma20, intervalo, symbol)
 
+        consolidacion = None
+        
         if not direction:
+            logger.info(f"[{symbol}] Sin doble toque - buscando consolidación Oro Puro...")
+            consolidacion = self.detectar_consolidacion_oro_puro(df, sma20, tendencia, symbol)
+            if not consolidacion:
+                logger.info(f"[{symbol}] ❌ Sin doble toque ni consolidación válida")
+                return None
+            direction = consolidacion["type"]
+            double_touch_time = df.index[-1]
+            logger.info(f"[{symbol}] ✓ Consolidación Oro Puro detectada: {direction}")
+        else:
+            logger.info(f"[{symbol}] ✓ Doble toque detectado: {direction} | tiempo={double_touch_time}")
+
+        # =========================
+        # 🔥 ML FEATURE EXTRACTION
+        # =========================
+        features = self.build_features(df)
+
+        # =========================
+        # 🔵 CLASIFICACIÓN (FILTRO)
+        # =========================
+        try:
+            prob = self.model_clf.predict_proba(features)[0][1]
+        except:
+            prob = 0.5
+
+        threshold = 0.55
+
+        if prob < threshold:
+            logger.info(f"[{symbol}] ❌ Filtrado ML | prob={prob:.2f} < {threshold}")
             return None
+        
+        logger.info(f"[{symbol}] ✓ ML OK | prob={prob:.2f}")
+
+        volumen_anormal = self.detectar_volumen_anormal(df, symbol)
+        extension_extrema = self.detectar_extension_extrema(df, sma20, symbol)
+        
+        if extension_extrema:
+            logger.warning(f"[{symbol}] ⚠️ EXTENSIÓN EXTREMA detectada - verificar si continuar")
+        
+        if volumen_anormal:
+            logger.warning(f"[{symbol}] ⚠️ VOLUMEN ANORMAL {volumen_anormal['ratio']:.1f}x promedio")
+
+        # =========================
+        # 🔴 REGRESIÓN (TP DINÁMICO)
+        # =========================
+        try:
+            expected_return = self.model_reg.predict(features)[0]
+        except:
+            expected_return = 0.5
+
+        expected_return = max(0.2, min(expected_return, 2.0))
+
+        logger.info(f"[{symbol}] ML exp_ret={expected_return:.2f}")
 
         # 🔥 FILTRO: Ignorar señales con más de 1 hora de antigüedad
         if double_touch_time:
             signal_age = ahora_cdmx - double_touch_time
             signal_age_minutes = signal_age.total_seconds() / 60
             if signal_age_minutes > 60:
-                # logger.warning(f"⚠️ [{symbol}] SEÑAL DESCARTADA: Doble toque tiene {signal_age_minutes:.0f}min de antigüedad (>1h)")
+                logger.info(f"[{symbol}] ❌ Doble toque muy antiguo ({signal_age_minutes:.0f}min > 60min)")
                 return None
+            
+            logger.info(f"[{symbol}] ✓ Antigüedad doble toque: {signal_age_minutes:.0f}min")
 
         # 🔥 FILTRO DIRECCIÓN vs SMA200
         if direction == "LARGO" and close < sma200:
+            logger.info(f"[{symbol}] ❌ LARGO pero close={close:.4f} < sma200={sma200:.4f}")
             return None
 
         if direction == "CORTO" and close > sma200:
+            logger.info(f"[{symbol}] ❌ CORTO pero close={close:.4f} > sma200={sma200:.4f}")
             return None
+        
+        logger.info(f"[{symbol}] ✓ Direccion vs SMA200 OK")
 
         # 🔥 FILTRO: Velas recientes contrarias
         velas_recientes = 3
         velas_contrarias = 0
         for i in range(-velas_recientes, 0):
             body = df["close"].iloc[i] - df["open"].iloc[i]
+            color = "VERDE" if body > 0 else "ROJO"
             if direction == "LARGO" and body < 0:
                 velas_contrarias += 1
+                logger.debug(f"[{symbol}] Vela {i} {color} contraria a LARGO")
             elif direction == "CORTO" and body > 0:
                 velas_contrarias += 1
+                logger.debug(f"[{symbol}] Vela {i} {color} contraria a CORTO")
         
         if velas_contrarias >= 2:
-            logger.info(f"[{symbol}] Señal rechazada: {velas_contrarias}/{velas_recientes} velas recientes contrarias")
+            logger.info(f"[{symbol}] ❌ {velas_contrarias}/{velas_recientes} velas contrarias - descartado")
             return None
 
         # 🎯 SL / TP
-        if direction == "LARGO":
+        if consolidacion:
+            if direction == "LARGO":
+                stop_loss = consolidacion["sl"]
+            else:
+                stop_loss = consolidacion["sl"]
+            sl_dist = abs(close - stop_loss)
+            logger.info(f"[{symbol}] SL desde consolidación: {stop_loss:.6f}")
+        elif direction == "LARGO":
             stop_loss = df["low"].tail(3).min() * 0.998
             sl_dist = close - stop_loss
-            take_profit = close + sl_dist * 2.5
         else:
             stop_loss = df["high"].tail(3).max() * 1.002
             sl_dist = stop_loss - close
-            take_profit = close - sl_dist * 2.5
+        
+        if direction == "LARGO":
+            tp_factor = 1 + expected_return
+            take_profit = close + sl_dist * tp_factor
+        else:
+            tp_factor = 1 + expected_return
+            take_profit = close - sl_dist * tp_factor
+        # =========================
+        # 🔥 AJUSTE POR VOLATILIDAD
+        # =========================
+        vol_factor = atr / close
+
+        if vol_factor > 0.02:
+            take_profit *= 0.8  # alta volatilidad → TP más conservador
+        elif vol_factor < 0.005:
+            take_profit *= 1.2  # baja volatilidad → deja correr más
+        # =========================
+        # 🚨 (7) PROTECCIÓN TP
+        # =========================
+        max_tp_pct = 0.05 if vol_factor > 0.01 else 0.08
+
+        if abs(take_profit - close) / close > max_tp_pct:
+            logger.warning(f"[{symbol}] TP ajustado por límite dinámico ({max_tp_pct*100:.1f}%)")
+            
+            if direction == "LARGO":
+                take_profit = close * (1 + max_tp_pct)
+            else:
+                take_profit = close * (1 - max_tp_pct)
 
         logger.info(
             f"🎯 SEÑAL {direction} detectada para {symbol} | "
@@ -412,14 +743,16 @@ class SMABot:
             "slDistance": sl_dist,
             "stopLoss": stop_loss,
             "takeProfit": take_profit,
-            "confidence": 85,
+            "confidence": int(prob * 100),
             "symbol": symbol,
             "candle_time": candle_time,
             "sma20": sma20,
             "sma200": sma200,
             "atr": atr,
-            "setup": "Doble Toque SMA20",
-            "tendencia": tendencia
+            "setup": "Consolidacion Oro Puro" if consolidacion else "Doble Toque SMA20",
+            "tendencia": tendencia,
+            "volumenAnormal": volumen_anormal,
+            "extensionExtrema": extension_extrema
         }
 
     async def _execute_trades(self, signal: Dict, symbolInfo):
@@ -462,6 +795,8 @@ class SMABot:
 
                 dbManager.buscaTrade(trade)
 
+                await self.cleanupOldMessages(account['TokenMsg'], account['idGrupoMsg'])
+
                 message = self._format_alert_message(signal, trade)
 
                 msgId = await sendTelegramAlert(
@@ -470,9 +805,14 @@ class SMABot:
                     message
                 )
 
-                # 🔥 SOLO guardar si se envió
                 if msgId:
                     self.lastMessageIds[symbol] = msgId
+                    self.sentMessages.append({
+                        "token": account['TokenMsg'],
+                        "chatId": account['idGrupoMsg'],
+                        "msgId": msgId,
+                        "sentTime": datetime.now()
+                    })
 
                     self.lastSignals[symbol] = {
                         "direction": signal['direction'],
@@ -581,8 +921,8 @@ class SMABot:
         if data is None:
             return
 
-        # 🔥 FIX: pasar intervalo
-        signal = await self._get_signal(data, symbol, interval)
+        # 🔥 FIX: pasar intervalo y apiKey para multi-tiempo
+        signal = await self._get_signal(data, symbol, interval, apiKey)
 
         if signal:
             direction = signal['direction']
@@ -603,39 +943,3 @@ class SMABot:
                 return
 
             await self._execute_trades(signal, symbolInfo)
-"""
-    async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None):
-        if not self.accounts:
-            return
-        
-        symbol = symbolInfo['symbol']
-        interval = symbolInfo.get('intervalo', '1h')
-        if apiKey is None:
-            apiKey, _, _, nVelas, _ = getParametros()
-        else:
-            _, _, _, nVelas, _ = getParametros()
-        
-        logger.debug(f"Analizando {symbol} con SMA20-200 en intervalo {interval}...")
-
-        if preloaded_data and symbol in preloaded_data:
-            data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, preloaded_data[symbol])
-        else:
-            data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval)
-        
-        if data is None:
-            return
-        
-        signal = await self._get_signal(data, symbol)
-        if signal:
-            symbol = symbolInfo['symbol']
-            direction = signal['direction']
-            candle_time = data.index[-1]
-            
-            if self.es_senal_duplicada(symbol, direction, candle_time):
-                logger.info(f"[{symbol}] Señal duplicada evitada.")
-                return
-            logger.info(f"[{symbol}] Señal SMA20-200: {signal['direction']} ({signal['confidence']}% confianza)")
-            await self._execute_trades(signal, symbolInfo)
-        else:
-            logger.debug(f"[{symbol}] Sin señal SMA20-200 en intervalo {interval}.")
-"""
