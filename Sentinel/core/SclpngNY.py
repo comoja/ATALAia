@@ -345,8 +345,8 @@ class SCLPNGBot:
         symbol = symbolInfo['symbol']
         
         datos5min = preloadedData.get(symbol) if preloadedData else None
-        if datos5min is None or len(datos5min) < 10:
-            logger.warning(f"[SclpngNY] Datos insuficientes para {symbol}")
+        if datos5min is None or len(datos5min) < 1:
+            logger.warning(f"[SclpngNY] Datos ({len(datos5min)} velas)insuficientes para {symbol}")
             return
         
         logger.info(f"[SclpngNY] Velas recibidas: {len(datos5min)}, desde: {datos5min.index[0]} hasta: {datos5min.index[-1]}")

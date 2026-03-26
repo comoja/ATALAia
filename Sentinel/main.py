@@ -40,6 +40,7 @@ MAX_CANDLES_PER_CALL = 5000
 def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
     if targetInterval == "5min":
         return df
+    
     intervalMap = {
         "15min": "15T",
         "30min": "30T",
@@ -49,13 +50,19 @@ def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
     }
    
     rule = intervalMap.get(targetInterval, targetInterval)
-    dfResampled = df.resample(rule).agg({
+    
+    dfCopy = df.copy()
+    if dfCopy.index.tzinfo is not None:
+        dfCopy.index = dfCopy.index.tz_convert("America/Mexico_City")
+    
+    dfResampled = dfCopy.resample(rule).agg({
         'open': 'first',
         'high': 'max',
         'low': 'min',
         'close': 'last',
         'volume': 'sum'
     }).dropna()
+    
     return dfResampled
 from middleware.api import twelvedata as tdApi
 
@@ -141,7 +148,14 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
             symbolInfo['momentum'] = None
         
         # Resamplear datos para cada estrategia
-        df15m = resampleData(df, "15min") if interval != "15min" else df
+        logger.info(f"[{symbol}] interval={interval}, df original len={len(df)}, ultimas 2: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
+        
+        if interval == "5min":
+            logger.info(f"[{symbol}] Resampleando de 5min a 15min...")
+            df15m = resampleData(df, "15min")
+            logger.info(f"[{symbol}] Tras resample: {len(df15m)} velas, ultimas 2: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
+        else:
+            df15m = df
         
         # 2. Ejecutar Sniper (usa intervalo configurado)
         logger.info(f"Ejecutando estrategia Sniper para {symbol}...")
@@ -151,6 +165,8 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         
         # 3. Ejecutar SMA20-200 (usa 15min)
         logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
+        logger.info(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
+        logger.info(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
         preloadedDataSMA = {symbol: df15m}
         symbolInfo['intervalo'] = "15min"
         try:
@@ -195,7 +211,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         elif horasDesdeFinApertura > 2:
             logger.info(f"[SCLPNG] Han pasado más de 2 horas ({horasDesdeFinApertura:.1f}h) desde fin apertura NY, saltando...")
         elif sclpng_bot.signalGenerada:
-            logger.info(f"[SCLPNG] Señales ya generadas, saltando...")
+            logger.info(f"[SCLPNG] Señales ya generadas de apertura y fin de apertura, saltando...")
         else:
             logger.info(f"Ejecutando estrategia SclpngNY para {symbol}...")
             

@@ -230,19 +230,11 @@ class SMABot:
 
             t1Green = t1["close"] > t1["open"]
             t2Green = t2["close"] > t2["open"]
-
-            if t1["direccion"] == "ALCISTA":
-                if not (t1Green and t2Green):
-                    color1 = "VERDE" if t1Green else "ROJO"
-                    color2 = "VERDE" if t2Green else "ROJO"
-                    logger.info(f"[TOQUES] [{symbol}] ALCISTA requiere 2 velas verdes: {color1} vs {color2}")
-                    continue
-            else:
-                if t1Green or t2Green:
-                    color1 = "VERDE" if t1Green else "ROJO"
-                    color2 = "VERDE" if t2Green else "ROJO"
-                    logger.info(f"[TOQUES] [{symbol}] CORTO requiere 2 velas rojas: {color1} vs {color2}")
-                    continue
+            if t1Green != t2Green:
+                color1 = "VERDE" if t1Green else "ROJO"
+                color2 = "VERDE" if t2Green else "ROJO"
+                logger.info(f"[TOQUES] [{symbol}] Colores diferentes: {color1} vs {color2} - requieren mismo color")
+                continue
 
             if tendencia:
                 if t1["direccion"] == "ALCISTA" and tendencia != "ALCISTA":
@@ -263,8 +255,8 @@ class SMABot:
             vela_actual = df.iloc[-1]
             close_actual = vela_actual["close"]
 
-            if separacion > 12:
-                logger.info(f"[TOQUES] [{symbol}] Separacion muy grande: {separacion} > 12")
+            if separacion > 25:
+                logger.info(f"[TOQUES] [{symbol}] Separacion muy grande: {separacion} > 25")
                 continue
 
             logger.info(f"[TOQUES] [{symbol}] Doble toque: {t1['time_cdmx'].strftime('%H:%M')} -> {t2['time_cdmx'].strftime('%H:%M')} | sep={separacion} | direccion={t1['direccion']}")
@@ -291,7 +283,9 @@ class SMABot:
         pendienteSma20 = self.getPendiente(df["sma20"].tail(10), 10)
         
         atrRelativo = df["atr"].iloc[-1] / precioActual
-        slopeThreshold = max(0.0002, atrRelativo * 0.5)
+        slopeThreshold = max(0.00005, atrRelativo * 0.5)
+        
+        logger.info(f"[TENDENCIA] precio={precioActual:.5f} sma20={sma20:.5f} | pendiente={pendienteSma20:.6f} | threshold={slopeThreshold:.6f} | atrRel={atrRelativo:.6f}")
         
         if precioActual > sma20 and pendienteSma20 > slopeThreshold:
             return "ALCISTA"
@@ -582,9 +576,17 @@ class SMABot:
         if rawDf is not None and len(rawDf) >= 200:
             df = prepareDf(rawDf)
             if df is not None and len(df) >= minAfterDropna:
-                #logger.info(f"[{symbol}] Usando rawDf pre-cargado: {len(df)} velas")
+                if interval == "15min" and len(df) > 0:
+                    diff = (df.index[-1] - df.index[-2]).total_seconds() / 60
+                    if diff < 10:
+                        logger.info(f"[{symbol}] rawDf es de {diff}min, filtrando a 15min...")
+                        df = df[df.index.minute % 15 == 0].copy()
+                        df = prepareDf(df)
+                        logger.info(f"[{symbol}] ✓ Tras filtro 15min: {len(df)} velas | ultimas: {df.index[-1].strftime('%H:%M')}")
+                logger.info(f"[{symbol}] ✓ USANDO rawDf pre-cargado: {len(df)} velas | ultimas: {df.index[-1].strftime('%H:%M')}")
                 return df
-            #logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
+            logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
+        logger.info(f"[{symbol}] ✗ rawDf es None o < 200 velas, descargando datos nuevos...")
         params = {
                 "symbol": symbol,
                 "interval": interval,
@@ -625,6 +627,8 @@ class SMABot:
         sma200 = df["sma200"].iloc[-1]
         atr = df["atr"].iloc[-1]
 
+        logger.info(f"[_get_signal] [{symbol}] df received: {len(df)} velas, ultimas 2: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
+
         tendencia = self.identificarTendencia(df, close, sma20)
 
         if tendencia == "NEUTRAL":
@@ -634,6 +638,18 @@ class SMABot:
         
         logger.info(f"[{symbol}] ✓ Tendencia: {tendencia}")
 
+        logger.info(f"[SMA20] [{symbol}] Analizando ultimas 10 velas ({intervalo}):")
+        for i in range(max(0, len(df) - 10), len(df)):
+            vela = df.iloc[i]
+            tiempo = df.index[i]
+            color = "VERDE" if vela["close"] > vela["open"] else "ROJO"
+            cuerpo = abs(vela["close"] - vela["open"])
+            mechaSup = vela["high"] - max(vela["open"], vela["close"])
+            mechaInf = min(vela["open"], vela["close"]) - vela["low"]
+            distSma = abs(vela["close"] - vela["sma20"]) / vela["close"] * 100
+            volumen = vela.get("volume", 0)
+            logger.info(f"  [{tiempo.strftime('%H:%M:%S')}] O:{vela['open']:.5f} H:{vela['high']:.5f} L:{vela['low']:.5f} C:{vela['close']:.5f} | {color} | Cuerpo:{cuerpo:.5f} | MechSup:{mechaSup:.5f} | MechInf:{mechaInf:.5f} | SMA20:{vela['sma20']:.5f} | DistSMA:{distSma:.3f}% | ATR:{vela['atr']:.5f} | Vol:{volumen:.0f}")
+
         # Filtro multi-tiempo 1H deshabilitado
         # if apiKey:
         #     tendencia1hOk = await self.validarTendencia1h(symbol, tendencia, df)
@@ -642,7 +658,8 @@ class SMABot:
         
         # 🔥 FILTRO DISTANCIA MÍNIMA AL SMA20
         distancia_pct = abs(close - sma20) / close * 100
-        umbral_distancia = 0.1
+        atr_pct = atr / close * 100
+        umbral_distancia = atr_pct * 0.5
         
         if distancia_pct < umbral_distancia:
             logger.info(f"[{symbol}] ❌ Precio muy cerca del SMA20 ({distancia_pct:.3f}% < {umbral_distancia}%) - lateral descartado\n")
