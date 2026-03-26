@@ -21,6 +21,7 @@ from middleware.utils.communications import sendTelegramAlert, alertaInmediata, 
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
+from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,15 @@ class TradingBot:
             df = raw_df.copy()
         else:
             logger.info(f"[{symbol}] Obteniendo datos de 12Data para estrategia Sniper...")
-            df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": nVelas})
+            params = {
+                "symbol": symbol,
+                "interval": "5min",
+                "apikey": apiKey,
+                "outputSize": 5000,
+                "timezone":TIMEZONE
+                }
+            df = await twelvedata.getTimeSeries(params)
+            #df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": nVelas})
             if df is None or len(df) < 100:
                 logger.warning(f"[{symbol}] Datos insuficientes para análisis ({len(df) if df is not None else 0} velas).")
                 return None

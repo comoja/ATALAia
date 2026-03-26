@@ -23,13 +23,14 @@ from middleware.utils.communications import sendTelegramAlert, alertaInmediata
 from middleware.utils.alertBuilder import buildSclpngNYAlertMessage
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
+from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
 
 
 class SCLPNGBot:
     SUPPORTED_SYMBOLS = ['XAU/USD', 'XAUUSD']
-    MEXICO_TZ = pytz.timezone('America/Mexico_City')
+    MEXICO_TZ = pytz.timezone(TIMEZONE)
     
     def __init__(self):
         self.accounts = []
@@ -174,11 +175,11 @@ class SCLPNGBot:
     
     async def _getSignals(self, datos5min: pd.DataFrame, symbolInfo: Dict) -> list:
         symbol = symbolInfo['symbol']
-        
+        """
         if symbol.upper() not in self.SUPPORTED_SYMBOLS:
             logger.debug(f"[{symbol}] SCLPNG solo para XAU/USD")
             return []
-        
+        """
         precioMaximo = symbolInfo.get('precioMaximo')
         precioMinimo = symbolInfo.get('precioMinimo')
         

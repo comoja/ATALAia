@@ -26,6 +26,8 @@ from middleware.utils.alertBuilder import buildSMAAlertMessage
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
+from middleware.config.constants import TIMEZONE
+
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +118,8 @@ class SMABot:
         
         return False
 
-    def detectar_rebote_sma_doble(self, df, sma20, intervalo, symbol=None):
-        cdmx_tz = pytz.timezone("America/Mexico_City")
+    def detectar_rebote_sma_doble(self, df, sma20, intervalo, symbol=None, tendencia=None):
+        cdmx_tz = pytz.timezone(TIMEZONE)
         ahora_cdmx = datetime.now(cdmx_tz)
 
         if df.index.tzinfo is None:
@@ -144,6 +146,13 @@ class SMABot:
         velas_analisis = 25
         
         logger.info(f"[SMA20] [{symbol}] Tipo: {symbol_type} | Tolerancia: {tolerancia_pct}% ATR | Max mecha: {max_wick_pct}x ATR")
+
+        logger.info(f"[SMA20] [{symbol}] Analizando ultimas {velas_analisis} velas:")
+        for i in range(max(0, len(df) - 10), len(df)):
+            vela = df.iloc[i]
+            tiempo = df.index[i]
+            color = "VERDE" if vela["close"] > vela["open"] else "ROJO"
+            logger.info(f"  [{tiempo.strftime('%H:%M:%S')}] O:{vela['open']:.5f} H:{vela['high']:.5f} L:{vela['low']:.5f} C:{vela['close']:.5f} | {color} | SMA20:{vela['sma20']:.5f} | ATR:{vela['atr']:.5f}")
 
         touches = []
 
@@ -182,19 +191,30 @@ class SMABot:
                     "idx": i,
                     "direccion": toque_direccion,
                     "time_cdmx": candle_time_cdmx,
-                    "low": low,
+                    "open": open_price,
                     "high": high,
+                    "low": low,
+                    "close": close_price,
                     "sma": sma,
+                    "atr": atr,
                     "dist": toque_dist
                 })
                 color = "VERDE" if is_green else "ROJO"
                 logger.info(
-                    f"[TOQUE] [{symbol}] {candle_time_cdmx.strftime('%H:%M')} | {color} | {toque_direccion} | dist={toque_dist:.4f} tol={tolerancia_pips:.4f}"
+                    f"[TOQUE] [{symbol}] {candle_time_cdmx.strftime('%H:%M:%S')} | O:{open_price:.5f} H:{high:.5f} L:{low:.5f} C:{close_price:.5f} | {color} | {toque_direccion} | SMA20:{sma:.5f} ATR:{atr:.5f} | dist={toque_dist:.4f} tol={tolerancia_pips:.4f}"
                 )
+            else:
+                dist_a_sma = min(dist_low if dist_low != float('inf') else 999999, dist_high if dist_high != float('inf') else 999999)
+                if dist_a_sma < max_wick_pips * 2:
+                    color = "VERDE" if is_green else "ROJO"
+                    logger.info(
+                        f"[CERCA SMA] [{symbol}] {candle_time_cdmx.strftime('%H:%M:%S')} | O:{open_price:.5f} H:{high:.5f} L:{low:.5f} C:{close_price:.5f} | {color} | SMA20:{sma:.5f} | dist={dist_a_sma:.4f} tol={tolerancia_pips:.4f} maxWick={max_wick_pips:.4f}"
+                    )
 
         logger.info(f"[TOQUES] [{symbol}] Total toques detectados: {len(touches)}")
         for t in touches:
-            logger.info(f"  -> {t['time_cdmx'].strftime('%H:%M')} | {t['direccion']} | dist={t['dist']:.4f}")
+            color = "VERDE" if t['close'] > t['open'] else "ROJO"
+            logger.info(f"  -> {t['time_cdmx'].strftime('%H:%M:%S')} | O:{t['open']:.5f} H:{t['high']:.5f} L:{t['low']:.5f} C:{t['close']:.5f} | {color} | {t['direccion']} | SMA20:{t['sma']:.5f} ATR:{t['atr']:.5f} | dist={t['dist']:.4f}")
 
         if len(touches) < 2:
             logger.warning(f"[TOQUES] [{symbol}] No hay suficientes toques ({len(touches)} < 2)")
@@ -205,13 +225,37 @@ class SMABot:
             t2 = touches[idx]
 
             if t1["direccion"] != t2["direccion"]:
-                logger.debug(f"[TOQUES] [{symbol}] Direcciones diferentes: {t1['direccion']} vs {t2['direccion']}")
+                logger.info(f"[TOQUES] [{symbol}] Direcciones diferentes: {t1['direccion']} vs {t2['direccion']}")
                 continue
+
+            t1Green = t1["close"] > t1["open"]
+            t2Green = t2["close"] > t2["open"]
+
+            if t1["direccion"] == "ALCISTA":
+                if not (t1Green and t2Green):
+                    color1 = "VERDE" if t1Green else "ROJO"
+                    color2 = "VERDE" if t2Green else "ROJO"
+                    logger.info(f"[TOQUES] [{symbol}] ALCISTA requiere 2 velas verdes: {color1} vs {color2}")
+                    continue
+            else:
+                if t1Green or t2Green:
+                    color1 = "VERDE" if t1Green else "ROJO"
+                    color2 = "VERDE" if t2Green else "ROJO"
+                    logger.info(f"[TOQUES] [{symbol}] CORTO requiere 2 velas rojas: {color1} vs {color2}")
+                    continue
+
+            if tendencia:
+                if t1["direccion"] == "ALCISTA" and tendencia != "ALCISTA":
+                    logger.info(f"[TOQUES] [{symbol}] Tendencia {tendencia} no coincide con direccion ALCISTA")
+                    continue
+                if t1["direccion"] == "BAJISTA" and tendencia != "BAJISTA":
+                    logger.info(f"[TOQUES] [{symbol}] Tendencia {tendencia} no coincide con direccion BAJISTA")
+                    continue
 
             separacion = t2["idx"] - t1["idx"]
 
             if separacion < 0:
-                logger.debug(f"[TOQUES] [{symbol}] Separación inválida: {separacion}")
+                logger.info(f"[TOQUES] [{symbol}] Separación inválida: {separacion}")
                 continue
 
             double_touch_time = t2["time_cdmx"]
@@ -220,7 +264,7 @@ class SMABot:
             close_actual = vela_actual["close"]
 
             if separacion > 12:
-                logger.debug(f"[TOQUES] [{symbol}] Separacion muy grande: {separacion} > 12")
+                logger.info(f"[TOQUES] [{symbol}] Separacion muy grande: {separacion} > 12")
                 continue
 
             logger.info(f"[TOQUES] [{symbol}] Doble toque: {t1['time_cdmx'].strftime('%H:%M')} -> {t2['time_cdmx'].strftime('%H:%M')} | sep={separacion} | direccion={t1['direccion']}")
@@ -499,28 +543,29 @@ class SMABot:
         return False
 
     async def _getAndPrepareData(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, rawDf: pd.DataFrame = None) -> pd.DataFrame | None:
-
+        
         symbol = symbolInfo['symbol']
+        logger.info(f"[{symbol}]  con intervalo: {interval}")
         minAfterDropna = 50
 
         def prepareDf(dfInput):
             dfInput = dfInput.copy()
             nanCounts = dfInput[['close', 'high', 'low', 'open', 'volume']].isna().sum()
-            logger.info(f"[{symbol}] rawDf velas={len(dfInput)}, NaN en cols clave: {nanCounts.to_dict()}")
+            #logger.info(f"[{symbol}] rawDf velas={len(dfInput)}, NaN en cols clave: {nanCounts.to_dict()}")
             dfInput = dfInput.dropna(subset=['close', 'high', 'low'])
-            logger.info(f"[{symbol}] Tras dropna(OHLC): {len(dfInput)} velas")
+            #logger.info(f"[{symbol}] Tras dropna(OHLC): {len(dfInput)} velas")
             if len(dfInput) < 200:
-                logger.warning(f"[{symbol}] Solo {len(dfInput)} velas válidas tras dropna(subset).")
+                #logger.warning(f"[{symbol}] Solo {len(dfInput)} velas válidas tras dropna(subset).")
                 return None
             for col in ['close', 'high', 'low']:
                 dfInput[col] = pd.to_numeric(dfInput[col], errors='coerce')
             invalidMask = (dfInput['close'] <= 0) | (dfInput['high'] <= 0) | (dfInput['low'] <= 0)
             invalidCount = invalidMask.sum()
             if invalidCount > 0:
-                logger.info(f"[{symbol}] Velas con valores inválidos (≤0): {invalidCount}")
+                #logger.info(f"[{symbol}] Velas con valores inválidos (≤0): {invalidCount}")
                 dfInput = dfInput[~invalidMask]
             if len(dfInput) < 200:
-                logger.warning(f"[{symbol}] Solo {len(dfInput)} velas tras filtrar valores inválidos.")
+                #logger.warning(f"[{symbol}] Solo {len(dfInput)} velas tras filtrar valores inválidos.")
                 return None
             if "sma20" not in dfInput.columns:
                 dfInput["sma20"] = ta.SMA(dfInput["close"].values, timeperiod=20)
@@ -529,24 +574,32 @@ class SMABot:
             if "atr" not in dfInput.columns:
                 dfInput["atr"] = ta.ATR(dfInput["high"].values, dfInput["low"].values, dfInput["close"].values, 14)
             nanAfterIndics = dfInput[['sma20', 'sma200', 'atr']].isna().sum()
-            logger.info(f"[{symbol}] NaN tras indicadores: {nanAfterIndics.to_dict()}")
+            #logger.info(f"[{symbol}] NaN tras indicadores: {nanAfterIndics.to_dict()}")
             result = dfInput.dropna(subset=['sma20', 'sma200', 'atr'])
-            logger.info(f"[{symbol}] Tras dropna final: {len(result)} velas")
+            #logger.info(f"[{symbol}] Tras dropna final: {len(result)} velas")
             return result
 
         if rawDf is not None and len(rawDf) >= 200:
             df = prepareDf(rawDf)
             if df is not None and len(df) >= minAfterDropna:
-                logger.info(f"[{symbol}] Usando rawDf pre-cargado: {len(df)} velas")
+                #logger.info(f"[{symbol}] Usando rawDf pre-cargado: {len(df)} velas")
                 return df
-            logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
-        
-        df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": 5000})
+            #logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
+        params = {
+                "symbol": symbol,
+                "interval": interval,
+                "outputsize": nVelas,
+                "apikey": apiKey,
+                "outputSize": 5000,
+                "timezone":TIMEZONE
+            }
+        df = await twelvedata.getTimeSeries(params)
+        #df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": 5000})
         if df is None:
-            logger.warning(f"[{symbol}] Error obteniendo datos de 12Data.")
+            logger.warning(f"[{symbol}] Error obteniendo datos ")
             return None
         
-        logger.info(f"[{symbol}] Descarga 12Data: {len(df)} velas")
+        logger.info(f"[{symbol}] Descarga : {len(df)} velas")
         df = prepareDf(df)
         logger.info(f"[{symbol}] Tras prepareDf: {len(df) if df is not None else 'None'} velas")
         
@@ -558,29 +611,13 @@ class SMABot:
     
 
     async def _get_signal(self, df: pd.DataFrame, symbol: str, intervalo: str, apiKey: str = None):
-        cdmx_tz = pytz.timezone("America/Mexico_City")
+        cdmx_tz = pytz.timezone(TIMEZONE)
         ahora_cdmx = datetime.now(cdmx_tz)
         
         if df.index.tzinfo is None:
             df.index = df.index.tz_localize(cdmx_tz)
         elif df.index.tzinfo != cdmx_tz:
             df.index = df.index.tz_convert(cdmx_tz)
-        
-        interval_map = {'1min': 1, '5min': 5, '15min': 15, '30min': 30, '1h': 60, '2h': 120, '4h': 240}
-        interval_minutes = interval_map.get(intervalo, 60)
-        
-        ultima_vela_cdmx = df.index[-1]
-        vela_end_time = ultima_vela_cdmx + pd.Timedelta(minutes=interval_minutes)
-        delay_total = ahora_cdmx - vela_end_time
-        delay_minutos = delay_total.total_seconds() / 60
-        
-        if delay_minutos < 2:
-            delay_minutos = 0
-        
-        if delay_minutos > 60:
-            logger.warning(f"⚠️ [{symbol}] DATOS CON DELAY: {delay_minutos/60:.1f}h | vela({ultima_vela_cdmx.strftime('%H:%M')}) actual({ahora_cdmx.strftime('%H:%M:%S')})")
-        elif delay_minutos > 2:
-            logger.warning(f"⚠️ [{symbol}] DATOS CON DELAY: {delay_minutos:.1f}min | vela({ultima_vela_cdmx.strftime('%H:%M')}) actual({ahora_cdmx.strftime('%H:%M:%S')})")
         
         candle_time = df.index[-1]
         close = df["close"].iloc[-1]
@@ -623,12 +660,12 @@ class SMABot:
         
         logger.info(f"[{symbol}] ✓ Rango correcto: {rango:.4f}")
 
-        distancia_sma200 = abs(close - sma200) / close * 100
-        if distancia_sma200 < 2.0:
-            logger.info(f"[{symbol}] ❌ SMA200 muy cerca ({distancia_sma200:.2f}% < 2%) - muro\n")
-            return None
-        
-        logger.info(f"[{symbol}] ✓ Distancia SMA200: {distancia_sma200:.2f}%")
+        distanciaSma200 = abs(close - sma200)
+        umbralMuroAtr = atr * 1.5
+        if distanciaSma200 < umbralMuroAtr:
+            logger.info(f"[{symbol}] ⚠️ SMA200 muy cerca ({distanciaSma200:.4f} < {umbralMuroAtr:.4f}) - posible muro")
+        else:
+            logger.info(f"[{symbol}] ✓ SMA200 distancia OK ({distanciaSma200:.4f} > {umbralMuroAtr:.4f})")
 
         distancia_ext = abs(close - sma20) / close * 100
         atr_promedio = df["atr"].tail(20).mean()
@@ -639,7 +676,7 @@ class SMABot:
             logger.warning(f"[{symbol}] ⚠️ Precio extendido ({distancia_ext:.3f}% > {extension_threshold:.3f}%) - posible corrección\n")
 
         # 🔥 REBOTE SMA20 DOBLE
-        direction, double_touch_time = self.detectar_rebote_sma_doble(df, sma20, intervalo, symbol)
+        direction, double_touch_time = self.detectar_rebote_sma_doble(df, sma20, intervalo, symbol, tendencia)
 
         consolidacion = None
         
@@ -668,7 +705,19 @@ class SMABot:
         except:
             prob = 0.5
 
-        threshold = 0.55
+        distanciaSma20Pct = abs(close - sma20) / close * 100
+        atrRelativo = atr / close * 100
+
+        if distanciaSma20Pct < atrRelativo * 0.5:
+            threshold = 0.40
+        elif distanciaSma20Pct < atrRelativo * 1.0:
+            threshold = 0.45
+        elif distanciaSma20Pct < atrRelativo * 1.5:
+            threshold = 0.50
+        else:
+            threshold = 0.55
+
+        logger.info(f"[{symbol}] ML threshold={threshold} | distSMA20={distanciaSma20Pct:.3f}% | atrRel={atrRelativo:.3f}%")
 
         if prob < threshold:
             logger.info(f"[{symbol}] ❌ Filtrado ML | prob={prob:.2f} < {threshold}\n")
@@ -901,6 +950,8 @@ class SMABot:
         
         return df_filtered
 
+        
+
     async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
         symbol = symbolInfo['symbol']
         
@@ -911,7 +962,7 @@ class SMABot:
             logger.info(f"[SMA BOT] ❌ df es None")
             return
 
-        cdmx_tz = pytz.timezone("America/Mexico_City")
+        cdmx_tz = pytz.timezone(TIMEZONE)
         ahora_cdmx = datetime.now(cdmx_tz)
         
         interval = symbolInfo.get('intervalo', '15min')

@@ -137,6 +137,7 @@ def adjustDataframeInplace(df):
     return df
 
 async def getTimeSeries(params: dict) -> pd.DataFrame | None:
+    logger.info(params);
     if  DATA_SOURCE == "db":
         return adjustDataframeInplace(await getCandlesFromDb(params.get("symbol"), params.get("interval"), params.get("outputSize", 500)))
     else:

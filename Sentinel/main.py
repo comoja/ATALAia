@@ -168,7 +168,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
             logger.error(f"[MAIN] ERROR en SMA BOT para {symbol}: {e}", exc_info=True)
         
         # 4. Ejecutar SclpngNY (solo después de 9:00 NY)
-        ahoraMX = datetime.now(pytz.timezone('America/Mexico_City'))
+        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
         esDST = SCLPNGBot.isNyDST(ahoraMX)
         if esDST:
@@ -201,7 +201,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
             
             dfIndex = df.index
             if dfIndex.tz is None:
-                dfIndex = dfIndex.tz_localize('America/Mexico_City')
+                dfIndex = dfIndex.tz_localize(TIMEZONE)
             
             maskApertura = (dfIndex >= inicioAperturaNY) & (dfIndex < finAperturaNY)
             dfApertura = df.loc[maskApertura]
@@ -275,7 +275,7 @@ async def main():
         apiKey, interval, _, nVelas, _ = getParametros()
         
         # Fetch a large number of candles just for training
-        trainingDf = await tdApi.getTimeSeries({"symbol": "EUR/USD", "interval": interval, "apikey": apiKey, "outputSize": 5000})
+        trainingDf = await tdApi.getTimeSeries({"symbol": "XAU/USD", "interval": interval, "apikey": apiKey, "outputSize": 5000})
 
         if trainingDf is not None and not trainingDf.empty:
             logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")
