@@ -20,7 +20,7 @@ class DatabaseManager:
         try:
             with self.engine.connect() as conn:
                 result = conn.execute(
-                    text("SELECT MAX(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"),
+                    text("SELECT MAX(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe and timestamp <= NOW()"),
                     {"symbol": symbol, "timeframe": timeframe}
                 )
                 row = result.fetchone()

@@ -541,7 +541,7 @@ class SMABot:
                 return df
             logger.warning(f"[{symbol}] rawDf insuficiente ({len(df) if df is not None else 0} velas). Descargando...")
         
-        df = await twelvedata.getTimeSeries(symbol, interval, apiKey, 5000)
+        df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": 5000})
         if df is None:
             logger.warning(f"[{symbol}] Error obteniendo datos de 12Data.")
             return None
@@ -608,7 +608,7 @@ class SMABot:
         umbral_distancia = 0.1
         
         if distancia_pct < umbral_distancia:
-            logger.info(f"[{symbol}] ❌ Precio muy cerca del SMA20 ({distancia_pct:.3f}% < {umbral_distancia}%) - lateral descartado")
+            logger.info(f"[{symbol}] ❌ Precio muy cerca del SMA20 ({distancia_pct:.3f}% < {umbral_distancia}%) - lateral descartado\n")
             return None
         
         logger.info(f"[{symbol}] ✓ Distancia SMA20: {distancia_pct:.3f}%")
@@ -618,14 +618,14 @@ class SMABot:
         umbral = (atr / close) * 3
 
         if rango < umbral:
-            logger.info(f"[{symbol}] ❌ Mercado lateral (rango={rango:.4f} < umbral={umbral:.4f}) - descartado")
+            logger.info(f"[{symbol}] ❌ Mercado lateral (rango={rango:.4f} < umbral={umbral:.4f}) - descartado\n")
             return None
         
         logger.info(f"[{symbol}] ✓ Rango correcto: {rango:.4f}")
 
         distancia_sma200 = abs(close - sma200) / close * 100
         if distancia_sma200 < 2.0:
-            logger.info(f"[{symbol}] ❌ SMA200 muy cerca ({distancia_sma200:.2f}% < 2%) - muro")
+            logger.info(f"[{symbol}] ❌ SMA200 muy cerca ({distancia_sma200:.2f}% < 2%) - muro\n")
             return None
         
         logger.info(f"[{symbol}] ✓ Distancia SMA200: {distancia_sma200:.2f}%")
@@ -636,7 +636,7 @@ class SMABot:
         extension_threshold = atr_relativo * 3
         
         if distancia_ext > extension_threshold:
-            logger.warning(f"[{symbol}] ⚠️ Precio extendido ({distancia_ext:.3f}% > {extension_threshold:.3f}%) - posible corrección")
+            logger.warning(f"[{symbol}] ⚠️ Precio extendido ({distancia_ext:.3f}% > {extension_threshold:.3f}%) - posible corrección\n")
 
         # 🔥 REBOTE SMA20 DOBLE
         direction, double_touch_time = self.detectar_rebote_sma_doble(df, sma20, intervalo, symbol)
@@ -647,7 +647,7 @@ class SMABot:
             logger.info(f"[{symbol}] Sin doble toque - buscando consolidación Oro Puro...")
             consolidacion = self.detectar_consolidacion_oro_puro(df, sma20, tendencia, symbol)
             if not consolidacion:
-                logger.info(f"[{symbol}] ❌ Sin doble toque ni consolidación válida")
+                logger.info(f"[{symbol}] ❌ Sin doble toque ni consolidación válida\n")
                 return None
             direction = consolidacion["type"]
             double_touch_time = df.index[-1]
@@ -671,10 +671,10 @@ class SMABot:
         threshold = 0.55
 
         if prob < threshold:
-            logger.info(f"[{symbol}] ❌ Filtrado ML | prob={prob:.2f} < {threshold}")
+            logger.info(f"[{symbol}] ❌ Filtrado ML | prob={prob:.2f} < {threshold}\n")
             return None
         
-        logger.info(f"[{symbol}] ✓ ML OK | prob={prob:.2f}")
+        logger.info(f"[{symbol}] ✓ ML OK | prob={prob:.2f}\n")
 
         volumen_anormal = self.detectar_volumen_anormal(df, symbol)
         extension_extrema = self.detectar_extension_extrema(df, sma20, symbol)
@@ -702,18 +702,18 @@ class SMABot:
             signal_age = ahora_cdmx - double_touch_time
             signal_age_minutes = signal_age.total_seconds() / 60
             if signal_age_minutes > 60:
-                logger.info(f"[{symbol}] ❌ Doble toque muy antiguo ({signal_age_minutes:.0f}min > 60min)")
+                logger.info(f"[{symbol}] ❌ Doble toque muy antiguo ({signal_age_minutes:.0f}min > 60min)\n")
                 return None
             
             logger.info(f"[{symbol}] ✓ Antigüedad doble toque: {signal_age_minutes:.0f}min")
 
         # 🔥 FILTRO DIRECCIÓN vs SMA200
         if direction == "LARGO" and close < sma200:
-            logger.info(f"[{symbol}] ❌ LARGO pero close={close:.4f} < sma200={sma200:.4f}")
+            logger.info(f"[{symbol}] ❌ LARGO pero close={close:.4f} < sma200={sma200:.4f}\n")
             return None
 
         if direction == "CORTO" and close > sma200:
-            logger.info(f"[{symbol}] ❌ CORTO pero close={close:.4f} > sma200={sma200:.4f}")
+            logger.info(f"[{symbol}] ❌ CORTO pero close={close:.4f} > sma200={sma200:.4f}\n")
             return None
         
         logger.info(f"[{symbol}] ✓ Direccion vs SMA200 OK")
@@ -732,7 +732,7 @@ class SMABot:
                 logger.debug(f"[{symbol}] Vela {i} {color} contraria a CORTO")
         
         if velas_contrarias >= 2:
-            logger.info(f"[{symbol}] ❌ {velas_contrarias}/{velas_recientes} velas contrarias - descartado")
+            logger.info(f"[{symbol}] ❌ {velas_contrarias}/{velas_recientes} velas contrarias - descartado\n")
             return None
 
         # 🎯 SL / TP

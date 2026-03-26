@@ -9,6 +9,7 @@ import time
 import pandas as pd
 import pytz
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --- Path Setup ---
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,12 +26,16 @@ from Sentinel.analysis.technical import calculateFeatures
 from middleware.utils.momentum import momentum as momentumAnalyzer
 from middleware.config import constants as config
 from middleware.database import dbManager
+from middleware.database.dbManager import get_min_wait_time
 
 # --- External Project Imports ---
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config import settings
+from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
 
+TIMEZONE_LOCAL = ZoneInfo(TIMEZONE)
+MAX_CANDLES_PER_CALL = 5000
 
 def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
     if targetInterval == "5min":
@@ -42,6 +47,7 @@ def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
         "2h": "2H",
         "4h": "4H"
     }
+   
     rule = intervalMap.get(targetInterval, targetInterval)
     dfResampled = df.resample(rule).agg({
         'open': 'first',
@@ -56,6 +62,7 @@ from middleware.api import twelvedata as tdApi
 INTERVAL = settings.INTERVAL
 INTERVALmax = settings.INTERVALmax
 
+
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """
     Obtiene los datos de time series una sola vez para todos los símbolos.
@@ -65,7 +72,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
         logger.info(f"Obteniendo datos de 12Data para {symbol} (intervalo base 5min)...")
-        df = await tdApi.getTimeSeries(symbol, "5min", apiKey, nVelas)
+        df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "apikey": apiKey, "outputSize": nVelas})
         if df is not None and len(df) >= 100:
             preloaded_data[symbol] = df
         else:
@@ -83,7 +90,7 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
     5. Ejecutar SclpngNY
     6. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
     """
-    MIN_WAIT_SECONDS = 3
+    MIN_WAIT_SECONDS = get_min_wait_time()
     
     for idx, symbolInfo in enumerate(symbolsToScan):
         symbol = symbolInfo['symbol']
@@ -97,8 +104,16 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         symbolInfo['cuenta'] = nombreKey
         
         # 1. Descargar datos para este símbolo (siempre 5min - intervalo base)
-        logger.info(f"Descargando datos de 12Data para {symbol} [{nombreKey}] (5min)...")
-        df = await tdApi.getTimeSeries(symbol, "5min", symbolApiKey, 5000, nombreKey)
+        logger.info(f"Descargando datos de {dbManager.DATA_SOURCE} para {symbol} [{nombreKey}] (5min)...")
+        
+        params = {
+                "symbol": symbol,
+                "interval": "5min",
+                "apikey": symbolApiKey,
+                "outputSize": MAX_CANDLES_PER_CALL,
+                "timezone":TIMEZONE_LOCAL
+            }
+        df = await tdApi.getTimeSeries(params)
         
         if df is None or len(df) < 100:
             logger.warning(f"[{symbol}] Datos insuficientes. Saltando...")
@@ -206,7 +221,8 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
                     f"  🟢 MIN: {precioMinimo:,.4f}\n"
                     f"━━━━━━━━━━━━━━━\n"
                 )
-                await alertaInmediata(1, textNivel)
+                if horasDesdeFinApertura <= 0.5:  # 30 minutos
+                    await alertaInmediata(1, textNivel)
                 
                 maskPostApertura = dfIndex >= finAperturaNY
                 dfPostApertura = df.loc[maskPostApertura]
@@ -229,10 +245,10 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         
         if wait_time > 0:
-            logger.info(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...")
+            logger.info(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...\n\n")
             await asyncio.sleep(wait_time)
         else:
-            logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)")
+            logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)\n\n")
 
 # 1. Set up logging at the very beginning
 setupLogging()
@@ -259,7 +275,7 @@ async def main():
         apiKey, interval, _, nVelas, _ = getParametros()
         
         # Fetch a large number of candles just for training
-        trainingDf = await tdApi.getTimeSeries("EUR/USD", interval, apiKey, nVelas=5000)
+        trainingDf = await tdApi.getTimeSeries({"symbol": "EUR/USD", "interval": interval, "apikey": apiKey, "outputSize": 5000})
 
         if trainingDf is not None and not trainingDf.empty:
             logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")

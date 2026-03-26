@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 import time
 
-from config.settings import  MaxXminuto, MaxXdia,  minutosXdia, INTERVAL, API_KEYS, INTERVALmax, timeframes
+from middleware.config.constants import MaxXminuto, MaxXdia, minutosXdia, INTERVAL, API_KEYS, INTERVALmax, timeframes
 from datetime import datetime
 import asyncio
 

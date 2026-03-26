@@ -8,16 +8,139 @@ import httpx
 import pandas as pd
 import pytz
 import asyncio
+from datetime import datetime
 
 from middleware.config.constants import (
     TWELVE_DATA_API_URL, 
     TWELVE_DATA_CREDIT_LIMIT, 
-    TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD
+    TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD,
+    TIMEZONE
 )
 from middleware.database import dbManager, dbConnection
 
+try:
+    from middleware.database.dbManager import getCandlesFromDb
+except ImportError:
+    getCandlesFromDb = None
+
+try:
+    from middleware.config.constants import DATA_SOURCE
+except ImportError:
+    DATA_SOURCE = "db"
+
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TIMEZONE = TIMEZONE
+
+BUFFER_HIGH = 2.3
+BUFFER_LOW  = 8.86
+
+
+async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
+    try:
+        required = ["symbol", "interval", "apikey"]
+        for key in required:
+            if key not in params:
+                logger.error(f"Falta parámetro requerido: {key}")
+                return None
+        
+        api_params = {
+            "symbol": params["symbol"],
+            "interval": params["interval"],
+            "apikey": params["apikey"],
+            "format": "JSON",
+            "timezone": DEFAULT_TIMEZONE
+        }
+        
+        if "outputSize" in params:
+            api_params["outputsize"] = params["outputSize"]
+        elif "outputsize" in params:
+            api_params["outputsize"] = params["outputsize"]
+        if "startDate" in params and params["startDate"]:
+            if isinstance(params["startDate"], datetime):
+                api_params["start_date"] = params["startDate"].strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                api_params["start_date"] = params["startDate"]
+        elif "start_date" in params and params["start_date"]:
+            if isinstance(params["start_date"], datetime):
+                api_params["start_date"] = params["start_date"].strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                api_params["start_date"] = params["start_date"]
+        if "endDate" in params and params["endDate"]:
+            if isinstance(params["endDate"], datetime):
+                api_params["end_date"] = params["endDate"].strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                api_params["end_date"] = params["endDate"]
+        elif "end_date" in params and params["end_date"]:
+            if isinstance(params["end_date"], datetime):
+                api_params["end_date"] = params["end_date"].strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                api_params["end_date"] = params["end_date"]
+        async with httpx.AsyncClient() as client:
+            response = await client.get(TWELVE_DATA_API_URL + "/time_series", params=params, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        count = data.get('count')
+        if count:
+            print(f"[getTimeSeries] Uso hoy: {count}/750")
+        
+        if "code" in data:
+            logger.error(f"API error: {data}")
+            return None
+        
+        if "values" not in data:
+            logger.warning(f"No hay 'values'")
+            return None
+        
+        df = pd.DataFrame(data["values"])
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.sort_values("datetime").reset_index(drop=True)
+        
+        for col in ["open", "high", "low", "close"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        
+        if "volume" in df.columns:
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+        else:
+            df["volume"] = 0
+        
+        return df.dropna(subset=["close"])
+    
+    except httpx.RequestError as e:
+        logger.error(f"Error de red: {e}") 
+        return None
+    except Exception as e:
+        logger.error(f"Error: {e}", exc_info=True)
+        return None
+    
+def adjustDataframeInplace(df):
+    df = df.copy()
+
+    df["range"] = df["high"] - df["low"]
+    df["spread"] = df["range"] * 0.2
+
+    spread_high = df["spread"] * 0.3
+    spread_low  = df["spread"] * 0.7
+
+    # extremos (fuertes)
+    df["high"] = df["high"] + spread_high
+    df["low"]  = df["low"]  - spread_low
+
+    # intermedios (suave, centrado)
+    adjustment = (spread_high - spread_low) / 2
+
+    df["open"]  = df["open"]  + adjustment
+    df["close"] = df["close"] + adjustment
+
+    return df
+
+async def getTimeSeries(params: dict) -> pd.DataFrame | None:
+    if  DATA_SOURCE == "db":
+        return adjustDataframeInplace(await getCandlesFromDb(params.get("symbol"), params.get("interval"), params.get("outputSize", 500)))
+    else:
+        return await _callTimeSeriesApi(params)
 
 async def checkApiCredits(apiKey: str, accountName: str):
     """
@@ -48,54 +171,6 @@ async def checkApiCredits(apiKey: str, accountName: str):
         logger.error(f"Error inesperado al verificar créditos de API para {accountName}: {e}")
 
 
-async def getTimeSeries(symbol: str, interval: str, apiKey: str, nVelas: int = 5000, accountName: str = None) -> pd.DataFrame | None:
-    """
-    Downloads time series data for a given symbol.
-    """
-    accountInfo = f" [{accountName}]" if accountName else ""
-    logger.info(f"Descargando {nVelas} velas para {symbol} en intervalo {interval}{accountInfo}")
-    url = f"{TWELVE_DATA_API_URL}/time_series"
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "outputsize": nVelas,
-        "apikey": apiKey,
-        "timezone": "America/Mexico_City"
-    }
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=20.0)
-            response.raise_for_status()
-            
-            data = response.json()
-
-        if "values" not in data:
-            logger.warning(f"Respuesta de API sin 'values' para {symbol}: {data.get('message', 'No message')}")
-            return None
-
-        df = pd.DataFrame(data["values"])
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df = df.sort_values("datetime").set_index("datetime")
-        
-        # Coerce columns to numeric, handling potential errors
-        for col in ["open", "high", "low", "close"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        
-        # Ensure volume column exists and is numeric
-        if "volume" in df.columns:
-            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
-        else:
-            df["volume"] = 0
-            
-        return df.dropna(subset=["close"])
-
-    except httpx.RequestError as e:
-        logger.error(f"Error de red en descarga de time series para {symbol}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Error crítico en descarga de time series para {symbol}: {e}", exc_info=True)
-        return None
 
 async def getTimeSeriesSymbolWithDB(symbol: str,
                                     interval: str,
@@ -143,6 +218,10 @@ async def getTimeSeriesSymbolWithDB(symbol: str,
             response = await client.get(url, params=params, timeout=30.0)
             response.raise_for_status()
             data = response.json()
+
+        count = data.get('count')
+        if count:
+            print(f"[getTimeSeriesSymbolWithDB] Uso hoy: {count}/750")
 
         if "code" in data:
             logger.error(f"API error: {data}")
@@ -354,3 +433,9 @@ def resample_candles(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     }).dropna().reset_index()
     df_resampled['symbol'] = df['symbol'].iloc[0]
     return df_resampled
+
+def adjust_levels(high, low):
+    real_high = high - BUFFER_HIGH
+    real_low  = low  - BUFFER_LOW
+    
+    return real_high, real_low

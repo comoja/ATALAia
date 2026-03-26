@@ -25,6 +25,10 @@ minutosXdia = 24 * 60
 # ===== STRATEGY DE SENTINEL=====
 INTERVAL = "15min"
 INTERVALmax = "1h"
+
+# Origen de datos: "db" = tabla candles (5min), "12data" = API 12Data (usa INTERVAL)
+DATA_SOURCE = "db"  # Cambiar a "12data" si se requiere usar la API externa
+
 CAPITAL_ACTUAL = 500 # Esto debería leerse de tu balance real
 Riesgo_Por_Operacion = 0.02 # 2% de riesgo por trade ($10 USD)
 RISK_REWARD = 1.9

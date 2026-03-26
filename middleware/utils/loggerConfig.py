@@ -21,7 +21,7 @@ def setupLogging(logPara: str = "app", projectDir: str = None):
     consoleHandler = logging.StreamHandler()
 
     # Formato común
-    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(filename)s:%(lineno)d | %(message)s')
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(funcName)s | %(filename)s:%(lineno)d | %(message)s')
     fileHandler.setFormatter(formatter)
     consoleHandler.setFormatter(formatter)
 

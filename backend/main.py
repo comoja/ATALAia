@@ -1,5 +1,11 @@
 import logging
+import sys
+import os
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from middleware.utils.loggerConfig import setupLogging
+
+setupLogging(logPara="atalaia", projectDir=os.path.dirname(os.path.abspath(__file__)))
 
 from scheduler.autoScheduler import startScheduler, isRestTime
 
@@ -13,24 +19,6 @@ else:
 """
 
 # =============================
-
-# =============================
-# LOGGING
-# =============================
-
-# Configurar logging
-logging.basicConfig(
-    filename="ATALAia.log",
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-
-# =============================
-# INITIALIZATION
-# =============================
-
 
 # =============================
 # MAIN TRADING CYCLE

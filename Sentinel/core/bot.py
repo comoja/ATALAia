@@ -128,7 +128,7 @@ class TradingBot:
             df = raw_df.copy()
         else:
             logger.info(f"[{symbol}] Obteniendo datos de 12Data para estrategia Sniper...")
-            df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas)
+            df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": nVelas})
             if df is None or len(df) < 100:
                 logger.warning(f"[{symbol}] Datos insuficientes para análisis ({len(df) if df is not None else 0} velas).")
                 return None

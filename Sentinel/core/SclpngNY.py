@@ -39,6 +39,10 @@ class SCLPNGBot:
         self.currentSessionLevels = None
         self.velaCorte = None
         self.signalGenerada = False
+        self.timestamp_signal1 = None
+        self.timestamp_signal2 = None
+        self.signal1_enviada = False
+        self.signal2_enviada = False
     
     @staticmethod
     def isNyDST(date) -> bool:
@@ -213,8 +217,24 @@ class SCLPNGBot:
         
         signals = []
         
+        ahora = self.getMexicoTime()
+        
         for idx, fvg in enumerate(fvgs):
             logger.info(f"[SclpngNY] FVG {idx+1}: {fvg['type']}, idx: {fvg['idx']}")
+            
+            # Verificar 30 minutos para cada señal de trade (no solo detección FVG)
+            if idx == 0:  # Señal 1
+                if self.signal1_enviada and self.timestamp_signal1:
+                    minutos_desde_signal1 = (ahora - self.timestamp_signal1).total_seconds() / 60
+                    if minutos_desde_signal1 > 30:
+                        logger.info(f"[SclpngNY] Señal 1 (trade) ya enviada hace más de 30 min ({minutos_desde_signal1:.1f}), omitiendo...")
+                        continue
+            elif idx == 1:  # Señal 2
+                if self.signal2_enviada and self.timestamp_signal2:
+                    minutos_desde_signal2 = (ahora - self.timestamp_signal2).total_seconds() / 60
+                    if minutos_desde_signal2 > 30:
+                        logger.info(f"[SclpngNY] Señal 2 (trade) ya enviada hace más de 30 min ({minutos_desde_signal2:.1f}), omitiendo...")
+                        continue
             
             entryPrice = fvg['mid']
             
@@ -305,6 +325,18 @@ class SCLPNGBot:
                     self.lastMessageIds[symbolInfo['symbol']] = msgId
                     
                 logger.info(f"✅ Alerta SclpngNY enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
+        
+        # Marcar señal como enviada y guardar timestamp (se cuenta cuando se ejecuta el trade)
+        fvg_num = signal.get('fvgNum', 0)
+        ahora = self.getMexicoTime()
+        if fvg_num == 1:
+            self.signal1_enviada = True
+            self.timestamp_signal1 = ahora
+            logger.info(f"[SclpngNY] Marcando señal 1 como enviada a las {ahora}")
+        elif fvg_num == 2:
+            self.signal2_enviada = True
+            self.timestamp_signal2 = ahora
+            logger.info(f"[SclpngNY] Marcando señal 2 como enviada a las {ahora}")
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
         logger.info(f"[SclpngNY] ===== INICIANDO CICLO SCLPNG =====")

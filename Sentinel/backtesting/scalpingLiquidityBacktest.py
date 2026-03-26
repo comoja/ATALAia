@@ -333,8 +333,8 @@ class LiquidityScalpingBacktest:
 
 async def loadDataFromApi(symbol: str, apiKey: str, startDate: str, endDate: str):
     from middleware.api import twelvedata
-    dataH1 = await twelvedata.getTimeSeries(symbol, "1h", apiKey, 5000)
-    dataM3 = await twelvedata.getTimeSeries(symbol, "3min", apiKey, 5000)
+    dataH1 = await twelvedata.getTimeSeries({"symbol": symbol, "interval": "1h", "apikey": apiKey, "outputSize": 5000})
+    dataM3 = await twelvedata.getTimeSeries({"symbol": symbol, "interval": "3min", "apikey": apiKey, "outputSize": 5000})
     
     if dataH1 is not None and dataM3 is not None:
         dataH1 = dataH1.loc[startDate:endDate]

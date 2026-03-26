@@ -19,7 +19,7 @@ def setup_logging():
     console_handler = logging.StreamHandler()
 
     # Formato común
-    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(filename)s:%(lineno)d | %(message)s')
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(funcName)s | %(filename)s:%(lineno)d | %(message)s')
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
 

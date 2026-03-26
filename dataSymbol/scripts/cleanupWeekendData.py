@@ -1,9 +1,13 @@
 import logging
+import os
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from middleware.utils.loggerConfig import setupLogging
+setupLogging(logPara="cleanupWeekendData", projectDir=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 logger = logging.getLogger(__name__)
 
 dbConfig = {

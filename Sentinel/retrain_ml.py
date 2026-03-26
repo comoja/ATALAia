@@ -29,7 +29,7 @@ async def retrain():
     symbol = "EUR/USD"  # Símbolo para entrenamiento
     
     print(f"Descargando datos de {symbol}...")
-    df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas=5000)
+    df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": 5000})
     
     if df is None or df.empty:
         print("❌ Error: No se pudieron obtener datos")

@@ -2,11 +2,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from middleware.utils.loggerConfig import setupLogging
+setupLogging(logPara="generateLongIntervals", projectDir=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from middleware.database import dbManager
 from core.databaseManager import DatabaseManager
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 

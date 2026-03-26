@@ -16,8 +16,8 @@ API_KEYS = [
 
 TWELVE_DATA_API_URL = "https://api.twelvedata.com"
 URLTDSERIES = "https://api.twelvedata.com/timeSeries"
-MaxXminuto = 8
-MaxXdia = 800
+MaxXminuto = 7
+MaxXdia = 750
 minutosXdia = 24 * 60
 
 TWELVE_DATA_CREDIT_LIMIT = 750
@@ -35,6 +35,10 @@ TIMEZONE = "America/Mexico_City"
 DEFAULT_INTERVAL = "15min"
 MAX_INTERVAL = "1h"
 INTERVAL = "15min"
+DATA_SOURCE = "db"
+RISK_REWARD = 1.9
+VELAS_HISTORIAL = 1000
+tiempoEspera = 5
 INTERVALmax = "15min"
 timeZone = TIMEZONE
 

@@ -5,9 +5,20 @@ import pandas as pd
 from datetime import datetime
 import logging
 import asyncio
+import requests
+
 logger = logging.getLogger(__name__)
 
 from middleware.database import dbConnection
+
+try:
+    from middleware.config.constants import DATA_SOURCE, INTERVAL, API_KEYS
+except ImportError:
+    DATA_SOURCE = "db"
+    INTERVAL = "15min"
+    API_KEYS = []
+
+_indice_key = -1
 
 def cierraTradeEnDb(idTrade, precioCierre, fechaCierre, comentario):
     try:
@@ -261,7 +272,7 @@ async def getLastCandleDatetime(symbol: str, timeframe: str):
             conn = dbConnection.getConnection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT MAX(datetime) FROM candles WHERE symbol=%s AND timeframe=%s",
+                "SELECT MAX(timestamp) FROM candles WHERE symbol=%s AND timeframe=%s",
                 (symbol, timeframe)
             )
             result = cursor.fetchone()
@@ -290,14 +301,14 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
             cursor = conn.cursor()
             insert_query = """
                 INSERT IGNORE INTO candles 
-                (symbol, timeframe, datetime, open, high, low, close, volume)
+                (symbol, timeframe, timestamp, open, high, low, close, volume)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """
             values = [
                 (
                     row['symbol'], 
                     timeframe, 
-                    row['datetime'], 
+                    row['timestamp'], 
                     row['open'], 
                     row['high'], 
                     row['low'], 
@@ -318,3 +329,107 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
 
     inserted_count = await asyncio.to_thread(insert)
     return inserted_count
+
+
+async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 500) -> pd.DataFrame:
+    """
+    Obtiene velas de la tabla 'candles' como DataFrame.
+    """
+    def query():
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT timestamp, open, high, low, close, volume FROM candles "
+                "WHERE symbol=%s AND timeframe=%s ORDER BY timestamp DESC LIMIT %s",
+                (symbol, timeframe, limit)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values('timestamp').set_index('timestamp')
+            
+            for col in ['open', 'high', 'low', 'close']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
+            
+            return df.dropna(subset=['close'])
+        except Exception as e:
+            logger.error(f"Error en getCandlesFromDb: {e}", exc_info=True)
+            return pd.DataFrame()
+
+    return await asyncio.to_thread(query)
+
+
+def _get_api_key():
+    global _indice_key
+    if not API_KEYS:
+        return None
+    _indice_key = (_indice_key + 1) % len(API_KEYS)
+    return API_KEYS[_indice_key]
+
+
+async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
+    """
+    Obtiene velas según DATA_SOURCE:
+    - "db": tabla candles (5min)
+    - "12data": API 12Data (usa INTERVAL)
+    """
+    if DATA_SOURCE == "12data":
+        api_key = _get_api_key()
+        if not api_key:
+            logger.error("No hay API keys disponibles para 12Data")
+            return pd.DataFrame()
+        
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={INTERVAL}&outputsize={n_velas}&apikey={api_key}"
+        try:
+            response = requests.get(url).json()
+            if "values" not in response:
+                logger.warning(f"Respuesta sin valores para {symbol}: {response.get('message')}")
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(response["values"])
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            df = df.sort_values("datetime").set_index("datetime")
+            
+            for col in ["open", "high", "low", "close"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            
+            if "volume" in df.columns:
+                df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+            else:
+                df["volume"] = pd.Series(0, index=df.index)
+            
+            return df.dropna(subset=["close"])
+        except Exception as e:
+            logger.error(f"Error en getCandles (12Data): {e}")
+            return pd.DataFrame()
+    else:
+        return await getCandlesFromDb(symbol, "5min", n_velas)
+
+
+def get_sleep_time(esperaMin: int = 15) -> int:
+    """
+    Retorna el tiempo de espera en MINUTOS entre solicitudes según DATA_SOURCE:
+    - "db": 5 minutos
+    - "12data": usa el valor de esperaMin proporcionado (minutos)
+    """
+    if DATA_SOURCE == "db":
+        return 5
+    return esperaMin
+
+
+def get_min_wait_time() -> int:
+    """
+    Retorna el tiempo mínimo de espera entre solicitudes (en segundos).
+    - "db": 0 segundos (datos locales, no hay límite de API)
+    - "12data": 3 segundos (límite de 8 llamadas/min)
+    """
+    if DATA_SOURCE == "db":
+        return 0
+    return 3

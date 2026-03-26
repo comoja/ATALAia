@@ -10,16 +10,16 @@ from datetime import datetime, timedelta
 
 from Sentinel.database import dbConnection
 
-# Esto detecta la carpeta 'backend' y la registra en Python
 ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ruta_raiz not in sys.path:
     sys.path.insert(0, ruta_raiz)
 
-from core.logger_config import setup_logging
+from middleware.utils.loggerConfig import setupLogging
 
-# 1. Configura el sistema de logs antes que nada
-setup_logging()
-from config import settings
+project_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(project_dir)
+setupLogging(logPara="precios", projectDir=project_dir)
+
 from scheduler.autoScheduler import getTiempoEspera
 from core.comm import enviar_alerta
 from database import dbManager

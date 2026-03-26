@@ -10,7 +10,7 @@ ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ruta_raiz not in sys.path:
     sys.path.insert(0, ruta_raiz)
 
-from config.settings import timeZone, FESTIVOS
+from middleware.config.constants import timeZone, FESTIVOS
 import logging
 logger = logging.getLogger(__name__)
 from apscheduler.schedulers.blocking import BlockingScheduler

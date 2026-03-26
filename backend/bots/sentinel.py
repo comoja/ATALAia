@@ -12,27 +12,25 @@ import time
 import warnings
 import logging
 
-# Esto detecta la carpeta 'backend' y la registra en Python
 ruta_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if ruta_raiz not in sys.path:
     sys.path.insert(0, ruta_raiz)
 
+from middleware.utils.loggerConfig import setupLogging
 
+project_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(project_dir)
+setupLogging(logPara="sentinel", projectDir=project_dir)
 
 from database import dbManager
 from scheduler.autoScheduler import getTiempoEspera, isRestTime
 from core.comm import enviarAlerta, alertaInmediata
 from middleware.utils.momentum import momentum
+from middleware.database.dbManager import getCandles, get_sleep_time
 
 from data.dataLoader import getParametros, nombre_key
-from config import settings
-from config.settings import SYMBOLS, RISK_REWARD, VELAS_HISTORIAL, tiempoEspera, FESTIVOS, INTERVAL, timeZone,INTERVALmax
-from core.logger_config import setup_logging
+from middleware.config.constants import SYMBOLS, RISK_REWARD, VELAS_HISTORIAL, tiempoEspera, FESTIVOS, INTERVAL, timeZone, INTERVALmax
 
-# 1. Configura el sistema de logs antes que nada
-setup_logging()
-
-# 2. Crea el logger específico para este archivo
 import logging
 logger = logging.getLogger(__name__)
 
@@ -366,7 +364,7 @@ async def analyzeSymbol(symbols, n_velas):
     global ultimoEstado
     ultimoEstado = None
     
-    df = await download12Data(symbols['symbol'], n_velas )
+    df = await getCandles(symbols['symbol'], n_velas)
 
     if df is None or len(df) < 100:
         logger.info( "velas descargadas: " + str(n_velas)+ " tamaño del df "+ str(len(df))  +"\n" )
@@ -717,7 +715,7 @@ async def iniciar_bot():
         
         global api_key_activa, intervalo, nombre_key
         intervalo = INTERVAL
-        esperaMin = 15 # Valor por defecto
+        esperaMin = 5  # Valor por defecto: 5 minutos
         now_actual = datetime.now().strftime('%H:%M:%S')
         if not isRestTime():
             logger.info(f"\n\n\n--------------------- Iniciando Escaneo a las {now_actual} -------------------\n\n")
@@ -725,15 +723,18 @@ async def iniciar_bot():
             for s in dbManager.getSymbols():
                 key, inter, nom, n_velas,esperaMin = getParametros()
                 api_key_activa, intervalo, nombre_key = key, inter, nom
+                
+                sleep_time = get_sleep_time(esperaMin)
+                
                 try:
                     await analyzeSymbol(s, n_velas)
-                    await asyncio.sleep(9)
+                    await asyncio.sleep(sleep_time)
                 except Exception as e:
                     logger.error(f"Error en {s['symbol']}: {e}")
             logger.info(f"✅ Ciclo completado. Esperando próxima vela...")
         if intervalo == INTERVALmax:
             intervalo = INTERVAL
-            esperaMin = 15
+        esperaMin = get_sleep_time(esperaMin)
         await getTiempoEspera(esperaMin)
         
 

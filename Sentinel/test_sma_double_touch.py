@@ -12,6 +12,9 @@ rutaProyecto = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaProyecto not in sys.path:
     sys.path.insert(0, rutaProyecto)
 
+from middleware.utils.loggerConfig import setupLogging
+setupLogging(logPara="test_sma_double_touch", projectDir=rutaProyecto)
+
 from Sentinel.api import twelvedata
 from Sentinel.core.SMA20_200 import SMABot
 from middleware.utils.communications import sendTelegramAlert
@@ -20,7 +23,6 @@ from Sentinel.data.dataLoader import getParametros
 import talib as ta
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +75,7 @@ async def test_doble_toque():
     print(f"Hora CDMX actual: {ahora_cdmx.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     print(f"{'='*60}\n")
     
-    df = await twelvedata.getTimeSeries(symbol, interval, apiKey, nVelas=nVelas)
+    df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": nVelas})
     
     if df is None or len(df) < 100:
         print("❌ Error: No se pudieron obtener datos")
