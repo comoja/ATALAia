@@ -6,7 +6,7 @@ import re
 import asyncio
 from telegram import Bot
 from telegram.error import TelegramError
-from Sentinel.database import dbManager
+from middleware.database import dbManager
 
 
 logger = logging.getLogger(__name__)
