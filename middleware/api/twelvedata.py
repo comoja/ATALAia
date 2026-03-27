@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEZONE = TIMEZONE
 
-BUFFER_HIGH = 2.3
-BUFFER_LOW  = 8.86
+# 🔥 cliente reutilizable (mejor performance)
+client = httpx.AsyncClient(timeout=30.0)
 
 
 async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
@@ -50,37 +50,79 @@ async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
             "interval": params["interval"],
             "apikey": params["apikey"],
             "format": "JSON",
-            "timezone": DEFAULT_TIMEZONE
+            "timezone": TIMEZONE
         }
         
         if "outputSize" in params:
             api_params["outputsize"] = params["outputSize"]
         elif "outputsize" in params:
             api_params["outputsize"] = params["outputsize"]
-        if "startDate" in params and params["startDate"]:
-            if isinstance(params["startDate"], datetime):
-                api_params["start_date"] = params["startDate"].strftime('%Y-%m-%d %H:%M:%S')
+        
+        if "start_date" in params and params["start_date"]:
+            start = params["start_date"]
+            if hasattr(start, 'strftime'):
+                api_params["start_date"] = start.strftime('%Y-%m-%d %H:%M:%S')
             else:
-                api_params["start_date"] = params["startDate"]
-        elif "start_date" in params and params["start_date"]:
-            if isinstance(params["start_date"], datetime):
-                api_params["start_date"] = params["start_date"].strftime('%Y-%m-%d %H:%M:%S')
+                api_params["start_date"] = str(start)
+        
+        if "end_date" in params and params["end_date"]:
+            end = params["end_date"]
+            if hasattr(end, 'strftime'):
+                api_params["end_date"] = end.strftime('%Y-%m-%d %H:%M:%S')
             else:
-                api_params["start_date"] = params["start_date"]
-        if "endDate" in params and params["endDate"]:
-            if isinstance(params["endDate"], datetime):
-                api_params["end_date"] = params["endDate"].strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                api_params["end_date"] = params["endDate"]
-        elif "end_date" in params and params["end_date"]:
-            if isinstance(params["end_date"], datetime):
-                api_params["end_date"] = params["end_date"].strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                api_params["end_date"] = params["end_date"]
-        async with httpx.AsyncClient() as client:
-            response = await client.get(TWELVE_DATA_API_URL + "/time_series", params=params, timeout=30.0)
-            response.raise_for_status()
-            data = response.json()
+                api_params["end_date"] = str(end)
+        # -------------------------
+        #  Retry robusto
+        # -------------------------
+
+        data = None
+        for attempt in range(3):
+            try:
+                #logger.info(api_params  )
+                response = await client.get(
+                    f"{TWELVE_DATA_API_URL}/time_series",
+                    params=api_params
+                )
+
+                response.raise_for_status()
+                data = response.json()
+                
+                logger.info(f"[TwelveData] Response keys: {data.keys()}")
+                if "values" in data:
+                    logger.info(f"[TwelveData] Cantidad de valores: {len(data.get('values', []))}")
+                else:
+                    logger.warning(f"[TwelveData] Sin 'values', response: {data}")
+
+                break
+            
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                logger.error(f"HTTP error {status}: {e}")
+                return None
+            
+            """
+                if status in [429, 500, 502, 503, 504, 520] and attempt < 2:
+                    wait = 1.5 * (attempt + 1)
+                    logger.warning(f"Retry {attempt+1}/3 en {wait}s (status {status})")
+
+                    await asyncio.sleep(wait)
+                    continue
+
+                logger.error(f"HTTP error {status}: {e}")
+                return None
+
+            except httpx.RequestError as e:
+                if attempt < 2:
+                    wait = 1.5 * (attempt + 1)
+                    logger.warning(f"Retry network {attempt+1}/3 en {wait}s")
+                    await asyncio.sleep(wait)
+                    continue
+
+                logger.error(f"Error de red: {e}")
+                return None
+        """
+        if not data:
+            return None
         
         count = data.get('count')
         if count:
@@ -95,18 +137,27 @@ async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
             return None
         
         df = pd.DataFrame(data["values"])
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df = df.sort_values("datetime").reset_index(drop=True)
-        
+
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        
+
         if "volume" in df.columns:
             df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
         else:
             df["volume"] = 0
+
+        df = df.sort_values("datetime").reset_index(drop=True)
+
+        # -------------------------
+        #  Log uso
+        # -------------------------
+        if "count" in data:
+            logger.info(f"[TwelveData] Uso: {data['count']}/750")
+
         
-        return df.dropna(subset=["close"])
+        return adjustDataframeInplace(df.dropna(subset=["close"]))
     
     except httpx.RequestError as e:
         logger.error(f"Error de red: {e}") 
@@ -115,7 +166,7 @@ async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
         logger.error(f"Error: {e}", exc_info=True)
         return None
     
-def adjustDataframeInplace(df):
+def adjustDataframeInplace(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     df["range"] = df["high"] - df["low"]
@@ -124,11 +175,9 @@ def adjustDataframeInplace(df):
     spread_high = df["spread"] * 0.3
     spread_low  = df["spread"] * 0.7
 
-    # extremos (fuertes)
     df["high"] = df["high"] + spread_high
     df["low"]  = df["low"]  - spread_low
 
-    # intermedios (suave, centrado)
     adjustment = (spread_high - spread_low) / 2
 
     df["open"]  = df["open"]  + adjustment
@@ -137,208 +186,11 @@ def adjustDataframeInplace(df):
     return df
 
 async def getTimeSeries(params: dict) -> pd.DataFrame | None:
-    logger.info(params);
+    
     if  DATA_SOURCE == "db":
         return adjustDataframeInplace(await getCandlesFromDb(params.get("symbol"), params.get("interval"), params.get("outputSize", 500)))
     else:
         return await _callTimeSeriesApi(params)
-
-async def checkApiCredits(apiKey: str, accountName: str):
-    """
-    Checks the current usage of a Twelve Data API key and sends an alert if credits are low.
-    """
-    url = f"{TWELVE_DATA_API_URL}?apikey={apiKey}"
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=10.0)
-            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-            
-            data = response.json()
-            usedCredits = data.get('currentUsage', 0)
-            remainingCredits = TWELVE_DATA_CREDIT_LIMIT - usedCredits
-
-            if remainingCredits < TWELVE_DATA_CREDIT_EMERGENCY_THRESHOLD:
-                message = (
-                    f"⚠️ *EMERGENCIA:* Cuenta de API **{accountName}** casi sin créditos. "
-                    f"Quedan solo {remainingCredits}."
-                )
-                # This needs a proper implementation of the alert system
-                # await sendAlert(message) 
-                logger.critical(f"API Key credits running low for {accountName}! Remaining: {remainingCredits}")
-
-    except httpx.RequestError as e:
-        logger.error(f"Error de red al verificar créditos de API para {accountName}: {e}")
-    except Exception as e:
-        logger.error(f"Error inesperado al verificar créditos de API para {accountName}: {e}")
-
-
-
-async def getTimeSeriesSymbolWithDB(symbol: str,
-                                    interval: str,
-                                    apiKey: str,
-                                    nVelas: int = 200,
-                                    accountName: str = None
-                                    ) -> pd.DataFrame | None:
-    """
-    Descarga velas de un símbolo y guarda automáticamente en la DB todas las temporalidades:
-    - 5min (original)
-    - 15min (resample)
-    - 1h (resample)
-    
-    Ajusta automáticamente el número de velas de 5min necesarias para cubrir SMA20 de la temporalidad más grande.
-    Retorna únicamente las velas de la temporalidad solicitada (interval).
-    """
-    import pytz
-
-    accountInfo = f" [{accountName}]" if accountName else ""
-    
-    # --- Calcular velas mínimas para temporalidades mayores ---
-    # Ejemplo: SMA20 en 1h -> 20 velas de 1h = 20*12 velas de 5min
-    velas_minimas = 200  # default si no hay otra consideración
-    
-    if interval == "15min":
-        velas_minimas = (nVelas * 3)  # SMA20 * 3 velas de 5min por cada 15min
-    elif interval == "1h":
-        velas_minimas = (nVelas * 12)  # SMA20 * 12 velas de 5min por cada 1h
-    else:  # 5min
-        velas_minimas = 5000
-    sonMuchas= (velas_minimas > 5000)
-    logger.info(f"Descargando {velas_minimas if not sonMuchas else nVelas} velas de {'5min' if not sonMuchas else interval } para {symbol} para luego resamplear a {interval} {accountInfo}")
-
-    url = f"{TWELVE_DATA_API_URL}/time_series"
-    params = {
-        "symbol": symbol,
-        "interval": "5min" if not sonMuchas else interval,  # siempre pedimos 5min
-        "outputsize": velas_minimas if not sonMuchas else nVelas,
-        "apikey": apiKey,
-        "format": "JSON"
-    }
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=30.0)
-            response.raise_for_status()
-            data = response.json()
-
-        count = data.get('count')
-        if count:
-            print(f"[getTimeSeriesSymbolWithDB] Uso hoy: {count}/750")
-
-        if "code" in data:
-            logger.error(f"API error: {data}")
-            return None
-
-        df_symbol = pd.DataFrame(data["values"])
-        df_symbol['symbol'] = symbol
-        df_symbol['datetime'] = pd.to_datetime(df_symbol['datetime'], utc=True)
-        df_symbol = df_symbol.sort_values("datetime").reset_index(drop=True)
-
-        # --- Asegurarnos de que todas las columnas sean float ---
-        for col in ['open','high','low','close','volume']:
-            if col not in df_symbol.columns:
-                df_symbol[col] = 0.0
-            df_symbol[col] = pd.to_numeric(df_symbol[col], errors='coerce')
-        df_symbol = df_symbol.dropna(subset=['close'])
-
-        # --- Guardar 5min ---
-        last_dt_5min = await dbManager.getLastCandleDatetime(symbol, "5min" if not sonMuchas else interval)
-        df_5min_new = df_symbol[df_symbol['datetime'] > last_dt_5min] if last_dt_5min is not None else df_symbol
-        if not df_5min_new.empty:
-            inserted_5min = await dbManager.insertNewCandlesToDb(df_5min_new, "5min" if not sonMuchas else interval)
-        if not sonMuchas:
-            # --- Resample a 15min ---
-            df_15min = df_symbol.set_index('datetime').resample('15min', label='right', closed='right').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum'
-            }).dropna().reset_index()
-            df_15min['symbol'] = symbol
-            last_dt_15min = await dbManager.getLastCandleDatetime(symbol, "15min")
-            df_15min_new = df_15min[df_15min['datetime'] > last_dt_15min] if last_dt_15min is not None else df_15min
-            if not df_15min_new.empty:
-                inserted_15min = await dbManager.insertNewCandlesToDb(df_15min_new, "15min")
-
-            # --- Resample a 1h ---
-            df_1h = df_symbol.set_index('datetime').resample('1h', label='right', closed='right').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum'
-            }).dropna().reset_index()
-            df_1h['symbol'] = symbol
-            last_dt_1h = await dbManager.getLastCandleDatetime(symbol, "1h")
-            df_1h_new = df_1h[df_1h['datetime'] > last_dt_1h] if last_dt_1h is not None else df_1h
-            if not df_1h_new.empty:
-                inserted_1h = await dbManager.insertNewCandlesToDb(df_1h_new, "1h")
-        else:
-            return df_5min_new 
-
-        # --- Devolver solo la temporalidad solicitada ---
-        if interval == "5min":
-            return df_5min_new
-        elif interval == "15min":
-            return df_15min_new
-        elif interval == "1h":
-            return df_1h_new
-        else:
-            logger.warning(f"Temporalidad {interval} no soportada. Se devuelve 5min por defecto.")
-            return df_5min_new
-
-    except Exception as e:
-        logger.error(f"Error crítico en descarga/guardado/resample de time series: {e}", exc_info=True)
-        return None
-
-async def getComplexData(symbol: str, interval: str, apiKey: str) -> pd.DataFrame | None:
-    """
-    Fetches complex data (price, rsi, cci, macd) in a single API call.
-    """
-    logger.info(f"Descargando datos complejos para {symbol} en {interval}")
-    url = f"{TWELVE_DATA_API_URL}/complex_data"
-    payload = {
-        "symbols": [symbol],
-        "intervals": [interval],
-        "outputsize": 30,
-        "apikey": apiKey,
-        "methods": [
-            {"name": "price"},
-            {"name": "rsi", "period": 14},
-            {"name": "cci", "period": 20},
-            {"name": "macd", "fastPeriod": 12, "slowPeriod": 26, "signalPeriod": 9}
-        ]
-    }
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=20.0)
-            response.raise_for_status()
-            data = response.json()
-
-        if not data.get('data'):
-            logger.warning(f"Respuesta de API sin 'data' en complexData para {symbol}")
-            return None
-
-        apiData = data['data'][0]
-        df = pd.DataFrame({
-            'precio': [float(x['close']) for x in apiData[0]['values']],
-            'rsi': [float(x['rsi']) for x in apiData[1]['values']],
-            'cci': [float(x['cci']) for x in apiData[2]['values']],
-            'macd': [float(x['macd']) for x in apiData[3]['values']]
-        })
-        # Invertir para que lo más nuevo esté al final
-        return df.iloc[::-1].reset_index(drop=True)
-
-    except httpx.RequestError as e:
-        logger.error(f"Error de red en descarga de complexData para {symbol}: {e}")
-        return None
-    except (KeyError, IndexError, TypeError) as e:
-        logger.error(f"Error parseando la respuesta de complexData para {symbol}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Error crítico en descarga de complexData para {symbol}: {e}", exc_info=True)
-        return None
 
 
 async def updateCandles5min(apiKey: str, accountName: str = None):

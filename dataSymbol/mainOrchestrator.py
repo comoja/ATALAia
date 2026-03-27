@@ -6,6 +6,8 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
 from zoneinfo import ZoneInfo
+import pytz
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,7 +17,7 @@ setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__
 from middleware.database import dbManager as middlewareDb
 from middleware.scheduler.autoScheduler import isRestTime
 from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
-from middleware.api.twelvedata import _callTimeSeriesApi as getTimeSeries
+from middleware.api.twelvedata import _callTimeSeriesApi 
 from core.databaseManager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,58 @@ def round5min(timestamp):
     
     return rounded
 
+def is_forex_market_open(dt):
+    # domingo antes de apertura → cerrado
+    if dt.weekday() == 6 and dt.hour < 17:
+        return False
+
+    # sábado → cerrado
+    if dt.weekday() == 5:
+        return False
+
+    # viernes después del cierre → cerrado
+    if dt.weekday() == 4 and dt.hour >= 17:
+        return False
+
+    return True
+
+def get_safe_last_candle(now, interval=5):
+    # buffer real (clave)
+    safe_now = now - timedelta(minutes=3)
+
+    minute = (safe_now.minute // interval) * interval
+
+    return safe_now.replace(minute=minute, second=0, microsecond=0)
+
+def adjust_to_market_open(dt):
+    while not is_forex_market_open(dt):
+        dt += timedelta(minutes=5)
+    return dt
+
+def get_last_closed_candle(now, interval=5):
+    """
+    Devuelve el último timestamp de vela CERRADA
+    """
+    minute = (now.minute // interval) * interval
+    candle_time = now.replace(minute=minute, second=0, microsecond=0)
+
+    # si estamos justo en el inicio de vela → usar anterior
+    if now == candle_time:
+        candle_time -= timedelta(minutes=interval)
+
+    return candle_time
+
+def normalize_datetime(dt, tz):
+    """
+    Convierte datetime o pandas Timestamp a timezone-aware consistente
+    """
+    if isinstance(dt, pd.Timestamp):
+        dt = dt.to_pydatetime()
+
+    if dt.tzinfo is None:
+        return tz.localize(dt)
+    else:
+        return dt.astimezone(tz)
 
 class MultiAccountRateLimiter:
     def __init__(self, apiKeys: List[str], accountNames: List[str]):
@@ -80,6 +134,28 @@ class MultiAccountRateLimiter:
     def allExhausted(self) -> bool:
         return all(count >= RATE_LIMIT_PER_DAY for count in self.callsToday.values())
 
+def get_safe_last_candle(now, interval=5):
+    # buffer dinámico
+    delay = 3 if now.minute % 5 == 0 else 2
+
+    safe_now = now - timedelta(minutes=delay)
+    minute = (safe_now.minute // interval) * interval
+
+    return safe_now.replace(minute=minute, second=0, microsecond=0)
+def split_range(start, end, chunk_minutes=60):
+    ranges = []
+    current = start
+
+    while current < end:
+        chunk_end = current + timedelta(minutes=chunk_minutes)
+
+        if chunk_end > end:
+            chunk_end = end
+
+        ranges.append((current, chunk_end))
+        current = chunk_end
+
+    return ranges
 
 async def main():
     logger.info("=" * 60)
@@ -93,6 +169,7 @@ async def main():
     symbolIndex = 0
     
     while True:
+        
         now = datetime.now(TIMEZONE_LOCAL)
         today = now.date()
         if today > lastResetDate:
@@ -128,7 +205,7 @@ async def main():
         
         isNewSymbol = False
         if lastDb:
-            startDate = lastDb + timedelta(seconds=5)
+            startDate = lastDb + timedelta(minutes=5)
             
         else:
             startDateRaw = symbolData.get('startDate')
@@ -138,52 +215,62 @@ async def main():
                 startDate = datetime.combine(startDateRaw, datetime.min.time())
             else:
                 startDate = datetime(2005, 1, 1)
+           
             logger.info(f"[{symbol}] Símbolo nuevo, startDate={startDate}")
             isNewSymbol = True
         
         startDateDay = startDate.date() if startDate.tzinfo else startDate.replace(tzinfo=TIMEZONE_LOCAL).date()
         
+        TZ = pytz.timezone(TIMEZONE)
+        startDate = normalize_datetime(startDate, TZ)
+        
         if startDateDay == today and not isMarketOpen():
-            logger.info(f"[{symbol}] Mercado cerrado")
-            await asyncio.sleep(SLEEP_BETWEEN_CALLS)
+            logger.info(f"[{symbol}] Mercado cerrado")            
             continue
         
         if startDateDay == today:
             nextCandleTime = startDate + timedelta(minutes=5)
-            if now.timestamp() < nextCandleTime.timestamp():
-                await asyncio.sleep(SLEEP_BETWEEN_CALLS)
+            if now.timestamp() < nextCandleTime.timestamp():                
                 continue
         
+        
+        
+        lastClosed = get_safe_last_candle(now)
+
+        if startDateDay == today:
+            endDate = lastClosed
+            if endDate <= startDate:
+                continue
+
+        else:
+            endDate = round5min(startDate + timedelta(minutes=MAX_MINUTES_PER_CALL))
+
+            # nunca permitir futuro
+            if endDate > lastClosed:
+                endDate = lastClosed
+        
+        # validación final
+        startDate = adjust_to_market_open(startDate)
+        endDate = adjust_to_market_open(endDate)
+        
+        if endDate <= startDate:
+            continue
+
+        endDate   = normalize_datetime(endDate, TZ)
+
+        logger.info(f"----> [{symbol}] startDate={startDate} endDate={endDate}")
         apiKey, accountName = limiter.getNextAccount()
         if not apiKey:
-            await asyncio.sleep(SLEEP_BETWEEN_CALLS)
             continue
-        
-        if startDateDay == today:
-            endDate = round5min(now.replace(tzinfo=None) - timedelta(minutes=2))
-            if endDate <= startDate:
-                await asyncio.sleep(SLEEP_BETWEEN_CALLS)
-                continue
-        else:
-            endDate = endDate = round5min(startDate + timedelta(minutes=MAX_MINUTES_PER_CALL))
-            if endDate.timestamp() > now.timestamp():
-                endDate = round5min(now.replace(tzinfo=None) - timedelta(minutes=2))
-        
-        if startDate.timestamp() >= endDate.timestamp():
-            await asyncio.sleep(SLEEP_BETWEEN_CALLS)
-            continue
-        logger.info(f"----> [{symbol}] startDate={startDate} endDate={endDate}")
         try:
             params = {
                 "symbol": symbol,
                 "interval": "5min",
                 "apikey": apiKey,
-                "outputSize": MAX_CANDLES_PER_CALL,
-                "startDate": startDate,
-                "endDate": endDate,
-                "timezone":TIMEZONE_LOCAL
+                "start_date": startDate,
+                "end_date": endDate
             }
-            df = await getTimeSeries(params)
+            df = await _callTimeSeriesApi (params)
             
             limiter.recordCall(apiKey)
             
@@ -198,11 +285,11 @@ async def main():
                 new1h = results.get("1h", 0)
                 if new15 > 0 or new1h > 0:
                     logger.info(f"[{symbol}] Generadas: 15min: +{new15}, 1h: +{new1h}")
-            
+                await asyncio.sleep(SLEEP_BETWEEN_CALLS)
         except Exception as e:
             logger.error(f"[{symbol}] Error: {e}")
         
-        await asyncio.sleep(SLEEP_BETWEEN_CALLS)
+        
 
 
 if __name__ == "__main__":

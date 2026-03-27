@@ -1,6 +1,6 @@
 """
-SclpngNY Trading Strategy Bot
-Strategy based on liquidity sweeps with FVG confirmation in 5min.
+ImbalanceLDN Trading Strategy Bot
+Strategy based on liquidity sweeps with FVG confirmation in 5min for London session.
 Only for XAU/USD symbol.
 """
 import logging
@@ -20,7 +20,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from Sentinel.analysis import technical, risk
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata
-from middleware.utils.alertBuilder import buildSclpngNYAlertMessage
+from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
@@ -28,9 +28,9 @@ from middleware.config.constants import TIMEZONE
 logger = logging.getLogger(__name__)
 
 
-class SCLPNGBot:
-    SUPPORTED_SYMBOLS = ['XAU/USD', 'XAUUSD']
+class ImbalanceLDNBot:
     MEXICO_TZ = pytz.timezone(TIMEZONE)
+    LONDON_TZ = pytz.timezone('Europe/London')
     
     def __init__(self):
         self.accounts = []
@@ -46,12 +46,12 @@ class SCLPNGBot:
         self.signal2_enviada = False
     
     @staticmethod
-    def isNyDST(date) -> bool:
+    def isLondonDST(date) -> bool:
         if hasattr(date, 'tzinfo') and date.tzinfo is not None:
             date = date.replace(tzinfo=None)
         year = date.year
-        dstStart = pd.Timestamp(year, 3, 8)
-        dstEnd = pd.Timestamp(year, 11, 1)
+        dstStart = pd.Timestamp(year, 3, 25)
+        dstEnd = pd.Timestamp(year, 10, 26)
         
         while dstStart.weekday() != 6:
             dstStart += pd.Timedelta(days=1)
@@ -114,7 +114,7 @@ class SCLPNGBot:
             
             if bodyTop > precioMaximo and bodyBottom > precioMaximo:
                 return {
-                    'type': 'SHORT',
+                    'type': 'LONG',
                     'idx': i,
                     'vela': vela,
                     'precioRuptura': bodyTop
@@ -122,9 +122,9 @@ class SCLPNGBot:
             
             if bodyBottom < precioMinimo and bodyTop < precioMinimo:
                 return {
-                    'type': 'LONG',
+                    'type': 'SHORT',
                     'idx': i,
-                    'vela': vela,
+                    'vela':vela,
                     'precioRuptura': bodyBottom
                 }
         
@@ -149,24 +149,56 @@ class SCLPNGBot:
         
         return None
     
-    def findAllFvgEnRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
+    def findFvgEnRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
         fvgs = []
         for i in range(startIdx, min(startIdx + 50, len(datos5min) - 3)):
             vela = datos5min.iloc[i]
             highPrice = vela['high']
             lowPrice = vela['low']
             
+            dentroRango = highPrice <= precioMaximo and lowPrice >= precioMinimo
+            
             if direction == 'SHORT':
-                if highPrice <= precioMaximo and lowPrice >= precioMinimo:
+                if dentroRango:
                     fvg = self.detectarFvg(datos5min, i, 'SHORT')
                     if fvg:
+                        fvg['dentroRango'] = True
                         fvgs.append(fvg)
                         if len(fvgs) >= maxFvg:
                             break
             else:
-                if highPrice <= precioMaximo and lowPrice >= precioMinimo:
+                if dentroRango:
                     fvg = self.detectarFvg(datos5min, i, 'LONG')
                     if fvg:
+                        fvg['dentroRango'] = True
+                        fvgs.append(fvg)
+                        if len(fvgs) >= maxFvg:
+                            break
+        
+        return fvgs
+    
+    def findFvgFueraRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
+        fvgs = []
+        for i in range(startIdx, min(startIdx + 50, len(datos5min) - 3)):
+            vela = datos5min.iloc[i]
+            highPrice = vela['high']
+            lowPrice = vela['low']
+            
+            fueraRango = highPrice > precioMaximo or lowPrice < precioMinimo
+            
+            if direction == 'SHORT':
+                if fueraRango:
+                    fvg = self.detectarFvg(datos5min, i, 'SHORT')
+                    if fvg:
+                        fvg['dentroRango'] = False
+                        fvgs.append(fvg)
+                        if len(fvgs) >= maxFvg:
+                            break
+            else:
+                if fueraRango:
+                    fvg = self.detectarFvg(datos5min, i, 'LONG')
+                    if fvg:
+                        fvg['dentroRango'] = False
                         fvgs.append(fvg)
                         if len(fvgs) >= maxFvg:
                             break
@@ -175,11 +207,7 @@ class SCLPNGBot:
     
     async def _getSignals(self, datos5min: pd.DataFrame, symbolInfo: Dict) -> list:
         symbol = symbolInfo['symbol']
-        """
-        if symbol.upper() not in self.SUPPORTED_SYMBOLS:
-            logger.debug(f"[{symbol}] SCLPNG solo para XAU/USD")
-            return []
-        """
+        
         precioMaximo = symbolInfo.get('precioMaximo')
         precioMinimo = symbolInfo.get('precioMinimo')
         
@@ -188,53 +216,63 @@ class SCLPNGBot:
             return []
         
         precioActual = datos5min['close'].iloc[-1]
-        logger.info(f"[SclpngNY] Precio actual: {precioActual}, Max: {precioMaximo}, Min: {precioMinimo}")
+        logger.info(f"[ImbalanceLDN] Precio actual: {precioActual}, Max: {precioMaximo}, Min: {precioMinimo}")
         
         if self.signalGenerada:
-            logger.info(f"[SclpngNY] Señales ya generadas anteriormente")
+            logger.info(f"[ImbalanceLDN] Señales ya generadas anteriormente")
             return []
         
         if self.velaCorte is None:
             velaCorte = self.findVelaCorte(datos5min, precioMaximo, precioMinimo)
             if velaCorte is None:
-                logger.info(f"[SclpngNY] No hay vela de corte todavía")
+                logger.info(f"[ImbalanceLDN] No hay vela de corte todavía")
                 return []
             
             self.velaCorte = velaCorte
-            logger.info(f"[SclpngNY] Vela de corte detectada: {velaCorte['type']} en idx {velaCorte['idx']}")
+            logger.info(f"[ImbalanceLDN] Vela de corte detectada: {velaCorte['type']} en idx {velaCorte['idx']}")
         
         velaCorte = self.velaCorte
         direction = velaCorte['type']
         
         startSearch = velaCorte['idx'] + 1
         
-        fvgs = self.findAllFvgEnRango(datos5min, startSearch, direction, precioMaximo, precioMinimo, maxFvg=2)
+        fvgs_dentro = self.findFvgEnRango(datos5min, startSearch, direction, precioMaximo, precioMinimo, maxFvg=2)
+        fvgs_fuera = self.findFvgFueraRango(datos5min, startSearch, direction, precioMaximo, precioMinimo, maxFvg=2)
+        
+        fvgs = fvgs_dentro + fvgs_fuera
         
         if not fvgs:
-            logger.info(f"[SclpngNY] No se encontraron FVGs en rango después de vela de corte")
+            logger.info(f"[ImbalanceLDN] No se encontraron FVGs después de vela de corte")
             return []
         
-        logger.info(f"[SclpngNY] FVGs encontrados: {len(fvgs)}")
+        logger.info(f"[ImbalanceLDN] FVGs encontrados: {len(fvgs)} (dentro: {len(fvgs_dentro)}, fuera: {len(fvgs_fuera)})")
         
         signals = []
         
-        ahora = self.getMexicoTime()
+        ahora = self.getMexicoTime().replace(tzinfo=None)
         
         for idx, fvg in enumerate(fvgs):
-            logger.info(f"[SclpngNY] FVG {idx+1}: {fvg['type']}, idx: {fvg['idx']}")
+            logger.info(f"[ImbalanceLDN] FVG {idx+1}: {fvg['type']}, idx: {fvg['idx']}")
             
-            # Verificar 30 minutos para cada señal de trade (no solo detección FVG)
-            if idx == 0:  # Señal 1
+            fvg_time = pd.Timestamp(datos5min.index[fvg['idx']]).tz_localize(None)
+            fvgTimeStr = fvg_time.strftime("%H:%M")
+            
+            minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
+            if minutos_desde_fvg > 40:
+                logger.info(f"[ImbalanceLDN] FVG {idx+1} tiene {minutos_desde_fvg:.1f} min, omitiendo...")
+                continue
+            
+            if idx == 0:
                 if self.signal1_enviada and self.timestamp_signal1:
                     minutos_desde_signal1 = (ahora - self.timestamp_signal1).total_seconds() / 60
-                    if minutos_desde_signal1 > 30:
-                        logger.info(f"[SclpngNY] Señal 1 (trade) ya enviada hace más de 30 min ({minutos_desde_signal1:.1f}), omitiendo...")
+                    if minutos_desde_signal1 > 40:
+                        logger.info(f"[ImbalanceLDN] Señal 1 (trade) ya enviada hace más de 40 min ({minutos_desde_signal1:.1f}), omitiendo...")
                         continue
-            elif idx == 1:  # Señal 2
+            elif idx == 1:
                 if self.signal2_enviada and self.timestamp_signal2:
                     minutos_desde_signal2 = (ahora - self.timestamp_signal2).total_seconds() / 60
-                    if minutos_desde_signal2 > 30:
-                        logger.info(f"[SclpngNY] Señal 2 (trade) ya enviada hace más de 30 min ({minutos_desde_signal2:.1f}), omitiendo...")
+                    if minutos_desde_signal2 > 40:
+                        logger.info(f"[ImbalanceLDN] Señal 2 (trade) ya enviada hace más de 40 min ({minutos_desde_signal2:.1f}), omitiendo...")
                         continue
             
             entryPrice = fvg['mid']
@@ -253,7 +291,7 @@ class SCLPNGBot:
                 signalDirection = "LARGO"
             
             signals.append({
-                "strategy": "SclpngNY",
+                "strategy": "ImbalanceLDN",
                 "direction": signalDirection,
                 "confidence": 75,
                 "entryPrice": entryPrice,
@@ -265,6 +303,8 @@ class SCLPNGBot:
                 "precioMinimo": precioMinimo,
                 "fvg": fvg['type'],
                 "fvgNum": idx + 1,
+                "fvgTime": fvgTimeStr,
+                "dentroRango": fvg.get('dentroRango', True),
                 "velaCorteType": direction,
                 "symbolInfo": symbolInfo
             })
@@ -280,7 +320,7 @@ class SCLPNGBot:
         if not self.accounts:
             self.accounts = dbManager.getAccount()
             if not self.accounts:
-                logger.warning("[SclpngNY] No hay cuentas disponibles")
+                logger.warning("[ImbalanceLDN] No hay cuentas disponibles")
                 return
 
         for account in self.accounts:
@@ -319,37 +359,36 @@ class SCLPNGBot:
             if account['idCuenta'] != 1:
                 dbManager.buscaTrade(trade)
                 
-                message = buildSclpngNYAlertMessage(signal, trade)
+                message = buildImbalanceLDNAlertMessage(signal, trade)
                 
                 msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
                 if msgId:
                     self.lastMessageIds[symbolInfo['symbol']] = msgId
                     
-                logger.info(f"✅ Alerta SclpngNY enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
+                logger.info(f"✅ Alerta ImbalanceLDN enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
         
-        # Marcar señal como enviada y guardar timestamp (se cuenta cuando se ejecuta el trade)
         fvg_num = signal.get('fvgNum', 0)
         ahora = self.getMexicoTime()
         if fvg_num == 1:
             self.signal1_enviada = True
             self.timestamp_signal1 = ahora
-            logger.info(f"[SclpngNY] Marcando señal 1 como enviada a las {ahora}")
+            logger.info(f"[ImbalanceLDN] Marcando señal 1 como enviada a las {ahora}")
         elif fvg_num == 2:
             self.signal2_enviada = True
             self.timestamp_signal2 = ahora
-            logger.info(f"[SclpngNY] Marcando señal 2 como enviada a las {ahora}")
+            logger.info(f"[ImbalanceLDN] Marcando señal 2 como enviada a las {ahora}")
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
-        logger.info(f"[SclpngNY] ===== INICIANDO CICLO SCLPNG =====")
+        logger.info(f"[ImbalanceLDN] ===== INICIANDO CICLO IMBALANCE LONDON =====")
         
         symbol = symbolInfo['symbol']
         
         datos5min = preloadedData.get(symbol) if preloadedData else None
         if datos5min is None or len(datos5min) < 1:
-            logger.warning(f"[SclpngNY] Datos ({len(datos5min)} velas)insuficientes para {symbol}")
+            logger.warning(f"[ImbalanceLDN] Datos ({len(datos5min)} velas)insuficientes para {symbol}")
             return
         
-        logger.info(f"[SclpngNY] Velas recibidas: {len(datos5min)}, desde: {datos5min.index[0]} hasta: {datos5min.index[-1]}")
+        logger.info(f"[ImbalanceLDN] Velas recibidas: {len(datos5min)}, desde: {datos5min.index[0]} hasta: {datos5min.index[-1]}")
         
         signals = await self._getSignals(datos5min, symbolInfo)
         
@@ -359,4 +398,4 @@ class SCLPNGBot:
                 logger.info(f"[{symbol}] Señal {signal['fvgNum']}: {signal['direction']} ({signal['confidence']}% confianza)")
                 await self._executeTrades(signal, symbolInfo)
         else:
-            logger.info(f"[{symbol}] Sin señales SclpngNY en este ciclo")
+            logger.info(f"[{symbol}] Sin señales ImbalanceLDN en este ciclo")

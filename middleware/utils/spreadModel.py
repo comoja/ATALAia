@@ -69,7 +69,7 @@ def simulate_bid_ask_asymmetric(candle, spread):
 
     # distribución asimétrica (ajustada a lo que descubriste)
     spread_high = spread * 0.3
-    spread_low  = spread * 0.7
+    spread_low  = spread * 0.8
 
     return {
         "bid": {
@@ -85,33 +85,3 @@ def simulate_bid_ask_asymmetric(candle, spread):
             "close": c + spread_high
         }
     }
-
-
-# =========================
-# 🚀 EJEMPLO DE USO
-# =========================
-if __name__ == "__main__":
-    candles = [
-        {"open":1.0850, "high":1.0860, "low":1.0840, "close":1.0855},
-        {"open":1.0855, "high":1.0870, "low":1.0845, "close":1.0860},
-        {"open":1.0860, "high":1.0880, "low":1.0850, "close":1.0875},
-    ]
-
-    estimator = SpreadEstimator()
-    prev_spread = None
-
-    for candle in candles:
-        estimator.update(candle)
-        spread = estimator.get_spread()
-
-        print(f"\nSpread estimado: {spread:.6f}")
-
-        if detect_spread_change(spread, prev_spread):
-            print("⚠️ Cambio fuerte de spread detectado")
-
-        simulated = simulate_bid_ask_asymmetric(candle, spread)
-
-        print("BID LOW:", simulated["bid"]["low"])
-        print("ASK HIGH:", simulated["ask"]["high"])
-
-        prev_spread = spread

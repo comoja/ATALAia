@@ -19,23 +19,24 @@ def buildAlertMessage(
     sl = trade['stopLoss']
     confianza = signal['confidence']
     setup = signal.get('setup', 'N/A')
+
     
     if direction == "LARGO":
         text = (
             f"{colorHeader}{colorHeader}{colorHeader} "
             f"<b>SEÑAL DE {directionStr}</b> "
             f"{colorHeader}{colorHeader}{colorHeader}\n"
-            f"<center><i>ESTRATEGIA: {strategyName}</i></center>\n"
-            f"<center><b>{trade['symbol']}</b> ({trade.get('intervalo', 'N/A')})</center>\n"
+            f"<i><b><center>ESTRATEGIA: {strategyName}</center></b></i>\n"
+            f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
             f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"<center>Setup: <b>{setup}</b></center>\n"
             f"<center>Confianza: <b>{confianza}%</b></center>\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.6f}</b>\n"
-            f"🔹 ENTRADA:     <b>{close:,.6f}</b>\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.6f}</b>\n"
-            f"   CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
+            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"     CANTIDAD:  <b>{trade['size']:,.0f}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
         )
     else:
@@ -43,17 +44,17 @@ def buildAlertMessage(
             f"{colorHeader}{colorHeader}{colorHeader} "
             f"<b>SEÑAL DE {directionStr}</b> "
             f"{colorHeader}{colorHeader}{colorHeader}\n"
-            f"<center><i>ESTRATEGIA: {strategyName}</i></center>\n"
-            f"<center><b>{trade['symbol']}</b> ({trade.get('intervalo', 'N/A')})</center>\n"
+            f"<i><b><center>ESTRATEGIA: {strategyName}</center></b></i>\n"
+            f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
             f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"<center>Setup: <b>{setup}</b></center>\n"
             f"<center>Confianza: <b>{confianza}%</b></center>\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.6f}</b>\n"
-            f"🔹 ENTRADA:     <b>{close:,.6f}</b>\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.6f}</b>\n"
-            f"   CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
+            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+            f"     CANTIDAD:  <b>{trade['size']:,.0f}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
         )
     
@@ -69,20 +70,48 @@ def buildAlertMessage(
     return text
 
 
-def buildSclpngNYAlertMessage(signal: dict, trade: dict) -> str:
+def buildImbalanceNYAlertMessage(signal: dict, trade: dict) -> str:
     fvgNum = signal.get('fvgNum', '')
     fvgText = f" #{fvgNum}" if fvgNum else ""
+    
+    dentroRango = signal.get('dentroRango', True)
+    rangoText = "Dentro" if dentroRango else "Fuera"
     
     extraFields = {
         'MAX': signal.get('precioMaximo', 0),
         'MIN': signal.get('precioMinimo', 0),
-        f'FVG{fvgText}': signal.get('fvg', 'N/A')
+        f'FVG{fvgText}': signal.get('fvg', 'N/A'),
+        'Hora FVG': signal.get('fvgTime', 'N/A'),
+        'Zona': rangoText
     }
     
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="SclpngNY",
+        strategyName="ImbalanceNY",
+        extraFields=extraFields
+    )
+
+
+def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
+    fvgNum = signal.get('fvgNum', '')
+    fvgText = f" #{fvgNum}" if fvgNum else ""
+    
+    dentroRango = signal.get('dentroRango', True)
+    rangoText = "Dentro" if dentroRango else "Fuera"
+    
+    extraFields = {
+        'MAX': signal.get('precioMaximo', 0),
+        'MIN': signal.get('precioMinimo', 0),
+        f'FVG{fvgText}': signal.get('fvg', 'N/A'),
+        'Hora FVG': signal.get('fvgTime', 'N/A'),
+        'Zona': rangoText
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="ImbalanceLDN",
         extraFields=extraFields
     )
 

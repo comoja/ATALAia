@@ -20,7 +20,8 @@ if rutaRaiz not in sys.path:
 from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
 from Sentinel.core.bot import TradingBot
 from Sentinel.core.SMA20_200 import SMABot
-from Sentinel.core.SclpngNY import SCLPNGBot
+from Sentinel.core.ImbalanceNY import ImbalanceNYBot
+from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures
 from middleware.utils.momentum import momentum as momentumAnalyzer
@@ -87,14 +88,14 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     return preloaded_data
 
 
-async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, interval, nVelas):
+async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, symbolsToScan, apiKey, interval, nVelas):
     """
     Ejecuta el análisis de forma secuencial:
     1. Obtener API key para este símbolo (rota entre cuentas)
     2. Descargar símbolo
     3. Ejecutar Sniper
     4. Ejecutar SMA20-200
-    5. Ejecutar SclpngNY
+    5. Ejecutar ImbalanceNY
     6. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
@@ -183,10 +184,10 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
         except Exception as e:
             logger.error(f"[MAIN] ERROR en SMA BOT para {symbol}: {e}", exc_info=True)
         
-        # 4. Ejecutar SclpngNY (solo después de 9:00 NY)
+        # 4. Ejecutar ImbalanceNY (solo después de 9:00 NY)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
-        esDST = SCLPNGBot.isNyDST(ahoraMX)
+        esDST = ImbalanceNYBot.isNyDST(ahoraMX)
         if esDST:
             inicioAperturaNY = ahoraMX.replace(hour=6, minute=0, second=0, microsecond=0)
             finAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -202,18 +203,18 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
             horaFinNY = 9
             horaCierreNY = 14
         
-        logger.info(f"[SCLPNG] Hora MX: {ahoraMX.hour}, Inicio NY: {horaNY}:00 NY ({inicioAperturaNY.hour}:00 MX), Fin: {horaFinNY}:00 NY ({finAperturaNY.hour}:00 MX), Cierre: {horaCierreNY}:00 NY ({cierreNY.hour}:00 MX)")
+        logger.info(f"[IMBNY] Hora MX: {ahoraMX.hour}, Inicio NY: {horaNY}:00 NY ({inicioAperturaNY.hour}:00 MX), Fin: {horaFinNY}:00 NY ({finAperturaNY.hour}:00 MX), Cierre: {horaCierreNY}:00 NY ({cierreNY.hour}:00 MX)")
         
         horasDesdeFinApertura = (ahoraMX - finAperturaNY).total_seconds() / 3600
         
         if ahoraMX <= finAperturaNY:
-            logger.info(f"[SCLPNG] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
-        elif horasDesdeFinApertura > 2:
-            logger.info(f"[SCLPNG] Han pasado más de 2 horas ({horasDesdeFinApertura:.1f}h) desde fin apertura NY, saltando...")
-        elif sclpng_bot.signalGenerada:
-            logger.info(f"[SCLPNG] Señales ya generadas de apertura y fin de apertura, saltando...")
+            logger.info(f"[IMBNY] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
+        #elif horasDesdeFinApertura > 2:
+        #   logger.info(f"[SCLPNG] Han pasado más de 2 horas ({horasDesdeFinApertura:.1f}h) desde fin apertura NY, saltando...")
+        #elif sclpng_bot.signalGenerada:
+        #    logger.info(f"[SCLPNG] Señales ya generadas de apertura y fin de apertura, saltando...")
         else:
-            logger.info(f"Ejecutando estrategia SclpngNY para {symbol}...")
+            logger.info(f"[IMBNY] Ejecutando estrategia ImbalanceNY para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -226,24 +227,24 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
                 precioMaximo = dfApertura['high'].max()
                 precioMinimo = dfApertura['low'].min()
                 
-                logger.info(f"[SCLPNG] Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}")
+                logger.info(f"[IMBNY]  Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}")
                 
                 from middleware.utils.communications import alertaInmediata
                 textNivel = (
-                    f"<b>NIVELES APERTURA NY - {symbol}</b>\n"
+                    f"<b>APERTURA NY 🇺🇸 {symbol}</b>\n"
                     f"━━━━━━━━━━━━━━━\n"
                     f"<center><b>Sesión: {inicioAperturaNY.strftime('%H:%M')} - {finAperturaNY.strftime('%H:%M')}</b></center>\n\n"
-                    f"  🔴 MAX: {precioMaximo:,.4f}\n"
-                    f"  🟢 MIN: {precioMinimo:,.4f}\n"
+                    f"  ⬆️ MAX: {precioMaximo:,.4f}\n"
+                    f"  ⬇️ MIN: {precioMinimo:,.4f}\n"
                     f"━━━━━━━━━━━━━━━\n"
                 )
-                if horasDesdeFinApertura <= 0.5:  # 30 minutos
+                if horasDesdeFinApertura <= 4:  
                     await alertaInmediata(1, textNivel)
                 
                 maskPostApertura = dfIndex >= finAperturaNY
                 dfPostApertura = df.loc[maskPostApertura]
                 
-                logger.info(f"[SCLPNG] Velas post-apertura: {len(dfPostApertura)}")
+                logger.info(f"[IMBNY]  Velas post-apertura: {len(dfPostApertura)}")
                 
                 preloadedDataSCLPNG = {symbol: dfPostApertura}
                 symbolInfo['intervalo'] = "5min"
@@ -252,11 +253,71 @@ async def run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKe
                 symbolInfo['finAperturaNY'] = finAperturaNY
                 symbolInfo['cierreNY'] = cierreNY
                 
-                await sclpng_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSCLPNG, symbolApiKey)
+                await imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSCLPNG, symbolApiKey)
             else:
-                logger.warning(f"[SCLPNG] No se encontraron velas en período de apertura NY")
+                logger.warning(f"[IMBNY]  No se encontraron velas en período de apertura NY")
         
-        # 5. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
+        # 5. Ejecutar ImbalanceLDN (solo después de 7:00 LONDRES / 2:00 Mexico winter o 3:00 Mexico summer)
+        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
+        
+        esLDNDST = ImbalanceLDNBot.isLondonDST(ahoraMX)
+        if esLDNDST:
+            inicioAperturaLDN = ahoraMX.replace(hour=3, minute=0, second=0, microsecond=0)
+            finAperturaLDN = ahoraMX.replace(hour=4, minute=0, second=0, microsecond=0)
+            cierreLDN = ahoraMX.replace(hour=9, minute=0, second=0, microsecond=0)
+        else:
+            inicioAperturaLDN = ahoraMX.replace(hour=2, minute=0, second=0, microsecond=0)
+            finAperturaLDN = ahoraMX.replace(hour=3, minute=0, second=0, microsecond=0)
+            cierreLDN = ahoraMX.replace(hour=8, minute=0, second=0, microsecond=0)
+        
+        logger.info(f"[IMBLDN] Hora MX: {ahoraMX.hour}, Inicio LDN: {inicioAperturaLDN.hour}:00 MX ({'3' if esLDNDST else '2'}:00 LDN), Fin: {finAperturaLDN.hour}:00 MX ({'4' if esLDNDST else '3'}:00 LDN)")
+        
+        horasDesdeFinAperturaLDN = (ahoraMX - finAperturaLDN).total_seconds() / 3600
+        
+        if ahoraMX <= finAperturaLDN:
+            logger.info(f"[IMBLDN] Aún no abre sesión LDN (hora {ahoraMX.hour}), saltando...")
+        else:
+            logger.info(f"Ejecutando estrategia ImbalanceLDN para {symbol}...")
+            
+            dfIndex = df.index
+            if dfIndex.tz is None:
+                dfIndex = dfIndex.tz_localize(TIMEZONE)
+            
+            maskAperturaLDN = (dfIndex >= inicioAperturaLDN) & (dfIndex < finAperturaLDN)
+            dfAperturaLDN = df.loc[maskAperturaLDN]
+            
+            if len(dfAperturaLDN) > 0:
+                precioMaximoLDN = dfAperturaLDN['high'].max()
+                precioMinimoLDN = dfAperturaLDN['low'].min()
+                
+                logger.info(f"[IMBLDN] Nivel sesión LDN: Max={precioMaximoLDN}, Min={precioMinimoLDN}")
+                
+                textNivelLDN = (
+                    f"<b>APERTURA LNDN 🇬🇧 {symbol}</b>\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"<center><b>Sesión: {inicioAperturaLDN.strftime('%H:%M')} - {finAperturaLDN.strftime('%H:%M')}</b></center>\n\n"
+                    f"  ⬆️ MAX: {precioMaximoLDN:,.4f}\n"
+                    f"  ⬇️ MIN: {precioMinimoLDN:,.4f}\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                )
+                if horasDesdeFinAperturaLDN <= 6:
+                    await alertaInmediata(1, textNivelLDN)
+                
+                maskPostAperturaLDN = dfIndex >= finAperturaLDN
+                dfPostAperturaLDN = df.loc[maskPostAperturaLDN]
+                
+                logger.info(f"[IMBLDN] Velas post-apertura: {len(dfPostAperturaLDN)}")
+                
+                preloadedDataLDN = {symbol: dfPostAperturaLDN}
+                symbolInfo['intervalo'] = "5min"
+                symbolInfo['precioMaximo'] = precioMaximoLDN
+                symbolInfo['precioMinimo'] = precioMinimoLDN
+                
+                await imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataLDN, symbolApiKey)
+            else:
+                logger.warning(f"[IMBLDN] No se encontraron velas en período de apertura LDN")
+        
+        # 6. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         
@@ -308,7 +369,8 @@ async def main():
     # --- Bot Initialization ---
     bot = TradingBot(mlModelInstance=model)
     sma_bot = SMABot()
-    sclpng_bot = SCLPNGBot()
+    imbalance_ny_bot = ImbalanceNYBot()
+    imbalance_ldn_bot = ImbalanceLDNBot()
     
     logger.info("Bot inicializado correctamente. Iniciando bucle principal...")
 
@@ -342,7 +404,7 @@ async def main():
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
                 #await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
-                await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
+                await run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
                 proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL

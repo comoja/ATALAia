@@ -280,12 +280,12 @@ class SMABot:
         return None, None
     
     def identificarTendencia(self, df, precioActual, sma20):
-        pendienteSma20 = self.getPendiente(df["sma20"].tail(10), 10)
+        pendienteSma20 = self.getPendiente(df["sma20"].tail(10), 10) / sma20
+        slopeThreshold = 0.268  # tan(15°)
+        grados = np.degrees(np.arctan(pendienteSma20))
+        cambio_10velas_pct = pendienteSma20 * 10 * 100
         
-        atrRelativo = df["atr"].iloc[-1] / precioActual
-        slopeThreshold = max(0.00005, atrRelativo * 0.5)
-        
-        logger.info(f"[TENDENCIA] precio={precioActual:.5f} sma20={sma20:.5f} | pendiente={pendienteSma20:.6f} | threshold={slopeThreshold:.6f} | atrRel={atrRelativo:.6f}")
+        logger.info(f"[TENDENCIA] precio={precioActual:.5f} sma20={sma20:.5f} | {cambio_10velas_pct:.2f}% en 10 velas ({grados:.1f}°) | threshold=15°")
         
         if precioActual > sma20 and pendienteSma20 > slopeThreshold:
             return "ALCISTA"
@@ -720,7 +720,7 @@ class SMABot:
         try:
             prob = self.model_clf.predict_proba(features)[0][1]
         except:
-            prob = 0.5
+            prob = 0.55
 
         distanciaSma20Pct = abs(close - sma20) / close * 100
         atrRelativo = atr / close * 100
@@ -785,7 +785,7 @@ class SMABot:
         logger.info(f"[{symbol}] ✓ Direccion vs SMA200 OK")
 
         # 🔥 FILTRO: Velas recientes contrarias
-        velas_recientes = 3
+        velas_recientes = 4
         velas_contrarias = 0
         for i in range(-velas_recientes, 0):
             body = df["close"].iloc[i] - df["open"].iloc[i]
