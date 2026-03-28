@@ -35,6 +35,25 @@ CANDLE_INTERVAL_MINUTES = 5
 MAX_MINUTES_PER_CALL = MAX_CANDLES_PER_CALL * CANDLE_INTERVAL_MINUTES
 
 
+def next_5min_time(now):
+    next_minute = (now.minute // 5 + 1) * 5
+
+    if next_minute == 60:
+        return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    else:
+        return now.replace(minute=next_minute, second=0, microsecond=0)
+
+
+def seconds_until_next_5min(now, buffer_seconds=120):
+    next_time = next_5min_time(now)
+
+    # aplicar buffer directamente al next_time
+    next_time = next_time + timedelta(seconds=buffer_seconds)
+
+    sleep_seconds = int((next_time - now).total_seconds())
+
+    return max(0, sleep_seconds), next_time
+
 def isMarketOpen() -> bool:
     now = datetime.now(TIMEZONE_LOCAL)
     return not isRestTime(now)
@@ -192,21 +211,20 @@ async def main():
         
         if symbolIndex >= len(symbols):
             symbolIndex = 0
-            logger.info(f"============== Nueva ronda de símbolos ({len(symbols)} símbolos) ==============")
-            await asyncio.sleep(SLEEP_BETWEEN_CALLS)
+            sleep_seconds, next_time = seconds_until_next_5min(now)
+            logger.info(f"============== Nueva ronda de símbolos ({len(symbols)} símbolos descansara hasta {next_time.strftime('%Y-%m-%d %H:%M:%S')} )==============")
+            await asyncio.sleep(sleep_seconds)
             continue
         
         symbolData = symbols[symbolIndex]
-        symbol = str(symbolData['symbol'])
-        symbolIndex += 1
+        symbol = str(symbolData['symbol'])        
         
         lastDb = db.getLastTimestamp(symbol, "5min")
-        logger.info(f"[{symbol}] getLastTimestamp(5min)={lastDb}")
-        
+        symbolIndex += 1
         isNewSymbol = False
         if lastDb:
-            startDate = lastDb + timedelta(minutes=5)
-            
+            startDate = lastDb #+ timedelta(minutes=5)
+            logger.info(f"[{symbol}] Símbolo existente, lastDB={lastDb} startDate={startDate} ")
         else:
             startDateRaw = symbolData.get('startDate')
             if isinstance(startDateRaw, str):
@@ -215,7 +233,7 @@ async def main():
                 startDate = datetime.combine(startDateRaw, datetime.min.time())
             else:
                 startDate = datetime(2005, 1, 1)
-           
+
             logger.info(f"[{symbol}] Símbolo nuevo, startDate={startDate}")
             isNewSymbol = True
         
@@ -225,26 +243,25 @@ async def main():
         startDate = normalize_datetime(startDate, TZ)
         
         if startDateDay == today and not isMarketOpen():
-            logger.info(f"[{symbol}] Mercado cerrado")            
+            logger.info(f"[{symbol}] Mercado cerrado")
             continue
         
         if startDateDay == today:
-            nextCandleTime = startDate + timedelta(minutes=5)
-            if now.timestamp() < nextCandleTime.timestamp():                
+            nextCandleTime = startDate             
+            if now.timestamp() < nextCandleTime.timestamp():
+                logger.info(f"1.- [{symbol}] now {now} < nextCandleTime {nextCandleTime} ")
                 continue
         
-        
-        
         lastClosed = get_safe_last_candle(now)
-
+        
         if startDateDay == today:
             endDate = lastClosed
             if endDate <= startDate:
+                logger.info(f"2.- [{symbol}] lastClosed={lastClosed} startDate={startDate} >= endDate={endDate}")                
                 continue
 
         else:
             endDate = round5min(startDate + timedelta(minutes=MAX_MINUTES_PER_CALL))
-
             # nunca permitir futuro
             if endDate > lastClosed:
                 endDate = lastClosed
@@ -254,12 +271,14 @@ async def main():
         endDate = adjust_to_market_open(endDate)
         
         if endDate <= startDate:
+            logger.info(f"3.-startDate {startDate} >= endDate {endDate}")
             continue
 
         endDate   = normalize_datetime(endDate, TZ)
 
-        logger.info(f"----> [{symbol}] startDate={startDate} endDate={endDate}")
+        
         apiKey, accountName = limiter.getNextAccount()
+        logger.info(f"----> [{symbol}] startDate={startDate} endDate={endDate} cuenta de {accountName} ")
         if not apiKey:
             continue
         try:
