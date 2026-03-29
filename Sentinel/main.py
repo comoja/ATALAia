@@ -71,6 +71,62 @@ INTERVAL = settings.INTERVAL
 INTERVALmax = settings.INTERVALmax
 
 
+async def checkAndCloseTrades():
+    """Check open trades and close if SL or TP is hit."""
+    try:
+        openTrades = dbManager.getOpenTrades()
+        if not openTrades:
+            return
+        
+        for trade in openTrades:
+            symbol = trade['symbol']
+            direction = trade['direction'].upper()
+            entryPrice = float(trade['entryPrice'])
+            stopLoss = float(trade['stopLoss'])
+            takeProfit = float(trade['takeProfit'])
+            size = float(trade['size'])
+            idTrade = trade['idTrade']
+            
+            df = await tdApi.get_time_series(symbol=symbol, interval="5min", outputsize=20)
+            if df is None or df.empty:
+                continue
+            
+            latest = df.iloc[-1]
+            currentPrice = float(latest['close'])
+            high = float(latest['high'])
+            low = float(latest['low'])
+            
+            closed = False
+            exitPrice = 0
+            reason = ""
+            
+            if direction == "LARGO":
+                if low <= stopLoss:
+                    exitPrice = stopLoss
+                    reason = "SL"
+                    closed = True
+                elif high >= takeProfit:
+                    exitPrice = takeProfit
+                    reason = "TP"
+                    closed = True
+            else:  # CORTO
+                if high >= stopLoss:
+                    exitPrice = stopLoss
+                    reason = "SL"
+                    closed = True
+                elif low <= takeProfit:
+                    exitPrice = takeProfit
+                    reason = "TP"
+                    closed = True
+            
+            if closed:
+                pnl = (exitPrice - entryPrice) * size if direction == "LARGO" else (entryPrice - exitPrice) * size
+                dbManager.closeTrade(idTrade, exitPrice, pnl, reason)
+                
+    except Exception as e:
+        logger.error(f"Error en checkAndCloseTrades: {e}")
+
+
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """
     Obtiene los datos de time series una sola vez para todos los símbolos.
@@ -118,8 +174,7 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
                 "symbol": symbol,
                 "interval": "5min",
                 "apikey": symbolApiKey,
-                "outputSize": MAX_CANDLES_PER_CALL,
-                "timezone":TIMEZONE_LOCAL
+                "outputSize": MAX_CANDLES_PER_CALL
             }
         df = await tdApi.getTimeSeries(params)
         
@@ -393,6 +448,10 @@ async def main():
             
             if isOperating:
                 logger.info("Iniciando ciclo de análisis...")
+                
+                logger.info("Verificando trades abiertos...")
+                await checkAndCloseTrades()
+                
                 await asyncio.sleep(5)
                 
                 # Obtener parámetros ANTES del análisis

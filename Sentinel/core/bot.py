@@ -408,15 +408,13 @@ class TradingBot:
 
         for account in self.accounts:
             # --- Risk and Position Sizing ---
-            posSize, riskUsd = risk.calculatePositionSize(
+            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
                 riskPercentage=float(account['ganancia']),
                 slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo
+                symbolInfo=symbolInfo,
+                entryPrice=signal.get('entryPrice')
             )
-            if posSize is None:
-                logger.warning(f"[{account['idCuenta']}] No se pudo calcular el tamaño de posición para {symbolInfo['symbol']}.")
-                continue
             
             # --- Define SL/TP ---
             direction = signal['direction']
@@ -430,6 +428,11 @@ class TradingBot:
             
             tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
             
+            if posSize is None:
+                posSize = 0
+                marginUsed = 0
+                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
+            
             # --- Create Trade Object ---
             trade = {
                 "idCuenta": account['idCuenta'],
@@ -442,7 +445,8 @@ class TradingBot:
                 "size": posSize,
                 "intervalo": symbolInfo['intervalo'], # Assumes this info is passed
                 "status": "OPEN",
-                # ... other fields for DB
+                "strategy": "TradingBot",
+                "margin_used": marginUsed,
             }
             
             # --- Persist and Alert ---

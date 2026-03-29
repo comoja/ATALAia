@@ -129,6 +129,7 @@ class SMABot:
 
         tolerancia_pct = 0.8
         max_wick_pct = 1.2
+        sl_atr_multiplier = 1.5
         symbol_type = 'MONEDA'
         
         if symbol:
@@ -140,12 +141,13 @@ class SMABot:
                     if type_config:
                         tolerancia_pct = float(type_config.get('tolerancia_atr', 0.8))
                         max_wick_pct = float(type_config.get('max_wick_atr', 1.2))
+                        sl_atr_multiplier = float(type_config.get('sl_atr', 1.5))
                         symbol_type = tipo
             except:
                 symbol_type = 'MONEDA'
         velas_analisis = 25
         
-        logger.info(f"[SMA20] [{symbol}] Tipo: {symbol_type} | Tolerancia: {tolerancia_pct}% ATR | Max mecha: {max_wick_pct}x ATR")
+        logger.info(f"[SMA20] [{symbol}] Tipo: {symbol_type} | Tolerancia: {tolerancia_pct}% ATR | Max mecha: {max_wick_pct}x ATR | SL: {sl_atr_multiplier}x ATR")
 
         logger.info(f"[SMA20] [{symbol}] Analizando ultimas {velas_analisis} velas:")
         for i in range(max(0, len(df) - 10), len(df)):
@@ -802,6 +804,8 @@ class SMABot:
             return None
 
         # 🎯 SL / TP
+        atr_value = df["atr"].iloc[-1]
+        
         if consolidacion:
             if direction == "LARGO":
                 stop_loss = consolidacion["sl"]
@@ -810,10 +814,10 @@ class SMABot:
             sl_dist = abs(close - stop_loss)
             logger.info(f"[{symbol}] SL desde consolidación: {stop_loss:.6f}")
         elif direction == "LARGO":
-            stop_loss = df["low"].tail(3).min() * 0.998
+            stop_loss = close - (atr_value * sl_atr_multiplier)
             sl_dist = close - stop_loss
         else:
-            stop_loss = df["high"].tail(3).max() * 1.002
+            stop_loss = close + (atr_value * sl_atr_multiplier)
             sl_dist = stop_loss - close
         
         if direction == "LARGO":
@@ -875,15 +879,13 @@ class SMABot:
 
         for account in self.accounts:
 
-            posSize, _ = risk.calculatePositionSize(
+            posSize, _, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
                 riskPercentage=float(account['ganancia']),
                 slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo
+                symbolInfo=symbolInfo,
+                entryPrice=signal.get('entryPrice')
             )
-
-            if posSize is None:
-                continue
 
             direction = signal['direction']
             entryPrice = signal['entryPrice']
@@ -891,6 +893,11 @@ class SMABot:
 
             slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
             tpPrice = signal['takeProfit']
+
+            if posSize is None:
+                posSize = 0
+                marginUsed = 0
+                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbol} - size=0 (margen/riesgo excede capital)")
 
             trade = {
                 "idCuenta": account['idCuenta'],
@@ -903,6 +910,8 @@ class SMABot:
                 "size": posSize,
                 "intervalo": symbolInfo.get('intervalo', ''),
                 "status": "OPEN",
+                "strategy": "SMA20_200",
+                "margin_used": marginUsed,
             }
 
             if account['idCuenta'] != 1:

@@ -8,24 +8,34 @@ from datetime import datetime
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
+import talib as ta
 import asyncio
 import os
 import sys
 import pytz
 
-rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-if rutaRaiz not in sys.path:
-    sys.path.insert(0, rutaRaiz)
-
-from middleware.api import twelvedata
-from Sentinel.analysis import technical, risk
-from middleware.utils.communications import sendTelegramAlert, alertaInmediata
-from middleware.utils.alertBuilder import buildImbalanceNYAlertMessage
+from middleware.config import constants
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
+from Sentinel.analysis import technical
+from middleware.utils.communications import sendTelegramAlert
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
+
+def getAssetConfig(symbol: str) -> dict:
+    symbolData = dbManager.getSymbol(symbol)
+    assetType = symbolData.get('tipo') if symbolData else 'MONEDA'
+    
+    typeConfig = dbManager.getSymbolTypeConfig(assetType)
+    
+    if typeConfig:
+        return {
+            "sl": float(typeConfig.get('sl_atr', 1.5)),
+            "tp": float(typeConfig.get('tp_atr', 3.0))
+        }
+    
+    return {"sl": 1.5, "tp": 3.0}
 
 
 class ImbalanceNYBot:
@@ -281,17 +291,24 @@ class ImbalanceNYBot:
             
             entryPrice = fvg['mid']
             
+            assetConfig = getAssetConfig(symbol)
+            
+            atr = ta.ATR(datos5min['high'], datos5min['low'], datos5min['close'], 14).iloc[-1]
+            
+            slMultiplier = assetConfig["sl"]
+            tpMultiplier = assetConfig["tp"]
+            
             if direction == 'SHORT':
                 setupType = "LIQUIDATION_SELL"
-                stopLoss = datos5min['high'].iloc[fvg['idx']] * 1.001
+                stopLoss = datos5min['high'].iloc[fvg['idx']] + (atr * slMultiplier)
                 distanciaSl = entryPrice - stopLoss
-                takeProfit = entryPrice - distanciaSl * 2
+                takeProfit = entryPrice - distanciaSl * tpMultiplier
                 signalDirection = "CORTO"
             else:
                 setupType = "LIQUIDATION_BUY"
-                stopLoss = datos5min['low'].iloc[fvg['idx']] * 0.999
+                stopLoss = datos5min['low'].iloc[fvg['idx']] - (atr * slMultiplier)
                 distanciaSl = stopLoss - entryPrice
-                takeProfit = entryPrice + distanciaSl * 2
+                takeProfit = entryPrice + distanciaSl * tpMultiplier
                 signalDirection = "LARGO"
             
             signals.append({
@@ -328,24 +345,28 @@ class ImbalanceNYBot:
                 return
 
         for account in self.accounts:
-            posSize, riskUsd = risk.calculatePositionSize(
+            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
                 riskPercentage=float(account['ganancia']),
                 slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo
+                symbolInfo=symbolInfo,
+                entryPrice=signal.get('entryPrice')
             )
-            if posSize is None:
-                logger.warning(f"[{account['idCuenta']}] No se pudo calcular el tamaño de posición para {symbolInfo['symbol']}.")
-                continue
             
             direction = signal['direction']
             entryPrice = signal['entryPrice']
             slDist = signal['slDistance']
+            fvgNum = signal.get('fvgNum', 0)
             
             slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
             
             ratioBase = 2.0
             tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
+            
+            if posSize is None:
+                posSize = 0
+                marginUsed = 0
+                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
             
             trade = {
                 "idCuenta": account['idCuenta'],
@@ -358,6 +379,9 @@ class ImbalanceNYBot:
                 "size": posSize,
                 "intervalo": symbolInfo.get('intervalo', ''),
                 "status": "OPEN",
+                "strategy": "ImbalanceNY",
+                "fvgNum": fvgNum,
+                "margin_used": marginUsed,
             }
             
             if account['idCuenta'] != 1:

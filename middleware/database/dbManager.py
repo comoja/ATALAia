@@ -188,21 +188,42 @@ def buscaTrade(tradeData):
         dbConn = dbConnection.getConnection()
         dbCursor = dbConn.cursor(dictionary=True)
 
-        sqlCheck = """
-            SELECT idTrade FROM trades 
-            WHERE idCuenta = %s 
-                AND symbol = %s 
-                AND direction = %s 
-                AND closeTime IS NULL 
-                AND DATE(openTime) = CURDATE()
-            LIMIT 1
-        """
+        strategy = tradeData.get('strategy', '')
+        fvgNum = tradeData.get('fvgNum', 0)
         
-        paramsCheck = (
-            tradeData['idCuenta'], 
-            tradeData['symbol'], 
-            tradeData['direction']
-        )
+        if strategy in ['ImbalanceLDN', 'ImbalanceNY'] and fvgNum > 0:
+            sqlCheck = """
+                SELECT idTrade FROM trades 
+                WHERE idCuenta = %s 
+                    AND symbol = %s 
+                    AND direction = %s 
+                    AND strategy = %s
+                    AND closeTime IS NULL 
+                    AND DATE(openTime) = CURDATE()
+                LIMIT 1
+            """
+            paramsCheck = (
+                tradeData['idCuenta'], 
+                tradeData['symbol'], 
+                tradeData['direction'],
+                strategy
+            )
+        else:
+            sqlCheck = """
+                SELECT idTrade FROM trades 
+                WHERE idCuenta = %s 
+                    AND symbol = %s 
+                    AND direction = %s 
+                    AND strategy = %s
+                    AND closeTime IS NULL 
+                LIMIT 1
+            """
+            paramsCheck = (
+                tradeData['idCuenta'], 
+                tradeData['symbol'], 
+                tradeData['direction'],
+                strategy
+            )
         
         dbCursor.execute(sqlCheck, paramsCheck)
         tradeExistente = dbCursor.fetchone()
@@ -210,6 +231,21 @@ def buscaTrade(tradeData):
         if tradeExistente:
             logger.info(f"⚠️ Trade ya existente {tradeExistente['idTrade']} para {tradeData['symbol']} - se omite actualización")
         else:
+            if strategy in ['ImbalanceLDN', 'ImbalanceNY']:
+                sqlCount = """
+                    SELECT COUNT(*) as total FROM trades 
+                    WHERE idCuenta = %s 
+                        AND symbol = %s 
+                        AND strategy = %s
+                        AND closeTime IS NULL 
+                        AND DATE(openTime) = CURDATE()
+                """
+                dbCursor.execute(sqlCount, (tradeData['idCuenta'], tradeData['symbol'], strategy))
+                result = dbCursor.fetchone()
+                if result and result['total'] >= 2:
+                    logger.info(f"⚠️ Límite de 2 trades alcanzado para {strategy} en {tradeData['symbol']} - se omite")
+                    return
+            
             insertarTrade(tradeData)
             logger.info(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
 
@@ -247,23 +283,81 @@ def insertarTrade(data):
         conn = dbConnection.getConnection()
         cursor = conn.cursor()
 
+        margin_used = float(data.get('margin_used', 0))
+        
         sqlInsert = """
-            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit,intervalo)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,%s)
+            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit,intervalo, strategy, margin_used)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s)
         """
         valores = (
             data['idCuenta'], data['symbol'], data['direction'], 
             data['openTime'], data['size'], data['entryPrice'], 
-            data.get('stopLoss'), data.get('takeProfit'),data['intervalo']
+            data.get('stopLoss'), data.get('takeProfit'),
+            data.get('intervalo', '15min'),
+            data.get('strategy', ''),
+            margin_used
         )
 
         cursor.execute(sqlInsert, valores)
+        
+        if margin_used > 0:
+            cursor.execute("UPDATE Cuenta SET Capital = Capital - %s WHERE idCuenta = %s", 
+                         (margin_used, data['idCuenta']))
+        
         conn.commit()
-        logger.info(f"🚀 Nuevo trade insertado: {data['symbol']}")
+        logger.info(f"🚀 Nuevo trade insertado: {data['symbol']} | Margen reservado: {margin_used}")
 
     except Exception as e:
         logger.error(f"❌ Error al insertarTrade: {e}")
         if 'conn' in locals(): conn.rollback()
+
+def getOpenTrades():
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM trades WHERE closeTime IS NULL")
+        trades = cursor.fetchall()
+        conn.close()
+        return trades
+    except Exception as e:
+        logger.error(f"❌ Error en getOpenTrades: {e}")
+        return []
+
+def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute("SELECT idCuenta, margin_used FROM trades WHERE idTrade = %s", (idTrade,))
+        trade = cursor.fetchone()
+        if not trade:
+            logger.warning(f"Trade {idTrade} no encontrado")
+            return False
+        
+        idCuenta = trade['idCuenta']
+        margin_used = float(trade['margin_used']) if trade['margin_used'] else 0
+        closeTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        cursor.execute("""
+            UPDATE trades 
+            SET closeTime = %s, exitPrice = %s, pnl = %s 
+            WHERE idTrade = %s
+        """, (closeTime, exitPrice, pnl, idTrade))
+        
+        capital_change = pnl + margin_used
+        cursor.execute("""
+            UPDATE Cuenta SET Capital = Capital + %s WHERE idCuenta = %s
+        """, (capital_change, idCuenta))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Trade {idTrade} cerrado: {reason} | PnL: {pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_change:.2f}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error al cerrar trade {idTrade}: {e}")
+        if 'conn' in locals(): conn.rollback()
+        return False
 
 
 async def getLastCandleDatetime(symbol: str, timeframe: str):
