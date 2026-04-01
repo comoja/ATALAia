@@ -17,8 +17,9 @@ import pytz
 from middleware.config import constants
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
-from Sentinel.analysis import technical
+from Sentinel.analysis import technical, risk
 from middleware.utils.communications import sendTelegramAlert
+from middleware.utils.alertBuilder import buildImbalanceNYAlertMessage
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,12 @@ class ImbalanceNYBot:
         self.timestamp_signal2 = None
         self.signal1_enviada = False
         self.signal2_enviada = False
+        self.alerta_apertura_ny_enviada = False
+        self.alerta_cierre_ny_enviada = False
+        
+        strategyConfig = dbManager.getStrategyConfig("ImbalanceNY")
+        self.maxMinutosFvg = strategyConfig['max_minutos_fvg'] if strategyConfig else 20
+        self.maxMinutosSignal = strategyConfig['max_minutos_signal'] if strategyConfig else 20
     
     @staticmethod
     def isNyDST(date) -> bool:
@@ -272,21 +279,21 @@ class ImbalanceNYBot:
             fvgTimeStr = fvg_time.strftime("%H:%M")
             
             minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
-            if minutos_desde_fvg > 40:
+            if minutos_desde_fvg > self.maxMinutosFvg:
                 logger.info(f"[ImbalanceNY] FVG {idx+1} tiene {minutos_desde_fvg:.1f} min, omitiendo...")
                 continue
             
             if idx == 0:  # Señal 1
                 if self.signal1_enviada and self.timestamp_signal1:
                     minutos_desde_signal1 = (ahora - self.timestamp_signal1).total_seconds() / 60
-                    if minutos_desde_signal1 > 40:
-                        logger.info(f"[ImbalanceNY] Señal 1 (trade) ya enviada hace más de 40 min ({minutos_desde_signal1:.1f}), omitiendo...")
+                    if minutos_desde_signal1 > self.maxMinutosSignal:
+                        logger.info(f"[ImbalanceNY] Señal 1 (trade) ya enviada hace más de {self.maxMinutosSignal} min ({minutos_desde_signal1:.1f}), omitiendo...")
                         continue
             elif idx == 1:  # Señal 2
                 if self.signal2_enviada and self.timestamp_signal2:
                     minutos_desde_signal2 = (ahora - self.timestamp_signal2).total_seconds() / 60
-                    if minutos_desde_signal2 > 40:
-                        logger.info(f"[ImbalanceNY] Señal 2 (trade) ya enviada hace más de 40 min ({minutos_desde_signal2:.1f}), omitiendo...")
+                    if minutos_desde_signal2 > self.maxMinutosSignal:
+                        logger.info(f"[ImbalanceNY] Señal 2 (trade) ya enviada hace más de {self.maxMinutosSignal} min ({minutos_desde_signal2:.1f}), omitiendo...")
                         continue
             
             entryPrice = fvg['mid']
@@ -294,6 +301,10 @@ class ImbalanceNYBot:
             assetConfig = getAssetConfig(symbol)
             
             atr = ta.ATR(datos5min['high'], datos5min['low'], datos5min['close'], 14).iloc[-1]
+            
+            if pd.isna(atr) or pd.isna(entryPrice):
+                logger.warning(f"[ImbalanceNY] ATR o entryPrice NaN para {symbol}, omitiendo señal...")
+                continue
             
             slMultiplier = assetConfig["sl"]
             tpMultiplier = assetConfig["tp"]
@@ -345,6 +356,10 @@ class ImbalanceNYBot:
                 return
 
         for account in self.accounts:
+            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'ImbalanceNY'):
+                logger.info(f"[ImbalanceNY] Estrategia deshabilitada para cuenta {account['idCuenta']}, omitiendo...")
+                continue
+            
             posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
                 riskPercentage=float(account['ganancia']),

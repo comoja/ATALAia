@@ -101,4 +101,3 @@ async def deleteTelegramMessage(token: str, chatId: str, messageId: int):
     except TelegramError as e:
         logger.error(f"Error al eliminar mensaje {messageId} de {chatId}: {e}")
         return False
-

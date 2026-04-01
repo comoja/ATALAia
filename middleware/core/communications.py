@@ -7,6 +7,8 @@ import asyncio
 from telegram import Bot
 from telegram.error import TelegramError
 from middleware.database import dbManager
+from telegram.ext import ApplicationBuilder, AIORateLimiter
+
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,7 @@ async def alertaInmediata(id, mensaje, prioridad=True):
     if cuentas:
         cuenta = cuentas[0]
         await sendTelegramAlert(cuenta['TokenMsg'],cuenta['idGrupoMsg'], message=mensaje) 
+        
 
 async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True):
     """
@@ -59,6 +62,7 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
     cleanedMessage = _clean_html_for_telegram(message)
     
     try:
+        
         sent_message = await bot.send_message(
             chat_id=chatId, 
             text=cleanedMessage, 
@@ -66,11 +70,13 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
             disable_notification=not highPriority
         )
         logger.debug(f"Alerta de Telegram enviada a chatId {chatId}")
+        
         return sent_message.message_id
+
     except TelegramError as e:
         logger.error(f"Error al enviar mensaje de Telegram a {chatId} en el primer intento: {e}")
         # Retry once after a short delay
-        await asyncio.sleep(1)
+        await asyncio.sleep(8)
         try:
             sent_message = await bot.send_message(
                 chat_id=chatId, 
@@ -81,7 +87,7 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
             logger.info(f"Mensaje de Telegram enviado exitosamente a {chatId} en el segundo intento.")
             return sent_message.message_id
         except TelegramError as eRetry:
-            logger.critical(f"❌ Error al enviar mensaje de Telegram a {chatId} después de dos intentos: {eRetry}")
+            logger.critical(f"----->  ❌ Error al enviar mensaje de Telegram a {chatId} después de dos intentos: {eRetry}")
             return None
 
 async def deleteTelegramMessage(token: str, chatId: str, messageId: int):

@@ -28,6 +28,19 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error en getLastTimestamp: {e}")
             return None
+    
+    def getCandleCount(self, symbol: str, timeframe: str = "5min") -> int:
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT COUNT(*) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"),
+                    {"symbol": symbol, "timeframe": timeframe}
+                )
+                row = result.fetchone()
+            return row[0] if row else 0
+        except Exception as e:
+            logger.error(f"Error en getCandleCount: {e}")
+            return 0
 
     def getFirstTimestamp(self, symbol: str, timeframe: str = "5min") -> Optional[pd.Timestamp]:
         try:
@@ -110,7 +123,7 @@ class DatabaseManager:
             logger.error(f"Error en saveBulkData: {e}")
             return 0
 
-    def resampleAndSave(self, symbol: str, sourceTf: str = "5min", targetTf: str = "15min", fromDate: datetime = None) -> int:
+    def resampleAndSave(self, symbol: str, sourceTf: str = "5min", targetTf: str = "15min", fromDate: datetime = None, minVelas: int = None) -> int:
         try:
             query = "SELECT timestamp, open, high, low, close, volume FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"
             params = {"symbol": symbol, "timeframe": sourceTf}
@@ -133,17 +146,34 @@ class DatabaseManager:
             if df.empty:
                 return 0
             
+            # Si hay mínimo de velas requerido, limitar a esas primeras
+            if minVelas:
+                df = df.head(minVelas)
+            
             df = df.set_index('timestamp')
+            
+            # Limitar a datos hasta ahora
+            now = datetime.now()
+            df = df[df.index <= now]
+            
+            if df.empty:
+                return 0
             
             ruleMap = {
                 "15min": "15min", "1h": "1h", "1day": "1D",
-                "1week": "1W", "1month": "1MS"
+                "1week": "1W", "1month": "1M"
             }
             
-            dfResampled = df.resample(rule=ruleMap.get(targetTf, "15T"), closed='right', label='right').agg({
+            dfResampled = df.resample(rule=ruleMap.get(targetTf, "15min"), closed='right', label='right').agg({
                 'open': 'first', 'high': 'max', 'low': 'min',
                 'close': 'last', 'volume': 'sum'
             }).dropna()
+            
+            if dfResampled.empty:
+                return 0
+            
+            # Filtrar velas futuras
+            dfResampled = dfResampled[dfResampled.index <= now]
             
             if dfResampled.empty:
                 return 0
@@ -157,26 +187,57 @@ class DatabaseManager:
             logger.error(f"Error en resampleAndSave: {e}")
             return 0
 
+    def _isIntervalComplete(self, df: pd.DataFrame, targetTf: str) -> bool:
+        if df.empty:
+            return False
+        last_ts = df.index[-1]
+        if targetTf == "15min":
+            return last_ts.minute == 45 or last_ts.minute >= 50
+        elif targetTf == "1h":
+            return last_ts.minute == 45 and (last_ts.second >= 0 or last_ts.minute == 59)
+        return False
+
     def resampleStandardIntervals(self, symbol: str, fromDate: datetime = None) -> dict:
         results = {}
         
+        # 15min
         last15 = self.getLastTimestamp(symbol, "15min")
+        count5 = self.getCandleCount(symbol, "5min")
+        
         if last15:
+            # Ya hay 15min - generar desde la última
             fromDate15min = last15 + timedelta(minutes=1)
+            inserted = self.resampleAndSave(symbol, "5min", "15min", fromDate15min)
+            results["15min"] = inserted
+            logger.info(f"[{symbol}] 15min: {inserted} velas generadas desde {last15.strftime('%Y-%m-%d %H:%M')}")
+        elif count5 >= 3:
+            # No hay 15min pero hay 5min - generar desde el inicio de 5min disponibles
+            inserted = self.resampleAndSave(symbol, "5min", "15min", None)
+            results["15min"] = inserted
+            logger.info(f"[{symbol}] 15min (inicial): {inserted} velas generadas")
         else:
-            first5 = self.getFirstTimestamp(symbol, "5min")
-            fromDate15min = None if first5 else fromDate
+            results["15min"] = 0
+            logger.info(f"[{symbol}] No hay suficientes 5min ({count5}) para generar 15min")
         
-        results["15min"] = self.resampleAndSave(symbol, "5min", "15min", fromDate15min)
-        
+        # 1h
         last1h = self.getLastTimestamp(symbol, "1h")
-        if last1h:
-            fromDate1h = last1h + timedelta(hours=1)
-        else:
-            first15 = self.getFirstTimestamp(symbol, "15min")
-            fromDate1h = None if first15 else fromDate
+        count15 = self.getCandleCount(symbol, "15min")
         
-        results["1h"] = self.resampleAndSave(symbol, "15min", "1h", fromDate1h)
+        if last1h:
+            # Ya hay 1h - generar desde la última
+            fromDate1h = last1h + timedelta(hours=1)
+            inserted = self.resampleAndSave(symbol, "15min", "1h", fromDate1h)
+            results["1h"] = inserted
+            logger.info(f"[{symbol}] 1h: {inserted} velas generadas desde {last1h.strftime('%Y-%m-%d %H:%M')}")
+        elif count15 >= 4:
+            # No hay 1h pero hay 15min - generar desde el inicio de 15min disponibles
+            inserted = self.resampleAndSave(symbol, "15min", "1h", None)
+            results["1h"] = inserted
+            logger.info(f"[{symbol}] 1h (inicial): {inserted} velas generadas")
+        else:
+            results["1h"] = 0
+            logger.info(f"[{symbol}] No hay suficientes 15min ({count15}) para generar 1h")
+        
         return results
 
     def resampleLongIntervals(self, symbol: str) -> dict:

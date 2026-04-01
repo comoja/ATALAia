@@ -21,8 +21,14 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         - INDICES/CRYPTO: returns units (min 1)
     """
     try:
-        if slDistance <= 0:
-            logger.warning("La distancia del stop loss es cero o negativa. No se puede calcular el tamaño de posición.")
+        import math
+        
+        if slDistance <= 0 or math.isnan(slDistance):
+            logger.warning("La distancia del stop loss es cero, negativa o NaN. No se puede calcular el tamaño de posición.")
+            return None, None, 0
+
+        if math.isnan(riskPercentage) or math.isnan(capital):
+            logger.warning(f"Capital o riesgo NaN: capital={capital}, riskPercentage={riskPercentage}")
             return None, None, 0
 
         riskInCurrency = capital * (riskPercentage / 100)

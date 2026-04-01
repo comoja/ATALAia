@@ -22,6 +22,7 @@ from Sentinel.core.bot import TradingBot
 from Sentinel.core.SMA20_200 import SMABot
 from Sentinel.core.ImbalanceNY import ImbalanceNYBot
 from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
+from Sentinel.core.EMA20200 import EMA20200Bot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures
 from middleware.utils.momentum import momentum as momentumAnalyzer
@@ -56,7 +57,7 @@ def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
     if dfCopy.index.tzinfo is not None:
         dfCopy.index = dfCopy.index.tz_convert("America/Mexico_City")
     
-    dfResampled = dfCopy.resample(rule).agg({
+    dfResampled = dfCopy.resample(rule, closed='right', label='right').agg({
         'open': 'first',
         'high': 'max',
         'low': 'min',
@@ -87,7 +88,7 @@ async def checkAndCloseTrades():
             size = float(trade['size'])
             idTrade = trade['idTrade']
             
-            df = await tdApi.get_time_series(symbol=symbol, interval="5min", outputsize=20)
+            df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "outputsize": 20})
             if df is None or df.empty:
                 continue
             
@@ -144,7 +145,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     return preloaded_data
 
 
-async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, symbolsToScan, apiKey, interval, nVelas):
+async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas):
     """
     Ejecuta el análisis de forma secuencial:
     1. Obtener API key para este símbolo (rota entre cuentas)
@@ -152,7 +153,8 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
     3. Ejecutar Sniper
     4. Ejecutar SMA20-200
     5. Ejecutar ImbalanceNY
-    6. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
+    6. Ejecutar EMA20_200
+    7. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
     
@@ -293,8 +295,10 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
                     f"  ⬇️ MIN: {precioMinimo:,.4f}\n"
                     f"━━━━━━━━━━━━━━━\n"
                 )
-                if horasDesdeFinApertura <= 4:  
+                if horasDesdeFinApertura <= 4 and symbol not in alertasNyEnviadas:  
                     await alertaInmediata(1, textNivel)
+                    alertasNyEnviadas.add(symbol)
+                    await asyncio.sleep(2)
                 
                 maskPostApertura = dfIndex >= finAperturaNY
                 dfPostApertura = df.loc[maskPostApertura]
@@ -355,8 +359,10 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
                     f"  ⬇️ MIN: {precioMinimoLDN:,.4f}\n"
                     f"━━━━━━━━━━━━━━━\n"
                 )
-                if horasDesdeFinAperturaLDN <= 6:
+                if horasDesdeFinAperturaLDN <= 6 and symbol not in alertasLdnEnviadas:
                     await alertaInmediata(1, textNivelLDN)
+                    alertasLdnEnviadas.add(symbol)
+                    await asyncio.sleep(2)
                 
                 maskPostAperturaLDN = dfIndex >= finAperturaLDN
                 dfPostAperturaLDN = df.loc[maskPostAperturaLDN]
@@ -372,7 +378,14 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
             else:
                 logger.warning(f"[IMBLDN] No se encontraron velas en período de apertura LDN")
         
-        # 6. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
+        # 6. Ejecutar EMA20_200 (usa 5min → resamplea a 1h internamente)
+        logger.info(f"[EMA20200] Ejecutando estrategia EMA20_200 para {symbol} (5min)...")
+        
+        preloadedDataEMA = {symbol: df}
+        symbolInfo['intervalo'] = "5min"
+        await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
+        
+        # 7. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         
@@ -390,9 +403,9 @@ async def main():
     """
     Main execution function.
     """
-    logger.info("=============================================")
-    logger.info("====== Inicializando Bot de Trading Middlend ======")
-    logger.info("=============================================")
+    logger.info("===================================================")
+    logger.info("====== Inicializando Bot de Trading Sentinel ======")
+    logger.info("===================================================")
 
     # --- Model Loading/Training ---
     # Attempt to load the pre-trained model
@@ -407,7 +420,13 @@ async def main():
         apiKey, interval, _, nVelas, _ = getParametros()
         
         # Fetch a large number of candles just for training
-        trainingDf = await tdApi.getTimeSeries({"symbol": "XAU/USD", "interval": interval, "apikey": apiKey, "outputSize": 5000})
+        params = {
+                "symbol": "XAU/USD",
+                "interval": interval,
+                "apikey": apiKey,
+                "outputSize": MAX_CANDLES_PER_CALL
+            }
+        trainingDf = await tdApi.getTimeSeries(params)
 
         if trainingDf is not None and not trainingDf.empty:
             logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")
@@ -426,6 +445,20 @@ async def main():
     sma_bot = SMABot()
     imbalance_ny_bot = ImbalanceNYBot()
     imbalance_ldn_bot = ImbalanceLDNBot()
+    ema20200_bot = EMA20200Bot()
+    
+    lastAlertDate = None
+    alertasNyEnviadas = set()
+    alertasLdnEnviadas = set()
+    
+    def resetAlertFlags():
+        nonlocal lastAlertDate
+        hoy = datetime.now().date()
+        if lastAlertDate != hoy:
+            lastAlertDate = hoy
+            alertasNyEnviadas.clear()
+            alertasLdnEnviadas.clear()
+            logger.info(f"[ALERTAS] Flags de alertas reseteados para fecha: {hoy}")
     
     logger.info("Bot inicializado correctamente. Iniciando bucle principal...")
 
@@ -447,6 +480,7 @@ async def main():
             wasOperating = isOperating
             
             if isOperating:
+                resetAlertFlags()
                 logger.info("Iniciando ciclo de análisis...")
                 
                 logger.info("Verificando trades abiertos...")
@@ -463,7 +497,7 @@ async def main():
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
                 #await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
-                await run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
+                await run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas)
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
                 proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL

@@ -126,6 +126,25 @@ def getAccount(id=None):
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return []
+
+def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bool:
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT estrategias FROM CUENTA WHERE idCuenta = %s", (idCuenta,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if not result or not result.get('estrategias'):
+            return True
+        
+        estrategias_str = result['estrategias']
+        estrategias = [e.strip() for e in estrategias_str.split(',')]
+        return nombreEstrategia in estrategias
+    except Exception as e:
+        logger.error(f"Error en isEstrategiaHabilitadaParaCuenta: {e}", exc_info=True)
+        return True
     
 def getSymbols():
     try:
@@ -182,7 +201,21 @@ def getSymbolTypeConfig(tipo: str):
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return None
-    
+
+def getStrategyConfig(nombre: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM strategyConfig WHERE nombre = %s AND enabled = TRUE", (nombre,))
+        
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result
+    except Exception as e:
+        logger.error(f"Error en getStrategyConfig: {e}", exc_info=True)
+        return None
+
 def buscaTrade(tradeData):
     try:
         dbConn = dbConnection.getConnection()
@@ -525,5 +558,5 @@ def get_min_wait_time() -> int:
     - "12data": 3 segundos (límite de 8 llamadas/min)
     """
     if DATA_SOURCE == "db":
-        return 0
-    return 3
+        return 2
+    return 4

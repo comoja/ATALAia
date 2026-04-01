@@ -18,6 +18,7 @@ from middleware.config import constants
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
 from Sentinel.analysis import technical
+from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage
 from middleware.utils.communications import sendTelegramAlert
 from middleware.config.constants import TIMEZONE
 
@@ -54,6 +55,12 @@ class ImbalanceLDNBot:
         self.timestamp_signal2 = None
         self.signal1_enviada = False
         self.signal2_enviada = False
+        self.alerta_apertura_ldn_enviada = False
+        self.alerta_cierre_ldn_enviada = False
+        
+        strategyConfig = dbManager.getStrategyConfig("ImbalanceLDN")
+        self.maxMinutosFvg = strategyConfig['max_minutos_fvg'] if strategyConfig else 20
+        self.maxMinutosSignal = strategyConfig['max_minutos_signal'] if strategyConfig else 20
     
     @staticmethod
     def isLondonDST(date) -> bool:
@@ -268,9 +275,22 @@ class ImbalanceLDNBot:
             fvgTimeStr = fvg_time.strftime("%H:%M")
             
             minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
-            if minutos_desde_fvg > 40:
+            if minutos_desde_fvg > self.maxMinutosFvg:
                 logger.info(f"[ImbalanceLDN] FVG {idx+1} tiene {minutos_desde_fvg:.1f} min, omitiendo...")
                 continue
+            
+            if idx == 0:  # Señal 1
+                if self.signal1_enviada and self.timestamp_signal1:
+                    minutos_desde_signal1 = (ahora - self.timestamp_signal1).total_seconds() / 60
+                    if minutos_desde_signal1 > self.maxMinutosSignal:
+                        logger.info(f"[ImbalanceLDN] Señal 1 (trade) ya enviada hace más de {self.maxMinutosSignal} min ({minutos_desde_signal1:.1f}), omitiendo...")
+                        continue
+            elif idx == 1:  # Señal 2
+                if self.signal2_enviada and self.timestamp_signal2:
+                    minutos_desde_signal2 = (ahora - self.timestamp_signal2).total_seconds() / 60
+                    if minutos_desde_signal2 > self.maxMinutosSignal:
+                        logger.info(f"[ImbalanceLDN] Señal 2 (trade) ya enviada hace más de {self.maxMinutosSignal} min ({minutos_desde_signal2:.1f}), omitiendo...")
+                        continue
             
             if idx == 0:
                 if self.signal1_enviada and self.timestamp_signal1:
@@ -342,6 +362,10 @@ class ImbalanceLDNBot:
                 return
 
         for account in self.accounts:
+            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'ImbalanceLDN'):
+                logger.info(f"[ImbalanceLDN] Estrategia deshabilitada para cuenta {account['idCuenta']}, omitiendo...")
+                continue
+            
             posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
                 riskPercentage=float(account['ganancia']),
