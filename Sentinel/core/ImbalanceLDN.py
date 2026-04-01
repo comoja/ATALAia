@@ -17,7 +17,7 @@ import pytz
 from middleware.config import constants
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
-from Sentinel.analysis import technical
+from Sentinel.analysis import risk, technical
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage
 from middleware.utils.communications import sendTelegramAlert
 from middleware.config.constants import TIMEZONE
