@@ -8,6 +8,7 @@ import talib as ta
 import pytz
 import os
 import sys
+import random
 
 # =========================
 # PATH
@@ -39,17 +40,21 @@ class EMA20200Bot:
         self.openTrades = {}
         self.lastSignals = {}
 
-        # config
+        # config base
         self.interval = "5min"
         self.fast = 20
         self.slow = 200
 
         self.atrPeriod = 14
-        self.minSlope = 10
+        self.minSlope = 5
         self.slopePeriods = 10
         self.minSeparationPct = 0.001
 
-        logger.info("[EMA INTEGRATED BOT] iniciado")
+        # NUEVO (pullback)
+        self.waitingPullback = {}
+        self.pullbackTolerance = 0.0015
+
+        logger.info("[EMA INTEGRATED BOT + QUANT] iniciado")
 
     # =========================
     # RESAMPLE HTF
@@ -92,7 +97,6 @@ class EMA20200Bot:
     # =========================
     def detectCross(self, emaFast, emaSlow):
         diff = emaFast - emaSlow
-
         crossUp = (diff > 0) & (diff.shift(1) <= 0)
         crossDown = (diff < 0) & (diff.shift(1) >= 0)
 
@@ -100,46 +104,138 @@ class EMA20200Bot:
             return "LARGO"
         if crossDown.iloc[-1]:
             return "CORTO"
-
         return None
 
     # =========================
-    # FILTRO ANTI-RANGO
+    # MTF TREND
     # =========================
-    def validSeparation(self, emaFast, emaSlow):
-        diff = abs(emaFast.iloc[-1] - emaSlow.iloc[-1])
-        return (diff / emaSlow.iloc[-1]) > self.minSeparationPct
+    def getHTFTrend(self, df1h):
+        ema200 = self.ema(df1h, self.slow)
+        price = df1h['close'].iloc[-1]
+
+        if price > ema200.iloc[-1]:
+            return "LARGO"
+        if price < ema200.iloc[-1]:
+            return "CORTO"
+        return None
 
     # =========================
-    # DUPLICADOS
+    # PULLBACK
     # =========================
-    def isDuplicate(self, symbol, direction, candleTime):
-        last = self.lastSignals.get(symbol)
-        if not last:
-            return False
-        return last["direction"] == direction and last["time"] == candleTime
+    def isPullbackToEMA(self, price, ema):
+        return abs(price - ema) / ema < self.pullbackTolerance
 
     # =========================
-    # TRAILING STOP
+    # SCORING (ML SIMPLE)
     # =========================
-    def updateTrailing(self, trade, price, atr):
-        if trade['direction'] == "LARGO":
-            newSL = price - atr * 1.2
-            if newSL > trade['sl']:
-                trade['sl'] = newSL
-        else:
-            newSL = price + atr * 1.2
-            if newSL < trade['sl']:
-                trade['sl'] = newSL
+    def scoreSignal(self, slope, atr, separation):
+        score = 0
+
+        if abs(slope) > 5:
+            score += 1
+        if atr > 0:
+            score += 1
+        if separation > self.minSeparationPct:
+            score += 1
+
+        return score
 
     # =========================
-    # EJECUCION (HOOK)
+    # BACKTEST ENGINE
     # =========================
-    async def executeOrder(self, signal, account):
-        logger.info(f"[ORDER] {signal['symbol']} {signal['direction']} ejecutada")
+    def runBacktest(self, df):
+
+        balance = 1000
+        trades = []
+
+        ema20 = self.ema(df, self.fast)
+        ema200 = self.ema(df, self.slow)
+        atr = self.atr(df)
+
+        position = None
+
+        for i in range(200, len(df)):
+
+            price = df['close'].iloc[i]
+
+            direction = None
+            if ema20.iloc[i] > ema200.iloc[i] and ema20.iloc[i-1] <= ema200.iloc[i-1]:
+                direction = "LARGO"
+            elif ema20.iloc[i] < ema200.iloc[i] and ema20.iloc[i-1] >= ema200.iloc[i-1]:
+                direction = "CORTO"
+
+            if position is None and direction:
+
+                sl = price - atr.iloc[i]*1.5 if direction=="LARGO" else price + atr.iloc[i]*1.5
+                tp = price + atr.iloc[i]*2 if direction=="LARGO" else price - atr.iloc[i]*2
+
+                position = {
+                    "dir": direction,
+                    "entry": price,
+                    "sl": sl,
+                    "tp": tp
+                }
+
+            if position:
+                high = df['high'].iloc[i]
+                low = df['low'].iloc[i]
+
+                closed = False
+
+                if position["dir"] == "LARGO":
+                    if low <= position["sl"]:
+                        pnl = position["sl"] - position["entry"]
+                        closed = True
+                    elif high >= position["tp"]:
+                        pnl = position["tp"] - position["entry"]
+                        closed = True
+                else:
+                    if high >= position["sl"]:
+                        pnl = position["entry"] - position["sl"]
+                        closed = True
+                    elif low <= position["tp"]:
+                        pnl = position["entry"] - position["tp"]
+                        closed = True
+
+                if closed:
+                    balance += pnl
+                    trades.append(pnl)
+                    position = None
+
+        winrate = sum(1 for t in trades if t > 0) / len(trades) if trades else 0
+
+        return {
+            "balance": balance,
+            "trades": len(trades),
+            "winrate": winrate
+        }
 
     # =========================
-    # ANALISIS PRINCIPAL
+    # OPTIMIZADOR
+    # =========================
+    def optimizeParameters(self, df):
+
+        best = None
+        bestScore = -999
+
+        for fast in [10,20,30]:
+            for slope in [3,5,8]:
+                self.fast = fast
+                self.minSlope = slope
+
+                result = self.runBacktest(df)
+                score = result["balance"]
+
+                if score > bestScore:
+                    bestScore = score
+                    best = (fast, slope)
+
+        logger.info(f"[OPTIMIZER] Mejor config: EMA{best[0]} slope={best[1]} balance={bestScore}")
+
+        return best
+
+    # =========================
+    # ANALYZE
     # =========================
     async def analyze(self, symbolInfo: Dict, preloadedData: Dict = None):
 
@@ -163,105 +259,47 @@ class EMA20200Bot:
             df = technical.calculateFeatures(df)
             df.index = pd.to_datetime(df.index)
 
-            # ===== HTF =====
             df1h = self.resampleTo1H(df)
-            if len(df1h) < 200:
-                return
+            htfTrend = self.getHTFTrend(df1h)
 
-            ema200HTF = self.ema(df1h, self.slow)
-            trend = "LARGO" if df1h['close'].iloc[-1] > ema200HTF.iloc[-1] else "CORTO"
+            ema20 = self.ema(df, self.fast)
+            ema200 = self.ema(df, self.slow)
 
-            # ===== LTF =====
-            emaFast = self.ema(df, self.fast)
-            emaSlow = self.ema(df, self.slow)
-
-            direction = self.detectCross(emaFast, emaSlow)
-            if not direction or direction != trend:
-                return
-
-            if not self.validSeparation(emaFast, emaSlow):
-                return
-
-            if abs(self.slope(emaFast)) < self.minSlope:
-                return
-
-            atrSeries = self.atr(df)
-            atr = atrSeries.iloc[-1]
-            atrAvg = atrSeries.tail(20).mean()
-
-            if atr < atrAvg:
-                return
-
-            candleTime = df.index[-1]
-
-            if self.isDuplicate(symbol, direction, candleTime):
-                return
+            direction = self.detectCross(ema20, ema200)
 
             price = df['close'].iloc[-1]
+            ema20_last = ema20.iloc[-1]
 
-            # ===== TRADE ACTIVO =====
-            if symbol in self.openTrades:
-                self.updateTrailing(self.openTrades[symbol], price, atr)
+            if direction:
+                self.waitingPullback[symbol] = {"direction": direction, "active": True}
                 return
 
-            # ===== NUEVO TRADE =====
-            if direction == "LARGO":
-                sl = price - atr * 1.5
-                tp = price + atr * 2.0
-            else:
-                sl = price + atr * 1.5
-                tp = price - atr * 2.0
-
-            slDistance = abs(price - sl)
-            if slDistance == 0:
+            if symbol not in self.waitingPullback:
                 return
 
-            if not self.accounts:
-                self.accounts = dbManager.getAccount()
+            state = self.waitingPullback[symbol]
+            direction = state["direction"]
 
-            account = self.accounts[0]
-
-            size, _, _ = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=slDistance,
-                symbolInfo=symbolInfo,
-                entryPrice=price
-            )
-
-            if not size:
+            if direction != htfTrend:
+                self.waitingPullback.pop(symbol, None)
                 return
 
-            signal = {
-                "symbol": symbol,
-                "direction": direction,
-                "entryPrice": price,
-                "stopLoss": sl,
-                "takeProfit": tp,
-                "size": size
-            }
+            if not self.isPullbackToEMA(price, ema20_last):
+                return
 
-            await self.executeOrder(signal, account)
+            slope = self.slope(ema20)
+            separation = abs(ema20_last - ema200.iloc[-1]) / ema200.iloc[-1]
+            atr = self.atr(df).iloc[-1]
 
-            self.openTrades[symbol] = {
-                "direction": direction,
-                "entry": price,
-                "sl": sl,
-                "tp": tp
-            }
+            score = self.scoreSignal(slope, atr, separation)
 
-            await sendTelegramAlert(
-                account['TokenMsg'],
-                account['idGrupoMsg'],
-                buildSMAAlertMessage(signal, {})
-            )
+            if score < 2:
+                logger.info(f"[{symbol}] SCORE BAJO {score}")
+                return
 
-            self.lastSignals[symbol] = {
-                "direction": direction,
-                "time": candleTime
-            }
+            logger.info(f"[{symbol}] SCORE OK {score}")
 
-            logger.info(f"[EMA BOT] {symbol} {direction}")
+            self.waitingPullback.pop(symbol, None)
 
         except Exception as e:
             logger.error(f"{symbol} error: {e}", exc_info=True)
@@ -274,6 +312,4 @@ class EMA20200Bot:
         while True:
             tasks = [self.analyze(s) for s in symbols]
             await asyncio.gather(*tasks)
-
-            # sincronización simple (cada 60s)
             await asyncio.sleep(60)

@@ -287,8 +287,3 @@ def resample_candles(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     df_resampled['symbol'] = df['symbol'].iloc[0]
     return df_resampled
 
-def adjust_levels(high, low):
-    real_high = high - BUFFER_HIGH
-    real_low  = low  - BUFFER_LOW
-    
-    return real_high, real_low
