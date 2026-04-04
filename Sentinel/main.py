@@ -18,7 +18,7 @@ if rutaRaiz not in sys.path:
 
 # --- Module Imports ---
 from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
-from Sentinel.core.bot import TradingBot
+from Sentinel.core.Sniper import SniperBot
 from Sentinel.core.SMA20_200 import SMABot
 from Sentinel.core.ImbalanceNY import ImbalanceNYBot
 from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
@@ -45,11 +45,11 @@ def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
         return df
     
     intervalMap = {
-        "15min": "15T",
-        "30min": "30T",
-        "1h": "1H",
-        "2h": "2H",
-        "4h": "4H"
+        "15min": "15min",
+        "30min": "30min",
+        "1h": "1h",
+        "2h": "2h",
+        "4h": "4h"
     }
    
     rule = intervalMap.get(targetInterval, targetInterval)
@@ -146,7 +146,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     return preloaded_data
 
 
-async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas):
+async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas):
     """
     Ejecuta el análisis de forma secuencial:
     1. Obtener API key para este símbolo (rota entre cuentas)
@@ -220,7 +220,7 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
         logger.info(f"Ejecutando estrategia Sniper para {symbol}...")
         preloadedDataSniper = {symbol: df15m if interval != "15min" else df}
         symbolInfo['intervalo'] = interval
-        await bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
+        await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
         # 3. Ejecutar SMA20-200 (usa 15min)
         logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
@@ -245,7 +245,8 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
         # 4. Ejecutar ImbalanceNY (solo después de 9:00 NY)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
-        esDST = ImbalanceNYBot.isNyDST(ahoraMX)
+        ny_tz = pytz.timezone('America/New_York')
+        esDST = ahoraMX.astimezone(ny_tz).dst().total_seconds() != 0
         if esDST:
             inicioAperturaNY = ahoraMX.replace(hour=6, minute=0, second=0, microsecond=0)
             finAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -320,7 +321,8 @@ async def run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_
         # 5. Ejecutar ImbalanceLDN (solo después de 7:00 LONDRES / 2:00 Mexico winter o 3:00 Mexico summer)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
-        esLDNDST = ImbalanceLDNBot.isLondonDST(ahoraMX)
+        ldn_tz = pytz.timezone('Europe/London')
+        esLDNDST = ahoraMX.astimezone(ldn_tz).dst().total_seconds() != 0
         if esLDNDST:
             inicioAperturaLDN = ahoraMX.replace(hour=3, minute=0, second=0, microsecond=0)
             finAperturaLDN = ahoraMX.replace(hour=4, minute=0, second=0, microsecond=0)
@@ -449,7 +451,7 @@ async def main():
             return
 
     # --- Bot Initialization ---
-    bot = TradingBot(mlModelInstance=model)
+    sniper_bot = SniperBot(mlModelInstance=model)
     sma_bot = SMABot()
     imbalance_ny_bot = ImbalanceNYBot()
     imbalance_ldn_bot = ImbalanceLDNBot()
@@ -506,7 +508,7 @@ async def main():
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
                 #await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
-                await run_sequential_analysis(bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas)
+                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas)
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
                 proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL

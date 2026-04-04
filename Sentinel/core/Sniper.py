@@ -22,103 +22,18 @@ from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
+from middleware.utils.momentum import calcularAngulos, obtenerEstado
 
 logger = logging.getLogger(__name__)
 
-class TradingBot:
+class SniperBot:
     def __init__(self, mlModelInstance):
         self.model = mlModelInstance
         self.accounts = []
         self.estadosPorSimbolo = {}
         self.lastMessageIds = {}  # {symbol: message_id}
 
-    def calcularAngulos(self, df, ventana=14):
-        columnasCalculo = ['close', 'rsi', 'cci', 'macd']
-        for col in columnasCalculo:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            else:
-                df[col] = np.nan
-        
-        for col in columnasCalculo:
-            minV, maxV = df[col].rolling(ventana).min(), df[col].rolling(ventana).max()
-            rango = maxV - minV
-            dfNorm = 100 * (df[col] - minV) / rango.replace(0, np.nan)
-            df[f'ang_{col}'] = np.degrees(np.arctan(dfNorm.diff(1)))
-        return df
 
-    def obtenerEstado(self, angR, angP):
-        if pd.isna(angR) or pd.isna(angP): return "☁️ SIN DATOS", "Esperando..."
-        if angP < -70 and angR > -20: return "💎 GIRO", "🎯 OPORTUNIDAD: Rebote detectado."
-        if angR <= -75: return "💸 LIQUIDACIÓN", "🚨 CRÍTICA: Desplome vertical."
-        if angR >= 75:  return "🌋 PARÁBOLA", "⚠️ ALERTA: Subida extrema."
-        if angR > 30:   return "🚀 ALCISTA", "✅ Tendencia positiva."
-        if angR < -30:  return "📉 BAJISTA", "🔻 Presión de venta."
-        return "☁️ NEUTRAL", "💤 Sin movimiento claro."
-
-    def obtenerIcono(self, angulo): 
-        if pd.isna(angulo): return "⚪"
-        return "🧊" if angulo <= -75 else ("🔥" if angulo >= 75 else ("📈" if angulo > 0 else "📉"))
-
-    async def momentum(self, symbol, df, intervalo=None):   
-        from Sentinel.database import dbManager
-        
-        df = self.calcularAngulos(df)
-        last = df.iloc[-1]
-        
-        closePrice = last.get('close', 0)
-        estadoActual, notaMensaje = self.obtenerEstado(last.get('ang_rsi'), last.get('ang_close'))
-        estadoPrevio = self.estadosPorSimbolo.get(symbol)
-        
-        if estadoActual != estadoPrevio:
-            intervalText = f"({intervalo})" if intervalo else ""
-            mensajeFinal = (
-                f"<b><center>MOMENTUM {symbol} {intervalText}</center></b>\n"
-                f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-                f"━━━━━━━━━━━━━━━━\n"
-                f"<b>PRECIO:</b> ${closePrice:,.2f}\n"
-                f"<b>ESTADO:</b> {estadoActual}\n"
-                f"━━━━━━━━━━━━━━━━\n"
-                f"<b>RSI:</b>  {self.obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}° ({last.get('rsi', 0):.1f})\n"
-                f"<b>CCI:</b>  {self.obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}° ({last.get('cci', 0):.1f})\n"
-                f"<b>MACD:</b> {self.obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}° ({last.get('macd', 0):.2f})\n"
-                f"━━━━━━━━━━━━━━━━\n"
-                f"<b>NOTA:</b> <i>{notaMensaje}</i>"
-            )
-
-            esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
-            
-            esLateral = False
-            cambioPorcentual = 0
-            if len(df) >= 2:
-                precioActual = float(last.get('close', 0))
-                precioAnterior = float(df.iloc[-2].get('close', 0))
-                if precioAnterior > 0:
-                    cambioPorcentual = abs((precioActual - precioAnterior) / precioAnterior * 100)
-                    esLateral = cambioPorcentual < 0.5
-            
-            if esLateral:
-                logger.info(f"[{symbol}] Filtrado MOMENTUM: Movimiento lateral ({cambioPorcentual:.2f}%)")
-            elif estadoActual not in ["☁️ SIN DATOS", "☁️ NEUTRAL"]:
-                # Delete previous message if 1h interval
-                if intervalo == '1h' and symbol in self.lastMessageIds:
-                    cuentas = dbManager.getAccount(1)
-                    if cuentas:
-                        cuenta = cuentas[0]
-                        prevMsgId = self.lastMessageIds[symbol]
-                        await deleteTelegramMessage(cuenta['TokenMsg'], cuenta['idGrupoMsg'], prevMsgId)
-                
-                # Send new message
-                cuentas = dbManager.getAccount(1)
-                if cuentas:
-                    cuenta = cuentas[0]
-                    msgId = await sendTelegramAlert(cuenta['TokenMsg'], cuenta['idGrupoMsg'], mensajeFinal, esCritico)
-                    if msgId:
-                        self.lastMessageIds[symbol] = msgId
-                        
-            self.estadosPorSimbolo[symbol] = estadoActual
-
-        return self.estadosPorSimbolo
 
     async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, raw_df: pd.DataFrame = None) -> pd.DataFrame | None:
         """Fetches, prepares, and enriches data with technical features."""
@@ -263,9 +178,9 @@ class TradingBot:
         techConfShort = (latestFullData["pendienteCci"] < -0.5 and latestFullData["pendienteRsi"] < -0.1)
         
         # --- MOMENTUM FILTER ---
-        dfWithAngles = self.calcularAngulos(df.copy())
+        dfWithAngles = calcularAngulos(df.copy())
         lastAngle = dfWithAngles.iloc[-1]
-        momentumEstado, _ = self.obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
+        momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
         
         momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]
         momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
@@ -367,9 +282,9 @@ class TradingBot:
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
             confianza *= 1.15
         elif cdlDoji != 0:
-            confianza *= 0.70  # Doji = indecision
+            confianza *= 0.85  # Doji = indecision, suavizado
         else:
-            confianza *= 0.50 # Penalty if no confirming candle
+            confianza *= 0.90 # Penalización suave por falta de patrón envolvente
 
         # --- Minimum Confidence Filter ---
         if confianza < config.MIN_CONFIDENCE_THRESHOLD:
@@ -383,14 +298,9 @@ class TradingBot:
                 logger.info(f"[{symbol}] Filtrado: Intento de contratendencia con confianza baja ({confianza:.1f}%).")
                 return None
         
-        # --- SAR Filter (VETO) ---
+        # --- SAR Filter (REMOVIDO/EVALUATIVO MÁS NO VETO DESTRUCTIVO) ---
         sarTrend = latestFullData.get("sarTrend")
-        if sarTrend is not None and not pd.isna(sarTrend):
-            sarFilterLong = direction == "LARGO" and sarTrend < 0
-            sarFilterShort = direction == "CORTO" and sarTrend > 0
-            if sarFilterLong or sarFilterShort:
-                logger.info(f"[{symbol}] Filtrado SAR: Señal {direction} contra tendencia SAR ({sarTrend}).")
-                return None
+        # El veto de SAR fue deshabilitado para permitir que la IA y divergencia respiren sin rezagos institucionales.
 
         return {
             "direction": direction,
@@ -445,7 +355,7 @@ class TradingBot:
                 "size": posSize,
                 "intervalo": symbolInfo['intervalo'], # Assumes this info is passed
                 "status": "OPEN",
-                "strategy": "TradingBot",
+                "strategy": "Sniper",
                 "margin_used": marginUsed,
             }
             
@@ -564,7 +474,7 @@ class TradingBot:
             if data is None:
                 continue
             
-            await self.momentum(symbol, data, interval)
+
             
             signal = await self._get_signal(data, symbol)
             if signal:
@@ -594,7 +504,7 @@ class TradingBot:
         if data is None:
             return
         
-        await self.momentum(symbol, data, interval)
+
         
         signal = await self._get_signal(data, symbol)
         if signal:

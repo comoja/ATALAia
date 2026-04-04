@@ -48,44 +48,56 @@ def centrarTexto(texto, ancho=50):
     espacios = (ancho - len(texto)) // 2
     return " " * max(0, espacios) + texto
 
-async def momentum(symbol, df):   
+async def momentum(symbol, df, intervalo=None):   
     global estadosPorSimbolo 
     # 1. Procesar datos
     df = calcularAngulos(df)
     last = df.iloc[-1]
     
+    closePrice = last.get('close', 0)
     # 2. Obtener estado actual (usamos 'ang_close')
     estadoActual, notaMensaje = obtenerEstado(last.get('ang_rsi'), last.get('ang_close'))
     # 3. FILTRO POR SÍMBOLO
     estadoPrevio = estadosPorSimbolo.get(symbol)
+    
     if estadoActual != estadoPrevio:
         def obtenerIcono(angulo): 
             if pd.isna(angulo): return "⚪"
             return "🧊" if angulo <= -75 else ("🔥" if angulo >= 75 else ("📈" if angulo > 0 else "📉"))
         
-        # Formatear título con centrado manual
-        
+        intervalText = f"({intervalo})" if intervalo else ""
         mensajeFinal = (
-            f"<b><center>MOMENTUM  {symbol}</center></b>\n"
+            f"<b><center>MOMENTUM {symbol} {intervalText}</center></b>\n"
             f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
             f"━━━━━━━━━━━━━━━━\n"
+            f"<b>PRECIO:</b> ${closePrice:,.2f}\n"
             f"<b>ESTADO:</b> {estadoActual}\n"
             f"━━━━━━━━━━━━━━━━\n"
-            f"<b>RSI:</b>  {obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}°\n"
-            f"<b>CCI:</b>  {obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}°\n"
-            f"<b>MACD:</b> {obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}°\n"
+            f"<b>RSI:</b>  {obtenerIcono(last.get('ang_rsi'))} {last.get('ang_rsi', 0):>6.1f}° ({last.get('rsi', 0):.1f})\n"
+            f"<b>CCI:</b>  {obtenerIcono(last.get('ang_cci'))} {last.get('ang_cci', 0):>6.1f}° ({last.get('cci', 0):.1f})\n"
+            f"<b>MACD:</b> {obtenerIcono(last.get('ang_macd'))} {last.get('ang_macd', 0):>6.1f}° ({last.get('macd', 0):.2f})\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"<b>NOTA:</b> <i>{notaMensaje}</i>"
         )
 
         # 4. Enviar alerta
         esCritico = estadoActual in ["💸 LIQUIDACIÓN", "💎 GIRO", "🌋 PARÁBOLA"]
-        if estadoActual != "☁️ SIN DATOS":
+        
+        esLateral = False
+        cambioPorcentual = 0
+        if len(df) >= 2:
+            precioActual = float(last.get('close', 0))
+            precioAnterior = float(df.iloc[-2].get('close', 0))
+            if precioAnterior > 0:
+                cambioPorcentual = abs((precioActual - precioAnterior) / precioAnterior * 100)
+                esLateral = cambioPorcentual < 0.5
+        
+        if esLateral:
+            logger.info(f"[{symbol}] Filtrado MOMENTUM: Movimiento lateral ({cambioPorcentual:.2f}%)")
+        elif estadoActual not in ["☁️ SIN DATOS", "☁️ NEUTRAL"]:
             await alertaInmediata(1, mensajeFinal, esCritico)
-        
-        
+            
         # 5. Actualizar el diccionario
         estadosPorSimbolo[symbol] = estadoActual
 
-    # IMPORTANTE: Siempre retornar el diccionario para que la asignación externa funcione
     return estadosPorSimbolo
