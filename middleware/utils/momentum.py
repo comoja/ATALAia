@@ -8,7 +8,7 @@ import numpy as np
 from datetime import datetime
 import warnings
 
-from middleware.core.communications import alertaInmediata
+from middleware.utils.communications import alertaInmediata
 import logging
 logger = logging.getLogger(__name__)
 

@@ -44,9 +44,13 @@ def isRestTime(dt=None):
         logger.info("viernes noche - no opera")
         return True
 
-    # Sábado y Domingo - no opera
-    if weekday >=5 and (weekday <= 6 and hour < 17):
-        logger.info("fin de semana - no opera")
+    # Sábado todo el día y Domingo hasta las 17:00 (Apertura de mercado asiático)
+    if weekday == 5:
+        logger.info("fin de semana (sábado) - no opera")
+        return True
+    
+    if weekday == 6 and hour < 17:
+        logger.info("fin de semana (domingo mañana/tarde) - no opera")
         return True
 
     return False
