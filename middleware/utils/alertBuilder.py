@@ -130,3 +130,56 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="SMA20-200",
         extraFields=extraFields
     )
+
+
+def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
+    extraFields = {
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
+        'TF Señal': signal.get('timeframe_entrada', '15M')
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="PATRÓN 4H",
+        extraFields=extraFields
+    )
+
+
+def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
+    extraFields = {
+        'Slope': f"{signal.get('slope', 0):.2f}",
+        'Separation': f"{signal.get('separation', 0):.4f}",
+        'Prob ML': f"{signal.get('confidence', 0):.2f}%"
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="EMA 20-200 ML",
+        extraFields=extraFields
+    )
+
+
+def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
+    latest = signal.get('latestMetrics', {})
+    close = signal.get('entryPrice', 0)
+    currentAtr = latest.get('atr', 0)
+    vol_porcentaje = (currentAtr / close) * 100 if close > 0 else 0
+    
+    extraFields = {
+        'RSI': f"{latest.get('rsi', 0):.2f} ({'🟢' if latest.get('pendienteRsi', 0) > 0 else '🔴'})",
+        'CCI': f"{latest.get('cci', 0):.2f} ({'🟢' if latest.get('pendienteCci', 0) > 0 else '🔴'})",
+        'MACD': 'ALCISTA 🟢' if latest.get('macdHist', 0) > 0 else 'BAJISTA 🔴',
+        'Volatilidad': f"{vol_porcentaje:.3f}%",
+        'Break even': f"{close:,.6f}"
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="ML SNIPER",
+        extraFields=extraFields
+    )

@@ -26,7 +26,7 @@ from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
 from middleware.utils.communications import sendTelegramAlert
-from middleware.utils.alertBuilder import buildAlertMessage
+from middleware.utils.alertBuilder import buildAlertMessage, buildEMAAlertMessage
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -59,9 +59,9 @@ class EMA20200Bot:
         # ML Genuino (importado de arquitectura general)
         self.model_clf = mlModel.loadModel(config.MODEL_FILE_PATH)
         if self.model_clf is None:
-            logger.warning("[EMA BOT] No se pudo cargar el modelo ML")
+            logger.warning("No se pudo cargar el modelo ML")
 
-        logger.info("[EMA INTEGRATED BOT + ML Genuino] iniciado")
+        logger.info("Bot EMA + ML Genuino iniciado")
 
     def getMexicoTime(self) -> datetime:
         return datetime.now(pytz.timezone(TIMEZONE))
@@ -148,7 +148,7 @@ class EMA20200Bot:
             prob = self.model_clf.predict_proba(features)[0][1]
             return prob
         except Exception as e:
-            logger.error(f"[EMA BOT] Error evaluating ML: {e}")
+            logger.error(f"Error evaluating ML: {e}")
             return 0.55
 
     # =========================
@@ -158,7 +158,7 @@ class EMA20200Bot:
         if not self.accounts:
             self.accounts = dbManager.getAccount()
             if not self.accounts:
-                logger.warning("[EMA BOT] No hay cuentas disponibles")
+                logger.warning("No hay cuentas disponibles")
                 return
 
         symbol = symbolInfo['symbol']
@@ -196,10 +196,7 @@ class EMA20200Bot:
 
             if account['idCuenta'] != 1:
                 dbManager.buscaTrade(trade)
-                message = buildAlertMessage(
-                    strategy_name="EMA20200", signal_dir=direction, symbol=symbol, 
-                    entry=entryPrice, sl=slPrice, tp=tpPrice, timeframe=self.interval
-                )
+                message = buildEMAAlertMessage(signal, trade)
                 msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
                 if msgId:
                     self.lastMessageIds[symbol] = msgId
@@ -211,6 +208,7 @@ class EMA20200Bot:
     # =========================
     async def analyze(self, symbolInfo: Dict, preloadedData: Dict = None):
         symbol = symbolInfo['symbol']
+        logger.info(f"▶ ENTRANDO análisis para {symbol}")
 
         try:
             if preloadedData and symbol in preloadedData:
@@ -248,19 +246,23 @@ class EMA20200Bot:
             # Detect and save cross
             if directionCross:
                 self.waitingPullback[symbol] = {"direction": directionCross, "active": True}
+                logger.info(f"[{symbol}] Cruce EMA detectado ({directionCross}), esperando pullback...")
                 return
 
             if symbol not in self.waitingPullback:
+                logger.info(f"[{symbol}] Rechazada: Sin cruce EMA previo pendiente")
                 return
 
             state = self.waitingPullback[symbol]
             direction = state["direction"]
 
             if htfTrend and direction != htfTrend:
+                logger.info(f"[{symbol}] Rechazada: Tendencia HTF ({htfTrend}) contraria a dirección ({direction})")
                 self.waitingPullback.pop(symbol, None)
                 return
 
             if not self.isPullbackToEMA(price, ema20_last):
+                logger.info(f"[{symbol}] Rechazada: Precio no ha retrocedido a EMA20 (precio={price:.5f}, ema20={ema20_last:.5f})")
                 return
 
             # Feature Extract / Score
@@ -270,7 +272,7 @@ class EMA20200Bot:
             
             # Simple filters
             if abs(slope_val) < 1 or separation < self.minSeparationPct:
-                logger.debug(f"[{symbol}] Filtros EMA básicos insuficientes")
+                logger.info(f"[{symbol}] Filtros EMA básicos insuficientes")
                 return
                 
             # ML Filter
@@ -281,10 +283,10 @@ class EMA20200Bot:
             threshold = 0.40 if distanciaSma20Pct < atrRelativo * 0.5 else 0.50
 
             if prob < threshold:
-                logger.info(f"[{symbol}] ❌ EMA20200 Filtrado ML | prob={prob:.2f} < {threshold}")
+                logger.info(f"[{symbol}] ❌ Filtrado ML | prob={prob:.2f} < {threshold}")
                 return
                 
-            logger.info(f"[{symbol}] ✓ EMA ML OK | prob={prob:.2f}")
+            logger.info(f"[{symbol}] ✓ ML OK | prob={prob:.2f}")
 
             # Construir Signal
             sl_dist = atr_val * 1.5
@@ -292,10 +294,15 @@ class EMA20200Bot:
                 "direction": direction,
                 "entryPrice": price,
                 "slDistance": sl_dist,
-                "candle_time": df.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+                "candle_time": df.index[-1].strftime("%Y-%m-%d %H:%M:%S"),
+                "slope": slope_val,
+                "separation": separation,
+                "confidence": int(prob * 100),
+                "setup": "EMA Pullback"
             }
             
             if symbol in self.lastSignals and self.lastSignals[symbol] == signal['candle_time']:
+                logger.info(f"[{symbol}] Rechazada: Señal duplicada para misma vela")
                 return
 
             await self._executeTrades(signal, symbolInfo)
@@ -304,4 +311,6 @@ class EMA20200Bot:
             self.waitingPullback.pop(symbol, None)
             
         except Exception as e:
-            logger.error(f"[EMA BOT] Error analizando {symbol}: {e}")
+            logger.error(f"Error analizando {symbol}: {e}")
+        finally:
+            logger.info(f"◀ SALIENDO análisis para {symbol}")

@@ -32,7 +32,7 @@ from middleware.database import dbManager
 from Sentinel.analysis import risk
 from Sentinel.data.dataLoader import getParametros
 from middleware.utils.communications import sendTelegramAlert
-from middleware.utils.alertBuilder import buildAlertMessage
+from middleware.utils.alertBuilder import buildAlertMessage, buildPatron4HAlertMessage
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -64,13 +64,14 @@ class Patron4HBot:
         self.fvg_min_pct = strategyConfig.get('fvg_min_pct', 0.00005) if strategyConfig else 0.00005
         self.displacement_pct = strategyConfig.get('displacement_pct', 0.0005) if strategyConfig else 0.0005
         self.rr_ratio_min = strategyConfig.get('rr_ratio_min', 1.5) if strategyConfig else 1.5
-        self.max_minutos_fvg = strategyConfig.get('max_minutos_fvg', 240) if strategyConfig else 240
+        self.max_minutos_fvg = strategyConfig.get('max_minutos_fvg', 20) if strategyConfig else 20
         
         self.modo_flexible = True
-        self.signalGenerada = False
-        self.timestamp_signal = None
+        self.usar_filtro_fibonacci = False # Interruptor dormido para el OTE (Optimal Trade Entry)
+        self.signalsGeneradas = {} # Diccionario por símbolo
+        self.timestamps_signals = {} # Diccionario por símbolo
         
-        logger.info("[Patron4H] Bot iniciado con sistema Top-Down (1D -> 4H -> 1H -> 15M)")
+        logger.info("Bot iniciado con sistema Top-Down (1D -> 4H -> 1H -> 15M)")
 
     def getMexicoTime(self) -> datetime:
         return datetime.now(self.MEXICO_TZ)
@@ -167,27 +168,31 @@ class Patron4HBot:
                 return None
         
         if direction == 'SHORT':
-            if close_price < open_price and cuerpo / rango > 0.5:
-                return {
-                    'idx': idx,
-                    'type': 'Bearish_Displacement',
-                    'cuerpo_pct': mov_pct * 100,
-                    'vela_open': open_price,
-                    'vela_close': close_price,
-                    'vela_high': high_price,
-                    'vela_low': low_price
-                }
+            if close_price < open_price and (cuerpo / rango) > 0.6:
+                # La mecha inferior (rechazo) debe ser muy pequeña en un corto institucional
+                if ((close_price - low_price) / rango) <= 0.25:
+                    return {
+                        'idx': idx,
+                        'type': 'Bearish_Displacement',
+                        'cuerpo_pct': mov_pct * 100,
+                        'vela_open': open_price,
+                        'vela_close': close_price,
+                        'vela_high': high_price,
+                        'vela_low': low_price
+                    }
         else:
-            if close_price > open_price and cuerpo / rango > 0.5:
-                return {
-                    'idx': idx,
-                    'type': 'Bullish_Displacement',
-                    'cuerpo_pct': mov_pct * 100,
-                    'vela_open': open_price,
-                    'vela_close': close_price,
-                    'vela_high': high_price,
-                    'vela_low': low_price
-                }
+            if close_price > open_price and (cuerpo / rango) > 0.6:
+                # La mecha superior (rechazo) debe ser muy pequeña en un largo institucional
+                if ((high_price - close_price) / rango) <= 0.25:
+                    return {
+                        'idx': idx,
+                        'type': 'Bullish_Displacement',
+                        'cuerpo_pct': mov_pct * 100,
+                        'vela_open': open_price,
+                        'vela_close': close_price,
+                        'vela_high': high_price,
+                        'vela_low': low_price
+                    }
         return None
 
     def detectar_mss(self, df: pd.DataFrame, direction: str) -> bool:
@@ -307,16 +312,34 @@ class Patron4HBot:
             'tipo_entrada': None
         }
         
-        if len(df_tf) < 5:
+        if len(df_tf) < 20:
             return resultado
         
         tendencia = contexto['tendencia']
         fvgs_diarios = contexto.get('fvgs_diarios', [])
         direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
         
-        for i in range(len(df_tf) - 1, max(len(df_tf) - 6, 0), -1):
+        adx = ta.ADX(df_tf['high'], df_tf['low'], df_tf['close'], timeperiod=14).iloc[-1]
+        mercado_erratico = True if (not pd.isna(adx) and adx < 25) else False
+        aplicar_fibonacci = self.usar_filtro_fibonacci or mercado_erratico
+        
+        ahora = self.getMexicoTime()
+        if ahora.tzinfo is not None: ahora = ahora.replace(tzinfo=None)
+        
+        for i in range(len(df_tf) - 1, max(len(df_tf) - 10, 0), -1):
             disp = self.detectar_displacement(df_tf, i, direction)
             if disp:
+                # Filtrado por antigüedad: El desplazamiento debe ser reciente (máx 60m)
+                vela_time = df_tf.index[i]
+                if hasattr(vela_time, 'to_pydatetime'): vela_time = vela_time.to_pydatetime()
+                if vela_time.tzinfo is not None: vela_time = vela_time.replace(tzinfo=None)
+                
+                minutos_antiguedad = (ahora - vela_time).total_seconds() / 60
+                
+                if minutos_antiguedad > 20:
+                    logger.info(f"[{nombre_tf}] Desplazamiento descartado por antigüedad: {minutos_antiguedad:.1f} min")
+                    continue
+                
                 resultado['hay_displacement'] = True
                 resultado['displacement_info'] = disp
                 break
@@ -327,6 +350,16 @@ class Patron4HBot:
         for i in range(max(1, len(df_tf) - 30), len(df_tf) - 1):
             fvg = self.detectar_fvg(df_tf, i, direction)
             if fvg:
+                if aplicar_fibonacci:
+                    swing_high = df_tf['high'].iloc[max(0, i-20):i].max()
+                    swing_low = df_tf['low'].iloc[max(0, i-20):i].min()
+                    fibo_05 = swing_low + (swing_high - swing_low) * 0.5
+                    
+                    if direction == 'LONG' and fvg['mid'] > fibo_05:
+                        continue # FVG en zona Premium (Caro), se ignora
+                    if direction == 'SHORT' and fvg['mid'] < fibo_05:
+                        continue # FVG en zona Discount (Barato), se ignora
+                        
                 resultado['fvgs'].append(fvg)
         
         resultado['hay_fvg'] = len(resultado['fvgs']) > 0
@@ -398,6 +431,8 @@ class Patron4HBot:
             return self._generar_entrada_solo_displacement(df_tf_sup, df_15m, direction, disp_info, catalizador['timeframe'])
         elif catalizador['hay_fvg'] and self.modo_flexible:
             return self._generar_entrada_solo_fvg(fvg_principal, df_tf_sup, df_15m, direction, catalizador['timeframe'])
+        
+        logger.info(f"Rechazada generar_señal_15m: Sin combinación válida (disp={catalizador['hay_displacement']}, fvg={catalizador['hay_fvg']}, mss={catalizador['hay_mss']})")
         return None
 
     def _generar_entrada_directa(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, nivel_origen: float, timeframe: str) -> Optional[dict]:
@@ -516,6 +551,7 @@ class Patron4HBot:
         
         contexto = self.obtener_contexto_diario(df_1d)
         if contexto['tendencia'] == 'LATERAL':
+            logger.info(f"[{symbolInfo['symbol']}] Rechazada: Tendencia LATERAL en diario")
             return {'status': 'TENDENCIA_LATERAL'}
             
         precio_actual = float(df_15m['close'].iloc[-1])
@@ -542,7 +578,12 @@ class Patron4HBot:
             señal = self.generar_señal_15m(catalizador_final, df_15m, df_tf_sup, contexto)
             if señal:
                 return {'status': 'SENAL_GENERADA', 'señal': señal}
+            else:
+                logger.info(f"[{symbolInfo['symbol']}] Rechazada: Displacement detectado pero no se pudo generar entrada en 15M")
                 
+        else:
+            logger.info(f"[{symbolInfo['symbol']}] Rechazada: Sin displacement confirmado en ninguna temporalidad (4H/1H/15M)")
+        
         return {'status': 'SIN_ENTRADA_VALIDA'}
 
     async def _executeTrades(self, signal: Dict, symbolInfo: Dict):
@@ -572,7 +613,7 @@ class Patron4HBot:
             trade = {
                 "idCuenta": account['idCuenta'],
                 "symbol": symbolInfo['symbol'],
-                "direction": signal['direccion'],  # Original 'direction' from signal format mappings
+                "direction": signal['direccion'],
                 "entryPrice": signal['entrada'],
                 "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
                 "stopLoss": signal['stop_loss'],
@@ -586,30 +627,29 @@ class Patron4HBot:
             
             if account['idCuenta'] != 1:
                 dbManager.buscaTrade(trade)
-                message = self._formatAlertMessage(signal, trade)
+                
+                # Normalización para el generador de alertas (middleware/utils/alertBuilder.py)
+                signal_norm = {
+                    **signal,
+                    "direction": signal.get("direccion", signal.get("direction")),
+                    "entryPrice": signal.get("entrada"),
+                    "confidence": signal.get("confianza", 70),
+                    "setup": signal.get("tipo_entrada", "N/A")
+                }
+                
+                message = buildPatron4HAlertMessage(signal_norm, trade)
                 msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
                 if msgId:
                     self.lastMessageIds[symbolInfo['symbol']] = msgId
         
-        self.signalGenerada = True
-
-    def _formatAlertMessage(self, signal: Dict, trade: Dict) -> str:
-        directionStr = "COMPRA" if signal['direccion'] == "LARGO" else "VENTA"
-        colorHeader = "🟩" if signal['direccion'] == "LARGO" else "🟥"
-        return (
-            f"{colorHeader*3} <b>SEÑAL DE {directionStr}</b> {colorHeader*3}\n"
-            f"<center><i>Estrategia: PATRÓN 4H</i></center>\n"
-            f"<center><b>{trade['symbol']}</b> ({signal.get('timeframe_entrada', '15M')})</center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🔹 ENTRADA: <b>{signal['entrada']:,.5f}</b>\n"
-            f"🔴 STOP LOSS: <b>{signal['stop_loss']:,.5f}</b>\n"
-            f"🟢 TAKE PROFIT: <b>{signal['take_profit']:,.5f}</b>\n"
-        )
+        self.signalsGeneradas[symbolInfo['symbol']] = True
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
         symbol = symbolInfo['symbol']
+        logger.info(f"▶ ENTRANDO análisis para {symbol}")
         df_15m = preloadedData.get('15m') if preloadedData else None
         if df_15m is None or len(df_15m) < 100:
+            logger.info(f"◀ SALIENDO análisis para {symbol} (datos insuficientes)")
             return
         
         df_1h = self.resample_ohlcv(df_15m, '1H')
@@ -618,19 +658,20 @@ class Patron4HBot:
         
         datos = {'15m': df_15m, '1h': df_1h, '4h': df_4h, '1d': df_1d}
         
-        if self.signalGenerada and self.timestamp_signal:
+        if self.signalsGeneradas.get(symbol, False) and self.timestamps_signals.get(symbol):
             ahora = self.getMexicoTime().replace(tzinfo=None)
-            minutos_desde = (ahora - self.timestamp_signal).total_seconds() / 60
+            minutos_desde = (ahora - self.timestamps_signals[symbol]).total_seconds() / 60
             if minutos_desde > self.max_minutos_fvg:
-                self.signalGenerada = False
+                self.signalsGeneradas[symbol] = False
             else:
+                logger.info(f"[{symbol}] Cooldown: Señal generada hace {minutos_desde:.1f}m (Límite: {self.max_minutos_fvg}m)")
                 return
         
         resultado = self.analizar_top_down(datos, symbolInfo)
         
         if resultado['status'] == 'SENAL_GENERADA' and resultado.get('señal'):
             señal = resultado['señal']
-            self.timestamp_signal = self.getMexicoTime().replace(tzinfo=None)
+            self.timestamps_signals[symbol] = self.getMexicoTime().replace(tzinfo=None)
             
             signal_telegram = {
                 **señal,
@@ -638,6 +679,8 @@ class Patron4HBot:
                 "direction": señal['direccion']
             }
             await self._executeTrades(signal_telegram, symbolInfo)
+
+        logger.info(f"◀ SALIENDO análisis para {symbol}")
 
 def executePatron4H(datos: Dict[str, pd.DataFrame], symbolInfo: Dict) -> Optional[Dict]:
     bot = Patron4HBot()

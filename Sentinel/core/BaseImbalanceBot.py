@@ -86,25 +86,35 @@ class BaseImbalanceBot:
             vela = datos5min.iloc[i]
             openPrice = vela['open']
             closePrice = vela['close']
+            highPrice = vela['high']
+            lowPrice = vela['low']
+            
+            cuerpo = abs(closePrice - openPrice)
+            rango = highPrice - lowPrice
+            if rango == 0: continue
             
             bodyTop = max(openPrice, closePrice)
             bodyBottom = min(openPrice, closePrice)
             
             if bodyTop > precioMaximo and bodyBottom > precioMaximo:
-                return {
-                    'type': 'LONG',
-                    'idx': i,
-                    'vela': vela,
-                    'precioRuptura': bodyTop
-                }
+                # Filtro agresivo: Vela fuerte (cuerpo > 60%) y cierre cerca del máximo (mecha superior muy pequeña)
+                if closePrice > openPrice and (cuerpo / rango) > 0.6 and ((highPrice - closePrice) / rango) <= 0.25:
+                    return {
+                        'type': 'LONG',
+                        'idx': i,
+                        'vela': vela,
+                        'precioRuptura': bodyTop
+                    }
             
             if bodyBottom < precioMinimo and bodyTop < precioMinimo:
-                return {
-                    'type': 'SHORT',
-                    'idx': i,
-                    'vela': vela,
-                    'precioRuptura': bodyBottom
-                }
+                # Filtro agresivo: Vela fuerte (cuerpo > 60%) y cierre cerca del mínimo (mecha inferior muy pequeña)
+                if closePrice < openPrice and (cuerpo / rango) > 0.6 and ((closePrice - lowPrice) / rango) <= 0.25:
+                    return {
+                        'type': 'SHORT',
+                        'idx': i,
+                        'vela': vela,
+                        'precioRuptura': bodyBottom
+                    }
         return None
     
     def findFvgEnRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
@@ -149,7 +159,7 @@ class BaseImbalanceBot:
         precioMinimo = symbolInfo.get('precioMinimo')
         
         if precioMaximo is None or precioMinimo is None:
-            logger.debug(f"[{symbol}] No hay niveles de precio definidos")
+            logger.info(f"[{symbol}] No hay niveles de precio definidos")
             return []
         
         precioActual = datos5min['close'].iloc[-1]
@@ -200,9 +210,11 @@ class BaseImbalanceBot:
             
             if idx == 0 and self.signal1_enviada and self.timestamp_signal1:
                 if (ahora - self.timestamp_signal1).total_seconds() / 60 > self.maxMinutosSignal:
+                    logger.info(f"[{self.strategy_name}] FVG 1 rechazado: Señal 1 expirada (>{self.maxMinutosSignal} min)")
                     continue
             elif idx == 1 and self.signal2_enviada and self.timestamp_signal2:
                 if (ahora - self.timestamp_signal2).total_seconds() / 60 > self.maxMinutosSignal:
+                    logger.info(f"[{self.strategy_name}] FVG 2 rechazado: Señal 2 expirada (>{self.maxMinutosSignal} min)")
                     continue
             
             entryPrice = fvg['mid']
@@ -362,3 +374,5 @@ class BaseImbalanceBot:
                 await self._executeTrades(signal, symbolInfo)
         else:
             logger.info(f"[{symbol}] Sin señales {self.strategy_name} en este ciclo")
+
+        logger.info(f"[{self.strategy_name}] ◀ SALIENDO análisis para {symbol}")

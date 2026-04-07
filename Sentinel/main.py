@@ -217,19 +217,19 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             df15m = df
         
         # 2. Ejecutar Sniper (usa intervalo configurado)
-        logger.info(f"Ejecutando estrategia Sniper para {symbol}...")
+        logger.info(f"[Sniper] Ejecutando para {symbol}...")
         preloadedDataSniper = {symbol: df15m if interval != "15min" else df}
         symbolInfo['intervalo'] = interval
         await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
         # 3. Ejecutar SMA20-200 (usa 15min)
-        logger.info(f"Ejecutando estrategia SMA20-200 para {symbol}...")
+        logger.info(f"[SMA] Ejecutando para {symbol}...")
         logger.info(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
         logger.info(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
         preloadedDataSMA = {symbol: df15m}
         symbolInfo['intervalo'] = "15min"
         try:
-            logger.info(f"[MAIN] >>> Entrando SMA BOT para {symbol}")
+            logger.info(f"[SMA] >>> Entrando para {symbol}")
             
             await sma_bot.runAnalysisCycle_for_symbol(
                 symbolInfo, 
@@ -237,10 +237,10 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 symbolApiKey
             )
             
-            logger.info(f"[MAIN] <<< SMA BOT terminó para {symbol}")
+            logger.info(f"[SMA] <<< Terminó para {symbol}")
 
         except Exception as e:
-            logger.error(f"[MAIN] ERROR en SMA BOT para {symbol}: {e}", exc_info=True)
+            logger.error(f"[SMA] ERROR para {symbol}: {e}", exc_info=True)
         
         # 4. Ejecutar ImbalanceNY (solo después de 9:00 NY)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
@@ -273,7 +273,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         #elif sclpng_bot.signalGenerada:
         #    logger.info(f"[SCLPNG] Señales ya generadas de apertura y fin de apertura, saltando...")
         else:
-            logger.info(f"[IMBNY] Ejecutando estrategia ImbalanceNY para {symbol}...")
+            logger.info(f"[IMBNY] Ejecutando para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -291,6 +291,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 from middleware.utils.communications import alertaInmediata
                 textNivel = (
                     f"<b>APERTURA NY 🇺🇸 {symbol}</b>\n"
+                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
                     f"━━━━━━━━━━━━━━━\n"
                     f"<center><b>Sesión: {inicioAperturaNY.strftime('%H:%M')} - {finAperturaNY.strftime('%H:%M')}</b></center>\n\n"
                     f"  ⬆️ MAX: {precioMaximo:,.4f}\n"
@@ -339,7 +340,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         if ahoraMX <= finAperturaLDN:
             logger.info(f"[IMBLDN] Aún no abre sesión LDN (hora {ahoraMX.hour}), saltando...")
         else:
-            logger.info(f"Ejecutando estrategia ImbalanceLDN para {symbol}...")
+            logger.info(f"[IMBLDN] Ejecutando para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -356,8 +357,9 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 
                 textNivelLDN = (
                     f"<b>APERTURA LNDN 🇬🇧 {symbol}</b>\n"
+                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
                     f"━━━━━━━━━━━━━━━\n"
-                    f"<center><b>Sesión: {inicioAperturaLDN.strftime('%H:%M')} - {finAperturaLDN.strftime('%H:%M')}</b></center>\n\n"
+                    f"<b><center>Sesión: {inicioAperturaLDN.strftime('%H:%M')} - {finAperturaLDN.strftime('%H:%M')}</center></b>\n\n"
                     f"  ⬆️ MAX: {precioMaximoLDN:,.4f}\n"
                     f"  ⬇️ MIN: {precioMinimoLDN:,.4f}\n"
                     f"━━━━━━━━━━━━━━━\n"
@@ -382,14 +384,14 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 logger.warning(f"[IMBLDN] No se encontraron velas en período de apertura LDN")
         
         # 6. Ejecutar EMA20_200 (usa 1h)
-        logger.info(f"[EMA20200] Ejecutando estrategia EMA20_200 para {symbol} (1h)...")
+        logger.info(f"[EMA] Ejecutando para {symbol} (1h)...")
         
         preloadedDataEMA = {symbol: df}
         symbolInfo['intervalo'] = "1h"
         await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
         
         # 7. Ejecutar Patron4H (usa 15min resampleado a 4h y 1d)
-        logger.info(f"[Patron4H] Ejecutando estrategia Patron4H para {symbol}...")
+        logger.info(f"[Patron4H] Ejecutando para {symbol}...")
         
         preloadedDataP4H = {'15m': df15m}
         symbolInfo['intervalo'] = "15min"

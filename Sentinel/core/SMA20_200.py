@@ -41,13 +41,13 @@ class SMABot:
         
         self.model_clf = mlModel.loadModel(config.MODEL_FILE_PATH)
         if self.model_clf is None:
-            logger.warning("[SMA BOT] No se pudo cargar el modelo clasificador ML")
+            logger.warning("No se pudo cargar el modelo clasificador ML")
         
         self.model_reg = mlModel.loadRegModel(config.MODEL_REG_FILE_PATH)
         if self.model_reg is None:
-            logger.warning("[SMA BOT] No se pudo cargar el modelo regresor ML")
+            logger.warning("No se pudo cargar el modelo regresor ML")
         
-        logger.info("[SMA BOT] ML inicializado")
+        logger.info("ML inicializado")
 
     async def cleanupOldMessages(self, token: str, chatId: str):
         ahora = datetime.now()
@@ -66,7 +66,7 @@ class SMABot:
                 self.sentMessages.remove(msg)
 
     def debug_log(self, symbol, msg):
-        logger.info(f"[SMA DEBUG] [{symbol}] {msg}")
+        logger.info(f"[{symbol}] {msg}")
 
     def build_features(self, df):
         row = df.iloc[-1]
@@ -210,6 +210,16 @@ class SMABot:
                 velas_consolidacion.append({"high": df["high"].iloc[i], "low": df["low"].iloc[i]})
         
         if len(velas_consolidacion) < 5: return None
+        
+        # Bollinger Squeeze: confirmar que las bandas están comprimidas
+        if "bb_width" in df.columns:
+            bb_width_actual = df["bb_width"].iloc[-1]
+            bb_width_promedio = df["bb_width"].tail(50).mean()
+            if bb_width_actual > bb_width_promedio:
+                logger.info(f"[{symbol}] Consolidación rechazada: Bollinger NO comprimido (width={bb_width_actual:.4f} > avg={bb_width_promedio:.4f})")
+                return None
+            logger.info(f"[{symbol}] Bollinger Squeeze confirmado (width={bb_width_actual:.4f} < avg={bb_width_promedio:.4f})")
+        
         base_high = max(v["high"] for v in velas_consolidacion)
         base_low = min(v["low"] for v in velas_consolidacion)
         rango_base = base_high - base_low
@@ -249,7 +259,10 @@ class SMABot:
             dfInput["sma20"] = ta.SMA(dfInput["close"].values, timeperiod=20)
             dfInput["sma200"] = ta.SMA(dfInput["close"].values, timeperiod=200)
             dfInput["atr"] = ta.ATR(dfInput["high"].values, dfInput["low"].values, dfInput["close"].values, 14)
-            return dfInput.dropna(subset=['sma20', 'sma200', 'atr'])
+            # Bollinger Bands (misma SMA20 como banda media)
+            dfInput["bb_upper"], dfInput["bb_middle"], dfInput["bb_lower"] = ta.BBANDS(dfInput["close"].values, timeperiod=20, nbdevup=2, nbdevdn=2)
+            dfInput["bb_width"] = (dfInput["bb_upper"] - dfInput["bb_lower"]) / dfInput["bb_middle"]
+            return dfInput.dropna(subset=['sma20', 'sma200', 'atr', 'bb_upper'])
 
         if rawDf is not None and len(rawDf) >= 200:
             df = prepareDf(rawDf)
@@ -264,17 +277,21 @@ class SMABot:
     
     def _validar_filtros_basicos(self, df: pd.DataFrame, close: float, sma20: float, sma200: float, atr: float, direction: str, symbol: str) -> bool:
         if abs(close - sma20) / close * 100 < (atr / close * 100) * 0.5:
+            logger.info(f"[{symbol}] Rechazada: Precio demasiado cerca de SMA20")
             return False
             
         rango = (df["high"].tail(20).max() - df["low"].tail(20).min()) / close
         if rango < (atr / close) * 3:
+            logger.info(f"[{symbol}] Rechazada: Rango insuficiente (mercado muy comprimido)")
             return False
             
         velas_contrarias = sum(1 for i in range(-4, 0) if (direction == "LARGO" and df["close"].iloc[i] < df["open"].iloc[i]) or (direction == "CORTO" and df["close"].iloc[i] > df["open"].iloc[i]))
         if velas_contrarias >= 2:
+            logger.info(f"[{symbol}] Rechazada: {velas_contrarias} velas contrarias en últimas 4")
             return False
             
         if (direction == "LARGO" and close < sma200) or (direction == "CORTO" and close > sma200):
+            logger.info(f"[{symbol}] Rechazada: Precio al lado incorrecto de SMA200")
             return False
             
         return True
@@ -298,26 +315,46 @@ class SMABot:
         close, sma20, sma200, atr = df["close"].iloc[-1], df["sma20"].iloc[-1], df["sma200"].iloc[-1], df["atr"].iloc[-1]
         tendencia = self.identificarTendencia(df, close, sma20)
         
-        if tendencia == "NEUTRAL": return None
+        if tendencia == "NEUTRAL":
+            logger.info(f"[{symbol}] Rechazada: Tendencia NEUTRAL")
+            return None
 
         if apiKey and not await self.validarTendencia1h(symbol, tendencia, apiKey):
+            logger.info(f"[{symbol}] Rechazada: Tendencia 1H no confirma {tendencia}")
             return None
 
         direction, double_touch_time = self.detectar_rebote_sma_doble(df, sma20, intervalo, symbol, tendencia)
         consolidacion = None
         if not direction:
             consolidacion = self.detectar_consolidacion_oro_puro(df, sma20, tendencia, symbol)
-            if not consolidacion: return None
+            if not consolidacion:
+                logger.info(f"[{symbol}] Rechazada: Sin doble toque ni consolidación")
+                return None
             direction, double_touch_time = consolidacion["type"], df.index[-1]
+        
+        # Bollinger Band: Confirmar que el rebote ocurre en zona estadísticamente extrema
+        bb_bonus = 0
+        if "bb_lower" in df.columns and "bb_upper" in df.columns:
+            bb_lower = df["bb_lower"].iloc[-1]
+            bb_upper = df["bb_upper"].iloc[-1]
+            if direction == "LARGO" and close <= bb_lower:
+                bb_bonus = 10
+                logger.info(f"[{symbol}] ✅ Bollinger: Rebote en banda inferior (close={close:.5f} <= bb_lower={bb_lower:.5f}) +{bb_bonus}% confianza")
+            elif direction == "CORTO" and close >= bb_upper:
+                bb_bonus = 10
+                logger.info(f"[{symbol}] ✅ Bollinger: Rebote en banda superior (close={close:.5f} >= bb_upper={bb_upper:.5f}) +{bb_bonus}% confianza")
 
         if not self._validar_filtros_basicos(df, close, sma20, sma200, atr, direction, symbol):
-            return None
+            return None  # Log ya emitido dentro de _validar_filtros_basicos
 
         if double_touch_time and (datetime.now(cdmx_tz) - double_touch_time).total_seconds() / 60 > 60:
+            logger.info(f"[{symbol}] Rechazada: Doble toque expirado (>60 min)")
             return None
 
         ml_ok, prob, expected_return = self._validar_ml(df, close, sma20, atr)
-        if not ml_ok: return None
+        if not ml_ok:
+            logger.info(f"[{symbol}] Rechazada: ML prob={prob:.2f} insuficiente")
+            return None
 
         vol_anormal = self.detectar_volumen_anormal(df, symbol)
         ext_extrema = self.detectar_extension_extrema(df, sma20)
@@ -342,10 +379,11 @@ class SMABot:
         return {
             "strategy": "SMA20-200", "direction": direction, "entryPrice": close,
             "slDistance": sl_dist, "stopLoss": stop_loss, "takeProfit": take_profit,
-            "confidence": int(prob * 100), "symbol": symbol, "candle_time": df.index[-1],
+            "confidence": int(prob * 100) + bb_bonus, "symbol": symbol, "candle_time": df.index[-1],
             "sma20": sma20, "sma200": sma200, "atr": atr,
             "setup": "Consolidacion" if consolidacion else "Doble Toque",
-            "tendencia": tendencia, "volumenAnormal": vol_anormal, "extensionExtrema": ext_extrema
+            "tendencia": tendencia, "volumenAnormal": vol_anormal, "extensionExtrema": ext_extrema,
+            "bollingerBonus": bb_bonus
         }
 
     async def _execute_trades(self, signal: Dict, symbolInfo):
@@ -385,8 +423,11 @@ class SMABot:
 
     async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
         symbol = symbolInfo['symbol']
+        logger.info(f"▶ ENTRANDO análisis para {symbol}")
         df = preloadedData.get(symbol) if preloadedData else None
-        if df is None: return
+        if df is None:
+            logger.info(f"◀ SALIENDO análisis para {symbol} (sin datos)")
+            return
 
         ahora_cdmx = datetime.now(pytz.timezone(TIMEZONE))
         interval = symbolInfo.get('intervalo', '15min')
@@ -401,3 +442,5 @@ class SMABot:
         if signal and not self.esSenalDuplicada(symbol, signal['direction'], signal['candle_time']):
             if not self.accounts: self.accounts = dbManager.getAccount()
             if self.accounts: await self._execute_trades(signal, symbolInfo)
+
+        logger.info(f"◀ SALIENDO análisis para {symbol}")
