@@ -299,11 +299,11 @@ async def main():
                 if inserted > 0:
                     logger.info(f"[{symbol}] +{inserted} velas insertadas (5min)")
                 
-                results = db.resampleStandardIntervals(symbol, startDate)
-                new15 = results.get("15min", 0)
-                new1h = results.get("1h", 0)
-                if new15 > 0 or new1h > 0:
-                    logger.info(f"[{symbol}] Generadas: 15min: +{new15}, 1h: +{new1h}")
+#                results = db.resampleStandardIntervals(symbol, startDate)
+#                new15 = results.get("15min", 0)
+#                new1h = results.get("1h", 0)
+#                if new15 > 0 or new1h > 0:
+#                    logger.info(f"[{symbol}] Generadas: 15min: +{new15}, 1h: +{new1h}")
                 await asyncio.sleep(SLEEP_BETWEEN_CALLS)
         except Exception as e:
             logger.error(f"[{symbol}] Error: {e}")

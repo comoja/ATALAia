@@ -26,7 +26,7 @@ from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
 from middleware.utils.communications import sendTelegramAlert
-from middleware.utils.alertBuilder import buildAlertMessage, buildEMAAlertMessage
+from middleware.utils.alertBuilder import buildAlertMessage, buildEMAAlertMessage, adjustTPForMinRR, getPipMultiplier
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -181,10 +181,22 @@ class EMA20200Bot:
             direction = signal['direction']
             entryPrice = signal['entryPrice']
             slDist = signal['slDistance']
+            # Garantizar RR mínimo de 1.5
             slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
             
-            # Simple 1:2 R:R as default for missing regression ML
-            tpPrice = entryPrice + (slDist * 2) if direction == "LARGO" else entryPrice - (slDist * 2)
+            # TP estructural prioritario, con fallback a 2.0 RR
+            tp_initial = signal.get('tpStructural')
+            if not tp_initial:
+                tp_initial = entryPrice + (slDist * 2) if direction == "LARGO" else entryPrice - (slDist * 2)
+                
+            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
+            
+            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
+            multiplier = getPipMultiplier(symbol)
+            
+            # Enriquecer señal con métricas para el mensaje
+            signal['riesgo_pips'] = round(slDist * multiplier, 1)
+            signal['rr_ratio'] = round(rr_actual, 2)
 
             trade = {
                 "idCuenta": account['idCuenta'], "symbol": symbol, "direction": direction,
@@ -194,12 +206,12 @@ class EMA20200Bot:
                 "strategy": "EMA20200", "margin_used": marginUsed,
             }
 
-            if account['idCuenta'] != 1:
-                dbManager.buscaTrade(trade)
-                message = buildEMAAlertMessage(signal, trade)
-                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
-                if msgId:
-                    self.lastMessageIds[symbol] = msgId
+            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
+            from middleware.execution.broker_gateway import gateway
+            success, msgId = await gateway.execute_trade(trade, signal, account, "EMA20200", df=df)
+            
+            if success and msgId:
+                self.lastMessageIds[symbol] = msgId
                     
         self.lastSignals[symbol] = signal['candle_time']
 
@@ -271,7 +283,7 @@ class EMA20200Bot:
             atr_val = atr_series.iloc[-1]
             
             # Simple filters
-            if abs(slope_val) < 1 or separation < self.minSeparationPct:
+            if abs(slope_val) < 0.5 or separation < self.minSeparationPct:
                 logger.info(f"[{symbol}] Filtros EMA básicos insuficientes")
                 return
                 
@@ -288,12 +300,25 @@ class EMA20200Bot:
                 
             logger.info(f"[{symbol}] ✓ ML OK | prob={prob:.2f}")
 
-            # Construir Signal
-            sl_dist = atr_val * 1.5
+            # Construir Signal con niveles estructurales (sensibilidad aumentada)
+            levels = technical.get_structural_levels(df, lookback=40)
+            atr_padding = atr_val * 0.2
+            
+            if direction == "LARGO":
+                sl_price = levels['swing_low'] - atr_padding
+                # Asegurar que el SL no sea ridículamente pequeño o grande
+                sl_dist = max(atr_val * 0.8, min(price - sl_price, atr_val * 2.5))
+                tp_structural = levels['high_zone']
+            else:
+                sl_price = levels['swing_high'] + atr_padding
+                sl_dist = max(atr_val * 0.8, min(sl_price - price, atr_val * 2.5))
+                tp_structural = levels['low_zone']
+
             signal = {
                 "direction": direction,
                 "entryPrice": price,
                 "slDistance": sl_dist,
+                "tpStructural": tp_structural,
                 "candle_time": df.index[-1].strftime("%Y-%m-%d %H:%M:%S"),
                 "slope": slope_val,
                 "separation": separation,

@@ -5,7 +5,7 @@ import logging
 import re
 import asyncio
 from telegram import Bot
-from telegram.error import TelegramError
+from telegram.error import TelegramError, RetryAfter
 from middleware.database import dbManager
 
 
@@ -47,8 +47,7 @@ async def alertaInmediata(id, mensaje, prioridad=True):
 
 async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True):
     """
-    Sends a message to a Telegram chat using a specific bot token.
-    Retries once on failure.
+    Sends a message to a Telegram chat with intelligent retry on flood control.
     Returns message_id on success, None on failure.
     """
     if not message or not token or not chatId:
@@ -58,19 +57,8 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
     bot = Bot(token=token)
     cleanedMessage = _clean_html_for_telegram(message)
     
-    try:
-        sent_message = await bot.send_message(
-            chat_id=chatId, 
-            text=cleanedMessage, 
-            parse_mode='HTML', 
-            disable_notification=not highPriority
-        )
-        logger.debug(f"Alerta de Telegram enviada a chatId {chatId}")
-        return sent_message.message_id
-    except TelegramError as e:
-        logger.error(f"Error al enviar mensaje de Telegram a {chatId} en el primer intento: {e}")
-        # Retry once after a short delay
-        await asyncio.sleep(1)
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
             sent_message = await bot.send_message(
                 chat_id=chatId, 
@@ -78,11 +66,25 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
                 parse_mode='HTML', 
                 disable_notification=not highPriority
             )
-            logger.info(f"Mensaje de Telegram enviado exitosamente a {chatId} en el segundo intento.")
+            if attempt > 0:
+                logger.info(f"✅ Alerta de Telegram enviada {cleanedMessage} a {chatId} tras {attempt} reintentos.")
+            else:
+                logger.debug(f"Alerta de Telegram enviada {cleanedMessage} a chatId {chatId}")
             return sent_message.message_id
-        except TelegramError as eRetry:
-            logger.critical(f"❌ Error al enviar mensaje de Telegram a {chatId} después de dos intentos: {eRetry}")
-            return None
+
+        except RetryAfter as e:
+            wait_time = e.retry_after + 1
+            logger.warning(f"⚠️ Flood control excedido. Esperando {wait_time}s antes del reintento {attempt + 1}/{max_retries}...")
+            await asyncio.sleep(wait_time)
+            
+        except TelegramError as e:
+            logger.error(f"Error en intento {attempt + 1} al enviar a {chatId}: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                logger.critical(f"❌ Error fatal de Telegram tras {max_retries} intentos: {e}")
+                
+    return None
 
 async def deleteTelegramMessage(token: str, chatId: str, messageId: int):
     """

@@ -23,7 +23,7 @@ from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
-from middleware.utils.alertBuilder import buildSMAAlertMessage
+from middleware.utils.alertBuilder import buildSMAAlertMessage, adjustTPForMinRR, getPipMultiplier
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
@@ -167,9 +167,9 @@ class SMABot:
     
     def identificarTendencia(self, df, precioActual, sma20):
         pendienteSma20 = self.getPendiente(df["sma20"].tail(10), 10) / sma20
-        if precioActual > sma20 and pendienteSma20 > 0.268:
+        if precioActual > sma20 and pendienteSma20 > 0.20:
             return "ALCISTA"
-        elif precioActual < sma20 and pendienteSma20 < -0.268:
+        elif precioActual < sma20 and pendienteSma20 < -0.20:
             return "BAJISTA"
         return "NEUTRAL"
 
@@ -359,28 +359,45 @@ class SMABot:
         vol_anormal = self.detectar_volumen_anormal(df, symbol)
         ext_extrema = self.detectar_extension_extrema(df, sma20)
 
-        sl_atr_multiplier = 1.5
+        # Niveles estructurales para SL y TP lógicos (sensibilidad aumentada)
+        levels = technical.get_structural_levels(df, lookback=40)
+        atr_padding = atr * 0.2
+
         if consolidacion:
             stop_loss = consolidacion["sl"]
         else:
-            stop_loss = close - (atr * sl_atr_multiplier) if direction == "LARGO" else close + (atr * sl_atr_multiplier)
+            if direction == "LARGO":
+                stop_loss = min(close - (atr * 1.2), levels['swing_low'] - atr_padding)
+            else:
+                stop_loss = max(close + (atr * 1.2), levels['swing_high'] + atr_padding)
         
         sl_dist = abs(close - stop_loss)
+        tp_initial = levels['high_zone'] if direction == "LARGO" else levels['low_zone']
+        
+        # Combinar TP estructural con la expectativa de ML
         tp_factor = 1 + expected_return
-        take_profit = close + sl_dist * tp_factor if direction == "LARGO" else close - sl_dist * tp_factor
+        tp_ml = close + sl_dist * tp_factor if direction == "LARGO" else close - sl_dist * tp_factor
         
-        vol_factor = atr / close
-        take_profit *= 0.8 if vol_factor > 0.02 else 1.2 if vol_factor < 0.005 else 1.0
-        
-        max_tp_pct = 0.05 if vol_factor > 0.01 else 0.08
-        if abs(take_profit - close) / close > max_tp_pct:
-            take_profit = close * (1 + max_tp_pct) if direction == "LARGO" else close * (1 - max_tp_pct)
+        # Si el TP de ML es más conservador que el estructural, usar ML. 
+        # Si el estructural es muy lejano, moderar con ML.
+        if direction == "LARGO":
+            take_profit = min(tp_initial, tp_ml) if tp_initial > tp_ml else tp_initial
+        else:
+            take_profit = max(tp_initial, tp_ml) if tp_initial < tp_ml else tp_initial
 
+        # Garantizar RR mínimo de 1.5
+        take_profit = adjustTPForMinRR(close, stop_loss, take_profit, direction, minRR=1.5)
+        
+        rr_actual = abs(take_profit - close) / sl_dist
+        multiplier = getPipMultiplier(symbol)
+        
         return {
             "strategy": "SMA20-200", "direction": direction, "entryPrice": close,
             "slDistance": sl_dist, "stopLoss": stop_loss, "takeProfit": take_profit,
             "confidence": int(prob * 100) + bb_bonus, "symbol": symbol, "candle_time": df.index[-1],
             "sma20": sma20, "sma200": sma200, "atr": atr,
+            "riesgo_pips": round(sl_dist * multiplier, 1),
+            "rr_ratio": round(rr_actual, 2),
             "setup": "Consolidacion" if consolidacion else "Doble Toque",
             "tendencia": tendencia, "volumenAnormal": vol_anormal, "extensionExtrema": ext_extrema,
             "bollingerBonus": bb_bonus
@@ -405,14 +422,15 @@ class SMABot:
                 "strategy": "SMA20_200", "margin_used": marginUsed,
             }
 
-            if account['idCuenta'] != 1:
-                dbManager.buscaTrade(trade)
+            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
+            from middleware.execution.broker_gateway import gateway
+            success, msgId = await gateway.execute_trade(trade, signal, account, "SMA20_200", df=df)
+            
+            if success and msgId:
                 await self.cleanupOldMessages(account['TokenMsg'], account['idGrupoMsg'])
-                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], buildSMAAlertMessage(signal, trade))
-                if msgId:
-                    self.lastMessageIds[symbol] = msgId
-                    self.sentMessages.append({"token": account['TokenMsg'], "chatId": account['idGrupoMsg'], "msgId": msgId, "sentTime": datetime.now()})
-                    self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
+                self.lastMessageIds[symbol] = msgId
+                self.sentMessages.append({"token": account['TokenMsg'], "chatId": account['idGrupoMsg'], "msgId": msgId, "sentTime": datetime.now()})
+                self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
 
     def _filtrar_velas_completas(self, df: pd.DataFrame, ahora_cdmx, interval: str) -> pd.DataFrame:
         interval_map = {'1min': 1, '5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '1day': 1440}

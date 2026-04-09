@@ -113,7 +113,7 @@ def getAccount(id=None):
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         if id:
-            cursor.execute("SELECT * FROM CUENTA WHERE idCuenta = %s ", (id,))
+            cursor.execute("SELECT * FROM CUENTA WHERE idCuenta = %s AND Activo=1", (id,))
         else:
             cursor.execute("SELECT * FROM CUENTA WHERE Activo=1")
         
@@ -344,6 +344,22 @@ def insertarTrade(data):
         logger.error(f"❌ Error al insertarTrade: {e}")
         if 'conn' in locals(): conn.rollback()
 
+def getOpenTradesForActiveAccounts():
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT t.* FROM trades t
+            JOIN CUENTA c ON t.idCuenta = c.idCuenta
+            WHERE t.status = 'OPEN' AND c.Activo = 1
+        """)
+        trades = cursor.fetchall()
+        conn.close()
+        return trades
+    except Exception as e:
+        logger.error(f"Error en getOpenTradesForActiveAccounts: {e}")
+        return []
+
 def getOpenTrades():
     try:
         conn = dbConnection.getConnection()
@@ -391,6 +407,30 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
         logger.error(f"❌ Error al cerrar trade {idTrade}: {e}")
         if 'conn' in locals(): conn.rollback()
         return False
+
+def getTradesClosedToday(idCuenta: int, fecha: str):
+    """
+    Retorna la lista de trades cerratizados hoy para una cuenta.
+    fecha: Formato 'YYYY-MM-DD'
+    """
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        sql = "SELECT pnl FROM trades WHERE idCuenta = %s AND DATE(closeTime) = %s AND closeTime IS NOT NULL"
+        cursor.execute(sql, (idCuenta, fecha))
+        results = cursor.fetchall()
+        conn.close()
+        return results
+    except Exception as e:
+        logger.error(f"Error en getTradesClosedToday: {e}")
+        return []
+
+def getAccountById(idCuenta: int):
+    """
+    Alias para getAccount(id) que retorna un solo objeto.
+    """
+    cuentas = getAccount(idCuenta)
+    return cuentas[0] if cuentas else None
 
 
 async def getLastCandleDatetime(symbol: str, timeframe: str):

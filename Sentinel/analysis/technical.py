@@ -105,6 +105,45 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     dfFeatured["cdlHammer"] = ta.CDLHAMMER(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
     dfFeatured["cdlShootingStar"] = ta.CDLSHOOTINGSTAR(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
 
-    #logger.info(f"Features calculadas. Columnas: {dfFeatured.columns.tolist()}")
-    
     return dfFeatured
+
+def get_structural_levels(df: pd.DataFrame, lookback: int = 40, lookback_macro: int = 120) -> dict:
+    """
+    Identifica niveles estructurales (Swing High/Low) en el periodo reciente y macro.
+    Retorna el máximo y mínimo absoluto del periodo, junto con zonas de liquidez macro.
+    """
+    if len(df) < lookback:
+        lookback = len(df)
+        
+    recent = df.iloc[-lookback:]
+    macro = df.iloc[-min(len(df), lookback_macro):]
+    
+    return {
+        "swing_high": float(recent['high'].max()),
+        "swing_low": float(recent['low'].min()),
+        "high_zone": float(np.percentile(recent['high'], 90)),
+        "low_zone": float(np.percentile(recent['low'], 10)),
+        "macro_high": float(macro['high'].max()),
+        "macro_low": float(macro['low'].min())
+    }
+
+def is_spread_safe(df: pd.DataFrame, max_spread_atr_percent: float = 20.0) -> bool:
+    """
+    Verifica si el spread actual es seguro para operar.
+    Como solemos tener solo precios OHLC, calculamos el spread promedio reciente.
+    """
+    if len(df) < 20: return True
+    
+    # Calculamos el ATR actual
+    high_low = df['high'] - df['low']
+    atr = high_low.rolling(window=14).mean().iloc[-1]
+    
+    # Supongamos un spread estimado de 0.2 ATR para brokers estándar.
+    # En producción real, este valor vendría de client.get_spread()
+    estimated_spread = atr * 0.1 # Placeholder conservador
+    
+    threshold = atr * (max_spread_atr_percent / 100)
+    
+    if estimated_spread > threshold:
+        return False
+    return True

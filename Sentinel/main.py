@@ -30,6 +30,7 @@ from middleware.utils.momentum import momentum as momentumAnalyzer
 from middleware.config import constants as config
 from middleware.database import dbManager
 from middleware.database.dbManager import get_min_wait_time
+from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage   
 
 # --- External Project Imports ---
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
@@ -67,6 +68,9 @@ def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
     }).dropna()
     
     return dfResampled
+
+
+from middleware.utils.time_utils import get_localized_session_times
 from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
@@ -76,11 +80,15 @@ INTERVALmax = settings.INTERVALmax
 async def checkAndCloseTrades():
     """Check open trades and close if SL or TP is hit."""
     try:
-        openTrades = dbManager.getOpenTrades()
-        if not openTrades:
+        # Solo verificar trades de cuentas que estén actualmente ACTIVAS
+        open_trades = dbManager.getOpenTradesForActiveAccounts()
+        if not open_trades:
             return
         
-        for trade in openTrades:
+        ahora = datetime.now()
+        GRACE_PERIOD_SECONDS = 120 # 2 minutos de gracia para evitar cierres inmediatos en el mismo ciclo
+        
+        for trade in open_trades:
             symbol = trade['symbol']
             direction = trade['direction'].upper()
             entryPrice = float(trade['entryPrice'])
@@ -88,6 +96,22 @@ async def checkAndCloseTrades():
             takeProfit = float(trade['takeProfit'])
             size = float(trade['size'])
             idTrade = trade['idTrade']
+            openTimeStr = trade['openTime']
+
+            # --- NUEVO: Filtro de periodo de gracia (07/04/2026) ---
+            try:
+                if isinstance(openTimeStr, str):
+                    openTime = datetime.strptime(openTimeStr, "%Y-%m-%d %H:%M:%S")
+                else:
+                    openTime = openTimeStr # Ya es datetime
+                
+                # Calcular antigüedad en segundos
+                age_seconds = (ahora - openTime).total_seconds()
+                if age_seconds < GRACE_PERIOD_SECONDS:
+                    logger.info(f"[{symbol}] Omitiendo verificación (Trade recién abierto: {age_seconds:.0f}s < {GRACE_PERIOD_SECONDS}s)")
+                    continue
+            except Exception as e:
+                logger.warning(f"Error calculando antigüedad de trade {idTrade}: {e}")
             
             df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "outputsize": 20})
             if df is None or df.empty:
@@ -122,8 +146,8 @@ async def checkAndCloseTrades():
                     closed = True
             
             if closed:
-                pnl = (exitPrice - entryPrice) * size if direction == "LARGO" else (entryPrice - exitPrice) * size
-                dbManager.closeTrade(idTrade, exitPrice, pnl, reason)
+                from middleware.execution.broker_gateway import gateway
+                await gateway.close_trade(idTrade, exitPrice, reason)
                 
     except Exception as e:
         logger.error(f"Error en checkAndCloseTrades: {e}")
@@ -206,20 +230,17 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             logger.error(f"[{symbol}] Error calculando momentum: {e}")
             symbolInfo['momentum'] = None
         
-        # Resamplear datos para cada estrategia
-        logger.info(f"[{symbol}] interval={interval}, df original len={len(df)}, ultimas 2: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
+        # --- RESAMPLEO LOCAL (Optimización: 06/04/2026) ---
+        # Generamos todas las temporalidades necesarias en memoria para evitar latencia de DB
+        logger.info(f"[{symbol}] Generando resampleos locales (15min, 1h)...")
+        df15m = resampleData(df, "15min")
+        df1h = resampleData(df, "1h")
         
-        if interval == "5min":
-            logger.info(f"[{symbol}] Resampleando de 5min a 15min...")
-            df15m = resampleData(df, "15min")
-            logger.info(f"[{symbol}] Tras resample: {len(df15m)} velas, ultimas 2: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
-        else:
-            df15m = df
+        logger.info(f"[{symbol}] 5m: {len(df)}v | 15m: {len(df15m)}v | 1h: {len(df1h)}v")
         
-        # 2. Ejecutar Sniper (usa intervalo configurado)
+        # 2. Ejecutar Sniper (usa 15min resampleado)
         logger.info(f"[Sniper] Ejecutando para {symbol}...")
-        preloadedDataSniper = {symbol: df15m if interval != "15min" else df}
-        symbolInfo['intervalo'] = interval
+        preloadedDataSniper = {symbol: df15m}
         await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
         # 3. Ejecutar SMA20-200 (usa 15min)
@@ -242,27 +263,15 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         except Exception as e:
             logger.error(f"[SMA] ERROR para {symbol}: {e}", exc_info=True)
         
-        # 4. Ejecutar ImbalanceNY (solo después de 9:00 NY)
+        # 4. Ejecutar ImbalanceNY (solo después de la apertura NY: 8:00 - 9:00 NY)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
-        ny_tz = pytz.timezone('America/New_York')
-        esDST = ahoraMX.astimezone(ny_tz).dst().total_seconds() != 0
-        if esDST:
-            inicioAperturaNY = ahoraMX.replace(hour=6, minute=0, second=0, microsecond=0)
-            finAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
-            cierreNY = ahoraMX.replace(hour=12, minute=0, second=0, microsecond=0)
-            horaNY = 8
-            horaFinNY = 9
-            horaCierreNY = 14
-        else:
-            inicioAperturaNY = ahoraMX.replace(hour=7, minute=0, second=0, microsecond=0)
-            finAperturaNY = ahoraMX.replace(hour=8, minute=0, second=0, microsecond=0)
-            cierreNY = ahoraMX.replace(hour=13, minute=0, second=0, microsecond=0)
-            horaNY = 8
-            horaFinNY = 9
-            horaCierreNY = 14
+        # Cálculo automático de sesión NY (8:00 - 9:00 Apertura, 14:00 Cierre NY Time)
+        inicioAperturaNY, finAperturaNY, cierreNY = get_localized_session_times(
+            'America/New_York', 8, 0, 9, 0, 14, 0
+        )
         
-        logger.info(f"[IMBNY] Hora MX: {ahoraMX.hour}, Inicio NY: {horaNY}:00 NY ({inicioAperturaNY.hour}:00 MX), Fin: {horaFinNY}:00 NY ({finAperturaNY.hour}:00 MX), Cierre: {horaCierreNY}:00 NY ({cierreNY.hour}:00 MX)")
+        logger.info(f"[IMBNY] Hora MX: {ahoraMX.hour}:{ahoraMX.minute:02d}, Programación NY (Auto): Inicio: {inicioAperturaNY.strftime('%H:%M')} MX, Fin: {finAperturaNY.strftime('%H:%M')} MX, Cierre: {cierreNY.strftime('%H:%M')} MX", extra={"color": "cyan"})
         
         horasDesdeFinApertura = (ahoraMX - finAperturaNY).total_seconds() / 3600
         
@@ -319,21 +328,13 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             else:
                 logger.warning(f"[IMBNY]  No se encontraron velas en período de apertura NY")
         
-        # 5. Ejecutar ImbalanceLDN (solo después de 7:00 LONDRES / 2:00 Mexico winter o 3:00 Mexico summer)
+        # 5. Ejecutar ImbalanceLDN (solo después de la apertura LDN: 8:00 - 9:00 London)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         
-        ldn_tz = pytz.timezone('Europe/London')
-        esLDNDST = ahoraMX.astimezone(ldn_tz).dst().total_seconds() != 0
-        if esLDNDST:
-            inicioAperturaLDN = ahoraMX.replace(hour=3, minute=0, second=0, microsecond=0)
-            finAperturaLDN = ahoraMX.replace(hour=4, minute=0, second=0, microsecond=0)
-            cierreLDN = ahoraMX.replace(hour=9, minute=0, second=0, microsecond=0)
-        else:
-            inicioAperturaLDN = ahoraMX.replace(hour=2, minute=0, second=0, microsecond=0)
-            finAperturaLDN = ahoraMX.replace(hour=3, minute=0, second=0, microsecond=0)
-            cierreLDN = ahoraMX.replace(hour=8, minute=0, second=0, microsecond=0)
+        # Cálculo automático de sesión LDN (8:00 - 9:00 Apertura, 14:00 Cierre London Time)
+        inicioAperturaLDN, finAperturaLDN, cierreLDN = get_localized_session_times('Europe/London', 8, 0, 9, 0, 14, 0 )
         
-        logger.info(f"[IMBLDN] Hora MX: {ahoraMX.hour}, Inicio LDN: {inicioAperturaLDN.hour}:00 MX ({'3' if esLDNDST else '2'}:00 LDN), Fin: {finAperturaLDN.hour}:00 MX ({'4' if esLDNDST else '3'}:00 LDN)")
+        logger.info(f"[IMBLDN] Hora MX: {ahoraMX.hour}:{ahoraMX.minute:02d}, Programación LDN (Auto): Inicio: {inicioAperturaLDN.strftime('%H:%M')} MX, Fin: {finAperturaLDN.strftime('%H:%M')} MX, Cierre: {cierreLDN.strftime('%H:%M')} MX", extra={"color": "cyan"})
         
         horasDesdeFinAperturaLDN = (ahoraMX - finAperturaLDN).total_seconds() / 3600
         
@@ -383,10 +384,10 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             else:
                 logger.warning(f"[IMBLDN] No se encontraron velas en período de apertura LDN")
         
-        # 6. Ejecutar EMA20_200 (usa 1h)
+        # 6. Ejecutar EMA20_200 (usa 1h resampleado)
         logger.info(f"[EMA] Ejecutando para {symbol} (1h)...")
         
-        preloadedDataEMA = {symbol: df}
+        preloadedDataEMA = {symbol: df1h}
         symbolInfo['intervalo'] = "1h"
         await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
         
@@ -418,6 +419,7 @@ async def main():
     logger.info("===================================================")
     logger.info("====== Inicializando Bot de Trading Sentinel ======")
     logger.info("===================================================")
+    await alertaInmediata(4, "Bot de Trading Sentinel Iniciado")
 
     # --- Model Loading/Training ---
     # Attempt to load the pre-trained model

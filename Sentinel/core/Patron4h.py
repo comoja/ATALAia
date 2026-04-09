@@ -320,7 +320,7 @@ class Patron4HBot:
         direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
         
         adx = ta.ADX(df_tf['high'], df_tf['low'], df_tf['close'], timeperiod=14).iloc[-1]
-        mercado_erratico = True if (not pd.isna(adx) and adx < 25) else False
+        mercado_erratico = True if (not pd.isna(adx) and adx < 20) else False
         aplicar_fibonacci = self.usar_filtro_fibonacci or mercado_erratico
         
         ahora = self.getMexicoTime()
@@ -336,8 +336,8 @@ class Patron4HBot:
                 
                 minutos_antiguedad = (ahora - vela_time).total_seconds() / 60
                 
-                if minutos_antiguedad > 20:
-                    logger.info(f"[{nombre_tf}] Desplazamiento descartado por antigüedad: {minutos_antiguedad:.1f} min")
+                if minutos_antiguedad > 45:
+                    logger.info(f"[{nombre_tf}] Desplazamiento descartado por antigüedad: {minutos_antiguedad:.1f} min (Máx: 45min)")
                     continue
                 
                 resultado['hay_displacement'] = True
@@ -421,49 +421,82 @@ class Patron4HBot:
             fvg_principal = fvgs[0]
         
         disp_info = catalizador.get('displacement_info', {})
-        nivel_origen = disp_info.get('vela_low' if direction == 'LONG' else 'vela_high')
-        
-        if catalizador['hay_displacement'] and catalizador['hay_fvg']:
-            return self._generar_entrada_directa(fvg_principal, df_tf_sup, df_15m, direction, nivel_origen, catalizador['timeframe'])
-        elif catalizador['hay_fvg'] and catalizador['hay_mss']:
-            return self._generar_entrada_refinada(fvg_principal, df_15m, df_tf_sup, direction, nivel_origen, tendencia)
-        elif catalizador['hay_displacement'] and self.modo_flexible:
-            return self._generar_entrada_solo_displacement(df_tf_sup, df_15m, direction, disp_info, catalizador['timeframe'])
-        elif catalizador['hay_fvg'] and self.modo_flexible:
-            return self._generar_entrada_solo_fvg(fvg_principal, df_tf_sup, df_15m, direction, catalizador['timeframe'])
-        
-        logger.info(f"Rechazada generar_señal_15m: Sin combinación válida (disp={catalizador['hay_displacement']}, fvg={catalizador['hay_fvg']}, mss={catalizador['hay_mss']})")
-        return None
+    def _get_pip_multiplier(self, symbol: str) -> float:
+        """Determina el multiplicador de pips según el activo."""
+        symbol_up = symbol.upper()
+        if "XAU" in symbol_up or "GOLD" in symbol_up:
+            return 100.0  # Centavos para Oro
+        if any(pair in symbol_up for pair in ["JPY", "HUF"]):
+            return 100.0 # Pips para JPY
+        if any(crypto in symbol_up for crypto in ["BTC", "ETH", "SOL", "BNB"]):
+            return 1.0   # Puntos (Dólares)
+        return 10000.0 # Standard Forex Pips
 
-    def _generar_entrada_directa(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, nivel_origen: float, timeframe: str) -> Optional[dict]:
+    def _validate_and_adjust_signal(self, entry: float, sl: float, tp: float, direction: str, symbol: str, setup_name: str, timeframe: str, confidence: int) -> Optional[dict]:
+        """Calcula riesgo, RR y ajusta TP si es necesario. Retorna None si el RR es inviable."""
+        riesgo = abs(entry - sl)
+        if riesgo == 0:
+            return None
+        
+        # Validar / Ajustar TP basado en RR mínimo
+        distancia_tp = abs(tp - entry)
+        rr_actual = distancia_tp / riesgo
+        
+        if rr_actual < self.rr_ratio_min:
+            # Ajustar TP para cumplir con el RR mínimo
+            if direction == 'LONG' or direction == 'LARGO':
+                tp = entry + (riesgo * self.rr_ratio_min)
+            else:
+                tp = entry - (riesgo * self.rr_ratio_min)
+                
+            distancia_tp = abs(tp - entry)
+            rr_actual = self.rr_ratio_min
+            
+        # Filtro final de calidad: descartar si RR < 1.2
+        if rr_actual < 1.2:
+            logger.info(f"[{symbol}] Señal descartada: RR insuficiente ({rr_actual:.2f})")
+            return None
+            
+        multiplier = self._get_pip_multiplier(symbol)
+        
+        return {
+            'tipo_entrada': setup_name, 
+            'direccion': 'LARGO' if (direction == 'LONG' or direction == 'LARGO') else 'CORTO',
+            'entrada': round(entry, 5), 
+            'stop_loss': round(sl, 5), 
+            'take_profit': round(tp, 5),
+            'riesgo_pips': round(riesgo * multiplier, 1), 
+            'rr_ratio': round(rr_actual, 2),
+            'timeframe_entrada': '15M', 
+            'timeframe_confirmacion': timeframe, 
+            'confianza': confidence
+        }
+
+    def _generar_entrada_directa(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, nivel_origen: float, timeframe: str, symbol: str) -> Optional[dict]:
         if len(df_tf) < 5:
             return None
         idx_fvg = fvg['idx']
         if idx_fvg >= len(df_tf) - 1:
             return None
+        
+        # Niveles estructurales para TP lógicos (sensibilidad aumentada)
+        from Sentinel.analysis import technical
+        levels = technical.get_structural_levels(df_tf, lookback=50)
+        
         vela_confirmacion = df_tf.iloc[idx_fvg + 1]
         entrada = float(vela_confirmacion['close'])
         padding = self._get_atr_padding(df_15m, multiplier=0.5)
         
         if direction == 'SHORT':
             sl = (nivel_origen + padding) if (nivel_origen and nivel_origen > entrada) else float(df_tf['high'].iloc[idx_fvg:idx_fvg+3].max()) + padding
-            bajos_relevantes = df_tf['low'].iloc[max(0, idx_fvg-20):idx_fvg].values
-            tp = float(np.percentile(bajos_relevantes, 10)) if len(bajos_relevantes) > 0 else entrada * 0.99
+            tp_tecnico = levels['low_zone']
         else:
             sl = (nivel_origen - padding) if (nivel_origen and nivel_origen < entrada) else float(df_tf['low'].iloc[idx_fvg:idx_fvg+3].min()) - padding
-            altos_relevantes = df_tf['high'].iloc[max(0, idx_fvg-20):idx_fvg].values
-            tp = float(np.percentile(altos_relevantes, 90)) if len(altos_relevantes) > 0 else entrada * 1.01
+            tp_tecnico = levels['high_zone']
         
-        riesgo = abs(entrada - sl)
-        if riesgo == 0: return None
-        return {
-            'tipo_entrada': f'CASO_A_{timeframe}', 'direccion': 'LARGO' if direction == 'LONG' else 'CORTO',
-            'entrada': round(entrada, 5), 'stop_loss': round(sl, 5), 'take_profit': round(tp, 5),
-            'riesgo_pips': round(riesgo * 10000, 1), 'rr_ratio': round(abs(tp - entrada) / riesgo, 2),
-            'timeframe_entrada': '15M', 'timeframe_confirmacion': timeframe, 'confianza': 70
-        }
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'CASO_A_{timeframe}', timeframe, 70)
 
-    def _generar_entrada_refinada(self, fvg: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, direction: str, nivel_origen: float, tendencia: str) -> Optional[dict]:
+    def _generar_entrada_refinada(self, fvg: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, direction: str, nivel_origen: float, tendencia: str, symbol: str) -> Optional[dict]:
         if len(df_15m) < 10: return None
         zona_min = min(fvg['start'], fvg['end'])
         zona_max = max(fvg['start'], fvg['end'])
@@ -475,31 +508,25 @@ class Patron4HBot:
         fvg_15m = next((self.detectar_fvg(df_15m, i, direction) for i in range(max(1, len(df_15m) - 20), len(df_15m) - 1) if self.detectar_fvg(df_15m, i, direction)), None)
         if not fvg_15m or not hay_mss: return None
         
+        # Niveles estructurales para TP lógicos
+        from Sentinel.analysis import technical
+        levels = technical.get_structural_levels(df_tf_sup, lookback=20)
+        
         entrada = float(fvg_15m['mid'])
         padding = self._get_atr_padding(df_15m, multiplier=0.5)
         
         if direction == 'SHORT':
             idx_fvg = fvg.get('idx', len(df_tf_sup) - 5)
             sl = (nivel_origen + padding) if (nivel_origen and nivel_origen > entrada) else float(df_tf_sup['high'].iloc[max(0, idx_fvg-2):idx_fvg+3].max()) + padding
-            objetivos_bajos = df_tf_sup['low'].iloc[max(0, len(df_tf_sup)-20):].nsmallest(3).values
-            tp = float(min(objetivos_bajos)) if len(objetivos_bajos) > 0 else entrada * 0.99
+            tp_tecnico = levels['low_zone']
         else:
             idx_fvg = fvg.get('idx', len(df_tf_sup) - 5)
             sl = (nivel_origen - padding) if (nivel_origen and nivel_origen < entrada) else float(df_tf_sup['low'].iloc[max(0, idx_fvg-2):idx_fvg+3].min()) - padding
-            objetivos_altos = df_tf_sup['high'].iloc[max(0, len(df_tf_sup)-20):].nlargest(3).values
-            tp = float(max(objetivos_altos)) if len(objetivos_altos) > 0 else entrada * 1.01
+            tp_tecnico = levels['high_zone']
             
-        riesgo = abs(entrada - sl)
-        if riesgo == 0: return None
-        rr_real = abs(tp - entrada) / riesgo if riesgo > 0 else 0
-        return {
-            'tipo_entrada': 'CASO_B_15M', 'direccion': 'LARGO' if direction == 'LONG' else 'CORTO',
-            'entrada': round(entrada, 5), 'stop_loss': round(sl, 5), 'take_profit': round(tp, 5),
-            'riesgo_pips': round(riesgo * 10000, 1), 'rr_ratio': round(rr_real if rr_real >= 0.5 else 1.0, 2),
-            'timeframe_entrada': '15M', 'timeframe_confirmacion': '4H/D', 'confianza': 85
-        }
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, 'CASO_B_15M', '4H/D', 85)
 
-    def _generar_entrada_solo_displacement(self, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, disp_info: dict, timeframe: str) -> Optional[dict]:
+    def _generar_entrada_solo_displacement(self, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, disp_info: dict, timeframe: str, symbol: str) -> Optional[dict]:
         if len(df_tf) < 5: return None
         idx = min(max(0, disp_info.get('idx', -1)), len(df_tf) - 2)
         entrada = float(df_tf['close'].iloc[idx])
@@ -507,21 +534,14 @@ class Patron4HBot:
         
         if direction == 'SHORT':
             sl = entrada + padding
-            tp = entrada - (padding * self.rr_ratio_min)
+            tp_tecnico = entrada - (padding * self.rr_ratio_min)
         else:
             sl = entrada - padding
-            tp = entrada + (padding * self.rr_ratio_min)
+            tp_tecnico = entrada + (padding * self.rr_ratio_min)
             
-        riesgo = abs(entrada - sl)
-        if riesgo == 0: return None
-        return {
-            'tipo_entrada': f'SOLO_DISP_{timeframe}', 'direccion': 'LARGO' if direction == 'LONG' else 'CORTO',
-            'entrada': round(entrada, 5), 'stop_loss': round(sl, 5), 'take_profit': round(tp, 5),
-            'riesgo_pips': round(riesgo * 10000, 1), 'rr_ratio': round(abs(tp - entrada) / riesgo, 2),
-            'timeframe_entrada': '15M', 'timeframe_confirmacion': timeframe, 'confianza': 50
-        }
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_DISP_{timeframe}', timeframe, 50)
 
-    def _generar_entrada_solo_fvg(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, timeframe: str) -> Optional[dict]:
+    def _generar_entrada_solo_fvg(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, timeframe: str, symbol: str) -> Optional[dict]:
         if len(df_tf) < 5: return None
         idx = min(max(0, fvg.get('idx', -1)), len(df_tf) - 2)
         entrada = float(df_tf['close'].iloc[idx])
@@ -529,19 +549,36 @@ class Patron4HBot:
         
         if direction == 'SHORT':
             sl = entrada + padding
-            tp = entrada - (padding * self.rr_ratio_min)
+            tp_tecnico = entrada - (padding * self.rr_ratio_min)
         else:
             sl = entrada - padding
-            tp = entrada + (padding * self.rr_ratio_min)
+            tp_tecnico = entrada + (padding * self.rr_ratio_min)
             
-        riesgo = abs(entrada - sl)
-        if riesgo == 0: return None
-        return {
-            'tipo_entrada': f'SOLO_FVG_{timeframe}', 'direccion': 'LARGO' if direction == 'LONG' else 'CORTO',
-            'entrada': round(entrada, 5), 'stop_loss': round(sl, 5), 'take_profit': round(tp, 5),
-            'riesgo_pips': round(riesgo * 10000, 1), 'rr_ratio': round(abs(tp - entrada) / riesgo, 2),
-            'timeframe_entrada': '15M', 'timeframe_confirmacion': timeframe, 'confianza': 40
-        }
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_FVG_{timeframe}', timeframe, 40)
+
+    def generar_señal_15m(self, catalizador: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, contexto: dict, symbol: str) -> Optional[dict]:
+        tendencia = contexto['tendencia']
+        direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
+        fvgs = catalizador.get('fvgs', [])
+        fvg_principal = next((f for f in fvgs if (tendencia == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (tendencia == 'ALCISTA' and f['type'] == 'Bullish_FVG')), None)
+        
+        if not fvg_principal and self.modo_flexible and fvgs:
+            fvg_principal = fvgs[0]
+        
+        disp_info = catalizador.get('displacement_info', {})
+        nivel_origen = disp_info.get('vela_low' if direction == 'LONG' else 'vela_high')
+        
+        if catalizador['hay_displacement'] and catalizador['hay_fvg']:
+            return self._generar_entrada_directa(fvg_principal, df_tf_sup, df_15m, direction, nivel_origen, catalizador['timeframe'], symbol)
+        elif catalizador['hay_fvg'] and catalizador['hay_mss']:
+            return self._generar_entrada_refinada(fvg_principal, df_15m, df_tf_sup, direction, nivel_origen, tendencia, symbol)
+        elif catalizador['hay_displacement'] and self.modo_flexible:
+            return self._generar_entrada_solo_displacement(df_tf_sup, df_15m, direction, disp_info, catalizador['timeframe'], symbol)
+        elif catalizador['hay_fvg'] and self.modo_flexible:
+            return self._generar_entrada_solo_fvg(fvg_principal, df_tf_sup, df_15m, direction, catalizador['timeframe'], symbol)
+        
+        logger.info(f"Rechazada generar_señal_15m: Sin combinación válida (disp={catalizador['hay_displacement']}, fvg={catalizador['hay_fvg']}, mss={catalizador['hay_mss']})")
+        return None
 
     def analizar_top_down(self, datos: Dict[str, pd.DataFrame], symbolInfo: Dict) -> dict:
         df_15m = datos.get('15m')
@@ -575,18 +612,18 @@ class Patron4HBot:
             df_tf_sup = df_15m
             
         if catalizador_final and catalizador_final['hay_displacement']:
-            señal = self.generar_señal_15m(catalizador_final, df_15m, df_tf_sup, contexto)
+            señal = self.generar_señal_15m(catalizador_final, df_15m, df_tf_sup, contexto, symbolInfo['symbol'])
             if señal:
                 return {'status': 'SENAL_GENERADA', 'señal': señal}
             else:
-                logger.info(f"[{symbolInfo['symbol']}] Rechazada: Displacement detectado pero no se pudo generar entrada en 15M")
+                logger.info(f"[{symbolInfo['symbol']}] Rechazada: Displacement detectado pero no se pudo generar una señal con RR viable")
                 
         else:
             logger.info(f"[{symbolInfo['symbol']}] Rechazada: Sin displacement confirmado en ninguna temporalidad (4H/1H/15M)")
         
         return {'status': 'SIN_ENTRADA_VALIDA'}
 
-    async def _executeTrades(self, signal: Dict, symbolInfo: Dict):
+    async def _executeTrades(self, signal: Dict, symbolInfo: Dict, df_15m: pd.DataFrame = None):
         if not signal:
             return
 
@@ -625,22 +662,22 @@ class Patron4HBot:
                 "margin_used": marginUsed,
             }
             
-            if account['idCuenta'] != 1:
-                dbManager.buscaTrade(trade)
-                
-                # Normalización para el generador de alertas (middleware/utils/alertBuilder.py)
-                signal_norm = {
-                    **signal,
-                    "direction": signal.get("direccion", signal.get("direction")),
-                    "entryPrice": signal.get("entrada"),
-                    "confidence": signal.get("confianza", 70),
-                    "setup": signal.get("tipo_entrada", "N/A")
-                }
-                
-                message = buildPatron4HAlertMessage(signal_norm, trade)
-                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
-                if msgId:
-                    self.lastMessageIds[symbolInfo['symbol']] = msgId
+            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
+            from middleware.execution.broker_gateway import gateway
+            
+            # Normalización para el generador de alertas
+            signal_norm = {
+                **signal,
+                "direction": signal.get("direccion"),
+                "entryPrice": signal.get("entrada"),
+                "confidence": signal.get("confianza", 70),
+                "setup": signal.get("tipo_entrada", "N/A"),
+                "candle_time": df_15m.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            success, msgId = await gateway.execute_trade(trade, signal_norm, account, "Patron4h", df=df_15m)
+            if success and msgId:
+                self.lastMessageIds[symbolInfo['symbol']] = msgId
         
         self.signalsGeneradas[symbolInfo['symbol']] = True
 
@@ -678,7 +715,7 @@ class Patron4HBot:
                 "strategy": "Patron4h",
                 "direction": señal['direccion']
             }
-            await self._executeTrades(signal_telegram, symbolInfo)
+            await self._executeTrades(signal_telegram, symbolInfo, df_15m)
 
         logger.info(f"◀ SALIENDO análisis para {symbol}")
 

@@ -33,10 +33,13 @@ def calculateAtr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     
     return atr
 
-def defineMlTarget(df: pd.DataFrame) -> pd.DataFrame:
+def defineMlTarget(df: pd.DataFrame | None) -> pd.DataFrame | None:
     """
     Defines the target variable for the machine learning model based on future price movement.
     """
+    if df is None or df.empty:
+        return None
+        
     dfTarget = df.copy()
     
     # Calculate ATR if not present

@@ -10,7 +10,7 @@ import pytz
 from middleware.database import dbManager
 from Sentinel.analysis import risk
 from middleware.utils.communications import sendTelegramAlert
-from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage
+from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -166,13 +166,13 @@ class BaseImbalanceBot:
         logger.info(f"[{self.strategy_name}] Precio actual: {precioActual}, Max: {precioMaximo}, Min: {precioMinimo}")
         
         if self.signalGenerada:
-            logger.info(f"[{self.strategy_name}] Señales ya generadas anteriormente")
+            logger.debug(f"[{self.strategy_name}] Señales ya generadas anteriormente")
             return []
         
         if self.velaCorte is None:
             velaCorte = self.findVelaCorte(datos5min, precioMaximo, precioMinimo)
             if velaCorte is None:
-                logger.info(f"[{self.strategy_name}] No hay vela de corte todavía")
+                logger.debug(f"[{self.strategy_name}] No hay vela de corte todavía")
                 return []
             
             self.velaCorte = velaCorte
@@ -232,42 +232,61 @@ class BaseImbalanceBot:
             # El padding de ATR otorga respiro para evitar cazar stops
             padding_pips = atr * slMultiplier
             
+            # Niveles estructurales para SL y TP lógicos (sensibilidad aumentada)
+            from Sentinel.analysis import technical
+            levels = technical.get_structural_levels(datos5min, lookback=30)
+            
             if direction == 'SHORT':
                 setupType = "LIQUIDATION_SELL"
-                # Stop loss arriba de la formación del FVG + padding
-                zona_high = datos5min['high'].iloc[fvg['idx']:fvg['idx']+2].max() if (fvg['idx']+2 < len(datos5min)) else datos5min['high'].iloc[fvg['idx']]
-                stopLoss = zona_high + padding_pips
+                # Stop loss arriba de la formación del FVG o el máximo reciente
+                # Usamos el máximo entre la zona del FVG y el swing high reciente
+                zona_high_fvg = datos5min['high'].iloc[fvg['idx']:fvg['idx']+2].max() if (fvg['idx']+2 < len(datos5min)) else datos5min['high'].iloc[fvg['idx']]
+                stop_ref = max(zona_high_fvg, levels['swing_high'])
+                stopLoss = stop_ref + padding_pips
                 
                 distanciaSl = entryPrice - stopLoss
-                takeProfit = entryPrice - abs(distanciaSl) * tpMultiplier
+                tp_structural = levels['low_zone']
+                
+                # Priorizar TP estructural si cumple RR
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "SHORT", minRR=1.5)
+                takeProfit = tp_final
                 signalDirection = "CORTO"
             else:
                 setupType = "LIQUIDATION_BUY"
-                # Stop loss debajo de la formación del FVG - padding
-                zona_low = datos5min['low'].iloc[fvg['idx']:fvg['idx']+2].min() if (fvg['idx']+2 < len(datos5min)) else datos5min['low'].iloc[fvg['idx']]
-                stopLoss = zona_low - padding_pips
+                # Stop loss debajo de la formación del FVG o el mínimo reciente
+                zona_low_fvg = datos5min['low'].iloc[fvg['idx']:fvg['idx']+2].min() if (fvg['idx']+2 < len(datos5min)) else datos5min['low'].iloc[fvg['idx']]
+                stop_ref = min(zona_low_fvg, levels['swing_low'])
+                stopLoss = stop_ref - padding_pips
                 
                 distanciaSl = stopLoss - entryPrice
-                takeProfit = entryPrice + abs(distanciaSl) * tpMultiplier
+                tp_structural = levels['high_zone']
+                
+                # Priorizar TP estructural if cumple RR
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LONG", minRR=1.5)
+                takeProfit = tp_final
                 signalDirection = "LARGO"
                 
+            rr_actual = calculateRR(entryPrice, stopLoss, takeProfit)
+            multiplier = getPipMultiplier(symbol)
+            
             signals.append({
-                "strategy": self.strategy_name,
+                "symbol": symbol,
                 "direction": signalDirection,
-                "confidence": 75,
                 "entryPrice": entryPrice,
-                "slDistance": abs(entryPrice - stopLoss),
                 "stopLoss": stopLoss,
                 "takeProfit": takeProfit,
+                "riesgo_pips": round(abs(entryPrice - stopLoss) * multiplier, 1),
+                "rr_ratio": round(rr_actual, 2),
                 "setup": setupType,
-                "precioMaximo": precioMaximo,
-                "precioMinimo": precioMinimo,
+                "strategy": self.strategy_name,
                 "fvg": fvg['type'],
                 "fvgNum": idx + 1,
                 "fvgTime": fvgTimeStr,
                 "dentroRango": fvg.get('dentroRango', True),
                 "velaCorteType": direction,
-                "symbolInfo": symbolInfo
+                "symbolInfo": symbolInfo,
+                "confidence": 75,
+                "candle_time": datos5min.index[-1].strftime("%Y-%m-%d %H:%M:%S")
             })
         
         self.signalGenerada = True
@@ -327,18 +346,12 @@ class BaseImbalanceBot:
                 "margin_used": marginUsed,
             }
             
-            if account['idCuenta'] != 1:
-                dbManager.buscaTrade(trade)
-                
-                # Dynamic alert building based on strategy name
-                if self.strategy_name == 'ImbalanceLDN':
-                    message = buildImbalanceLDNAlertMessage(signal, trade)
-                else:
-                    message = buildImbalanceNYAlertMessage(signal, trade)
-                
-                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
-                if msgId:
-                    self.lastMessageIds[symbolInfo['symbol']] = msgId
+            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
+            from middleware.execution.broker_gateway import gateway
+            success, msgId = await gateway.execute_trade(trade, signal, account, self.strategy_name, df=datos5min)
+            
+            if success and msgId:
+                self.lastMessageIds[symbolInfo['symbol']] = msgId
                     
                 logger.info(f"✅ Alerta {self.strategy_name} enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']} | Size: {posSize}")
         

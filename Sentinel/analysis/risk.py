@@ -33,12 +33,12 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
 
         riskInCurrency = capital * (riskPercentage / 100)
         
+        symbolType = symbolInfo.get('tipo', 'FOREX').upper()
+        symbolName = symbolInfo.get('symbol', '').upper()
+
         if riskInCurrency > capital:
             logger.warning(f"[{symbolName}] Riesgo {riskInCurrency:.2f} > capital {capital:.2f} - ajustar ganancia en BD")
             return None, None, 0
-        
-        symbolType = symbolInfo.get('tipo', 'FOREX').upper()
-        symbolName = symbolInfo.get('symbol', '').upper()
         
         symbolMargin = symbolInfo.get('margen')
         symbolMinLots = symbolInfo.get('min_lots')
@@ -218,8 +218,12 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         size = tradeData['size']
         exitPrice = closureData['exitPrice']
         
-        # Simplified commission logic for now
-        commission = tradeData.get('commission', 0) 
+        # Simplified commission logic for now - handle None cases
+        commission = tradeData.get('commission')
+        if commission is None:
+            commission = 0.0
+        else:
+            commission = float(commission)
 
         if side == "BUY":
             grossPnl = (exitPrice - entryPrice) * size
@@ -232,3 +236,41 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
     except Exception as e:
         logger.error(f"Error al calcular PNL: {e}", exc_info=True)
         return 0.0
+
+def is_daily_drawdown_limit_reached(accountId: int, maxDrawdownPercent: float = 2.0) -> bool:
+    """
+    Verifica si se ha alcanzado el límite de pérdida diaria (Drawdown).
+    Compara la pérdida acumulada de trades cerrados hoy contra el capital actual.
+    """
+    try:
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        
+        # Obtener trades cerrados hoy desde DB
+        trades_hoy = dbManager.getTradesClosedToday(accountId, today)
+        if not trades_hoy:
+            return False
+            
+        total_pnl = sum(float(t.get('pnl', 0)) for t in trades_hoy)
+        
+        # Si el PnL neto es positivo o cero, no hay drawdown que bloquee
+        if total_pnl >= 0:
+            return False
+            
+        # Obtener capital para calcular el % de pérdida
+        account = dbManager.getAccountById(accountId)
+        if not account:
+            return False
+            
+        capital = float(account['Capital'])
+        pérdida_abs = abs(total_pnl)
+        pérdida_percent = (pérdida_abs / capital) * 100
+        
+        if pérdida_percent >= maxDrawdownPercent:
+            logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({pérdida_percent:.2f}%).")
+            return True
+            
+        return False
+    except Exception as e:
+        logger.error(f"Error al verificar drawdown diario: {e}")
+        return False

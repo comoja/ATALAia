@@ -18,7 +18,7 @@ from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
-from middleware.utils.alertBuilder import buildSniperAlertMessage
+from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
@@ -60,10 +60,16 @@ class SniperBot:
         
         # 2. Calculate features
         dfFeatured = technical.calculateFeatures(df)
+        if dfFeatured is None:
+            logger.error(f"[{symbol}] Error crítico: calculateFeatures devolvió None")
+            return None
         
         # 3. Define ML target (needed for data cleaning consistency)
         dfFinal = mlModel.defineMlTarget(dfFeatured)
-        
+        if dfFinal is None:
+            logger.error(f"[{symbol}] Error crítico: defineMlTarget devolvió None")
+            return None
+            
         return dfFinal
 
     async def _get_signal(self, df: pd.DataFrame, symbol: str) -> Dict[str, Any] | None:
@@ -127,11 +133,14 @@ class SniperBot:
         rsiImprovingShort = rsi < prevRsi
         
         # Alerta de sobrecompra/sobreventa (informativa)
+        """
         if rsi >= 68:
             await alertaInmediata(1, f"🟩🟩🟩 <b>SOBRECOMPRA</b> 🟩🟩🟩\n━━━━━━━━━━━━━━━━\n<center>{symbol}</center>\n<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n━━━━━━━━━━━━━━━━\n")
+            await asyncio.sleep(2)
         elif rsi <= 32:
             await alertaInmediata(1, f"🟥🟥🟥 <b>SOBREVENTA</b> 🟥🟥🟥\n━━━━━━━━━━━━━━━━\n<center>{symbol}</center>\n<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n━━━━━━━━━━━━━━━━\n")
-        
+            await asyncio.sleep(2)
+        """
         # Divergencia MACD (últimas 5 velas)
         prices = df["close"].iloc[-5:].values
         hists = df["macdHist"].iloc[-5:].values
@@ -147,10 +156,9 @@ class SniperBot:
         lastAngle = dfWithAngles.iloc[-1]
         momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
         
-        momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]
         momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
         momentumBearish = momentumEstado in ["📉 BAJISTA"]
-        
+        momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN"]
         if momentumVeto:
             logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado crítico ({momentumEstado}). Señal vetada.")
             return None
@@ -237,7 +245,7 @@ class SniperBot:
         except:
             adx_val = 25
         
-        mercado_erratico = adx_val < 25
+        mercado_erratico = adx_val < 20
         min_confirmaciones = 3 if mercado_erratico else 2
         logger.info(f"[{symbol}] ADX={adx_val:.1f} ({'ERRÁTICO' if mercado_erratico else 'TENDENCIA'}) → mín_conf={min_confirmaciones}")
         logger.info(f"[{symbol}] Confirmaciones: {confirmaciones}/5 ({', '.join(detalles)})")
@@ -295,6 +303,11 @@ class SniperBot:
             logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}% < {config.MIN_CONFIDENCE_THRESHOLD}%).")
             return None
 
+        # --- NEW: Veto Parábola condicional (Solo si la confianza no es extrema) ---
+        if momentumEstado == "🌋 PARÁBOLA" and confianza < 80:
+            logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado PARÁBOLA con confianza insuficiente ({confianza:.1f} < 80).")
+            return None
+
         # --- Contratendencia ---
         if confianza < config.CONTRARIAN_CONFIDENCE_THRESHOLD:
             isAgainstTrend = (direction == "LARGO" and close < ema50) or (direction == "CORTO" and close > ema50)
@@ -302,11 +315,27 @@ class SniperBot:
                 logger.info(f"[{symbol}] Filtrado: Contratendencia con confianza baja ({confianza:.1f}%).")
                 return None
 
+        # Niveles estructurales para SL y TP lógicos (sensibilidad aumentada)
+        from Sentinel.analysis import technical
+        levels = technical.get_structural_levels(latestFullData, lookback=40)
+        atr_val = latest["atr"]
+        atr_padding = atr_val * 0.2
+        
+        if direction == "LARGO":
+            sl_price = levels['swing_low'] - atr_padding
+            sl_dist = max(atr_val * 1.2, min(close - sl_price, atr_val * 3.0))
+            tp_structural = levels['high_zone']
+        else:
+            sl_price = levels['swing_high'] + atr_padding
+            sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
+            tp_structural = levels['low_zone']
+
         return {
             "direction": direction,
             "confidence": confianza,
             "entryPrice": close,
-            "slDistance": latest["atr"] * (config.ATR_MULTIPLIER_HIGH_CONFIDENCE if proba >= 0.65 or proba <= 0.35 else config.ATR_MULTIPLIER_DEFAULT),
+            "slDistance": sl_dist,
+            "tpStructural": tp_structural,
             "latestMetrics": latestFullData.to_dict(),
             "symbolInfo": symbol,
             "confirmaciones": confirmaciones,
@@ -338,7 +367,19 @@ class SniperBot:
             # Dynamic RR
             ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
             
-            tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
+            # TP estructural prioritario, con fallback basado en ratioBase
+            tp_initial = signal.get('tpStructural')
+            if not tp_initial:
+                tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
+                
+            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
+            
+            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
+            multiplier = getPipMultiplier(symbolInfo['symbol'])
+            
+            # Enriquecer señal con métricas para el constructor de alertas
+            signal['riesgo_pips'] = round(slDist * multiplier, 1)
+            signal['rr_ratio'] = round(rr_actual, 2)
             
             if posSize is None:
                 posSize = 0
@@ -361,25 +402,19 @@ class SniperBot:
                 "margin_used": marginUsed,
             }
             
-            # --- Persist and Alert ---
-            if account['idCuenta'] != 1: # Original logic to exclude account 1
-                dbManager.buscaTrade(trade)
-                
-                # Format and send alert
-                message = buildSniperAlertMessage(signal, trade)
-                
-                # Delete previous message if 1h interval
-                intervalo = symbolInfo.get('intervalo', '')
-                symbol = symbolInfo['symbol']
-                
-                if intervalo == '1h' and symbol in self.lastMessageIds:
-                    prevMsgId = self.lastMessageIds[symbol]
-                    await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
-                
-                # Send new message and save message_id
-                msgId = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
-                if msgId:
-                    self.lastMessageIds[symbol] = msgId
+            # --- Execution and Alert via Gateway ---
+            from middleware.execution.broker_gateway import gateway
+            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=latestFullData)
+            
+            # Delete previous message if interval is 1h and we have a new msgId
+            intervalo = symbolInfo.get('intervalo', '')
+            symbol = symbolInfo['symbol']
+            if success and msgId and intervalo == '1h' and symbol in self.lastMessageIds:
+                prevMsgId = self.lastMessageIds[symbol]
+                await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
+                self.lastMessageIds[symbol] = msgId
+            elif success and msgId:
+                self.lastMessageIds[symbol] = msgId
                     
                 logger.info(f"✅ Alerta enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
     
@@ -441,6 +476,7 @@ class SniperBot:
 
         signal = await self._get_signal(data, symbol)
         if signal:
+            signal['candle_time'] = data.index[-1].strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"[{symbol}] Señal: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
             await self._execute_trades(signal, symbolInfo)
         else:

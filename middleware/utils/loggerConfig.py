@@ -2,6 +2,50 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import os
 
+class ColorFormatter(logging.Formatter):
+    """
+    Formateador de logs que añade colores ANSI según el nivel del log.
+    Útil para visualización en consola.
+    """
+    # Definición de colores
+    GREY = "\x1b[38;20m"
+    CYAN = "\x1b[36m"
+    BLUE = "\x1b[34m"
+    YELLOW = "\x1b[33m"
+    RED = "\x1b[31m"
+    BOLD_RED = "\x1b[31;1m"
+    RESET = "\x1b[0m"
+
+    # Formato base
+    log_format = '%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s'
+
+    FORMATS = {
+        logging.DEBUG: CYAN + log_format + RESET,
+        logging.INFO: GREY + log_format + RESET,
+        logging.WARNING: YELLOW + log_format + RESET,
+        logging.ERROR: RED + log_format + RESET,
+        logging.CRITICAL: BOLD_RED + log_format + RESET
+    }
+
+    def format(self, record):
+        # Intentar obtener color personalizado desde el parámetro 'extra={"color": ...}'
+        custom_color = getattr(record, 'color', None)
+        
+        if custom_color:
+            # Soporte para nombres de colores en minúsculas
+            color_map = {
+                "grey": self.GREY, "cyan": self.CYAN, "blue": self.BLUE,
+                "yellow": self.YELLOW, "red": self.RED, "bold_red": self.BOLD_RED
+            }
+            color_code = color_map.get(custom_color.lower(), custom_color)
+            log_fmt = color_code + self.log_format + self.RESET
+        else:
+            # Fallback al color predefinido para el nivel (Info, Warning, Error...)
+            log_fmt = self.FORMATS.get(record.levelno, self.log_format)
+
+        formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+        return formatter.format(record)
+
 def setupLogging(logPara: str = "app", projectDir: str = None):
     if projectDir is None:
         projectDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -11,19 +55,17 @@ def setupLogging(logPara: str = "app", projectDir: str = None):
 
     logFilename = os.path.join(logDir, f"{logPara}.log")
     
-    # Manejador para archivo diario
+    # Manejador para archivo diario (Sin colores para evitar caracteres extraños en archivos)
     fileHandler = TimedRotatingFileHandler(
         logFilename, when="midnight", interval=1, backupCount=30, encoding='utf-8'
     )
     fileHandler.suffix = "%Y-%m-%d"
+    fileFormatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fileHandler.setFormatter(fileFormatter)
     
-    # Manejador para consola
+    # Manejador para consola (Con colores)
     consoleHandler = logging.StreamHandler()
-
-    # Formato común
-    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s | %(funcName)s | %(filename)s:%(lineno)d | %(message)s')
-    fileHandler.setFormatter(formatter)
-    consoleHandler.setFormatter(formatter)
+    consoleHandler.setFormatter(ColorFormatter())
 
     # Configuración raíz
     rootLogger = logging.getLogger()
@@ -32,5 +74,8 @@ def setupLogging(logPara: str = "app", projectDir: str = None):
         rootLogger.addHandler(fileHandler)
         rootLogger.addHandler(consoleHandler)
 
-    # Silenciar logs de httpx (solo mostrar advertencias y errores)
+    # Silenciar logs de terceros
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
+
