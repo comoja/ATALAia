@@ -24,6 +24,7 @@ from Sentinel.core.ImbalanceNY import ImbalanceNYBot
 from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
 from Sentinel.core.EMA20200 import EMA20200Bot
 from Sentinel.core.Patron4h import Patron4HBot
+from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures
 from middleware.utils.momentum import momentum as momentumAnalyzer
@@ -170,7 +171,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     return preloaded_data
 
 
-async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas):
+async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas):
     """
     Ejecuta el análisis de forma secuencial:
     1. Obtener API key para este símbolo (rota entre cuentas)
@@ -179,7 +180,9 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
     4. Ejecutar SMA20-200
     5. Ejecutar ImbalanceNY
     6. Ejecutar EMA20_200
-    7. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
+    7. Ejecutar Patron4H
+    8. Ejecutar SesgoBiasHTF
+    9. Esperar 9 segundos mínimos entre descargas (para no exceder 8 llamadas/min)
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
     
@@ -189,7 +192,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         
         # Obtener API key para este símbolo (rota entre cuentas)
         symbolApiKey, _, nombreKey, _, _ = getParametros()
-        logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...")
+        logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...", extra={"color": "orange"})
         
         # Guardar nombreKey en symbolInfo para usar en logs de descarga
         symbolInfo['cuenta'] = nombreKey
@@ -222,7 +225,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             continue
         
         # Calcular momentum para este símbolo
-        logger.info(f"Calculando momentum para {symbol}...")
+        logger.info(f"Calculando momentum para {symbol}...", extra={"color": "dark_orange"})
         try:
             estadosMomentum = await momentumAnalyzer(symbol, df)
             symbolInfo['momentum'] = estadosMomentum
@@ -277,10 +280,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         
         if ahoraMX <= finAperturaNY:
             logger.info(f"[IMBNY] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
-        #elif horasDesdeFinApertura > 2:
-        #   logger.info(f"[SCLPNG] Han pasado más de 2 horas ({horasDesdeFinApertura:.1f}h) desde fin apertura NY, saltando...")
-        #elif sclpng_bot.signalGenerada:
-        #    logger.info(f"[SCLPNG] Señales ya generadas de apertura y fin de apertura, saltando...")
+        
         else:
             logger.info(f"[IMBNY] Ejecutando para {symbol}...")
             
@@ -295,7 +295,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 precioMaximo = dfApertura['high'].max()
                 precioMinimo = dfApertura['low'].min()
                 
-                logger.info(f"[IMBNY]  Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}")
+                logger.info(f"[IMBNY]  Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}", extra={"color": "green"})
                 
                 from middleware.utils.communications import alertaInmediata
                 textNivel = (
@@ -354,7 +354,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 precioMaximoLDN = dfAperturaLDN['high'].max()
                 precioMinimoLDN = dfAperturaLDN['low'].min()
                 
-                logger.info(f"[IMBLDN] Nivel sesión LDN: Max={precioMaximoLDN}, Min={precioMinimoLDN}")
+                logger.info(f"[IMBLDN] Nivel sesión LDN: Max={precioMaximoLDN}, Min={precioMinimoLDN}", extra={"color": "green"})
                 
                 textNivelLDN = (
                     f"<b>APERTURA LNDN 🇬🇧 {symbol}</b>\n"
@@ -398,7 +398,14 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         symbolInfo['intervalo'] = "15min"
         await patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataP4H, symbolApiKey)
         
-        # 7. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
+        # 8. Ejecutar SesgoBiasHTF (usa 1h resampleado a 4h, D, W, M)
+        logger.info(f"[SesgoBiasHTF] Ejecutando para {symbol}...")
+        
+        preloadedDataSesgo = {'4h': df1h}
+        symbolInfo['intervalo'] = "1h"
+        await sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSesgo, symbolApiKey)
+        
+        # 9. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         
@@ -419,8 +426,7 @@ async def main():
     logger.info("===================================================")
     logger.info("====== Inicializando Bot de Trading Sentinel ======")
     logger.info("===================================================")
-    await alertaInmediata(4, "Bot de Trading Sentinel Iniciado")
-
+    
     # --- Model Loading/Training ---
     # Attempt to load the pre-trained model
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
@@ -461,6 +467,7 @@ async def main():
     imbalance_ldn_bot = ImbalanceLDNBot()
     ema20200_bot = EMA20200Bot()
     patron4_h_bot = Patron4HBot()
+    sesgo_bias_htf_bot = SesgoBiasHTFBot()
     
     lastAlertDate = None
     alertasNyEnviadas = set()
@@ -512,7 +519,7 @@ async def main():
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
                 #await run_sequential_analysis(bot, sma_bot, sclpng_bot, symbolsToScan, apiKey, intervaloActual, nVelas)
-                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas)
+                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas)
                 # Calcular espera para el PRÓXIMO ciclo
                 # Usamos el intervalo del ciclo actual: si fue 1h, el próximo será 15min (y viceversa)
                 proximoIntervalo = INTERVAL if intervaloActual == INTERVALmax else INTERVAL

@@ -1,17 +1,25 @@
 from datetime import datetime
+from middleware.database import dbManager
 
 def getPipMultiplier(symbol: str) -> float:
-    """Standardized pip multiplier for different assets."""
+    """Obtiene el pip multiplier desde la BD (SentinelSymbol.pip) o usa fallback."""
+    try:
+        symbolData = dbManager.getSymbol(symbol)
+        if symbolData and 'pip' in symbolData and symbolData['pip'] is not None:
+            return float(symbolData['pip'])
+    except Exception:
+        pass
+    
     symbol_up = symbol.upper()
     if "XAU" in symbol_up or "GOLD" in symbol_up:
-        return 100.0 # Centavos (2 decimales)
+        return 1.0
     if any(pair in symbol_up for pair in ["JPY", "HUF"]):
-        return 100.0 # Pips (2 decimales)
+        return 100.0
     if any(crypto in symbol_up for crypto in ["BTC", "ETH", "SOL", "BNB"]):
-        return 1.0   # Puntos (Dólares completos)
+        return 1.0
     if "MXN" in symbol_up:
-        return 10000.0 # Forex standard
-    return 10000.0 # Fallback Forex
+        return 10000.0
+    return 10000.0
 
 def calculateRR(entry: float, sl: float, tp: float) -> float:
     """Calculates Risk:Reward ratio."""
@@ -216,5 +224,28 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
         signal=signal,
         trade=trade,
         strategyName="ML SNIPER",
+        extraFields=extraFields
+    )
+
+
+def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
+    biases = signal.get('biases', {})
+    zone = signal.get('zone', {})
+    
+    bias_str = f"H4: {biases.get('H4', 'N/A')} | D: {biases.get('D', 'N/A')} | W: {biases.get('W', 'N/A')} | M: {biases.get('M', 'N/A')}"
+    
+    extraFields = {
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Bias HTF': bias_str,
+        'Zona': f"{zone.get('type', 'N/A')} ({zone.get('fib_50', 0):.5f})",
+        'TF Confirmación': signal.get('timeframe_confirmacion', 'D'),
+        'TF Entrada': signal.get('timeframe_entrada', 'H4')
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="SESGO BIAS HTF",
         extraFields=extraFields
     )

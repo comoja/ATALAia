@@ -377,6 +377,18 @@ class SniperBot:
             rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
             multiplier = getPipMultiplier(symbolInfo['symbol'])
             
+            min_distance_pips = 10.0
+            min_distance_absolute = min_distance_pips / multiplier
+            
+            if slDist < min_distance_absolute:
+                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+                return
+            
+            tpDist = abs(tpPrice - entryPrice)
+            if tpDist < min_distance_absolute:
+                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+                return
+            
             # Enriquecer señal con métricas para el constructor de alertas
             signal['riesgo_pips'] = round(slDist * multiplier, 1)
             signal['rr_ratio'] = round(rr_actual, 2)

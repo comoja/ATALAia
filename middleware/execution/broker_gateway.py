@@ -9,7 +9,8 @@ from middleware.utils.alertBuilder import (
     buildSMAAlertMessage, 
     buildImbalanceNYAlertMessage, 
     buildImbalanceLDNAlertMessage, 
-    buildPatron4HAlertMessage
+    buildPatron4HAlertMessage,
+    buildSesgoBiasHTFAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
 
@@ -159,6 +160,8 @@ class BrokerGateway:
             return buildImbalanceLDNAlertMessage(signal, trade_data)
         elif strategy_name == "Patron4h":
             return buildPatron4HAlertMessage(signal, trade_data)
+        elif strategy_name == "SesgoBiasHTF":
+            return buildSesgoBiasHTFAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

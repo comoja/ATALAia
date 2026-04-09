@@ -18,7 +18,7 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
     Note:
         - METALS: returns units (min 1)
         - FOREX: returns thousands of units (min 1000)
-        - INDICES/CRYPTO: returns units (min 1)
+        - INDICE/CRYPTO: returns units (min 1)
     """
     try:
         import math
@@ -43,12 +43,12 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         symbolMargin = symbolInfo.get('margen')
         symbolMinLots = symbolInfo.get('min_lots')
         
-        margin_multiplier = float(symbolMargin) if symbolMargin else 0.0333
+        margin_multiplier = float(symbolMargin) if symbolMargin else 0.025
         
         min_units = {
             "METALES": 1,
-            "INDICES": 1,
-            "CRIPTO": 0.01,
+            "INDICE": 1,
+            "CRYPTO": 0.01,
             "MONEDA": 1000
         }
         
@@ -56,22 +56,22 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             min_lots_val = int(symbolMinLots)
             min_units = {
                 "METALES": min_lots_val,
-                "INDICES": min_lots_val,
-                "CRIPTO": min_lots_val,
+                "INDICE": min_lots_val,
+                "CRYPTO": min_lots_val,
                 "MONEDA": min_lots_val
             }
         
         min_margin_required = {
             "METALES": min_units["METALES"] * margin_multiplier,
-            "INDICES": min_units["INDICES"] * margin_multiplier,
-            "CRIPTO": min_units["CRIPTO"] * margin_multiplier,
+            "INDICE": min_units["INDICE"] * margin_multiplier,
+            "CRYPTO": min_units["CRYPTO"] * margin_multiplier,
             "MONEDA": min_units["MONEDA"] * margin_multiplier / 100
         }
         
         min_margin = min_margin_required.get(symbolType, margin_multiplier)
         
         if min_margin > capital:
-            logger.warning(f"[{symbolName}] Capital insuficiente para margen mínimo: {min_margin:.2f} > {capital}")
+            logger.debug(f"[{symbolName}] Capital insuficiente para margen mínimo: {min_margin:.2f} > {capital}")
             return None, None, 0
         
         def adjustForMargin(size, margin_mult, capital_available, risk_curr):
@@ -109,8 +109,8 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             margin_used = margin_multiplier * min_units["METALES"] * entryPrice * units
             return units, riskInCurrency, margin_used
 
-        # --- INDICES (e.g., US30, SP500) ---
-        elif symbolType == "INDICES":
+        # --- INDICE (e.g., US30, SP500) ---
+        elif symbolType == "INDICE":
             contracts = riskInCurrency / slDistance
             contracts = max(1.0, round(contracts, 1))
             
@@ -118,11 +118,11 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             if contracts is None:
                 return None, None, 0
             
-            margin_used = margin_multiplier * min_units["INDICES"] * entryPrice * contracts
+            margin_used = margin_multiplier * min_units["INDICE"] * entryPrice * contracts
             return contracts, riskInCurrency, margin_used
 
         # --- CRYPTO (e.g., BTC/USD) ---
-        elif symbolType == "CRIPTO":
+        elif symbolType == "CRYPTO":
             units = riskInCurrency / slDistance
             units = max(0.01, round(units, 4))
             
@@ -130,7 +130,7 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             if units is None:
                 return None, None, 0
             
-            margin_used = margin_multiplier * min_units["CRIPTO"] * entryPrice * units
+            margin_used = margin_multiplier * min_units["CRYPTO"] * entryPrice * units
             return units, riskInCurrency, margin_used
 
         # --- FOREX (e.g., EUR/USD) ---

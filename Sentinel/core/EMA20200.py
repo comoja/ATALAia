@@ -194,6 +194,18 @@ class EMA20200Bot:
             rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
             multiplier = getPipMultiplier(symbol)
             
+            min_distance_pips = 10.0
+            min_distance_absolute = min_distance_pips / multiplier
+            
+            if slDist < min_distance_absolute:
+                logger.info(f"[EMA20200] {symbol} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+                return
+            
+            tpDist = abs(tpPrice - entryPrice)
+            if tpDist < min_distance_absolute:
+                logger.info(f"[EMA20200] {symbol} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+                return
+            
             # Enriquecer señal con métricas para el mensaje
             signal['riesgo_pips'] = round(slDist * multiplier, 1)
             signal['rr_ratio'] = round(rr_actual, 2)

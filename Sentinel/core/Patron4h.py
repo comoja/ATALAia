@@ -337,7 +337,7 @@ class Patron4HBot:
                 minutos_antiguedad = (ahora - vela_time).total_seconds() / 60
                 
                 if minutos_antiguedad > 45:
-                    logger.info(f"[{nombre_tf}] Desplazamiento descartado por antigüedad: {minutos_antiguedad:.1f} min (Máx: 45min)")
+                    logger.debug(f"[{nombre_tf}] Desplazamiento descartado por antigüedad: {minutos_antiguedad:.1f} min (Máx: 45min)")
                     continue
                 
                 resultado['hay_displacement'] = True
@@ -425,25 +425,48 @@ class Patron4HBot:
         """Determina el multiplicador de pips según el activo."""
         symbol_up = symbol.upper()
         if "XAU" in symbol_up or "GOLD" in symbol_up:
-            return 100.0  # Centavos para Oro
+            return 1.0
         if any(pair in symbol_up for pair in ["JPY", "HUF"]):
             return 100.0 # Pips para JPY
         if any(crypto in symbol_up for crypto in ["BTC", "ETH", "SOL", "BNB"]):
             return 1.0   # Puntos (Dólares)
         return 10000.0 # Standard Forex Pips
 
-    def _validate_and_adjust_signal(self, entry: float, sl: float, tp: float, direction: str, symbol: str, setup_name: str, timeframe: str, confidence: int) -> Optional[dict]:
-        """Calcula riesgo, RR y ajusta TP si es necesario. Retorna None si el RR es inviable."""
+    def _validate_and_adjust_signal(self, entry: float, sl: float, tp: float, direction: str, symbol: str, setup_name: str, timeframe: str, confidence: int, df_tf: pd.DataFrame = None) -> Optional[dict]:
+        """Calcula riesgo, RR y ajusta TP si es necesario. Retorna None si el RR es inviable o las distancias son muy pequeñas."""
         riesgo = abs(entry - sl)
         if riesgo == 0:
             return None
         
-        # Validar / Ajustar TP basado en RR mínimo
+        multiplier = self._get_pip_multiplier(symbol)
+        
+        min_distance_pips = 10.0
+        min_distance_absolute = min_distance_pips / multiplier
+        
+        if riesgo < min_distance_absolute:
+            logger.info(f"[{symbol}] Señal descartada: distancia SL muy pequeña ({riesgo * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return None
+        
+        distancia_tp = abs(tp - entry)
+        if distancia_tp < min_distance_absolute:
+            logger.info(f"[{symbol}] Señal descartada: distancia TP muy pequeña ({distancia_tp * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return None
+        
+        if df_tf is not None and len(df_tf) >= 14:
+            atr = ta.ATR(df_tf['high'], df_tf['low'], df_tf['close'], 14).iloc[-1]
+            if not pd.isna(atr) and atr > 0:
+                atr_min_distance = atr * 0.3
+                if riesgo < atr_min_distance:
+                    logger.info(f"[{symbol}] Señal descartada: distancia SL ({riesgo:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
+                    return None
+                if distancia_tp < atr_min_distance:
+                    logger.info(f"[{symbol}] Señal descartada: distancia TP ({distancia_tp:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
+                    return None
+        
         distancia_tp = abs(tp - entry)
         rr_actual = distancia_tp / riesgo
         
         if rr_actual < self.rr_ratio_min:
-            # Ajustar TP para cumplir con el RR mínimo
             if direction == 'LONG' or direction == 'LARGO':
                 tp = entry + (riesgo * self.rr_ratio_min)
             else:
@@ -452,12 +475,9 @@ class Patron4HBot:
             distancia_tp = abs(tp - entry)
             rr_actual = self.rr_ratio_min
             
-        # Filtro final de calidad: descartar si RR < 1.2
         if rr_actual < 1.2:
             logger.info(f"[{symbol}] Señal descartada: RR insuficiente ({rr_actual:.2f})")
             return None
-            
-        multiplier = self._get_pip_multiplier(symbol)
         
         return {
             'tipo_entrada': setup_name, 
@@ -494,7 +514,7 @@ class Patron4HBot:
             sl = (nivel_origen - padding) if (nivel_origen and nivel_origen < entrada) else float(df_tf['low'].iloc[idx_fvg:idx_fvg+3].min()) - padding
             tp_tecnico = levels['high_zone']
         
-        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'CASO_A_{timeframe}', timeframe, 70)
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'CASO_A_{timeframe}', timeframe, 70, df_tf)
 
     def _generar_entrada_refinada(self, fvg: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, direction: str, nivel_origen: float, tendencia: str, symbol: str) -> Optional[dict]:
         if len(df_15m) < 10: return None
@@ -524,7 +544,7 @@ class Patron4HBot:
             sl = (nivel_origen - padding) if (nivel_origen and nivel_origen < entrada) else float(df_tf_sup['low'].iloc[max(0, idx_fvg-2):idx_fvg+3].min()) - padding
             tp_tecnico = levels['high_zone']
             
-        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, 'CASO_B_15M', '4H/D', 85)
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, 'CASO_B_15M', '4H/D', 85, df_tf_sup)
 
     def _generar_entrada_solo_displacement(self, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, disp_info: dict, timeframe: str, symbol: str) -> Optional[dict]:
         if len(df_tf) < 5: return None
@@ -539,7 +559,7 @@ class Patron4HBot:
             sl = entrada - padding
             tp_tecnico = entrada + (padding * self.rr_ratio_min)
             
-        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_DISP_{timeframe}', timeframe, 50)
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_DISP_{timeframe}', timeframe, 50, df_tf)
 
     def _generar_entrada_solo_fvg(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, timeframe: str, symbol: str) -> Optional[dict]:
         if len(df_tf) < 5: return None
@@ -554,7 +574,7 @@ class Patron4HBot:
             sl = entrada - padding
             tp_tecnico = entrada + (padding * self.rr_ratio_min)
             
-        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_FVG_{timeframe}', timeframe, 40)
+        return self._validate_and_adjust_signal(entrada, sl, tp_tecnico, direction, symbol, f'SOLO_FVG_{timeframe}', timeframe, 40, df_tf)
 
     def generar_señal_15m(self, catalizador: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, contexto: dict, symbol: str) -> Optional[dict]:
         tendencia = contexto['tendencia']

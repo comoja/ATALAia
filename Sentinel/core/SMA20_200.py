@@ -391,6 +391,18 @@ class SMABot:
         rr_actual = abs(take_profit - close) / sl_dist
         multiplier = getPipMultiplier(symbol)
         
+        min_distance_pips = 10.0
+        min_distance_absolute = min_distance_pips / multiplier
+        
+        if sl_dist < min_distance_absolute:
+            logger.info(f"[SMA20-200] {symbol} rechazada: distancia SL muy pequeña ({sl_dist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return None
+        
+        tp_dist = abs(take_profit - close)
+        if tp_dist < min_distance_absolute:
+            logger.info(f"[SMA20-200] {symbol} rechazada: distancia TP muy pequeña ({tp_dist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return None
+        
         return {
             "strategy": "SMA20-200", "direction": direction, "entryPrice": close,
             "slDistance": sl_dist, "stopLoss": stop_loss, "takeProfit": take_profit,

@@ -269,6 +269,28 @@ class BaseImbalanceBot:
             rr_actual = calculateRR(entryPrice, stopLoss, takeProfit)
             multiplier = getPipMultiplier(symbol)
             
+            distancia_sl = abs(entryPrice - stopLoss)
+            distancia_tp = abs(takeProfit - entryPrice)
+            min_distance_pips = 10.0
+            min_distance_absolute = min_distance_pips / multiplier
+            
+            if distancia_sl < min_distance_absolute:
+                logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia SL muy pequeña ({distancia_sl * multiplier:.1f} pips < {min_distance_pips} pips)")
+                continue
+            
+            if distancia_tp < min_distance_absolute:
+                logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia TP muy pequeña ({distancia_tp * multiplier:.1f} pips < {min_distance_pips} pips)")
+                continue
+            
+            atr_min_distance = atr * 0.3
+            if distancia_sl < atr_min_distance:
+                logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia SL ({distancia_sl:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
+                continue
+            
+            if distancia_tp < atr_min_distance:
+                logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia TP ({distancia_tp:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
+                continue
+            
             signals.append({
                 "symbol": symbol,
                 "direction": signalDirection,
