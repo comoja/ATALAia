@@ -239,6 +239,9 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
         'RR Ratio': signal.get('rr_ratio', 0),
         'Bias HTF': bias_str,
         'Zona': f"{zone.get('type', 'N/A')} ({zone.get('fib_50', 0):.5f})",
+        'Modelo': signal.get('tipo_entrada', 'N/A'),
+        'MSS': 'Sí' if signal.get('mss') else 'No',
+        'PO3': signal.get('po3_type', 'N/A'),
         'TF Confirmación': signal.get('timeframe_confirmacion', 'D'),
         'TF Entrada': signal.get('timeframe_entrada', 'H4')
     }
@@ -246,6 +249,6 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="SESGO BIAS HTF",
+        strategyName="SESGO BIAS HTF PO3",
         extraFields=extraFields
     )
