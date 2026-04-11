@@ -26,7 +26,8 @@ from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
 from middleware.utils.communications import sendTelegramAlert
-from middleware.utils.alertBuilder import buildAlertMessage, buildEMAAlertMessage, adjustTPForMinRR, getPipMultiplier
+from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
+
 from middleware.config.constants import TIMEZONE
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ class EMA20200Bot:
             rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
             multiplier = getPipMultiplier(symbol)
             
-            min_distance_pips = 10.0
+            min_distance_pips = 6.0
             min_distance_absolute = min_distance_pips / multiplier
             
             if slDist < min_distance_absolute:

@@ -225,9 +225,9 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         else:
             commission = float(commission)
 
-        if side == "BUY":
+        if side in ("BUY", "LARGO"):
             grossPnl = (exitPrice - entryPrice) * size
-        else: # SELL
+        else: # SELL, CORTO
             grossPnl = (entryPrice - exitPrice) * size
         
         netPnl = grossPnl - commission

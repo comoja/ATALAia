@@ -440,7 +440,7 @@ class Patron4HBot:
         
         multiplier = self._get_pip_multiplier(symbol)
         
-        min_distance_pips = 10.0
+        min_distance_pips = 6.0
         min_distance_absolute = min_distance_pips / multiplier
         
         if riesgo < min_distance_absolute:

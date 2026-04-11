@@ -391,7 +391,7 @@ class SMABot:
         rr_actual = abs(take_profit - close) / sl_dist
         multiplier = getPipMultiplier(symbol)
         
-        min_distance_pips = 10.0
+        min_distance_pips = 6.0
         min_distance_absolute = min_distance_pips / multiplier
         
         if sl_dist < min_distance_absolute:

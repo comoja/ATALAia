@@ -377,7 +377,7 @@ class SniperBot:
             rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
             multiplier = getPipMultiplier(symbolInfo['symbol'])
             
-            min_distance_pips = 10.0
+            min_distance_pips = 6.0
             min_distance_absolute = min_distance_pips / multiplier
             
             if slDist < min_distance_absolute:

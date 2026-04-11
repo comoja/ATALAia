@@ -377,10 +377,14 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         
-        cursor.execute("SELECT idCuenta, margin_used FROM trades WHERE idTrade = %s", (idTrade,))
+        cursor.execute("SELECT idCuenta, margin_used, symbol, closeTime FROM trades WHERE idTrade = %s", (idTrade,))
         trade = cursor.fetchone()
         if not trade:
             logger.warning(f"Trade {idTrade} no encontrado")
+            return False
+        
+        if trade['closeTime'] is not None:
+            logger.warning(f"Trade {idTrade} ya está cerrado. Omitiendo.")
             return False
         
         idCuenta = trade['idCuenta']
@@ -389,7 +393,7 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
         
         cursor.execute("""
             UPDATE trades 
-            SET closeTime = %s, exitPrice = %s, pnl = %s 
+            SET closeTime = %s, exitPrice = %s, pnl = %s, status = 'CLOSED' 
             WHERE idTrade = %s
         """, (closeTime, exitPrice, pnl, idTrade))
         
@@ -400,12 +404,15 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
         
         conn.commit()
         conn.close()
-        logger.info(f"✅ Trade {idTrade} cerrado: {reason} | PnL: {pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_change:.2f}")
+        color_tag = "✅" if pnl >= 0 else "❌"
+        logger.info(f"{color_tag} Trade {idTrade} Symbol: {trade['symbol']} | Cerrado: {reason} | PnL: {pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_change:.2f}")
         return True
         
     except Exception as e:
         logger.error(f"❌ Error al cerrar trade {idTrade}: {e}")
-        if 'conn' in locals(): conn.rollback()
+        if 'conn' in locals() and conn is not None: 
+            try: conn.rollback() 
+            except: pass
         return False
 
 def getTradesClosedToday(idCuenta: int, fecha: str):

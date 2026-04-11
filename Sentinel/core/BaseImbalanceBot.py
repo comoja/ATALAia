@@ -271,7 +271,7 @@ class BaseImbalanceBot:
             
             distancia_sl = abs(entryPrice - stopLoss)
             distancia_tp = abs(takeProfit - entryPrice)
-            min_distance_pips = 10.0
+            min_distance_pips = 6.0
             min_distance_absolute = min_distance_pips / multiplier
             
             if distancia_sl < min_distance_absolute:
@@ -297,6 +297,7 @@ class BaseImbalanceBot:
                 "entryPrice": entryPrice,
                 "stopLoss": stopLoss,
                 "takeProfit": takeProfit,
+                "slDistance": distancia_sl,
                 "riesgo_pips": round(abs(entryPrice - stopLoss) * multiplier, 1),
                 "rr_ratio": round(rr_actual, 2),
                 "setup": setupType,

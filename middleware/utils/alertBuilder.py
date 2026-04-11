@@ -67,10 +67,10 @@ def buildAlertMessage(
             f"<center>Setup: <b>{setup}</b></center>\n"
             f"<center>Confianza: <b>{confianza}%</b></center>\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.2f}</b>\n"
-            f"🔹 ENTRADA:     <b>{close:,.2f}</b>\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.2f}</b>\n"
-            f"     CANTIDAD:  <b>{trade['size']:,.0f}</b>\n"
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
+            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
         )
     else:
@@ -85,10 +85,10 @@ def buildAlertMessage(
             f"<center>Setup: <b>{setup}</b></center>\n"
             f"<center>Confianza: <b>{confianza}%</b></center>\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.2f}</b>\n"
-            f"🔹 ENTRADA:     <b>{close:,.2f}</b>\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.2f}</b>\n"
-            f"     CANTIDAD:  <b>{trade['size']:,.0f}</b>\n"
+            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+            f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
         )
     

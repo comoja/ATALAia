@@ -78,6 +78,46 @@ class BrokerGateway:
             logger.error(f"Error en validación de tiempo de señal: {e}")
             return False
 
+    def _is_entry_price_valid(self, signal: dict, df: pd.DataFrame) -> bool:
+        """
+        Verifica si el precio de entrada estuvo vigente dentro del timeframe de confirmación.
+        Si 'timeframe_confirmacion' es '1H', el precio debe haber estado dentro del rango
+        de las últimas 4 velas de 15min. Similar para '4H' (16 velas).
+        """
+        try:
+            if df is None or df.empty:
+                logger.warning("No hay datos de velas para validar precio de entrada")
+                return True
+            
+            tf_confirm = signal.get('timeframe_confirmacion', signal.get('timeframe_entrada', '1H'))
+            entry_price = signal.get('entryPrice', signal.get('entrada'))
+            
+            if entry_price is None:
+                logger.warning("No se encontró precio de entrada en la señal")
+                return True
+            
+            velas_map = {'1H': 4, '4H': 16, '1D': 96, '15M': 1}
+            num_velas = int(velas_map.get(tf_confirm, 4) * 1.5)
+            
+            num_velas = min(num_velas, len(df))
+            if num_velas == 0:
+                return True
+            
+            recientes = df.iloc[-num_velas:]
+            min_price = float(recientes['low'].min())
+            max_price = float(recientes['high'].max())
+            
+            if min_price <= entry_price <= max_price:
+                logger.info(f"✅ Precio entrada {entry_price} vigente en {tf_confirm} ({num_velas} velas)")
+                return True
+            else:
+                logger.warning(f"⚠️ Orden RECHAZADA: Precio entrada {entry_price} NO vigente en {tf_confirm}. Rango: [{min_price:.5f}, {max_price:.5f}]")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error en validación de precio de entrada: {e}")
+            return True
+
     async def execute_trade(self, trade_data: dict, signal: dict, account: dict, strategy_name: str, df: pd.DataFrame = None) -> Any:
         """
         Punto de entrada único para ejecutar una operación y notificar.
@@ -95,13 +135,17 @@ class BrokerGateway:
         if self._is_signal_stale(trade_data, signal):
             return False, None
 
-        # 0.1 Filtro de Seguridad: Drawdown Diario
+        # 0.1 Filtro de Seguridad: Precio entrada vigente en timeframe de confirmación
+        if not self._is_entry_price_valid(signal, df):
+            return False, None
+
+        # 0.2 Filtro de Seguridad: Drawdown Diario
         from Sentinel.analysis import risk
         if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=2.0):
             logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario alcanzado en cuenta {account['idCuenta']}")
             return False, None
             
-        # 0.1 Filtro de Seguridad: Spread
+        # 0.3 Filtro de Seguridad: Spread
         if df is not None:
             from Sentinel.analysis import technical
             if not technical.is_spread_safe(df, max_spread_atr_percent=25.0):
@@ -174,11 +218,14 @@ class BrokerGateway:
         Cierra un trade en la DB y, si es Live, en el Broker.
         """
         try:
-            from middleware.database import dbManager
+            from middleware.database import dbManager, dbConnection
             from Sentinel.analysis import risk
             
-            # 1. Obtener datos actuales del trade
-            conn = dbManager.dbConnection.getConnection()
+            conn = dbConnection.getConnection()
+            if conn is None:
+                logger.error(f"Gateway: No se pudo obtener conexión para trade {id_trade}")
+                return
+            
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SELECT * FROM trades WHERE idTrade = %s", (id_trade,))
             trade_data = cursor.fetchone()
@@ -187,14 +234,16 @@ class BrokerGateway:
             if not trade_data:
                 logger.error(f"Gateway: No se pudo cerrar trade {id_trade} porque no existe en DB.")
                 return
+            
+            if trade_data.get('closeTime') is not None:
+                logger.debug(f"Gateway: Trade {id_trade} ya está cerrado (closeTime: {trade_data['closeTime']}). Omitiendo.")
+                return
 
-            # 2. Calcular PnL real
             closure_data = {"exitPrice": exit_price}
             pnl = risk.calculatePnl(trade_data, closure_data)
             
-            # 3. Cerrar en DB con el PnL calculado
             dbManager.closeTrade(id_trade, exit_price, pnl, reason)
-            logger.info(f"✅ Gateway: Trade {id_trade} cerrado por {reason}. PnL Calculado: {pnl:.2f}")
+            logger.info(f"✅ Gateway: Trade {id_trade} symbol {trade_data['symbol']} cuenta {trade_data['idCuenta']} cerrado por {reason}. PnL Calculado: {pnl:.2f}")
             
         except Exception as e:
             logger.error(f"Error al cerrar trade vía Gateway: {e}")
