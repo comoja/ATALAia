@@ -11,7 +11,8 @@ FESTIVOS = ["2026-01-01", "2026-12-25", "2026-05-01"]
 API_KEYS = [
     "98c13fd2d0714dc984ca2791e9e3d521",
     "99cc3d9bead5422c99f5614131c9ba4c",
-    "6ac737658dde42fc9874bec8200b01ca"
+    "6ac737658dde42fc9874bec8200b01ca",
+    "a227afb20ee24294a55afe11e526bf6f"
 ]
 
 TWELVE_DATA_API_URL = "https://api.twelvedata.com"
