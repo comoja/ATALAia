@@ -40,6 +40,11 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             logger.warning(f"[{symbolName}] Riesgo {riskInCurrency:.2f} > capital {capital:.2f} - ajustar ganancia en BD")
             return None, None, 0
         
+        MIN_RISK_USD = 5.0
+        if riskInCurrency < MIN_RISK_USD:
+            logger.warning(f"[{symbolName}] Riesgo {riskInCurrency:.2f} < ${MIN_RISK_USD} USD mínimo - omitir señal")
+            return None, None, 0
+        
         symbolMargin = symbolInfo.get('margen')
         symbolMinLots = symbolInfo.get('min_lots')
         
@@ -102,12 +107,12 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             units = riskInCurrency / (pips * 10)
             units = max(min_units["METALES"], round(units, 2))
             
-            units, riskInCurrency = adjustForMargin(units, margin_multiplier, capital, riskInCurrency)
+            units, adjusted_risk = adjustForMargin(units, margin_multiplier, capital, riskInCurrency)
             if units is None:
                 return None, None, 0
             
             margin_used = margin_multiplier * min_units["METALES"] * entryPrice * units
-            return units, riskInCurrency, margin_used
+            return units, adjusted_risk, margin_used
 
         # --- INDICE (e.g., US30, SP500) ---
         elif symbolType == "INDICE":

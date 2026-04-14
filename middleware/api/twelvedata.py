@@ -138,7 +138,7 @@ async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
         
         df = pd.DataFrame(data["values"])
 
-        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+        df["datetime"] = pd.to_datetime(df["datetime"]).dt.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward').dt.tz_convert(TIMEZONE)
 
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")

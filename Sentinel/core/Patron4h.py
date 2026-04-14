@@ -14,7 +14,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import pandas as pd
 import numpy as np
@@ -34,6 +34,9 @@ from Sentinel.data.dataLoader import getParametros
 from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import buildAlertMessage, buildPatron4HAlertMessage
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
+from zoneinfo import ZoneInfo
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +64,15 @@ class Patron4HBot:
         self.lastMessageIds = {}
         
         strategyConfig = dbManager.getStrategyConfig("Patron4h")
-        self.fvg_min_pct = strategyConfig.get('fvg_min_pct', 0.00005) if strategyConfig else 0.00005
-        self.displacement_pct = strategyConfig.get('displacement_pct', 0.0005) if strategyConfig else 0.0005
-        self.rr_ratio_min = strategyConfig.get('rr_ratio_min', 1.5) if strategyConfig else 1.5
-        self.max_minutos_fvg = strategyConfig.get('max_minutos_fvg', 20) if strategyConfig else 20
-        
-        self.modo_flexible = True
-        self.usar_filtro_fibonacci = False # Interruptor dormido para el OTE (Optimal Trade Entry)
+        self.fvg_min_pct         = strategyConfig.get('fvg_min_pct',        0.00005) if strategyConfig else 0.00005
+        self.displacement_pct     = strategyConfig.get('displacement_pct',   0.0005)  if strategyConfig else 0.0005
+        self.rr_ratio_min         = strategyConfig.get('rr_ratio_min',       1.5)     if strategyConfig else 1.5
+        self.max_minutos_fvg      = strategyConfig.get('max_minutos_fvg',    20)      if strategyConfig else 20
+        # OTE activado (ICT Fibonacci 62-79%)
+        self.usar_filtro_fibonacci = True
+        self.ote_fib_min          = strategyConfig.get('ote_fib_min', 0.62) if strategyConfig else 0.62
+        self.ote_fib_max          = strategyConfig.get('ote_fib_max', 0.79) if strategyConfig else 0.79
+        self.modo_flexible        = True # Permitir detección de tendencia menos estricta
         self.signalsGeneradas = {} # Diccionario por símbolo
         self.timestamps_signals = {} # Diccionario por símbolo
         
@@ -351,18 +356,42 @@ class Patron4HBot:
             fvg = self.detectar_fvg(df_tf, i, direction)
             if fvg:
                 if aplicar_fibonacci:
+                    # ── OTE Filter (ICT): Fibonacci 62-79% del último swing ──────────
                     swing_high = df_tf['high'].iloc[max(0, i-20):i].max()
-                    swing_low = df_tf['low'].iloc[max(0, i-20):i].min()
-                    fibo_05 = swing_low + (swing_high - swing_low) * 0.5
-                    
-                    if direction == 'LONG' and fvg['mid'] > fibo_05:
-                        continue # FVG en zona Premium (Caro), se ignora
-                    if direction == 'SHORT' and fvg['mid'] < fibo_05:
-                        continue # FVG en zona Discount (Barato), se ignora
-                        
+                    swing_low  = df_tf['low'].iloc[max(0, i-20):i].min()
+
+                    if direction == 'LONG':
+                        # Buscamos compras: FVG en retroceso 62-79% del impulso bajista
+                        in_ote, ote_zone = is_in_ote_zone(
+                            fvg['mid'], swing_high, swing_low, 'LARGO',
+                            fib_min=self.ote_fib_min, fib_max=self.ote_fib_max
+                        )
+                    else:
+                        # Buscamos ventas: FVG en retroceso 62-79% del impulso alcista
+                        in_ote, ote_zone = is_in_ote_zone(
+                            fvg['mid'], swing_low, swing_high, 'CORTO',
+                            fib_min=self.ote_fib_min, fib_max=self.ote_fib_max
+                        )
+
+                    if in_ote:
+                        fvg['ote_zone'] = ote_zone
+                        fvg['in_ote'] = True
+                        logger.info(
+                            f"[Patron4H][{nombre_tf}] FVG mid={fvg['mid']:.4f} "
+                            f"✅ en OTE [{ote_zone['ote_low']:.4f}–{ote_zone['ote_high']:.4f}]"
+                        )
+                    else:
+                        fvg['in_ote'] = False
+                        logger.info(
+                            f"[Patron4H][{nombre_tf}] FVG mid={fvg['mid']:.4f} "
+                            f"⚠️ fuera OTE [{ote_zone['ote_low']:.4f}–{ote_zone['ote_high']:.4f}] "
+                            f"(se conserva en modo flexible)"
+                        )
+                    # ────────────────────────────────────────────────────────────────
                 resultado['fvgs'].append(fvg)
-        
+
         resultado['hay_fvg'] = len(resultado['fvgs']) > 0
+        resultado['ote_fvg_count'] = sum(1 for f in resultado['fvgs'] if f.get('in_ote', False))
         resultado['hay_mss'] = self.detectar_mss(df_tf, direction)
         
         precio_low = float(df_tf['low'].iloc[-1])
@@ -479,12 +508,18 @@ class Patron4HBot:
             logger.info(f"[{symbol}] Señal descartada: RR insuficiente ({rr_actual:.2f})")
             return None
         
+        # --- SEMÁFORO DE ENTRADA (Price Action) ---
+        # El progreso se mide desde la entrada hasta el TP
+        # Al ser el momento de la detección, el progreso es inicial (0%)
+        status_msg = "EN ZONA ✅"
+
         return {
             'tipo_entrada': setup_name, 
             'direccion': 'LARGO' if (direction == 'LONG' or direction == 'LARGO') else 'CORTO',
             'entrada': round(entry, 5), 
             'stop_loss': round(sl, 5), 
             'take_profit': round(tp, 5),
+            'status': status_msg,
             'riesgo_pips': round(riesgo * multiplier, 1), 
             'rr_ratio': round(rr_actual, 2),
             'timeframe_entrada': '15M', 
@@ -653,6 +688,8 @@ class Patron4HBot:
                 return
 
         for account in self.accounts:
+            # Excluir cuenta maestra de señales (SENTINEL)
+            if account['idCuenta'] == 1: continue
             if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'Patron4h'):
                 continue
             
@@ -667,6 +704,7 @@ class Patron4HBot:
             if posSize is None or posSize == 0:
                 continue
             
+            signal['profit'] = riskUsd
             trade = {
                 "idCuenta": account['idCuenta'],
                 "symbol": symbolInfo['symbol'],
@@ -686,13 +724,15 @@ class Patron4HBot:
             from middleware.execution.broker_gateway import gateway
             
             # Normalización para el generador de alertas
+            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+            last_closed = get_last_closed_candle(now_cdmx, interval=15)
             signal_norm = {
                 **signal,
                 "direction": signal.get("direccion"),
                 "entryPrice": signal.get("entrada"),
                 "confidence": signal.get("confianza", 70),
                 "setup": signal.get("tipo_entrada", "N/A"),
-                "candle_time": df_15m.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+                "candle_time": last_closed.strftime("%Y-%m-%d %H:%M:%S")
             }
             
             success, msgId = await gateway.execute_trade(trade, signal_norm, account, "Patron4h", df=df_15m)

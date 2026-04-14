@@ -2,7 +2,8 @@
 Core Trading Bot Class
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
@@ -23,7 +24,9 @@ from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
+from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +301,23 @@ class SniperBot:
         elif cdlDoji != 0:
             confianza *= 0.95  # Doji = indecisión leve, no destruir la señal
 
+        # ── ORDER BLOCK CONFLUENCE (ICT) ─────────────────────────────────
+        ob_dir = 'LARGO' if direction == 'LARGO' else 'CORTO'
+        obs_sniper   = detect_order_blocks(df, ob_dir, lookback=60)
+        ob_conf_data = ob_confluence_score(close, obs_sniper, ob_dir, atr=currentAtr)
+        ob_score     = ob_conf_data['score']
+
+        if ob_conf_data['in_ob_zone']:
+            confirmaciones += 1
+            confianza += 10
+            detalles.append("OB_ZONE")
+            logger.info(f"[{symbol}] Precio en Order Block alineado ✅ +1 conf, +10% confianza")
+        elif ob_score >= 10:
+            confianza += 5
+            detalles.append("OB_NEAR")
+            logger.info(f"[{symbol}] Precio cerca de Order Block (+5% confianza, score={ob_score})")
+        # ────────────────────────────────────────────────────────────
+
         # --- Minimum Confidence Filter ---
         if confianza < config.MIN_CONFIDENCE_THRESHOLD:
             logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}% < {config.MIN_CONFIDENCE_THRESHOLD}%).")
@@ -330,12 +350,20 @@ class SniperBot:
             sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
             tp_structural = levels['low_zone']
 
+        # --- SEMÁFORO DE ENTRADA (Price Action) ---
+        # Al ser el momento de la detección el progreso es 0%
+        status_msg = "EN ZONA ✅"
+
         return {
+            "strategy": "ML SNIPER SETUP",
             "direction": direction,
             "confidence": confianza,
             "entryPrice": close,
             "slDistance": sl_dist,
             "tpStructural": tp_structural,
+            "status": status_msg,
+            "ob_score":    ob_score,
+            "in_ob_zone":  ob_conf_data['in_ob_zone'],
             "latestMetrics": latestFullData.to_dict(),
             "symbolInfo": symbol,
             "confirmaciones": confirmaciones,
@@ -348,6 +376,10 @@ class SniperBot:
             return
 
         for account in self.accounts:
+            # Excluir cuenta maestra de señales (SENTINEL)
+            if account['idCuenta'] == 1: continue
+            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "Sniper"): continue
+            
             # --- Risk and Position Sizing ---
             posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']),
@@ -356,6 +388,11 @@ class SniperBot:
                 symbolInfo=symbolInfo,
                 entryPrice=signal.get('entryPrice')
             )
+            
+            if posSize is None or posSize == 0:
+                continue
+            
+            signal['profit'] = riskUsd
             
             # --- Define SL/TP ---
             direction = signal['direction']
@@ -488,7 +525,9 @@ class SniperBot:
 
         signal = await self._get_signal(data, symbol)
         if signal:
-            signal['candle_time'] = data.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+            last_closed = get_last_closed_candle(now_cdmx, interval=5)
+            signal['candle_time'] = last_closed.strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"[{symbol}] Señal: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
             await self._execute_trades(signal, symbolInfo)
         else:

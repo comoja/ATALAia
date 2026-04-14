@@ -16,7 +16,8 @@
 """
 
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, List, Tuple
 import pandas as pd
 import numpy as np
@@ -35,6 +36,9 @@ from Sentinel.analysis import risk
 from Sentinel.analysis import technical
 from middleware.utils.communications import sendTelegramAlert
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone
+from Sentinel.analysis.orderblocks import detect_order_blocks, detect_breaker_blocks, ob_confluence_score
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +58,21 @@ class SesgoBiasHTFBot:
         
         strategyConfig = dbManager.getStrategyConfig("SesgoBiasHTF")
         
-        self.fibonacci_level = strategyConfig.get('fibonacci_level', 0.50) if strategyConfig else 0.50
-        self.entry_fib_min = strategyConfig.get('entry_fib_min', 0.25) if strategyConfig else 0.25
-        self.entry_fib_max = strategyConfig.get('entry_fib_max', 0.50) if strategyConfig else 0.50
-        self.swing_lookback = strategyConfig.get('swing_lookback', 50) if strategyConfig else 50
-        self.fvg_min_pct = strategyConfig.get('fvg_min_pct', 0.0001) if strategyConfig else 0.0001
-        self.min_distance_pips = strategyConfig.get('min_distance_pips', 10) if strategyConfig else 10
+        self.fibonacci_level      = strategyConfig.get('fibonacci_level', 0.50)      if strategyConfig else 0.50
+        self.entry_fib_min        = strategyConfig.get('entry_fib_min', 0.25)         if strategyConfig else 0.25
+        self.entry_fib_max        = strategyConfig.get('entry_fib_max', 0.50)         if strategyConfig else 0.50
+        self.swing_lookback       = strategyConfig.get('swing_lookback', 50)          if strategyConfig else 50
+        self.fvg_min_pct          = strategyConfig.get('fvg_min_pct', 0.0001)        if strategyConfig else 0.0001
+        self.min_distance_pips    = strategyConfig.get('min_distance_pips', 10)       if strategyConfig else 10
         self.max_signal_age_minutes = strategyConfig.get('max_signal_age_minutes', 60) if strategyConfig else 60
-        self.mss_lookback = strategyConfig.get('mss_lookback', 5) if strategyConfig else 5
-        self.use_killzones = strategyConfig.get('use_killzones', True) if strategyConfig else True
-        self.volatility_threshold = strategyConfig.get('volatility_threshold', 0.5) if strategyConfig else 0.5
+        self.mss_lookback         = strategyConfig.get('mss_lookback', 5)             if strategyConfig else 5
+        self.use_killzones        = strategyConfig.get('use_killzones', True)         if strategyConfig else True
+        self.volatility_threshold = strategyConfig.get('volatility_threshold', 0.5)  if strategyConfig else 0.5
+        # OTE — Optimal Trade Entry (ICT Fibonacci 62-79%)
+        self.use_ote_filter   = strategyConfig.get('use_ote_filter', True)   if strategyConfig else True
+        self.ote_fib_min      = strategyConfig.get('ote_fib_min', 0.62)      if strategyConfig else 0.62
+        self.ote_fib_max      = strategyConfig.get('ote_fib_max', 0.79)      if strategyConfig else 0.79
+        self.ote_reduce_conf  = strategyConfig.get('ote_reduce_conf', 15)    if strategyConfig else 15
         
         self.signalsGeneradas = {}
         self.timestamps_signals = {}
@@ -374,6 +383,84 @@ class SesgoBiasHTFBot:
                         'wick_pct': ((high_p - close_p) / range_v) * 100
                     }
         return None
+
+    def check_ote(self, df: pd.DataFrame, direction: str, lookback: int = 50) -> Dict:
+        """
+        Verifica si el precio actual está en la zona OTE (62-79% de retroceso Fibonacci).
+        Usa el último swing completo del período `lookback` como referencia.
+
+        Returns dict con:
+            - in_ote    : bool
+            - ote_zone  : dict con ote_low, ote_high, sweet_spot
+            - swing_high: float
+            - swing_low : float
+        """
+        if len(df) < lookback + 1:
+            return {'in_ote': True, 'ote_zone': None}  # Sin datos suficientes, no filtrar
+
+        relevant = df.iloc[-lookback:]
+        swing_high = float(relevant['high'].max())
+        swing_low  = float(relevant['low'].min())
+        price      = float(df['close'].iloc[-1])
+
+        if direction in ('LONG', 'LARGO'):
+            # Impulso previo: precio cayó desde swing_high hasta swing_low
+            # Ahora buscamos entrada en retroceso alcista (62-79% desde swing_low)
+            in_ote, zone = is_in_ote_zone(
+                price, swing_high, swing_low, 'LARGO',
+                fib_min=self.ote_fib_min, fib_max=self.ote_fib_max
+            )
+        else:  # SHORT / CORTO
+            # Impulso previo: precio subió desde swing_low hasta swing_high
+            # Ahora buscamos entrada en retroceso bajista (62-79% desde swing_high)
+            in_ote, zone = is_in_ote_zone(
+                price, swing_low, swing_high, 'CORTO',
+                fib_min=self.ote_fib_min, fib_max=self.ote_fib_max
+            )
+
+        logger.info(
+            f"[SesgoBiasHTF] OTE check '{direction}': price={price:.4f} "
+            f"zona=[{zone['ote_low']:.4f}, {zone['ote_high']:.4f}] "
+            f"sweet={zone['sweet_spot']:.4f} → {'✅ DENTRO' if in_ote else '⚠️ FUERA'}"
+        )
+        return {
+            'in_ote':     in_ote,
+            'ote_zone':   zone,
+            'swing_high': swing_high,
+            'swing_low':  swing_low,
+        }
+
+    def get_ob_analysis(self, df: pd.DataFrame, direction: str, price: float, atr: float) -> Dict:
+        """
+        Detecta Order Blocks y Breaker Blocks en `df` y retorna
+        un dict de análisis con score de confluencia.
+        Integrable en cualquier punto de la cadena de señal.
+        """
+        obs  = detect_order_blocks(df, direction, lookback=80)
+        bbs  = detect_breaker_blocks(df, obs)
+        conf = ob_confluence_score(price, obs, direction, atr=atr)
+
+        if obs:
+            nearest = conf.get('nearest_ob')
+            if nearest:
+                ob_pos_label = "DENTRO OB" if conf['in_ob_zone'] else ("dist~" + f"{abs(price - nearest['mid']):.4f}")
+                logger.info(
+                    f"[SesgoBiasHTF] OB mas cercano: {nearest['type']} "
+                    f"zona=[{nearest['bottom']:.4f}, {nearest['top']:.4f}] "
+                    f"| {ob_pos_label} "
+                    f"| Score OB: {conf['score']}"
+                )
+        if bbs:
+            logger.info(f"[SesgoBiasHTF] Breaker Blocks detectados: {len(bbs)} (usable como TP/SL ref)")
+
+        return {
+            'order_blocks':   obs,
+            'breaker_blocks': bbs,
+            'ob_score':       conf['score'],
+            'in_ob_zone':     conf['in_ob_zone'],
+            'nearest_ob':     conf.get('nearest_ob'),
+            'ob_count':       conf['ob_count'],
+        }
 
     def calculate_fibonacci_zone(self, df: pd.DataFrame, direction: str, lookback: int = 50) -> Optional[Dict]:
         """
@@ -799,12 +886,17 @@ class SesgoBiasHTFBot:
         
         rr_ratio = distancia_tp / riesgo if riesgo > 0 else 0
         
+        # --- SEMÁFORO DE ENTRADA (Price Action) ---
+        # Al ser el momento de la detección el progreso es 0%
+        status_msg = "EN ZONA ✅"
+
         return {
             'tipo_entrada': model,
             'direccion': direction,
             'entrada': round(entry, 5),
             'stop_loss': round(sl, 5),
             'take_profit': round(tp, 5),
+            'status': status_msg,
             'riesgo_pips': round(riesgo * multiplier, 1),
             'rr_ratio': round(rr_ratio, 2),
             'timeframe_entrada': 'H4',
@@ -840,6 +932,12 @@ class SesgoBiasHTFBot:
         in_killzone, zone_name = self.is_in_killzone()
         logger.info(f"[{symbolInfo['symbol']}] Killzone: {zone_name} ({in_killzone})")
         
+        # ── Veto Estricto de Killzone (ICT) ───────────────────────────────────
+        if self.use_killzones and not in_killzone:
+            logger.info(f"[{symbolInfo['symbol']}] ⛔ VETO: Fuera de ventana horaria Killzone")
+            return {'status': 'FUERA_DE_KILLZONE', 'biases': biases}
+        # ─────────────────────────────────────────────────────────────────────
+        
         direction = 'LONG' if bias == 'LARGO' else 'SHORT'
         
         if df_1d is not None and len(df_1d) >= 20:
@@ -855,8 +953,10 @@ class SesgoBiasHTFBot:
         liquidity_4h = self.find_swing_highs_lows(df_4h, lookback=50)
         liquidity_1d = self.find_swing_highs_lows(df_1d, lookback=20) if df_1d is not None else liquidity_4h
         
-        prev_day = self.get_prev_day_high_low(df_4h)
-        logger.info(f"[{symbolInfo['symbol']}] Prev Day H/L: {prev_day[0]:.2f}/{prev_day[1]:.2f}" if prev_day[0] else "N/A")
+        from Sentinel.analysis import technical
+        prev_day_data = technical.get_prev_day_high_low(df_4h)
+        prev_day = (prev_day_data['pdh'], prev_day_data['pdl'])
+        logger.info(f"[{symbolInfo['symbol']}] Prev Day H/L: {prev_day[0]:.4f}/{prev_day[1]:.4f}" if prev_day[0] else "N/A")
         
         po3_daily = self.analyze_po3_cycle(df_1d, direction, zone, liquidity_1d)
         
@@ -876,7 +976,20 @@ class SesgoBiasHTFBot:
         
         if not entry_models:
             return {'status': 'SIN_MODELOS_VALIDOS', 'po3': po3_final, 'zone': zone}
-        
+
+        # ── OTE Filter (Fibonacci 62-79%) ─────────────────────────────────────
+        ote_data = {'in_ote': True, 'ote_zone': None}
+        if self.use_ote_filter:
+            ote_data = self.check_ote(df_refinement, direction, lookback=self.swing_lookback)
+            if not ote_data['in_ote']:
+                logger.info(
+                    f"[{symbolInfo['symbol']}] Precio fuera de OTE "
+                    f"(zona=[{ote_data['ote_zone']['ote_low']:.4f}, "
+                    f"{ote_data['ote_zone']['ote_high']:.4f}]). "
+                    f"Confianza reducida en -{self.ote_reduce_conf}%."
+                )
+        # ─────────────────────────────────────────────────────────────────────
+
         best_signal = None
         best_rr = 0
         
@@ -906,6 +1019,40 @@ class SesgoBiasHTFBot:
         if best_signal is None:
             return {'status': 'SENAL_INVALIDA', 'zone': zone, 'biases': biases}
         
+        # Ajustar confianza según OTE
+        confianza_base = best_signal.get('confianza', 75)
+        if not ote_data['in_ote']:
+            best_signal['confianza'] = max(40, confianza_base - self.ote_reduce_conf)
+        else:
+            best_signal['confianza'] = min(95, confianza_base + 5)  # Bonus OTE confirmado
+
+        # ── Killzone activa: bonus de confianza ────────────────────────────────
+        if in_killzone:
+            best_signal['confianza'] = min(95, best_signal['confianza'] + 10)
+            logger.info(
+                f"[{symbolInfo['symbol']}] Killzone {zone_name} activa ✅ "
+                f"+10% confianza → {best_signal['confianza']}%"
+            )
+        else:
+            logger.info(
+                f"[{symbolInfo['symbol']}] Fuera de killzone — "
+                f"señal válida (HTF), sin bonus temporal"
+            )
+        # ────────────────────────────────────────────────────────────
+
+        # ── Order Blocks & Breaker Blocks ──────────────────────────────────
+        entry_price = best_signal.get('entrada', float(df_refinement['close'].iloc[-1]))
+        atr_for_ob  = float(ta.ATR(df_refinement['high'], df_refinement['low'], df_refinement['close'], 14).dropna().iloc[-1]) if len(df_refinement) >= 14 else 0.001
+        ob_analysis  = self.get_ob_analysis(df_refinement, direction, entry_price, atr_for_ob)
+        # Bonus si el precio está dentro de un Order Block alineado
+        if ob_analysis['in_ob_zone']:
+            best_signal['confianza'] = min(95, best_signal['confianza'] + 10)
+            logger.info(
+                f"[{symbolInfo['symbol']}] Precio en zona OB ✅ "
+                f"+10% confianza → {best_signal['confianza']}%"
+            )
+        # ────────────────────────────────────────────────────────────
+
         best_signal['biases'] = biases
         best_signal['zone'] = zone
         best_signal['po3_type'] = po3_final.get('type', 'UNKNOWN')
@@ -913,7 +1060,16 @@ class SesgoBiasHTFBot:
         best_signal['killzone'] = zone_name if in_killzone else 'NONE'
         best_signal['prev_day_high'] = prev_day[0]
         best_signal['prev_day_low'] = prev_day[1]
-        best_signal['candle_time'] = po3_final.get('vela_time', datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+        best_signal['ote_in_zone'] = ote_data['in_ote']
+        best_signal['ote_zone'] = ote_data.get('ote_zone')
+        best_signal['order_blocks']   = ob_analysis.get('order_blocks', [])
+        best_signal['breaker_blocks'] = ob_analysis.get('breaker_blocks', [])
+        best_signal['ob_score']       = ob_analysis.get('ob_score', 0)
+        best_signal['nearest_ob']     = ob_analysis.get('nearest_ob')
+        
+        now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+        last_closed = get_last_closed_candle(now_cdmx, interval=5)
+        best_signal['candle_time'] = last_closed.strftime("%Y-%m-%d %H:%M:%S")
         
         return {'status': 'SENAL_GENERADA', 'senal': best_signal}
 
@@ -927,6 +1083,8 @@ class SesgoBiasHTFBot:
                 return
 
         for account in self.accounts:
+            # Excluir cuenta maestra de señales (SENTINEL)
+            if account['idCuenta'] == 1: continue
             if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'SesgoBiasHTF'):
                 continue
             
@@ -945,6 +1103,7 @@ class SesgoBiasHTFBot:
             if posSize is None or posSize == 0:
                 continue
             
+            signal['profit'] = riskUsd
             trade = {
                 "idCuenta": account['idCuenta'],
                 "symbol": symbolInfo['symbol'],

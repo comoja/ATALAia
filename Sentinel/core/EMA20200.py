@@ -1,6 +1,7 @@
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
@@ -29,6 +30,7 @@ from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
 
 logger = logging.getLogger(__name__)
 
@@ -165,10 +167,12 @@ class EMA20200Bot:
         symbol = symbolInfo['symbol']
         
         for account in self.accounts:
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "EMA20200"):
+            # Excluir cuenta maestra de señales (SENTINEL)
+            if account['idCuenta'] == 1: continue
+            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "EMA20_200"):
                 continue
                 
-            posSize, _, marginUsed = risk.calculatePositionSize(
+            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                 capital=float(account['Capital']), 
                 riskPercentage=float(account['ganancia']),
                 slDistance=signal['slDistance'], 
@@ -179,6 +183,7 @@ class EMA20200Bot:
             if posSize is None or posSize == 0:
                 continue
 
+            signal['profit'] = riskUsd
             direction = signal['direction']
             entryPrice = signal['entryPrice']
             slDist = signal['slDistance']
@@ -327,12 +332,24 @@ class EMA20200Bot:
                 sl_dist = max(atr_val * 0.8, min(sl_price - price, atr_val * 2.5))
                 tp_structural = levels['low_zone']
 
+            # --- SEMÁFORO DE ENTRADA (Price Action) ---
+            total_dist = abs(tp_structural - price)
+            # Al ser el momento de la detección, el progreso es inicial (0%)
+            progress_pct = 0
+            
+            status_msg = "EN ZONA ✅"
+            if progress_pct > 100: status_msg = "META ALCANZADA 🚨"
+            elif progress_pct > 50: status_msg = "ALEJÁNDOSE ⚠️"
+
+            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+            last_closed = get_last_closed_candle(now_cdmx, interval=5)
             signal = {
                 "direction": direction,
                 "entryPrice": price,
                 "slDistance": sl_dist,
                 "tpStructural": tp_structural,
-                "candle_time": df.index[-1].strftime("%Y-%m-%d %H:%M:%S"),
+                "candle_time": last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": status_msg,
                 "slope": slope_val,
                 "separation": separation,
                 "confidence": int(prob * 100),

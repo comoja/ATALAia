@@ -2,6 +2,11 @@
 Centralized configuration for ATALAia middleware.
 This file contains all shared constants and settings used across subprojects.
 """
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent.parent.resolve()
+
 import numpy as np
 
 SYMBOLS = np.array(["USD/MXN", "XAU/USD"])
@@ -84,8 +89,8 @@ ATR_MULTIPLIER_HIGH_CONFIDENCE = 1.15
 BASE_RISK_REWARD_RATIO = 2.0
 HIGH_CONFIDENCE_RISK_REWARD_RATIO = 2.2
 
-MODEL_FILE_PATH = "Sentinel/ml/trainedModel.joblib"
-MODEL_REG_FILE_PATH = "Sentinel/ml/trainedRegModel.joblib"
+MODEL_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedModel.joblib")
+MODEL_REG_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedRegModel.joblib")
 
 # --- Production Settings ---
 PRODUCTION_MODE = False # Cambiar a True para ejecución real en Broker

@@ -1,7 +1,12 @@
+import os
+import sys
+rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if rutaRaiz not in sys.path:
+    sys.path.insert(0, rutaRaiz)
+
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 import logging
-# Para traer los datos desde middleware
 from middleware.database.dbManager import getCandlesFromDb
 from backend.services.correlation_engine import engine
 from sqlalchemy.orm import Session

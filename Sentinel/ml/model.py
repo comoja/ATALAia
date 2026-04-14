@@ -98,7 +98,9 @@ def trainAndSaveModel(df: pd.DataFrame, modelPath: str = MODEL_FILE_PATH):
         model.fit(X_train, yTrain)
         
         # Ensure the directory exists
-        os.makedirs(os.path.dirname(modelPath), exist_ok=True)
+        modelDir = os.path.dirname(modelPath)
+        if modelDir:
+            os.makedirs(modelDir, exist_ok=True)
         joblib.dump(model, modelPath)
         
         logger.info(f"✅ Modelo entrenado y guardado exitosamente en: {modelPath}")
@@ -190,7 +192,9 @@ def trainAndSaveRegModel(df: pd.DataFrame, modelPath: str = MODEL_REG_FILE_PATH)
         model = RandomForestRegressor(**MODEL_PARAMS)
         model.fit(X_train, y_train)
         
-        os.makedirs(os.path.dirname(modelPath), exist_ok=True)
+        modelDir = os.path.dirname(modelPath)
+        if modelDir:
+            os.makedirs(modelDir, exist_ok=True)
         joblib.dump(model, modelPath)
         
         logger.info(f"✅ Modelo de regresión entrenado y guardado en: {modelPath}")
