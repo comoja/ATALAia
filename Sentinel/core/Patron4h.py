@@ -627,7 +627,7 @@ class Patron4HBot:
         liquidity_raid = self.detectar_liquidity_raid(precio_actual, contexto['max_dia_anterior'], contexto['min_dia_anterior'], contexto['tendencia'])
         
         catalizador_4h = self.analizar_catalizador(df_4h, contexto, liquidity_raid, '4H')
-        catalizador_1h = self.analizar_catalizador(df_1h, contexto, liquidity_raid, '1H')
+        catalizador_1h = self.analizar_catalizador(df_1h, contexto, liquidity_raid, '1h')
         
         catalizador_final = None
         df_tf_sup = None
@@ -726,9 +726,9 @@ class Patron4HBot:
             logger.info(f"◀ SALIENDO análisis para {symbol} (datos insuficientes)")
             return
         
-        df_1h = self.resample_ohlcv(df_15m, '1H')
-        df_4h = self.resample_ohlcv(df_15m, '4H')
-        df_1d = self.resample_ohlcv(df_15m, '1D')
+        df_1h = self.resample_ohlcv(df_15m, '1h')
+        df_4h = self.resample_ohlcv(df_15m, '4h')
+        df_1d = self.resample_ohlcv(df_15m, '1d')
         
         datos = {'15m': df_15m, '1h': df_1h, '4h': df_4h, '1d': df_1d}
         

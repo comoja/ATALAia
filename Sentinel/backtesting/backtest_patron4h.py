@@ -366,7 +366,7 @@ def ejecutar_backtest(bot: Patron4HBot, df_15m: pd.DataFrame, symbol: str, fecha
     print(f"  BACKTESTING PATRÓN 4H - {symbol} - {fecha.strftime('%Y-%m-%d')}")
     print("="*70)
     
-    df_1h = bot.resample_ohlcv(df_15m, '1H')
+    df_1h = bot.resample_ohlcv(df_15m, '1h')
     df_4h = bot.resample_ohlcv(df_15m, '4H')
     df_1d = bot.resample_ohlcv(df_15m, '1D')
     

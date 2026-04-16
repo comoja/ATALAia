@@ -275,7 +275,7 @@ async def updateCandles5min(apiKey: str, accountName: str = None):
 
 def resample_candles(df: pd.DataFrame, rule: str) -> pd.DataFrame:
     """
-    Resample de velas agregadas (rule='15T' para 15min, '1H' para 1 hora)
+    Resample de velas agregadas (rule='15T' para 15min, '1h' para 1 hora)
     """
     df_resampled = df.set_index('datetime').resample(rule, closed='right', label='right').agg({
         'open': 'first',
