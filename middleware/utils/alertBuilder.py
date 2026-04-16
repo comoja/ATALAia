@@ -58,7 +58,7 @@ def buildAlertMessage(
     if direction == "LARGO":
         text = (
             f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>{directionStr}</b> "
+            f"<b>SEÑAL DE {directionStr}</b> "
             f"{colorHeader}{colorHeader}{colorHeader}\n"
             f"<i><b><center>{strategyName}</center></b></i>\n"
             f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
@@ -76,7 +76,7 @@ def buildAlertMessage(
     else:
         text = (
             f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>{directionStr}</b> "
+            f"<b>SEÑAL DE {directionStr}</b> "
             f"{colorHeader}{colorHeader}{colorHeader}\n"
             f"<i><b><center>{strategyName}</center></b></i>\n"
             f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
@@ -172,7 +172,7 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="TREND SMA ADVANCED",
+        strategyName="TENDENCIA SMA 20-200",
         extraFields=extraFields
     )
 
@@ -209,7 +209,7 @@ def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="TREND EMA INSTITUTIONAL",
+        strategyName="TENDENCIA EMA 20-200 ML",
         extraFields=extraFields
     )
 
@@ -233,7 +233,7 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="ML SNIPER SETUP",
+        strategyName="ML SNIPER TECHNICAL",
         extraFields=extraFields
     )
 
@@ -319,6 +319,29 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="GENERIC FVG STRATEGY",
+        strategyName="FVG GENERICO",
+        extraFields=extraFields
+    )
+
+def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para estrategia FVGDiario - Manipulación + Daily Bias"""
+    extraFields = {
+        'Estado': signal.get('status', 'ACTIVA ✅'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Daily Bias': signal.get('daily_bias', 'N/A'),
+        'PDH': f"{signal.get('pdh', 0):,.5f}",
+        'PDL': f"{signal.get('pdl', 0):,.5f}",
+        'Manipulación': signal.get('manipulation_type', 'N/A'),
+        'FVG': signal.get('fvg_type', 'N/A'),
+        'Liq. Opuesta': f"{signal.get('opposite_liquidity', 0):,.5f}",
+        'TF Entrada': trade.get('intervalo', '15min')
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="FVG DIARIO + MANIPULACIÓN",
         extraFields=extraFields
     )

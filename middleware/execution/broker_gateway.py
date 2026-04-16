@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from typing import Any
 from middleware.database import dbManager
+from middleware.utils.loggerConfig import setupLogging
 from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import (
     buildEMAAlertMessage, 
@@ -13,11 +14,13 @@ from middleware.utils.alertBuilder import (
     buildSesgoBiasHTFAlertMessage,
     buildSilverBulletAlertMessage,
     buildImbalancePMNYAlertMessage,
-    buildGenericFVGAlertMessage
+    buildGenericFVGAlertMessage,
+    buildFVGDiarioAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
 
-logger = logging.getLogger(__name__)
+setupLogging("execution")
+logger = logging.getLogger("execution")
 
 class BrokerGateway:
     """
@@ -219,6 +222,8 @@ class BrokerGateway:
             return buildImbalancePMNYAlertMessage(signal, trade_data)
         elif strategy_name == "GenericFVG":
             return buildGenericFVGAlertMessage(signal, trade_data)
+        elif strategy_name == "FVGDiario":
+            return buildFVGDiarioAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

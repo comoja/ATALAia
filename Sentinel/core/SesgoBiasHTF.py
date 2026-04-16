@@ -103,34 +103,7 @@ class SesgoBiasHTFBot:
         return False, 'NONE'
 
     def resample_ohlcv(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-        if df is None or df.empty:
-            return df
-        
-        df = df.copy()
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
-        rule_map = {
-            '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1W',
-            '1M': '1ME', '1H': '1h', '4H': '4h', '1D': '1d',
-            '1W': '1W', '1M': '1ME', '15min': '15min',
-            '30min': '30min'
-        }
-        rule = rule_map.get(timeframe, timeframe)
-        
-        agg_dict = {
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last'
-        }
-        if 'volume' in df.columns:
-            agg_dict['volume'] = 'sum'
-            
-        df_resampled = df.resample(rule).agg(agg_dict)
-        if len(df) > 0 and len(df_resampled) > 0:
-            if df.index[-1] < df_resampled.index[-1]:
-                df_resampled = df_resampled.iloc[:-1]
+        return technical.resample_to_interval(df, timeframe)
                 
         return df_resampled.dropna()
 
@@ -284,8 +257,13 @@ class SesgoBiasHTFBot:
         """
         Detecta Fair Value Gap (FVG).
         Regla: 3 velas donde el máximo de la 1ra no coincide con el mínimo de la 3ra.
+       Solo usa velas terminadas (idx <= len(df) - 2).
         """
         if idx < 2 or idx >= len(df) - 1:
+            return None
+        
+        last_closed_idx = len(df) - 2
+        if idx > last_closed_idx:
             return None
         
         if direction == 'LONG':

@@ -23,6 +23,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.database import dbManager
 from Sentinel.analysis import technical, risk
+from Sentinel.analysis.technical import resample_to_interval
 from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
@@ -73,16 +74,7 @@ class EMA20200Bot:
     # RESAMPLE HTF
     # =========================
     def resampleTo1H(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-
-        df1h = df.resample('1h', label='right', closed='right').agg({
-            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'
-        })
-        if df.index[-1] < df1h.index[-1]:
-            df1h = df1h.iloc[:-1]
-        return df1h.dropna()
+        return technical.resample_to_interval(df, '1h')
 
     # =========================
     # INDICADORES

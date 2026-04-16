@@ -26,10 +26,13 @@ from Sentinel.core.Patron4h import Patron4HBot
 from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
 from Sentinel.core.SilverBullet import SilverBulletBot
 from Sentinel.core.ImbalancePMNY import ImbalancePMNYBot
-from Sentinel.core.GenericFVGBot import GenericFVGBot
+from Sentinel.core.GenericFVG import GenericFVGBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures
-from middleware.utils.momentum import momentum as momentumAnalyzer
+from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
+
+# Flag para enviar resumen solo una vez
+_resumen_momentum_enviado = False
 from middleware.config import constants as config
 from middleware.database import dbManager
 from middleware.database.dbManager import get_min_wait_time
@@ -253,6 +256,12 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         df1h = resampleData(df, "1h")
         
         logger.info(f"[{symbol}] 5m: {len(df)}v | 15m: {len(df15m)}v | 1h: {len(df1h)}v")
+        
+        # Enviar resumen de momentum al inicio (solo una vez)
+        global _resumen_momentum_enviado
+        if not _resumen_momentum_enviado:
+            _resumen_momentum_enviado = True
+            await _enviar_resumen_inicial({symbol: df})
         
         # 2. Ejecutar Sniper (usa 15min resampleado)
         logger.info(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
@@ -480,7 +489,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         await sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSesgo, symbolApiKey)
         
         # 11. Ejecutar GenericFVG (Price Action puro en 15m, 1h, 4h)
-        logger.info(f"[GENERIC FVG STRATEGY] Ejecutando para {symbol}...")
+        logger.info(f"[FVG Generico] Ejecutando para {symbol}...")
         await generic_fvg_bot.analyze(symbolInfo, df)
         
         # 12. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
@@ -494,7 +503,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)\n\n")
 
 # 1. Set up logging at the very beginning
-setupLogging(enableConsole=False)
+setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
 
 async def main():

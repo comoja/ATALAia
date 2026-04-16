@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 import numpy as np
 import talib as ta
+from typing import Optional
 from middleware.database import dbManager
 
 logger = logging.getLogger(__name__)
@@ -245,34 +246,40 @@ def is_spread_safe(df: pd.DataFrame, max_spread_atr_percent: float = 20.0) -> bo
         return False
     return True
 
-def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 0) -> list:
+def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 0, validate_mitigation: bool = True) -> list:
     """
-    Detecta Fair Value Gaps (FVG) en un DataFrame usando definición ICT.
+    Detecta Fair Value Gaps (FVG) usando definición ICT estricta.
     
-    Un FVG clásico requiere 3 velas consecutivas donde:
-    - Vela central (i-1): tiene el rango más pequeño (vela pequeña)
-    - Vela izquierda (i-2) y derecha (i): tienen rangos mayores
+    Estructura de 3 Velas (Vela 1 = i-2, Vela 2 = i-1, Vela 3 = i):
     
-    Bullish FVG:
-    - Low(i-1) > Low(i-2) Y Low(i-1) > Low(i)  (vela central tiene el low más alto)
-    - La vela central está "entre" las otras dos en términos de precio
+    FVG Alcista (Bullish):
+    - High(Vela 1) < Low(Vela 3) →gap entre el máximo de Vela 1 y mínimo de Vela 3
+    - Ignora el color de las velas; solo importan las mechas
     
-    Bearish FVG:
-    - High(i-1) < High(i-2) Y High(i-1) < High(i)  (vela central tiene el high más bajo)
-    - La vela central está "entre" las otras dos en términos de precio
+    FVG Bajista (Bearish):
+    - Low(Vela 1) > High(Vela 3) → gap entre el mínimo de Vela 1 y máximo de Vela 3
+    
+    Filtro de Desplazamiento (Vela 2):
+    - El cuerpo de Vela 2 debe ser al menos 50% del rango total
+    - Evita gaps por ruido de mechas
+    
+    Validación de Cierre:
+    - El FVG solo se considera confirmado cuando Vela 3 ha cerrado
+    
+    Regla de Mitigación:
+    - El gap se invalida si cualquier vela posterior cierra dentro del espacio
     
     Args:
         df: DataFrame con OHLC.
         min_gap_pct: Tamaño mínimo del gap respecto al precio (filtro de ruido).
         min_adx: ADX mínimo para filtrar mercados laterales (0 = no evaluar).
-                 Valores típicos: 20=mercado con tendencia, <20=mercado lateral.
+        validate_mitigation: Si True, valida que el gap no haya sido llenado por velas posteriores.
         
     Returns:
         Lista de diccionarios con la información de cada FVG.
     """
     fvgs = []
     
-    # --- Filtrar mercado lateral con ADX ---
     if min_adx > 0 and len(df) >= 14:
         try:
             adx = float(ta.ADX(df['high'], df['low'], df['close'], timeperiod=14).dropna().iloc[-1])
@@ -281,59 +288,107 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
                 return fvgs
         except Exception as e:
             logger.debug(f"[FVG] Error calculando ADX: {e}")
-    if len(df) < 3:
+    
+    if len(df) < 4:
         return fvgs
-        
+    
     highs = df['high'].values
     lows = df['low'].values
     closes = df['close'].values
     opens = df['open'].values
     times = df.index
     
-    # Análisis de 3 velas: (i-2), (i-1), (i)
-    for i in range(2, len(df)):
-        # Range de cada vela
-        range_prev2 = highs[i-2] - lows[i-2]
-        range_mid = highs[i-1] - lows[i-1]
-        range_curr = highs[i] - lows[i]
+    for i in range(2, len(df) - 1):
+        v1_high = highs[i-2]
+        v1_low = lows[i-2]
+        v2_high = highs[i-1]
+        v2_low = lows[i-1]
+        v2_open = opens[i-1]
+        v2_close = closes[i-1]
+        v3_high = highs[i]
+        v3_low = lows[i]
         
-        # Vela central (i-1) debe tener el rango más pequeño (vela pequeña)
-        if not (range_mid < range_prev2 and range_mid < range_curr):
+        v2_range = v2_high - v2_low
+        if v2_range == 0:
             continue
         
-        # ---- Bullish FVG ----
-        # Low(i-1) > Low(i-2) Y Low(i-1) > Low(i)
-        # La vela central tiene el low más alto (está arriba de las otras dos)
-        if lows[i-1] > lows[i-2] and lows[i-1] > lows[i]:
-            gap_size = lows[i-1] - max(lows[i-2], lows[i])
-            if gap_size / closes[i] >= min_gap_pct:
-                fvgs.append({
-                    'type': 'Bullish_FVG',
-                    'top': float(lows[i-1]),
-                    'bottom': float(max(lows[i-2], lows[i])),
-                    'mid': float((lows[i-1] + max(lows[i-2], lows[i])) / 2),
-                    'size': float(gap_size),
-                    'timestamp': str(times[i-1]),
-                    'idx': i-1
-                })
+        v2_body = abs(v2_close - v2_open)
+        v2_body_pct = v2_body / v2_range
         
-        # ---- Bearish FVG ----
-        # High(i-1) < High(i-2) Y High(i-1) < High(i)
-        # La vela central tiene el high más bajo (está abajo de las otras dos)
-        elif highs[i-1] < highs[i-2] and highs[i-1] < highs[i]:
-            gap_size = min(highs[i-2], highs[i]) - highs[i-1]
+        if v2_body_pct < 0.50:
+            continue
+        
+        if v1_high < v3_low:
+            gap_size = v3_low - v1_high
             if gap_size / closes[i] >= min_gap_pct:
-                fvgs.append({
-                    'type': 'Bearish_FVG',
-                    'top': float(min(highs[i-2], highs[i])),
-                    'bottom': float(highs[i-1]),
-                    'mid': float((min(highs[i-2], highs[i]) + highs[i-1]) / 2),
+                fvg = {
+                    'type': 'Bullish_FVG',
+                    'top': float(v3_low),
+                    'bottom': float(v1_high),
+                    'mid': float((v1_high + v3_low) / 2),
                     'size': float(gap_size),
-                    'timestamp': str(times[i-1]),
-                    'idx': i-1
-                })
-                
+                    'timestamp': str(times[i]),
+                    'idx': i
+                }
+                if validate_mitigation and _is_fvg_mitigated(df, i, fvg):
+                    logger.debug(f"[FVG] Bullish FVG en idx {i} invalidado por mitigación")
+                    continue
+                fvgs.append(fvg)
+        
+        elif v1_low > v3_high:
+            gap_size = v1_low - v3_high
+            if gap_size / closes[i] >= min_gap_pct:
+                fvg = {
+                    'type': 'Bearish_FVG',
+                    'top': float(v1_low),
+                    'bottom': float(v3_high),
+                    'mid': float((v1_low + v3_high) / 2),
+                    'size': float(gap_size),
+                    'timestamp': str(times[i]),
+                    'idx': i
+                }
+                if validate_mitigation and _is_fvg_mitigated(df, i, fvg):
+                    logger.debug(f"[FVG] Bearish FVG en idx {i} invalidado por mitigación")
+                    continue
+                fvgs.append(fvg)
+    
     return fvgs
+
+
+def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
+    """
+    Valida si un FVG ha sido llenado (mitigado) por alguna vela posterior.
+    
+    El gap se considera invalidado si cualquier vela posterior cierra completamente
+    dentro del espacio entre Vela 1 y Vela 3.
+    """
+    if fvg['type'] == 'Bullish_FVG':
+        gap_top = fvg['top']
+        gap_bottom = fvg['bottom']
+    else:
+        gap_top = fvg['top']
+        gap_bottom = fvg['bottom']
+    
+    for i in range(fvg_start_idx + 1, len(df)):
+        candle_close = float(df['close'].iloc[i])
+        candle_open = float(df['open'].iloc[i])
+        
+        low = min(candle_open, candle_close)
+        high = max(candle_open, candle_close)
+        
+        if fvg['type'] == 'Bullish_FVG':
+            if low >= gap_bottom and high <= gap_top:
+                return True
+            if low <= gap_bottom and high >= gap_top:
+                return False
+        else:
+            if low >= gap_bottom and high <= gap_top:
+                return True
+            if low <= gap_bottom and high >= gap_top:
+                return False
+    
+    return False
+
 
 def get_pip_multiplier(symbol: str) -> float:
     """Obtiene el multiplicador de pips para un activo.
@@ -365,3 +420,86 @@ def get_pip_multiplier(symbol: str) -> float:
     if "MXN" in symbol_up:
         return 10000.0
     return 10000.0
+
+
+def detect_fvg_closed(
+    df_source: pd.DataFrame,
+    interval: str,
+    min_gap_pct: float = 0.0005,
+    min_adx: float = 20,
+    lookback: int = 10
+) -> Optional[Dict]:
+    """
+    Detecta el FVG más reciente usando SOLO Velas Terminadas.
+    
+    Args:
+        df_source: DataFrame de velas (preferiblemente 5min para mayor precision)
+        interval: Intervalo objetivo ('15min', '1h', '4h', '1d')
+        min_gap_pct: Tamaño mínimo del gap respecto al precio (default 0.0005 = 5 pips)
+        min_adx: ADX mínimo para filtrar mercados laterales (default 20)
+        lookback: Número de velas hacia atrás para buscar (default 10)
+    
+    Returns:
+        Dict con info del FVG más reciente de vela cerrada, o None si no hay.
+        El FVG usa idx <= len(df_resampled) - 2 (última vela cerrada)
+    """
+    df = resample_to_interval(df_source, interval)
+    
+    if len(df) < 3:
+        return None
+    
+    last_closed_idx = len(df) - 2
+    
+    fvgs = detect_fvgs(df, min_gap_pct=min_gap_pct, min_adx=min_adx)
+    
+    if not fvgs:
+        return None
+    
+    closed_fvgs = [f for f in fvgs if f['idx'] <= last_closed_idx]
+    
+    if not closed_fvgs:
+        return None
+    
+    return closed_fvgs[-1]
+
+
+def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    """
+    Resamplea un DataFrame OHLCV al intervalo deseado.
+    
+    Args:
+        df: DataFrame con columnas OHLCV.
+        interval: Intervalo objetivo ('5min', '15min', '1h', '4h', '1d')
+    
+    Returns:
+        DataFrame resampleado con las mismas columnas.
+    """
+    if df is None or len(df) < 1:
+        return df
+    
+    rule_map = {
+        '5min': '5min',
+        '15min': '15min',
+        '30min': '30min',
+        '1h': '1h',
+        '2h': '2h',
+        '4h': '4h',
+        '1d': '1D'
+    }
+    rule = rule_map.get(interval, interval)
+    
+    if rule == '5min' or interval == '5min':
+        return df
+    
+    agg_dict = {
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last'
+    }
+    if 'volume' in df.columns:
+        agg_dict['volume'] = 'sum'
+    
+    df_resampled = df.resample(rule, label='right', closed='right').agg(agg_dict).dropna()
+    
+    return df_resampled

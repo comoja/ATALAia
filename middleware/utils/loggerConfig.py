@@ -64,9 +64,6 @@ def setupLogging(logPara: str = "app", projectDir: str | None = None, enableCons
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     
-    # No propagar al root logger
-    logger.propagate = False
-    
     # Manejador para archivo diario
     fileHandler = TimedRotatingFileHandler(
         logFilename, when="midnight", interval=1, backupCount=30, encoding='utf-8'

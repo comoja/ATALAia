@@ -321,11 +321,16 @@ class SilverBulletBot:
         """
         Detecta el FVG más reciente alineado con la dirección del trade.
         Busca en las últimas `lookback` velas para encontrar la brecha.
+        SOLO usa velas terminadas (idx <= len(df) - 2).
         """
         start = max(2, len(df) - lookback)
+        last_closed_idx = len(df) - 2
 
         for i in range(len(df) - 1, start, -1):
             if i < 2:
+                continue
+            
+            if i > last_closed_idx:
                 continue
 
             h_prev2 = float(df["high"].iloc[i - 2])

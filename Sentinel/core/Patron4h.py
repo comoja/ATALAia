@@ -36,7 +36,7 @@ from middleware.utils.alertBuilder import buildAlertMessage, buildPatron4HAlertM
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from zoneinfo import ZoneInfo
-from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval
 
 logger = logging.getLogger(__name__)
 
@@ -82,29 +82,7 @@ class Patron4HBot:
         return datetime.now(self.MEXICO_TZ)
 
     def resample_ohlcv(self, df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-        if df.empty:
-            return df
-        
-        df = df.copy()
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
-        rule_map = {'1h': '1h', '4h': '4h', '1d': '1d', '1H': '1h', '4H': '4h', '1D': '1d'}
-        rule = rule_map.get(timeframe, timeframe)
-        agg_dict = {
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last'
-        }
-        if 'volume' in df.columns:
-            agg_dict['volume'] = 'sum'
-            
-        df_resampled = df.resample(rule).agg(agg_dict)
-        if df.index[-1] < df_resampled.index[-1]:
-            df_resampled = df_resampled.iloc[:-1]
-            
-        return df_resampled.dropna()
+        return resample_to_interval(df, timeframe)
 
     def detectar_fvg(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[dict]:
         if idx < 2 or idx >= len(df) - 1:
@@ -302,8 +280,7 @@ class Patron4HBot:
                 return fvg
         return None
 
-    def analizar_catalizador(self, df_tf: pd.DataFrame, contexto: dict, 
-                           liquidity_raid: Optional[dict], nombre_tf: str) -> dict:
+    def analizar_catalizador(self, df_tf: pd.DataFrame, contexto: dict,liquidity_raid: Optional[dict], nombre_tf: str) -> dict:
         resultado = {
             'timeframe': nombre_tf,
             'hay_reaccion_poi': False,
