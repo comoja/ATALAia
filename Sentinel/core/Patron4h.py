@@ -762,9 +762,9 @@ def executePatron4H(datos: Dict[str, pd.DataFrame], symbolInfo: Dict) -> Optiona
     if df_15m is None: return None
     datos_completos = {
         '15m': df_15m,
-        '1h': datos.get('1h') if datos.get('1h') is not None else bot.resample_ohlcv(df_15m, '1H'),
-        '4h': datos.get('4h') if datos.get('4h') is not None else bot.resample_ohlcv(df_15m, '4H'),
-        '1d': datos.get('1d') if datos.get('1d') is not None else bot.resample_ohlcv(df_15m, '1D')
+        '1h': datos.get('1h') if datos.get('1h') is not None else bot.resample_ohlcv(df_15m, '1h'),
+        '4h': datos.get('4h') if datos.get('4h') is not None else bot.resample_ohlcv(df_15m, '4h'),
+        '1d': datos.get('1d') if datos.get('1d') is not None else bot.resample_ohlcv(df_15m, '1d')
     }
     return bot.analizar_top_down(datos_completos, symbolInfo)
 

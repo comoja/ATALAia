@@ -152,7 +152,8 @@ class GenericFVGBot:
                 "takeProfit": tp1,
                 "intervalo": interval,
                 "strategy": self.strategy_name,
-                "size": min_lots
+                "size": min_lots,
+                "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
 
             # Ejecutar vía Gateway (DB + Telegram + Broker) para cada cuenta válida

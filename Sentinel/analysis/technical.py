@@ -484,7 +484,8 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
         '1h': '1h',
         '2h': '2h',
         '4h': '4h',
-        '1d': '1D'
+        '1d': '1D',
+        '1M': '1ME'
     }
     rule = rule_map.get(interval, interval)
     
