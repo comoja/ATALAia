@@ -359,33 +359,29 @@ def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
     """
     Valida si un FVG ha sido llenado (mitigado) por alguna vela posterior.
     
-    El gap se considera invalidado si cualquier vela posterior cierra completamente
-    dentro del espacio entre Vela 1 y Vela 3.
+    El gap se considera invalidado desde que cualquier vela posterior entra
+    a negociar dentro del espacio del FVG:
+    - FVG Alcista: Se invalida si el Low de una vela posterior es <= Top del FVG
+    - FVG Bajista: Se invalida si el High de una vela posterior es >= Bottom del FVG
+    
+    Args:
+        df: DataFrame con OHLC.
+        fvg_start_idx: Índice de Vela 3 (confirmación del FVG).
+        fvg: Diccionario con información del FVG.
     """
-    if fvg['type'] == 'Bullish_FVG':
-        gap_top = fvg['top']
-        gap_bottom = fvg['bottom']
-    else:
-        gap_top = fvg['top']
-        gap_bottom = fvg['bottom']
+    gap_bottom = fvg['bottom']
+    gap_top = fvg['top']
     
     for i in range(fvg_start_idx + 1, len(df)):
-        candle_close = float(df['close'].iloc[i])
-        candle_open = float(df['open'].iloc[i])
-        
-        low = min(candle_open, candle_close)
-        high = max(candle_open, candle_close)
+        candle_high = float(df['high'].iloc[i])
+        candle_low = float(df['low'].iloc[i])
         
         if fvg['type'] == 'Bullish_FVG':
-            if low >= gap_bottom and high <= gap_top:
+            if candle_low <= gap_top:
                 return True
-            if low <= gap_bottom and high >= gap_top:
-                return False
         else:
-            if low >= gap_bottom and high <= gap_top:
+            if candle_high >= gap_bottom:
                 return True
-            if low <= gap_bottom and high >= gap_top:
-                return False
     
     return False
 
@@ -460,7 +456,23 @@ def detect_fvg_closed(
     if not closed_fvgs:
         return None
     
-    return closed_fvgs[-1]
+    latest_fvg = closed_fvgs[-1]
+    
+    vela4_idx = latest_fvg['idx'] + 1
+    if vela4_idx <= last_closed_idx:
+        vela4_high = float(df['high'].iloc[vela4_idx])
+        vela4_low = float(df['low'].iloc[vela4_idx])
+        
+        if latest_fvg['type'] == 'Bullish_FVG':
+            if vela4_low <= latest_fvg['top']:
+                logger.debug(f"[FVG] FVG Bullish mitigado por Vela 4 - descartado")
+                return None
+        else:
+            if vela4_high >= latest_fvg['bottom']:
+                logger.debug(f"[FVG] FVG Bearish mitigado por Vela 4 - descartado")
+                return None
+    
+    return latest_fvg
 
 
 def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:

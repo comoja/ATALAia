@@ -125,6 +125,39 @@ class GenericFVGBot:
             else:
                 status_msg = "EN ZONA ✅"
 
+            # ===== FILTROS DE CALIDAD =====
+            current_price = float(df['close'].iloc[-1])
+            rr_ratio = round(abs(tp1 - entry_price) / risk_dist, 2)
+            min_rr = 0.5
+            max_sl_proximity = 0.2
+            
+            # 1. Filtrar RR muy bajo
+            if rr_ratio < min_rr:
+                logger.info(f"[GenericFVG] RR={rr_ratio:.2f} < {min_rr} - descartando señal")
+                continue
+            
+            # 2. Verificar que precio actual no esté muy cerca del SL
+            if latest_fvg['type'] == 'Bullish_FVG':
+                dist_to_sl = (sl - current_price) / risk_dist if risk_dist > 0 else 0
+                if dist_to_sl < max_sl_proximity:
+                    logger.info(f"[GenericFVG] Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                    continue
+            else:
+                dist_to_sl = (current_price - sl) / risk_dist if risk_dist > 0 else 0
+                if dist_to_sl < max_sl_proximity:
+                    logger.info(f"[GenericFVG] Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                    continue
+            
+            # 3. Verificar que precio actual esté dentro de la zona del FVG
+            if latest_fvg['type'] == 'Bullish_FVG':
+                if current_price <= sl or current_price >= tp1:
+                    logger.info(f"[GenericFVG] Precio fuera de zona FVG - descartando")
+                    continue
+            else:
+                if current_price >= sl or current_price <= tp1:
+                    logger.info(f"[GenericFVG] Precio fuera de zona FVG - descartando")
+                    continue
+
             # Preparar Dicc de Señal para Gateway
             signal_data = {
                 "strategy": self.strategy_name,
@@ -174,7 +207,8 @@ class GenericFVGBot:
                 )
                 
                 if posSize is None or posSize == 0:
-                    logger.warning(f"[GenericFVG] Size=0 para {symbol} - riesgo ${riskUsd:.2f} < $5 mínimo")
+                    risk_display = f"{riskUsd:.2f}" if riskUsd is not None else "N/A"
+                    logger.warning(f"[GenericFVG] Size=0 para {symbol} - riesgo ${risk_display} < $5 mínimo")
                     continue
                 
                 signal_data['profit'] = riskUsd

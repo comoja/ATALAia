@@ -401,7 +401,8 @@ class FVGDiarioBot:
             "takeProfit": take_profit,
             "intervalo": "15min",
             "strategy": self.strategy_name,
-            "size": 1.0  # Se calculará por cuenta
+            "size": 1.0,  # Se calculará por cuenta
+            "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
         # Enviar a cada cuenta
