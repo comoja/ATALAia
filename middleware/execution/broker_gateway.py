@@ -145,14 +145,16 @@ class BrokerGateway:
         if self._is_signal_stale(trade_data, signal):
             return False, None
 
-        # 0.1 Filtro de Seguridad: Precio entrada vigente en timeframe de confirmación
-        if not self._is_entry_price_valid(signal, df):
-            return False, None
+        # 0.1 Filtro de Seguridad: Precio entrada vigente - COMENTADO PARA PRUEBAS
+        # if not self._is_entry_price_valid(signal, df):
+        #     return False, None
 
         # 0.2 Filtro de Seguridad: Drawdown Diario
         from Sentinel.analysis import risk
-        if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=2.0):
-            logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario alcanzado en cuenta {account['idCuenta']}")
+        strategy_config = dbManager.getStrategyConfig(strategy_name)
+        max_dd_percent = float(strategy_config.get('max_drawdown_percent', 50.0)) if strategy_config else 50.0
+        if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=max_dd_percent):
+            logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario >= {max_dd_percent}% en cuenta {account['idCuenta']}")
             return False, None
             
         # 0.3 Filtro de Seguridad: Spread
@@ -167,6 +169,7 @@ class BrokerGateway:
         # 1. Construir mensaje PRIMERO (por si falla la lógica de construcción)
         try:
             message = self._build_message(strategy_name, signal, trade_data)
+            logger.debug(f"[DEBUG] Mensaje construido ({len(message)} chars): {message[:100]}...")
         except Exception as e:
             logger.error(f"❌ Error crítico al construir mensaje para {strategy_name}: {e}")
             message = f"🚨 Nueva Señal {strategy_name} para {trade_data.get('symbol')}, pero falló construcción de mensaje detallado."
@@ -187,6 +190,7 @@ class BrokerGateway:
 
         # 4. Notificación Telegram (Independiente del éxito en DB)
         msg_id = None
+        logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
         try:
             msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
             if not msg_id:

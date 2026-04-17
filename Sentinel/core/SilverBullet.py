@@ -53,7 +53,7 @@ from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, ca
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

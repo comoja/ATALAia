@@ -28,7 +28,7 @@ from Sentinel.core.SilverBullet import SilverBulletBot
 from Sentinel.core.ImbalancePMNY import ImbalancePMNYBot
 from Sentinel.core.GenericFVG import GenericFVGBot
 from Sentinel.ml import model as mlModel
-from Sentinel.analysis.technical import calculateFeatures
+from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
 
 # Flag para enviar resumen solo una vez
@@ -46,35 +46,6 @@ from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
 
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 MAX_CANDLES_PER_CALL = 5000
-
-def resampleData(df: pd.DataFrame, targetInterval: str) -> pd.DataFrame:
-    if targetInterval == "5min":
-        return df
-    
-    intervalMap = {
-        "15min": "15min",
-        "30min": "30min",
-        "1h": "1h",
-        "2h": "2h",
-        "4h": "4h"
-    }
-   
-    rule = intervalMap.get(targetInterval, targetInterval)
-    
-    dfCopy = df.copy()
-    if dfCopy.index.tzinfo is not None:
-        dfCopy.index = dfCopy.index.tz_convert("America/Mexico_City")
-    
-    dfResampled = dfCopy.resample(rule, closed='right', label='right').agg({
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last',
-        'volume': 'sum'
-    }).dropna()
-    
-    return dfResampled
-
 
 from middleware.utils.time_utils import get_localized_session_times
 from middleware.api import twelvedata as tdApi
@@ -252,8 +223,8 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         # --- RESAMPLEO LOCAL (Optimización: 06/04/2026) ---
         # Generamos todas las temporalidades necesarias en memoria para evitar latencia de DB
         logger.info(f"[{symbol}] Generando resampleos locales (15min, 1h)...")
-        df15m = resampleData(df, "15min")
-        df1h = resampleData(df, "1h")
+        df15m = resample_to_interval(df, "15min")
+        df1h = resample_to_interval(df, "1h")
         
         logger.info(f"[{symbol}] 5m: {len(df)}v | 15m: {len(df15m)}v | 1h: {len(df1h)}v")
         
@@ -264,18 +235,18 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             await _enviar_resumen_inicial({symbol: df})
         
         # 2. Ejecutar Sniper (usa 15min resampleado)
-        logger.info(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
+        logger.debug(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
         preloadedDataSniper = {symbol: df15m}
         await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
         # 3. Ejecutar SMA20-200 (usa 15min)
-        logger.info(f"[TREND SMA ADVANCED] Ejecutando para {symbol}...")
-        logger.info(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
-        logger.info(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
+        logger.debug(f"[TREND SMA ADVANCED] Ejecutando para {symbol}...")
+        logger.debug(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
+        logger.debug(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
         preloadedDataSMA = {symbol: df15m}
         symbolInfo['intervalo'] = "15min"
         try:
-            logger.info(f"[TREND SMA ADVANCED] >>> Entrando para {symbol}")
+            logger.debug(f"[TREND SMA ADVANCED] >>> Entrando para {symbol}")
             
             await sma_bot.runAnalysisCycle_for_symbol(
                 symbolInfo, 
@@ -283,7 +254,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 symbolApiKey
             )
             
-            logger.info(f"[TREND SMA ADVANCED] <<< Terminó para {symbol}")
+            logger.debug(f"[TREND SMA ADVANCED] <<< Terminó para {symbol}")
 
         except Exception as e:
             logger.error(f"[TREND SMA ADVANCED] ERROR para {symbol}: {e}", exc_info=True)
@@ -304,7 +275,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             logger.info(f"[IMBNY] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
         
         else:
-            logger.info(f"[IMBNY] Ejecutando para {symbol}...")
+            logger.debug(f"[IMBNY] Ejecutando para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -362,7 +333,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         if ahoraMX <= finAperturaLDN:
             logger.info(f"[IMBLDN] Aún no abre sesión LDN (hora {ahoraMX.hour}), saltando...")
         else:
-            logger.info(f"[IMBLDN] Ejecutando para {symbol}...")
+            logger.debug(f"[IMBLDN] Ejecutando para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -394,7 +365,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 maskPostAperturaLDN = dfIndex >= finAperturaLDN
                 dfPostAperturaLDN = df.loc[maskPostAperturaLDN]
                 
-                logger.info(f"[IMBLDN] Velas post-apertura: {len(dfPostAperturaLDN)}")
+                logger.debug(f"[IMBLDN] Velas post-apertura: {len(dfPostAperturaLDN)}")
                 
                 preloadedDataLDN = {symbol: dfPostAperturaLDN}
                 symbolInfo['intervalo'] = "5min"
@@ -416,7 +387,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         if ahoraMX <= finAperturaPM:
             logger.info(f"[IMBPM] Aún no abre sesión PM NY (hora {ahoraMX.hour}), saltando...")
         else:
-            logger.info(f"[IMBPM] Ejecutando para {symbol}...")
+            logger.debug(f"[IMBPM] Ejecutando para {symbol}...")
             
             dfIndex = df.index
             if dfIndex.tz is None:
@@ -462,34 +433,34 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 logger.warning(f"[IMBPM] No se encontraron velas en período de apertura PM NY")
         
         # 8. Ejecutar Silver Bullet (actúa solo en su ventana horaria activa)
-        logger.info(f"[SilverBullet] Ejecutando para {symbol}...")
+        #logger.info(f"[SilverBullet] Ejecutando para {symbol}...")
         preloadedDataSB = {symbol: df}  # Usa datos 5min base
         symbolInfo['intervalo'] = "5min"
         await silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSB, symbolApiKey)
 
         # 8. Ejecutar EMA20_200 (usa 1h resampleado)
-        logger.info(f"[TREND EMA INSTITUTIONAL] Ejecutando para {symbol} (1h)...")
+        logger.debug(f"[TREND EMA INSTITUTIONAL] Ejecutando para {symbol} (1h)...")
         
         preloadedDataEMA = {symbol: df1h}
         symbolInfo['intervalo'] = "1h"
         await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
         
         # 9. Ejecutar Patron4H (usa 15min resampleado a 4h y 1d)
-        logger.info(f"[PATTERN 4H HTF] Ejecutando para {symbol}...")
+        logger.debug(f"[PATTERN 4H HTF] Ejecutando para {symbol}...")
         
         preloadedDataP4H = {'15m': df15m}
         symbolInfo['intervalo'] = "15min"
         await patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataP4H, symbolApiKey)
         
         # 10. Ejecutar SesgoBiasHTF (usa 1h resampleado a 4h, D, W, M)
-        logger.info(f"[BIAS HTF ANALYSIS] Ejecutando para {symbol}...")
+        logger.debug(f"[BIAS HTF ANALYSIS] Ejecutando para {symbol}...")
         
         preloadedDataSesgo = {'4h': df1h}
         symbolInfo['intervalo'] = "1h"
         await sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSesgo, symbolApiKey)
         
         # 11. Ejecutar GenericFVG (Price Action puro en 15m, 1h, 4h)
-        logger.info(f"[FVG Generico] Ejecutando para {symbol}...")
+        logger.debug(f"[FVG Generico] Ejecutando para {symbol}...")
         await generic_fvg_bot.analyze(symbolInfo, df)
         
         # 12. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
@@ -497,7 +468,7 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         
         if wait_time > 0:
-            logger.info(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...\n\n")
+            logger.debug(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...\n\n")
             await asyncio.sleep(wait_time)
         else:
             logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)\n\n")

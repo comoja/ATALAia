@@ -8,7 +8,7 @@ import talib as ta
 from typing import Optional
 from middleware.database import dbManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 def _calculate_dynamic_periods(df: pd.DataFrame) -> dict:
     """

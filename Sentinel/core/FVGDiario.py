@@ -22,7 +22,7 @@ from Sentinel.data.dataLoader import getParametros
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 
 class FVGDiarioBot:

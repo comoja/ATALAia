@@ -14,7 +14,7 @@ from middleware.config.constants import (
     ML_TARGET_HORIZON_LOW_VOL, ML_TARGET_HORIZON_HIGH_VOL, ML_TARGET_HORIZON_NORMAL_VOL
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 def calculateAtr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     """

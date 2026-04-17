@@ -37,7 +37,7 @@ from typing import List, Optional, Dict
 import pandas as pd
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

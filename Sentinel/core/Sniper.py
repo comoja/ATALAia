@@ -28,7 +28,7 @@ from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
 from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 class SniperBot:
     def __init__(self, mlModelInstance):
@@ -85,9 +85,9 @@ class SniperBot:
 
         # --- Get Current Values ---
         latest = X.iloc[-1]
-        latestFullData = df.iloc[-1]
+        self.latestFullData = df.iloc[-1]
         
-        close = latestFullData["close"]
+        close = self.latestFullData["close"]
         currentAtr = latest["atr"]
         avgAtr = df["atr"].iloc[-20:].mean()
         volPercent = (currentAtr / close) * 100
@@ -104,19 +104,19 @@ class SniperBot:
             return None
 
         # --- INDICADORES TÉCNICOS ---
-        histVal = latestFullData["macdHist"]
+        histVal = self.latestFullData["macdHist"]
         prevHistVal = df["macdHist"].iloc[-2]
         
-        macdLine = latestFullData["macd"]
-        macdSignal = latestFullData["macdSig"]
+        macdLine = self.latestFullData["macd"]
+        macdSignal = self.latestFullData["macdSig"]
         
         rsi = latest["rsi"]
         prevRsi = df["rsi"].iloc[-2]
         
-        close = latestFullData["close"]
+        close = self.latestFullData["close"]
         
-        ema20 = latestFullData["ema20"]
-        ema50 = latestFullData["ema50"]
+        ema20 = self.latestFullData["ema20"]
+        ema50 = self.latestFullData["ema50"]
         
         # --- SEÑALES INDIVIDUALES ---
         # MACD
@@ -151,8 +151,8 @@ class SniperBot:
         bullishDivergence = (prices[-1] < np.min(prices[:-1])) and (hists[-1] > np.min(hists[:-1]))
         
         # CCI + RSI pendientes
-        techConfLong = (latestFullData["pendienteCci"] > 0.5 and latestFullData["pendienteRsi"] > 0.1)
-        techConfShort = (latestFullData["pendienteCci"] < -0.5 and latestFullData["pendienteRsi"] < -0.1)
+        techConfLong = (self.latestFullData["pendienteCci"] > 0.5 and self.latestFullData["pendienteRsi"] > 0.1)
+        techConfShort = (self.latestFullData["pendienteCci"] < -0.5 and self.latestFullData["pendienteRsi"] < -0.1)
         
         # --- MOMENTUM FILTER (único veto técnico además de ATR) ---
         dfWithAngles = calcularAngulos(df.copy())
@@ -290,10 +290,10 @@ class SniperBot:
             confianza -= 15
             
         # --- Candle Patterns (solo bonus, sin penalización injusta) ---
-        cdlEngulfing = latestFullData.get("cdlEngulfing", 0)
-        cdlHammer = latestFullData.get("cdlHammer", 0)
-        cdlShootingStar = latestFullData.get("cdlShootingStar", 0)
-        cdlDoji = latestFullData.get("cdlDoji", 0)
+        cdlEngulfing = self.latestFullData.get("cdlEngulfing", 0)
+        cdlHammer = self.latestFullData.get("cdlHammer", 0)
+        cdlShootingStar = self.latestFullData.get("cdlShootingStar", 0)
+        cdlDoji = self.latestFullData.get("cdlDoji", 0)
 
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
             confianza *= 1.10
@@ -337,7 +337,7 @@ class SniperBot:
 
         # Niveles estructurales para SL y TP lógicos (sensibilidad aumentada)
         from Sentinel.analysis import technical
-        levels = technical.get_structural_levels(latestFullData, lookback=40)
+        levels = technical.get_structural_levels(self.latestFullData, lookback=40)
         atr_val = latest["atr"]
         atr_padding = atr_val * 0.2
         
@@ -364,7 +364,7 @@ class SniperBot:
             "status": status_msg,
             "ob_score":    ob_score,
             "in_ob_zone":  ob_conf_data['in_ob_zone'],
-            "latestMetrics": latestFullData.to_dict(),
+            "latestMetrics": self.latestFullData.to_dict(),
             "symbolInfo": symbol,
             "confirmaciones": confirmaciones,
             "detalles_conf": detalles
@@ -453,7 +453,7 @@ class SniperBot:
             
             # --- Execution and Alert via Gateway ---
             from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=latestFullData)
+            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=self.latestFullData)
             
             # Delete previous message if interval is 1h and we have a new msgId
             intervalo = symbolInfo.get('intervalo', '')

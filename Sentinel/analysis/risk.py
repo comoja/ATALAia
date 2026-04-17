@@ -6,7 +6,7 @@ import pandas as pd
 from typing import Dict, Any
 from middleware.database import dbManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 def calculatePositionSize(capital: float, riskPercentage: float, slDistance: float, symbolInfo: Dict[str, Any], entryPrice: float = None) -> tuple[float, float, float] | tuple[None, None, float]:
     """

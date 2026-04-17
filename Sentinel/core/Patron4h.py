@@ -37,23 +37,9 @@ from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from zoneinfo import ZoneInfo
 from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval
+from Sentinel.core.BaseImbalanceBot import getAssetConfig
 
-logger = logging.getLogger(__name__)
-
-
-def getAssetConfig(symbol: str) -> dict:
-    symbolData = dbManager.getSymbol(symbol)
-    assetType = symbolData.get('tipo') if symbolData else 'MONEDA'
-    
-    typeConfig = dbManager.getSymbolTypeConfig(assetType)
-    
-    if typeConfig:
-        return {
-            "sl": float(typeConfig.get('sl_atr', 1.5)),
-            "tp": float(typeConfig.get('tp_atr', 3.0))
-        }
-    
-    return {"sl": 1.5, "tp": 3.0}
+logger = logging.getLogger("sentinel")
 
 
 class Patron4HBot:

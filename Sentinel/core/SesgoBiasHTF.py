@@ -40,7 +40,7 @@ from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone
 from Sentinel.analysis.orderblocks import detect_order_blocks, detect_breaker_blocks, ob_confluence_score
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 
 class SesgoBiasHTFBot:
@@ -910,10 +910,10 @@ class SesgoBiasHTFBot:
         in_killzone, zone_name = self.is_in_killzone()
         logger.info(f"[{symbolInfo['symbol']}] Killzone: {zone_name} ({in_killzone})")
         
-        # ── Veto Estricto de Killzone (ICT) ───────────────────────────────────
-        if self.use_killzones and not in_killzone:
-            logger.info(f"[{symbolInfo['symbol']}] ⛔ VETO: Fuera de ventana horaria Killzone")
-            return {'status': 'FUERA_DE_KILLZONE', 'biases': biases}
+        # ── Veto Estricto de Killzone (ICT) - COMENTADO PARA PRUEBAS ─────────
+        # if self.use_killzones and not in_killzone:
+        #     logger.info(f"[{symbolInfo['symbol']}] ⛔ VETO: Fuera de ventana horaria Killzone")
+        #     return {'status': 'FUERA_DE_KILLZONE', 'biases': biases}
         # ─────────────────────────────────────────────────────────────────────
         
         direction = 'LONG' if bias == 'LARGO' else 'SHORT'

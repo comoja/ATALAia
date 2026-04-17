@@ -31,7 +31,7 @@ from dataSymbol.mainOrchestrator import get_last_closed_candle
 from zoneinfo import ZoneInfo
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 
 
 class SMABot:
@@ -431,7 +431,7 @@ class SMABot:
             "bollingerBonus": bb_bonus
         }
 
-    async def _execute_trades(self, signal: Dict, symbolInfo):
+    async def _execute_trades(self, signal: Dict, symbolInfo, data: pd.DataFrame):
         symbol = symbolInfo['symbol']
         for account in self.accounts:
             # Excluir cuenta maestra de señales (SENTINEL)
@@ -455,7 +455,7 @@ class SMABot:
 
             # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
             from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "SMA20_200", df=df)
+            success, msgId = await gateway.execute_trade(trade, signal, account, "SMA20_200", df=data)
             
             if success and msgId:
                 await self.cleanupOldMessages(account['TokenMsg'], account['idGrupoMsg'])
@@ -471,13 +471,15 @@ class SMABot:
         return df_copy[df_copy.index <= (ahora_cdmx - pd.Timedelta(minutes=minutes))].copy()
 
     async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None):
+        
         symbol = symbolInfo['symbol']
         logger.info(f"▶ ENTRANDO análisis para {symbol}")
         df = preloadedData.get(symbol) if preloadedData else None
         if df is None:
             logger.info(f"◀ SALIENDO análisis para {symbol} (sin datos)")
             return
-
+        logger.info(f"[{symbol}] ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
+        
         ahora_cdmx = datetime.now(pytz.timezone(TIMEZONE))
         interval = symbolInfo.get('intervalo', '15min')
         df = self._filtrar_velas_completas(df, ahora_cdmx, interval)
@@ -490,6 +492,6 @@ class SMABot:
         signal = await self._get_signal(data, symbol, interval, apiKey)
         if signal and not self.esSenalDuplicada(symbol, signal['direction'], signal['candle_time']):
             if not self.accounts: self.accounts = dbManager.getAccount()
-            if self.accounts: await self._execute_trades(signal, symbolInfo)
+            if self.accounts: await self._execute_trades(signal, symbolInfo, data)
 
         logger.info(f"◀ SALIENDO análisis para {symbol}")
