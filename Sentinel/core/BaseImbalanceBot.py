@@ -307,9 +307,9 @@ class BaseImbalanceBot:
             
             # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
             vela_origen_idx = len(datos5min) - 5  # Usar vela actual como origen
-            is_valid, recorrido_pct, _ = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, takeProfit, signalDirection, threshold=0.60)
+            is_valid, recorrido_pct, mensaje = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, takeProfit, stopLoss, signalDirection, threshold=0.60, timeframe="5min")
             if not is_valid:
-                logger.info(f"[{self.strategy_name}][{symbol}] FVG {idx+1} descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                logger.info(f"[{self.strategy_name}][{symbol}] FVG {idx+1} descartada: Exhaustion - {mensaje}")
                 continue
             
             # --- SEMÁFORO DE ENTRADA (Price Action) ---

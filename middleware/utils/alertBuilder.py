@@ -188,6 +188,7 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
         'TF Señal': signal.get('timeframe_entrada', '15M'),
+        'Vela Origen': signal.get('vela_origen', 'N/A'),
         'Momentum': momentum
     }
     

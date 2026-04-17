@@ -363,9 +363,9 @@ class SniperBot:
 
         # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
         vela_origen_idx = len(df) - 5  # Usar vela actual como origen
-        is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, direction, threshold=0.60)
+        is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, sl_price, direction, threshold=0.60, timeframe="15M")
         if not is_valid:
-            logger.info(f"[Sniper][{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+            logger.info(f"[Sniper][{symbol}] Señal descartada: Exhaustion - {mensaje}")
             return None
 
         return {

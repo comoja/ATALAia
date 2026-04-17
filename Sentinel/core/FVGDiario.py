@@ -392,9 +392,9 @@ class FVGDiarioBot:
         # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
         if df is not None:
             vela_origen_idx = len(df) - 5  # Usar vela actual como origen
-            is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, direction, threshold=0.60)
+            is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, stop_loss, direction, threshold=0.60, timeframe="15M")
             if not is_valid:
-                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: Exhaustion - {mensaje}")
                 return
         
         # Preparar señal

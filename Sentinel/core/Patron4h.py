@@ -492,9 +492,9 @@ class Patron4HBot:
         
         # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
         # Si el precio ya se acercó demasiado al TP desde la vela original, la señal está "gastada"
-        is_valid, recorrido_pct, _ = tech_module.check_tp_exhaustion(df_tf, vela_origen_idx, entry, tp, direction, threshold=0.60)
+        is_valid, recorrido_pct, mensaje = tech_module.check_tp_exhaustion(df_tf, vela_origen_idx, entry, tp, sl, direction, threshold=0.60, timeframe=timeframe)
         if not is_valid:
-            logger.info(f"[{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+            logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
             return None
         
         # Momentum Filter: Usar momentum pre-calculado desde main.py
@@ -516,6 +516,14 @@ class Patron4HBot:
         # Al ser el momento de la detección, el progreso es inicial (0%)
         status_msg = "EN ZONA ✅"
 
+        # Obtener hora de la vela origen para el mensaje
+        vela_origen_time = "N/A"
+        if df_tf is not None and vela_origen_idx is not None and vela_origen_idx < len(df_tf):
+            try:
+                vela_origen_time = df_tf.index[vela_origen_idx].strftime('%Y-%m-%d %H:%M')
+            except:
+                vela_origen_time = f"idx:{vela_origen_idx}"
+
         return {
             'tipo_entrada': setup_name, 
             'direccion': 'LARGO' if (direction == 'LONG' or direction == 'LARGO') else 'CORTO',
@@ -528,7 +536,8 @@ class Patron4HBot:
             'timeframe_entrada': '15M', 
             'timeframe_confirmacion': timeframe, 
             'confianza': confidence + momentum_bonus,
-            'momentum': momentum_estado
+            'momentum': momentum_estado,
+            'vela_origen': vela_origen_time
         }
 
     def _generar_entrada_directa(self, fvg: dict, df_tf: pd.DataFrame, df_15m: pd.DataFrame, direction: str, nivel_origen: float, timeframe: str, symbol: str, vela_origen_idx: int = None, symbolInfo: Dict = None) -> Optional[dict]:

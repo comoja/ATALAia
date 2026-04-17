@@ -375,9 +375,9 @@ class EMA20200Bot:
             
             # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
             vela_origen_idx = len(df) - 5  # Usar vela actual como origen para pullback
-            is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, price, tp_structural, direction, threshold=0.60)
+            is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, price, tp_structural, sl_price, direction, threshold=0.60, timeframe="1h")
             if not is_valid:
-                logger.info(f"[{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
                 return
             
             if symbol in self.lastSignals and self.lastSignals[symbol] == signal['candle_time']:

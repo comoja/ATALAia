@@ -434,9 +434,9 @@ class SMABot:
         
         # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
         vela_origen_idx = len(df) - 5  # Usar vela actual como origen
-        is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, close, take_profit, direction, threshold=0.60)
+        is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, take_profit, stop_loss, direction, threshold=0.60, timeframe="15M")
         if not is_valid:
-            logger.info(f"[SMA20-200] {symbol} rechazada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+            logger.info(f"[SMA20-200] {symbol} rechazada: Exhaustion - {mensaje}")
             return None
         
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
