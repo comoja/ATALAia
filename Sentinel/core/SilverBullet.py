@@ -142,6 +142,8 @@ class SilverBulletBot:
     def _window_start_ny(self, window: Dict) -> datetime:
         """Retorna el datetime de inicio de la ventana para hoy en NY."""
         now_ny = self._now_ny()
+        if window.get("start") is None:
+            return now_ny
         return now_ny.replace(
             hour=window["start"].hour,
             minute=window["start"].minute,
@@ -711,16 +713,17 @@ class SilverBulletBot:
         symbol = symbolInfo["symbol"]
         logger.info(f"▶ [SilverBullet] Verificando ventana activa para {symbol}")
 
-        # ── ¿Estamos en una ventana Silver Bullet? ───────────────────────────
-        result = self._get_active_window()
-        if result is None:
-            logger.info(f"[SilverBullet][{symbol}] Fuera de ventana Silver Bullet — sin acción")
-            return
+        # ── ¿Estamos en una ventana Silver Bullet? - COMENTADO PARA PRUEBAS ──
+        # result = self._get_active_window()
+        # if result is None:
+        #     logger.info(f"[SilverBullet][{symbol}] Fuera de ventana Silver Bullet — sin acción")
+        #     return
+        # window_name, window = result
+        window_name = "ALL_DAY"
+        window = {"label": "All Day 🕐", "start": None, "end": None}
 
-        window_name, window = result
         logger.info(
-            f"[SilverBullet][{symbol}] ✅ Ventana activa: {window['label']} "
-            f"({window['start']} – {window['end']} NY)"
+            f"[SilverBullet][{symbol}] ✅ Ejecutando (ventana deshabilitada para pruebas)"
         )
 
         # ── Evitar señal duplicada en la misma ventana y día ─────────────────

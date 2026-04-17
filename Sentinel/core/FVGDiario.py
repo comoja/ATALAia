@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Any
 from middleware.database import dbManager
 from middleware.execution.broker_gateway import gateway
 from Sentinel.analysis import technical, risk
-from Sentinel.data.dataLoader import getParametros
+from Sentinel.analysis.technical import check_tp_exhaustion
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -84,14 +84,23 @@ class FVGDiarioBot:
             
             await self.analyze_symbol(symbol_data)
     
-    async def analyze_symbol(self, symbolData: Dict):
+    async def analyze_symbol(self, symbolData: Dict, df_15m: pd.DataFrame = None):
         """Analiza un símbolo en busca de señales."""
         symbol = symbolData['symbol']
+        logger.info(f"▶ Iniciando análisis para {symbol}")
         
         try:
-            # Obtener datos diarios para Daily Bias
-            df_daily = self._get_daily_data(symbol)
+            # Usar datos recibidos o detectar Daily Bias desde 15m
+            if df_15m is None or len(df_15m) < 20:
+                logger.info(f"[{symbol}] Datos 15m insuficientes ({len(df_15m) if df_15m is not None else 0})")
+                return
+            
+            df_intraday = df_15m
+            
+            # Calcular Daily Bias desde datos 15m (resamplear a 1D)
+            df_daily = technical.resample_to_interval(df_15m, '1D') if len(df_15m) > 100 else None
             if df_daily is None or len(df_daily) < 2:
+                logger.info(f"[{symbol}] Datos diarios insuficientes para Daily Bias")
                 return
             
             # Identificar Daily Bias
@@ -102,11 +111,6 @@ class FVGDiarioBot:
             
             # Obtener nivel de liquidez opuesto (para TP)
             opposite_liquidity = pdl if daily_bias == "BULLISH" else pdh
-            
-            # Detectar manipulación en datos intradía
-            df_intraday = self._get_intraday_data(symbol)
-            if df_intraday is None or len(df_intraday) < 20:
-                return
             
             # Buscar manipulación
             manipulation = self._detect_manipulation(
@@ -133,7 +137,7 @@ class FVGDiarioBot:
             # Generar señal
             await self._generate_signal(
                 symbolData, daily_bias, pdh, pdl,
-                manipulation, fvg, opposite_liquidity
+                manipulation, fvg, opposite_liquidity, df_intraday
             )
             
         except Exception as e:
@@ -158,7 +162,9 @@ class FVGDiarioBot:
         
         # Calcular cuerpo de la vela
         body = close - open_price
-        total_range = last_candle['high'] - last_candle['low']
+        high_val = last_candle.get('high', last_candle.get('High', 0))
+        low_val = last_candle.get('low', last_candle.get('Low', 0))
+        total_range = high_val - low_val
         
         if total_range == 0:
             return "NEUTRAL"
@@ -184,8 +190,8 @@ class FVGDiarioBot:
         # Día anterior (índice -2 porque el último es el día actual)
         prev_day = df_daily.iloc[-2]
         
-        pdh = float(prev_day['high'])
-        pdl = float(prev_day['low'])
+        pdh = float(prev_day.get('high', prev_day.get('High', 0)))
+        pdl = float(prev_day.get('low', prev_day.get('Low', 0)))
         
         return pdh, pdl
     
@@ -212,28 +218,28 @@ class FVGDiarioBot:
         
         if daily_bias == "BEARISH":
             # Buscar manipulación en PDH (buscar liquidez de venta)
-            # El precio debe haber superado el PDH brevemente
             for i in range(len(recent) - 1, -1, -1):
-                if recent.iloc[i]['high'] >= pdh:
-                    # Limpiar el stop de liquidez
+                row_high = recent.iloc[i].get('high', recent.iloc[i].get('High', 0))
+                if row_high >= pdh:
                     return {
                         "type": "MANIPULATION_UP",
                         "level": pdh,
                         "index": i,
                         "timestamp": str(recent.index[i]),
-                        "price": float(recent.iloc[i]['high'])
+                        "price": float(row_high)
                     }
         
         elif daily_bias == "BULLISH":
             # Buscar manipulación en PDL (buscar liquidez de compra)
             for i in range(len(recent) - 1, -1, -1):
-                if recent.iloc[i]['low'] <= pdl:
+                row_low = recent.iloc[i].get('low', recent.iloc[i].get('Low', 0))
+                if row_low <= pdl:
                     return {
                         "type": "MANIPULATION_DOWN",
                         "level": pdl,
                         "index": i,
                         "timestamp": str(recent.index[i]),
-                        "price": float(recent.iloc[i]['low'])
+                        "price": float(row_low)
                     }
         
         return None
@@ -277,7 +283,8 @@ class FVGDiarioBot:
         
         elif daily_bias == "BULLISH":
             # Buscar higher high (precio rompe arriba tras manipular)
-            recent_highs = post_manip['high'].values
+            col_high = 'high' if 'high' in post_manip.columns else 'High'
+            recent_highs = post_manip[col_high].values if col_high in post_manip.columns else []
             for high in recent_highs:
                 if high > manipulation['level']:
                     return True
@@ -338,7 +345,8 @@ class FVGDiarioBot:
         pdl: float,
         manipulation: Dict,
         fvg: Dict,
-        opposite_liquidity: float
+        opposite_liquidity: float,
+        df: pd.DataFrame = None
     ):
         """Genera y envía la señal a las cuentas."""
         symbol = symbolData['symbol']
@@ -347,6 +355,19 @@ class FVGDiarioBot:
         signal_key = f"{symbol}_{fvg['timestamp']}"
         if signal_key in self._sent_signals:
             return
+        
+        # ── FILTRO: ADX - Vetar si < 20 (mercado lateral) ──
+        if df is not None:
+            adx_ok, adx_value = technical.is_market_trending(df, min_adx=20, period=14)
+            if not adx_ok:
+                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: ADX={adx_value:.1f} (< 20 = mercado lateral)")
+                return
+        
+        # ── MOMENTUM: Usar momentum pre-calculado desde main.py (ya está en symbolData) ──
+        momentum_estado = symbolData.get('momentum', '☁️ SIN DATOS') if symbolData else '☁️ SIN DATOS'
+        
+        if momentum_estado and momentum_estado != '☁️ SIN DATOS':
+            logger.info(f"[{self.strategy_name}][{symbol}] Momentum: {momentum_estado}")
         
         # Calcular niveles de entrada, SL y TP
         entry_price = float(fvg['mid'])
@@ -368,7 +389,26 @@ class FVGDiarioBot:
             abs(take_profit - entry_price) / sl_distance, 2
         )
         
+        # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
+        if df is not None:
+            vela_origen_idx = len(df) - 5  # Usar vela actual como origen
+            is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, direction, threshold=0.60)
+            if not is_valid:
+                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                return
+        
         # Preparar señal
+        base_confidence = 75
+        if momentum_estado:
+            aligned = (direction == 1 and momentum_estado in ['ALCISTA', 'RECUPERANDO_ALCISTA']) or \
+                      (direction == -1 and momentum_estado in ['BAJISTA', 'RECUPERANDO_BAJISTA'])
+            extreme = momentum_estado in ['EXTREMO_ALCISTA', 'EXTREMO_BAJISTA']
+            
+            if aligned:
+                base_confidence = 85
+            elif extreme:
+                base_confidence = 70
+        
         signal = {
             "strategy": self.strategy_name,
             "symbol": symbol,
@@ -387,7 +427,8 @@ class FVGDiarioBot:
             "manipulation_type": manipulation['type'],
             "fvg_type": fvg['type'],
             "opposite_liquidity": opposite_liquidity,
-            "confidence": 75,
+            "confidence": base_confidence,
+            "momentum": momentum_estado,
             "setup": "FVG Diario + Manipulación",
             "status": "EN ZONA ✅"
         }
@@ -454,30 +495,7 @@ class FVGDiarioBot:
                     f"[{direction}] cuenta {account['idCuenta']}"
                 )
     
-    def _get_daily_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Obtiene datos diarios del símbolo."""
-        try:
-            tz = 'America/Mexico_City'
-            df = getParametros(symbol, '1D', 5, tz)
-            if df is not None and len(df) > 0:
-                df = df.tail(5)
-            return df
-        except Exception as e:
-            logger.error(f"Error obteniendo datos diarios para {symbol}: {e}")
-            return None
-    
-    def _get_intraday_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Obtiene datos intradía (15min) del símbolo."""
-        try:
-            from middleware.config.constants import TIMEZONE
-            tz = TIMEZONE
-            df = getParametros(symbol, '15min', 50, tz)
-            if df is not None and len(df) > 0:
-                df = df.tail(50)
-            return df
-        except Exception as e:
-            logger.error(f"Error obteniendo datos 15min para {symbol}: {e}")
-            return None
+
     
     def get_mexico_time(self) -> datetime:
         """Obtiene la hora actual en timezone México."""

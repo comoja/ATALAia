@@ -17,6 +17,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
+from Sentinel.analysis.technical import check_tp_exhaustion
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
@@ -75,7 +76,7 @@ class SniperBot:
             
         return dfFinal
 
-    async def _get_signal(self, df: pd.DataFrame, symbol: str) -> Dict[str, Any] | None:
+    async def _get_signal(self, df: pd.DataFrame, symbol: str, symbolInfo: Dict = None) -> Dict[str, Any] | None:
         """Analyzes the data to generate a trading signal dictionary."""
         
         X, _ = mlModel.cleanDataForModel(df)
@@ -154,10 +155,12 @@ class SniperBot:
         techConfLong = (self.latestFullData["pendienteCci"] > 0.5 and self.latestFullData["pendienteRsi"] > 0.1)
         techConfShort = (self.latestFullData["pendienteCci"] < -0.5 and self.latestFullData["pendienteRsi"] < -0.1)
         
-        # --- MOMENTUM FILTER (único veto técnico además de ATR) ---
-        dfWithAngles = calcularAngulos(df.copy())
-        lastAngle = dfWithAngles.iloc[-1]
-        momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
+        # --- MOMENTUM FILTER (usar pre-calculado desde main.py) ---
+        momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
+        if momentumEstado == '☁️ SIN DATOS':
+            dfWithAngles = calcularAngulos(df.copy())
+            lastAngle = dfWithAngles.iloc[-1]
+            momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
         
         momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
         momentumBearish = momentumEstado in ["📉 BAJISTA"]
@@ -251,6 +254,10 @@ class SniperBot:
         mercado_erratico = adx_val < 20
         min_confirmaciones = 3 if mercado_erratico else 2
         logger.info(f"[{symbol}] ADX={adx_val:.1f} ({'ERRÁTICO' if mercado_erratico else 'TENDENCIA'}) → mín_conf={min_confirmaciones}")
+        
+        if mercado_erratico:
+            logger.info(f"[{symbol}] Rechazada: Mercado lateral (ADX={adx_val:.1f} < 20)")
+            return None
         logger.info(f"[{symbol}] Confirmaciones: {confirmaciones}/5 ({', '.join(detalles)})")
         
         if confirmaciones < min_confirmaciones:
@@ -353,6 +360,13 @@ class SniperBot:
         # --- SEMÁFORO DE ENTRADA (Price Action) ---
         # Al ser el momento de la detección el progreso es 0%
         status_msg = "EN ZONA ✅"
+
+        # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
+        vela_origen_idx = len(df) - 5  # Usar vela actual como origen
+        is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, direction, threshold=0.60)
+        if not is_valid:
+            logger.info(f"[Sniper][{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+            return None
 
         return {
             "strategy": "ML SNIPER SETUP",
@@ -496,7 +510,7 @@ class SniperBot:
             
 
             
-            signal = await self._get_signal(data, symbol)
+            signal = await self._get_signal(data, symbol, symbolInfo)
             if signal:
                 logger.info(f"[{symbol}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
                 await self._execute_trades(signal, symbolInfo)
@@ -523,7 +537,7 @@ class SniperBot:
             logger.info(f"◀ SALIENDO análisis para {symbol} (sin datos)")
             return
 
-        signal = await self._get_signal(data, symbol)
+        signal = await self._get_signal(data, symbol, symbolInfo)
         if signal:
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
             last_closed = get_last_closed_candle(now_cdmx, interval=5)

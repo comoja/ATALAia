@@ -27,6 +27,7 @@ from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
 from Sentinel.core.SilverBullet import SilverBulletBot
 from Sentinel.core.ImbalancePMNY import ImbalancePMNYBot
 from Sentinel.core.GenericFVG import GenericFVGBot
+from Sentinel.core.FVGDiario import FVGDiarioBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
@@ -150,7 +151,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     return preloaded_data
 
 
-async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas):
+async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas):
     """
     Ejecuta el análisis de forma secuencial:
     1. Obtener API key para este símbolo (rota entre cuentas)
@@ -222,11 +223,51 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         
         # --- RESAMPLEO LOCAL (Optimización: 06/04/2026) ---
         # Generamos todas las temporalidades necesarias en memoria para evitar latencia de DB
-        logger.info(f"[{symbol}] Generando resampleos locales (15min, 1h)...")
+        logger.info(f"[{symbol}] Generando resampleos locales (5min, 15min, 1h, 4h)...")
+        df5m = df.copy()  # Ya tenemos 5min
         df15m = resample_to_interval(df, "15min")
         df1h = resample_to_interval(df, "1h")
+        df4h = resample_to_interval(df, "4h")
         
-        logger.info(f"[{symbol}] 5m: {len(df)}v | 15m: {len(df15m)}v | 1h: {len(df1h)}v")
+        # Calcular features y momentum para cada timeframe
+        from middleware.utils.momentum import calcularAngulos, obtenerEstado
+        
+        df5m_feat = calculateFeatures(df5m)
+        df5m_ang = calcularAngulos(df5m_feat.copy())
+        last_5m = df5m_ang.iloc[-1]
+        momentum_5m, _ = obtenerEstado(last_5m.get('ang_rsi'), last_5m.get('ang_close'))
+        
+        df15m_feat = calculateFeatures(df15m)
+        df15m_ang = calcularAngulos(df15m_feat.copy())
+        last_15m = df15m_ang.iloc[-1]
+        momentum_15m, _ = obtenerEstado(last_15m.get('ang_rsi'), last_15m.get('ang_close'))
+        
+        df1h_feat = calculateFeatures(df1h)
+        df1h_ang = calcularAngulos(df1h_feat.copy())
+        last_1h = df1h_ang.iloc[-1]
+        momentum_1h, _ = obtenerEstado(last_1h.get('ang_rsi'), last_1h.get('ang_close'))
+        
+        df4h_feat = calculateFeatures(df4h)
+        df4h_ang = calcularAngulos(df4h_feat.copy())
+        last_4h = df4h_ang.iloc[-1]
+        momentum_4h, _ = obtenerEstado(last_4h.get('ang_rsi'), last_4h.get('ang_close'))
+        
+        # Guardar momentum por timeframe en symbolInfo
+        symbolInfo['momentum'] = momentum_15m  # Default 15m para compatibilidad
+        symbolInfo['momentum_by_tf'] = {
+            '5min': momentum_5m,
+            '15min': momentum_15m,
+            '1h': momentum_1h,
+            '4h': momentum_4h
+        }
+        symbolInfo['momentum_df_by_tf'] = {
+            '5min': df5m_ang,
+            '15min': df15m_ang,
+            '1h': df1h_ang,
+            '4h': df4h_ang
+        }
+        
+        logger.info(f"[{symbol}] Momentum: 5m={momentum_5m} | 15m={momentum_15m} | 1h={momentum_1h} | 4h={momentum_4h}")
         
         # Enviar resumen de momentum al inicio (solo una vez)
         global _resumen_momentum_enviado
@@ -234,17 +275,19 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
             _resumen_momentum_enviado = True
             await _enviar_resumen_inicial({symbol: df})
         
-        # 2. Ejecutar Sniper (usa 15min resampleado)
+        # 2. Ejecutar Sniper (usa 15min)
         logger.debug(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
-        preloadedDataSniper = {symbol: df15m}
+        preloadedDataSniper = {symbol: df15m_feat}
+        symbolInfo['momentum'] = momentum_15m  # Sniper usa 15min
         await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
         
         # 3. Ejecutar SMA20-200 (usa 15min)
         logger.debug(f"[TREND SMA ADVANCED] Ejecutando para {symbol}...")
         logger.debug(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
         logger.debug(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
-        preloadedDataSMA = {symbol: df15m}
+        preloadedDataSMA = {symbol: df15m_feat}
         symbolInfo['intervalo'] = "15min"
+        symbolInfo['momentum'] = momentum_15m  # SMA usa 15min
         try:
             logger.debug(f"[TREND SMA ADVANCED] >>> Entrando para {symbol}")
             
@@ -309,12 +352,13 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 
                 logger.info(f"[IMBNY]  Velas post-apertura: {len(dfPostApertura)}")
                 
-                preloadedDataSCLPNG = {symbol: dfPostApertura}
+                preloadedDataSCLPNG = {symbol: df5m_feat}
                 symbolInfo['intervalo'] = "5min"
                 symbolInfo['precioMaximo'] = precioMaximo
                 symbolInfo['precioMinimo'] = precioMinimo
                 symbolInfo['finAperturaNY'] = finAperturaNY
                 symbolInfo['cierreNY'] = cierreNY
+                symbolInfo['momentum'] = momentum_5m  # ImbalanceNY usa 5min
                 
                 await imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSCLPNG, symbolApiKey)
             else:
@@ -367,10 +411,11 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 
                 logger.debug(f"[IMBLDN] Velas post-apertura: {len(dfPostAperturaLDN)}")
                 
-                preloadedDataLDN = {symbol: dfPostAperturaLDN}
+                preloadedDataLDN = {symbol: df5m_feat}
                 symbolInfo['intervalo'] = "5min"
                 symbolInfo['precioMaximo'] = precioMaximoLDN
                 symbolInfo['precioMinimo'] = precioMinimoLDN
+                symbolInfo['momentum'] = momentum_5m  # ImbalanceLDN usa 5min
                 
                 await imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataLDN, symbolApiKey)
             else:
@@ -421,12 +466,13 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
                 
                 logger.info(f"[IMBPM] Velas post-apertura: {len(dfPostAperturaPM)}")
                 
-                preloadedDataPM = {symbol: dfPostAperturaPM}
+                preloadedDataPM = {symbol: df5m_feat}
                 symbolInfo['intervalo'] = "5min"
                 symbolInfo['precioMaximo'] = precioMaximoPM
                 symbolInfo['precioMinimo'] = precioMinimoPM
                 symbolInfo['finAperturaPM'] = finAperturaPM
                 symbolInfo['cierreNYPM'] = cierreNYPM
+                symbolInfo['momentum'] = momentum_5m  # ImbalancePMNY usa 5min
                 
                 await imbalance_pm_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataPM, symbolApiKey)
             else:
@@ -434,34 +480,44 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         
         # 8. Ejecutar Silver Bullet (actúa solo en su ventana horaria activa)
         #logger.info(f"[SilverBullet] Ejecutando para {symbol}...")
-        preloadedDataSB = {symbol: df}  # Usa datos 5min base
+        preloadedDataSB = {symbol: df5m_feat}  # Usa datos 5min con features
         symbolInfo['intervalo'] = "5min"
+        symbolInfo['momentum'] = momentum_5m  # SilverBullet usa 5min
         await silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSB, symbolApiKey)
 
-        # 8. Ejecutar EMA20_200 (usa 1h resampleado)
+        # 9. Ejecutar EMA20_200 (usa 1h resampleado)
         logger.debug(f"[TREND EMA INSTITUTIONAL] Ejecutando para {symbol} (1h)...")
         
-        preloadedDataEMA = {symbol: df1h}
+        preloadedDataEMA = {symbol: df1h_feat}
         symbolInfo['intervalo'] = "1h"
+        symbolInfo['momentum'] = momentum_1h  # EMA usa 1h
         await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
         
-        # 9. Ejecutar Patron4H (usa 15min resampleado a 4h y 1d)
+        # 10. Ejecutar Patron4H (usa 15min y 4h)
         logger.debug(f"[PATTERN 4H HTF] Ejecutando para {symbol}...")
         
-        preloadedDataP4H = {'15m': df15m}
+        preloadedDataP4H = {'15m': df15m_feat, '4h': df4h_feat}
         symbolInfo['intervalo'] = "15min"
+        symbolInfo['momentum'] = momentum_4h  # Patron4H usa 4h para confirmación
         await patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataP4H, symbolApiKey)
         
-        # 10. Ejecutar SesgoBiasHTF (usa 1h resampleado a 4h, D, W, M)
+        # 10. Ejecutar SesgoBiasHTF (usa 4h)
         logger.debug(f"[BIAS HTF ANALYSIS] Ejecutando para {symbol}...")
         
-        preloadedDataSesgo = {'4h': df1h}
-        symbolInfo['intervalo'] = "1h"
+        preloadedDataSesgo = {'4h': df4h_feat}
+        symbolInfo['intervalo'] = "4h"
+        symbolInfo['momentum'] = momentum_4h  # SesgoBiasHTF usa 4h
         await sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSesgo, symbolApiKey)
         
         # 11. Ejecutar GenericFVG (Price Action puro en 15m, 1h, 4h)
         logger.debug(f"[FVG Generico] Ejecutando para {symbol}...")
-        await generic_fvg_bot.analyze(symbolInfo, df)
+        symbolInfo['momentum'] = momentum_15m  # GenericFVG usa 15m
+        await generic_fvg_bot.analyze(symbolInfo, df15m_feat)
+        
+        # 12. Ejecutar FVGDiario (Manipulación + Daily Bias en 15m)
+        logger.debug(f"[FVG Diario] Ejecutando para {symbol}...")
+        symbolInfo['momentum'] = momentum_15m  # FVGDiario usa 15m
+        await fvg_diario_bot.analyze_symbol(symbolInfo, df15m_feat)
         
         # 12. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
         elapsed = time.time() - start_time
@@ -529,6 +585,7 @@ async def main():
     silver_bullet_bot = SilverBulletBot()
     imbalance_pm_bot  = ImbalancePMNYBot()
     generic_fvg_bot = GenericFVGBot()
+    fvg_diario_bot = FVGDiarioBot()
     
     lastAlertDate = None
     alertasNyEnviadas  = set()
@@ -581,7 +638,7 @@ async def main():
                 
                 # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
                 logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
-                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas)
+                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas)
                 # Calcular espera para el PRÓXIMO ciclo (Siempre 5 minutos para mantener reactividad)
                 proximaEspera = 5
                 

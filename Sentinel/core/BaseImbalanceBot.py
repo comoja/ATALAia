@@ -10,7 +10,9 @@ import pytz
 
 from middleware.database import dbManager
 from Sentinel.analysis import risk
+from Sentinel.analysis.technical import check_tp_exhaustion
 from middleware.utils.communications import sendTelegramAlert
+
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
@@ -164,6 +166,13 @@ class BaseImbalanceBot:
             logger.info(f"[{symbol}] No hay niveles de precio definidos")
             return []
         
+        # ADX Filter: Verificar mercado con tendencia
+        adx = ta.ADX(datos5min['high'], datos5min['low'], datos5min['close'], timeperiod=14)
+        adx_val = float(adx.dropna().iloc[-1]) if len(adx.dropna()) > 0 else 25.0
+        if adx_val < 20:
+            logger.info(f"[{self.strategy_name}][{symbol}] Mercado lateral (ADX={adx_val:.1f} < 20), sin señales")
+            return []
+        
         precioActual = datos5min['close'].iloc[-1]
         logger.info(f"[{self.strategy_name}] Precio actual: {precioActual}, Max: {precioMaximo}, Min: {precioMinimo}")
         
@@ -296,6 +305,13 @@ class BaseImbalanceBot:
                 logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia TP ({distancia_tp:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
                 continue
             
+            # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
+            vela_origen_idx = len(datos5min) - 5  # Usar vela actual como origen
+            is_valid, recorrido_pct, _ = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, takeProfit, signalDirection, threshold=0.60)
+            if not is_valid:
+                logger.info(f"[{self.strategy_name}][{symbol}] FVG {idx+1} descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                continue
+            
             # --- SEMÁFORO DE ENTRADA (Price Action) ---
             fvg_mid = entryPrice # En esta clase base, entryPrice ya es fvg['mid']
             total_path = abs(takeProfit - fvg_mid)
@@ -314,6 +330,19 @@ class BaseImbalanceBot:
             else:
                 status_msg = "EN ZONA ✅"
 
+            # Momentum Filter: Usar momentum pre-calculado desde main.py
+            momentum_bonus = 0
+            momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
+            
+            if signalDirection == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
+                momentum_bonus = 10
+            elif signalDirection == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
+                momentum_bonus = 10
+            elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
+                momentum_bonus = -5
+                
+            logger.info(f"[{self.strategy_name}][{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
+            
             signals.append({
                 "symbol": symbol,
                 "direction": signalDirection,
@@ -331,7 +360,8 @@ class BaseImbalanceBot:
                 "dentroRango": fvg.get('dentroRango', True),
                 "velaCorteType": direction,
                 "symbolInfo": symbolInfo,
-                "confidence": 75,
+                "confidence": 75 + momentum_bonus,
+                "momentum": momentum_estado,
                 "candle_time": last_closed_str,
                 "status": status_msg
             })

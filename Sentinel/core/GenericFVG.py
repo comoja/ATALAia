@@ -34,7 +34,6 @@ class GenericFVGBot:
         self.strategy_name = "GenericFVG"
         
         logger.info(f"GenericFVGBot iniciado para intervalos: {self.intervals}")
-       
 
     def getMexicoTime(self) -> datetime:
         return datetime.now(pytz.timezone(TIMEZONE))
@@ -133,29 +132,29 @@ class GenericFVGBot:
             
             # 1. Filtrar RR muy bajo
             if rr_ratio < min_rr:
-                logger.info(f"[GenericFVG] RR={rr_ratio:.2f} < {min_rr} - descartando señal")
+                logger.info(f" RR={rr_ratio:.2f} < {min_rr} - descartando señal")
                 continue
             
             # 2. Verificar que precio actual no esté muy cerca del SL
             if latest_fvg['type'] == 'Bullish_FVG':
                 dist_to_sl = (sl - current_price) / risk_dist if risk_dist > 0 else 0
                 if dist_to_sl < max_sl_proximity:
-                    logger.info(f"[GenericFVG] Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                    logger.info(f" Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
                     continue
             else:
                 dist_to_sl = (current_price - sl) / risk_dist if risk_dist > 0 else 0
                 if dist_to_sl < max_sl_proximity:
-                    logger.info(f"[GenericFVG] Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                    logger.info(f" Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
                     continue
             
             # 3. Verificar que precio actual esté dentro de la zona del FVG
             if latest_fvg['type'] == 'Bullish_FVG':
                 if current_price <= sl or current_price >= tp1:
-                    logger.info(f"[GenericFVG] Precio fuera de zona FVG - descartando")
+                    logger.info(f" Precio fuera de zona FVG - descartando")
                     continue
             else:
                 if current_price >= sl or current_price <= tp1:
-                    logger.info(f"[GenericFVG] Precio fuera de zona FVG - descartando")
+                    logger.info(f" Precio fuera de zona FVG - descartando")
                     continue
 
             # Preparar Dicc de Señal para Gateway

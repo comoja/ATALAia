@@ -23,7 +23,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.database import dbManager
 from Sentinel.analysis import technical, risk
-from Sentinel.analysis.technical import resample_to_interval
+from Sentinel.analysis.technical import resample_to_interval, check_tp_exhaustion
 from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
@@ -292,6 +292,30 @@ class EMA20200Bot:
             separation = abs(ema20_last - ema200.iloc[-1]) / ema200.iloc[-1]
             atr_val = atr_series.iloc[-1]
             
+            # ADX Filter: Verificar mercado con tendencia
+            adx = ta.ADX(df['high'].values, df['low'].values, df['close'].values, timeperiod=14)
+            adx_series = pd.Series(adx).dropna()
+            adx_val = float(adx_series.iloc[-1]) if len(adx_series) > 0 else 25.0
+            if adx_val < 20:
+                logger.info(f"[{symbol}] Rechazada: Mercado lateral (ADX={adx_val:.1f} < 20)")
+                return
+            
+            # Momentum Filter: Usar momentum pre-calculado desde main.py
+            momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
+            momentum_bonus = 0
+            momentum_alineado = False
+            
+            if direction == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
+                momentum_bonus = 10
+                momentum_alineado = True
+            elif direction == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
+                momentum_bonus = 10
+                momentum_alineado = True
+            elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
+                momentum_bonus = -5  # Señal debil
+            
+            logger.info(f"[{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
+            
             # Simple filters
             if abs(slope_val) < 0.5 or separation < self.minSeparationPct:
                 logger.info(f"[{symbol}] Filtros EMA básicos insuficientes")
@@ -344,9 +368,17 @@ class EMA20200Bot:
                 "status": status_msg,
                 "slope": slope_val,
                 "separation": separation,
-                "confidence": int(prob * 100),
+                "confidence": int(prob * 100) + momentum_bonus,
+                "momentum": momentum_estado,
                 "setup": "EMA Pullback"
             }
+            
+            # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
+            vela_origen_idx = len(df) - 5  # Usar vela actual como origen para pullback
+            is_valid, recorrido_pct, _ = check_tp_exhaustion(df, vela_origen_idx, price, tp_structural, direction, threshold=0.60)
+            if not is_valid:
+                logger.info(f"[{symbol}] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: 60%)")
+                return
             
             if symbol in self.lastSignals and self.lastSignals[symbol] == signal['candle_time']:
                 logger.info(f"[{symbol}] Rechazada: Señal duplicada para misma vela")

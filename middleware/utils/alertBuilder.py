@@ -159,6 +159,7 @@ def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
 
 
 def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
@@ -166,7 +167,8 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'SMA20': f"{signal.get('sma20', 0):,.4f}",
         'SMA200': f"{signal.get('sma200', 0):,.4f}",
-        'Tendencia': signal.get('tendencia', 'N/A')
+        'Tendencia': signal.get('tendencia', 'N/A'),
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -178,13 +180,15 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
 
 
 def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
-        'TF Señal': signal.get('timeframe_entrada', '15M')
+        'TF Señal': signal.get('timeframe_entrada', '15M'),
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -196,6 +200,7 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
 
 
 def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
@@ -203,7 +208,8 @@ def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'Slope': f"{signal.get('slope', 0):.2f}",
         'Separation': f"{signal.get('separation', 0):.4f}",
-        'Prob ML': f"{signal.get('confidence', 0):.2f}%"
+        'Prob ML': f"{signal.get('confidence', 0):.2f}%",
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -219,6 +225,7 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
     close = signal.get('entryPrice', 0)
     currentAtr = latest.get('atr', 0)
     vol_porcentaje = (currentAtr / close) * 100 if close > 0 else 0
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
@@ -227,7 +234,8 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'RSI': f"{latest.get('rsi', 0):.2f} ({'🟢' if latest.get('pendienteRsi', 0) > 0 else '🔴'})",
         'MACD': 'ALCISTA 🟢' if latest.get('macdHist', 0) > 0 else 'BAJISTA 🔴',
-        'Volatilidad': f"{vol_porcentaje:.3f}%"
+        'Volatilidad': f"{vol_porcentaje:.3f}%",
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -267,6 +275,7 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
     ote_text = "✅ CONFIRMADA" if signal.get('ote_ok') else "⚠️ FUERA DE ZONA"
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
@@ -277,7 +286,8 @@ def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
         'FVG': signal.get('fvg', 'N/A'),
         'OTE': ote_text,
         'Sweep': signal.get('sweep_type', 'N/A'),
-        'ADX': signal.get('adx', 0)
+        'ADX': signal.get('adx', 0),
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -288,6 +298,7 @@ def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
     )
 
 def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
@@ -295,7 +306,8 @@ def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': signal.get('fvgTime', 'N/A'),
-        'Sesión PM': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}"
+        'Sesión PM': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}",
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -306,6 +318,7 @@ def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
     )
 def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
     """Standardized message for Generic FVG signals matching the user's template."""
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
@@ -313,7 +326,8 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Confirmación': 'Price Action',
-        'TF Señal': trade.get('intervalo', 'N/A')
+        'TF Señal': trade.get('intervalo', 'N/A'),
+        'Momentum': momentum
     }
     
     return buildAlertMessage(
@@ -325,6 +339,7 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
     """Mensaje para estrategia FVGDiario - Manipulación + Daily Bias"""
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
@@ -336,7 +351,8 @@ def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
         'Manipulación': signal.get('manipulation_type', 'N/A'),
         'FVG': signal.get('fvg_type', 'N/A'),
         'Liq. Opuesta': f"{signal.get('opposite_liquidity', 0):,.5f}",
-        'TF Entrada': trade.get('intervalo', '15min')
+        'TF Entrada': trade.get('intervalo', '15min'),
+        'Momentum': momentum
     }
     
     return buildAlertMessage(

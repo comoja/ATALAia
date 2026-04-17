@@ -516,3 +516,93 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
     df_resampled = df.resample(rule, label='right', closed='right').agg(agg_dict).dropna()
     
     return df_resampled
+
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Calcula el ADX (Average Directional Index) para determinar si el mercado tiene tendencia.
+    
+    Args:
+        df: DataFrame con columnas high, low, close.
+        period: Periodo para el cálculo del ADX (default 14).
+        
+    Returns:
+        Valor del ADX. Retorna 25.0 por defecto si no se puede calcular.
+    """
+    if df is None or len(df) < period * 2:
+        return 25.0
+    
+    try:
+        adx_series = ta.ADX(df['high'].values, df['low'].values, df['close'].values, timeperiod=period)
+        adx_val = float(adx_series.dropna().iloc[-1])
+        return adx_val if not np.isnan(adx_val) else 25.0
+    except Exception as e:
+        logger.debug(f"[ADX] Error calculando ADX: {e}")
+        return 25.0
+
+
+def is_market_trending(df: pd.DataFrame, min_adx: float = 20, period: int = 14) -> tuple:
+    """
+    Determina si el mercado tiene tendencia suficiente para operar.
+    
+    Args:
+        df: DataFrame con columnas high, low, close.
+        min_adx: ADX mínimo requerido (default 20).
+        period: Periodo para el cálculo del ADX (default 14).
+        
+    Returns:
+        Tupla (is_trending: bool, adx_value: float)
+    """
+    adx = calculate_adx(df, period)
+    return (adx >= min_adx, adx)
+
+
+def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp: float, direction: str, threshold: float = 0.60) -> tuple:
+    """
+    Verifica si el precio ya recorrió demasiado hacia el TP desde la vela origen.
+    Si el mercado ya caminó > threshold hacia el TP, la señal está "gastada".
+    
+    Args:
+        df: DataFrame con columnas high, low, close.
+        vela_origen_idx: Índice de la vela donde se formó el patrón/displacement original.
+        entry: Precio de entrada.
+        tp: Precio del take profit.
+        direction: Dirección de la operación ('LONG'/'LARGO' o 'SHORT'/'CORTO').
+        threshold: Umbral de bloqueo (default 0.60 = 60%).
+        
+    Returns:
+        Tupla (is_valid: bool, recorrido_pct: float, message: str)
+    """
+    logger = logging.getLogger("sentinel")
+    
+    if vela_origen_idx is None or vela_origen_idx < 0 or vela_origen_idx >= len(df):
+        return (True, 0.0, "Sin índice de vela origen, se permite")
+    
+    if df is None or len(df) <= vela_origen_idx:
+        return (True, 0.0, "DataFrame insuficiente, se permite")
+    
+    try:
+        direction_upper = direction.upper() if direction else ""
+        precio_origen = float(df['close'].iloc[vela_origen_idx])
+        distancia_total = abs(tp - precio_origen)
+        
+        if distancia_total == 0:
+            return (True, 0.0, "Distancia TP cero, se permite")
+        
+        if direction_upper in ("LONG", "LARGO"):
+            max_since_origin = float(df['high'].iloc[vela_origen_idx:].max())
+            recorrido_pct = (max_since_origin - precio_origen) / distancia_total
+        else:  # SHORT / CORTO
+            min_since_origin = float(df['low'].iloc[vela_origen_idx:].min())
+            recorrido_pct = (precio_origen - min_since_origin) / distancia_total
+        
+        if recorrido_pct > threshold:
+            logger.info(f"[Exhaustion] Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: {threshold*100:.0f}%)")
+            return (False, recorrido_pct, f"Bloqueado: {recorrido_pct*100:.1f}% > {threshold*100:.0f}%")
+        
+        logger.info(f"[Exhaustion] Recorrido hacia TP: {recorrido_pct*100:.1f}% (umbral: {threshold*100:.0f}%) ✅")
+        return (True, recorrido_pct, "Válido")
+        
+    except Exception as e:
+        logger.debug(f"[Exhaustion] Error calculando exhaustion: {e}")
+        return (True, 0.0, f"Error: {e}")
