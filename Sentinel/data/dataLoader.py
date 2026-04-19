@@ -23,7 +23,7 @@ def getParametros():
     
     indice = (indice + 1) % len(constants.API_KEYS)
     keyActiva = constants.API_KEYS[indice]
-    nombres = ["JAIME", "RAUL", "SEBASTIAN"]
+    nombres = ["JAIME", "RAUL", "SEBASTIAN","ANA"]
     nombreKey = f"{nombres[indice]} ({indice})"
     
     intervaloActual = constants.INTERVALmax if (ahora.hour in constants.timeframes and ahora.minute < 15) else constants.INTERVAL

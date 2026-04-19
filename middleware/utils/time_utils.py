@@ -35,22 +35,24 @@ def is_market_closed(dt=None):
     También hay un descanso diario de 17:00 a 18:00 NY (Rollover).
     """
     ny_tz = pytz.timezone('America/New_York')
+    local_tz = pytz.timezone(TIMEZONE) # 'America/Mexico_City'
     
     if dt is None:
         now_ny = datetime.now(ny_tz)
     else:
         # Si dt no tiene zona horaria, asumimos que es local (Mexico City)
         if dt.tzinfo is None:
-            local_tz = pytz.timezone(TIMEZONE)
             now_ny = local_tz.localize(dt).astimezone(ny_tz)
         else:
+            # Si es aware (podría venir de ZoneInfo o pytz), astimezone lo maneja bien
             now_ny = dt.astimezone(ny_tz)
 
     weekday_ny = now_ny.weekday() # 0=Monday, ..., 6=Sunday
     hour_ny = now_ny.hour
     
     # 1. Descanso Diario (Rollover/Settlement): 17:00 - 18:00 NY
-    if 17 <= hour_ny < 18:
+    # Nota: El domingo no hay rollover previo porque es la apertura del mercado.
+    if 17 <= hour_ny < 18 and weekday_ny != 6:
         # logger.info(f"⏳ [NY] Horario de Rollover (17:00-18:00) - No opera")
         return True
 
@@ -59,7 +61,14 @@ def is_market_closed(dt=None):
         return True
     if weekday_ny == 5: # Sábado
         return True
-    if weekday_ny == 6 and hour_ny < 17: # Domingo mañana
+    if weekday_ny == 6 and hour_ny < 17: # Domingo mañana (Apertura a las 17:00 NY)
         return True
 
     return False
+
+def isRestTime(dt=None):
+    """
+    Determina si el mercado está en periodo de descanso o cierre (Weekend/Rollover).
+    Es la función central utilizada por Sentinel y DataSymbol para decidir si operar.
+    """
+    return is_market_closed(dt)

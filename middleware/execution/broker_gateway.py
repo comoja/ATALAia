@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from typing import Any
 from middleware.database import dbManager
+from middleware.utils.loggerConfig import setupLogging
 from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import (
     buildEMAAlertMessage, 
@@ -10,11 +11,16 @@ from middleware.utils.alertBuilder import (
     buildImbalanceNYAlertMessage, 
     buildImbalanceLDNAlertMessage, 
     buildPatron4HAlertMessage,
-    buildSesgoBiasHTFAlertMessage
+    buildSesgoBiasHTFAlertMessage,
+    buildSilverBulletAlertMessage,
+    buildImbalancePMNYAlertMessage,
+    buildGenericFVGAlertMessage,
+    buildFVGDiarioAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
 
-logger = logging.getLogger(__name__)
+setupLogging("execution")
+logger = logging.getLogger("execution")
 
 class BrokerGateway:
     """
@@ -91,6 +97,8 @@ class BrokerGateway:
             
             tf_confirm = signal.get('timeframe_confirmacion', signal.get('timeframe_entrada', '1H'))
             entry_price = signal.get('entryPrice', signal.get('entrada'))
+            takeProfit = signal.get('takeProfit', signal.get('tp'))
+            stopLoss = signal.get('stopLoss', signal.get('sl')) 
             
             if entry_price is None:
                 logger.warning("No se encontró precio de entrada en la señal")
@@ -109,11 +117,13 @@ class BrokerGateway:
             
             if min_price <= entry_price <= max_price:
                 logger.info(f"✅ Precio entrada {entry_price} vigente en {tf_confirm} ({num_velas} velas)")
+                logger.info(f"   Rango de velas recientes: [{min_price:.5f}, {max_price:.5f}] | TP: {takeProfit} | SL: {stopLoss}")
                 return True
             else:
                 logger.warning(f"⚠️ Orden RECHAZADA: Precio entrada {entry_price} NO vigente en {tf_confirm}. Rango: [{min_price:.5f}, {max_price:.5f}]")
                 return False
                 
+            return True
         except Exception as e:
             logger.error(f"Error en validación de precio de entrada: {e}")
             return True
@@ -206,6 +216,14 @@ class BrokerGateway:
             return buildPatron4HAlertMessage(signal, trade_data)
         elif strategy_name == "SesgoBiasHTF":
             return buildSesgoBiasHTFAlertMessage(signal, trade_data)
+        elif strategy_name == "SilverBullet":
+            return buildSilverBulletAlertMessage(signal, trade_data)
+        elif strategy_name == "ImbalancePMNY":
+            return buildImbalancePMNYAlertMessage(signal, trade_data)
+        elif strategy_name == "GenericFVG":
+            return buildGenericFVGAlertMessage(signal, trade_data)
+        elif strategy_name == "FVGDiario":
+            return buildFVGDiarioAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 
@@ -213,7 +231,7 @@ class BrokerGateway:
         # ... (Lógica de ejecución ya implementada o placeholder)
         return True
 
-    async def close_trade(self, id_trade: int, exit_price: float, reason: str):
+    async def close_trade(self, id_trade: int, exit_price: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
         """
         Cierra un trade en la DB y, si es Live, en el Broker.
         """
@@ -242,7 +260,7 @@ class BrokerGateway:
             closure_data = {"exitPrice": exit_price}
             pnl = risk.calculatePnl(trade_data, closure_data)
             
-            dbManager.closeTrade(id_trade, exit_price, pnl, reason)
+            dbManager.closeTrade(id_trade, exit_price, pnl, reason, capital_anterior, pnl_anterior)
             logger.info(f"✅ Gateway: Trade {id_trade} symbol {trade_data['symbol']} cuenta {trade_data['idCuenta']} cerrado por {reason}. PnL Calculado: {pnl:.2f}")
             
         except Exception as e:

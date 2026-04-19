@@ -27,6 +27,8 @@ from middleware.utils.alertBuilder import buildSMAAlertMessage, adjustTPForMinRR
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
+from zoneinfo import ZoneInfo
 
 
 logger = logging.getLogger(__name__)
@@ -403,11 +405,25 @@ class SMABot:
             logger.info(f"[SMA20-200] {symbol} rechazada: distancia TP muy pequeña ({tp_dist * multiplier:.1f} pips < {min_distance_pips} pips)")
             return None
         
+        now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+        last_closed = get_last_closed_candle(now_cdmx, interval=5)
+        
+        # --- SEMÁFORO DE ENTRADA (Price Action) ---
+        total_dist = abs(take_profit - close)
+        # En SMA, 'close' es el precio de detección. El progreso se mide desde ese punto.
+        # Pero para el semáforo inicial en la misma vela, siempre será 'EN ZONA'.
+        progress_pct = 0 
+        
+        status_msg = "EN ZONA ✅"
+        if progress_pct > 100: status_msg = "META ALCANZADA 🚨"
+        elif progress_pct > 50: status_msg = "ALEJÁNDOSE ⚠️"
+
         return {
-            "strategy": "SMA20-200", "direction": direction, "entryPrice": close,
+            "strategy": "TREND SMA ADVANCED", "direction": direction, "entryPrice": close,
             "slDistance": sl_dist, "stopLoss": stop_loss, "takeProfit": take_profit,
-            "confidence": int(prob * 100) + bb_bonus, "symbol": symbol, "candle_time": df.index[-1],
+            "confidence": int(prob * 100) + bb_bonus, "symbol": symbol, "candle_time": last_closed,
             "sma20": sma20, "sma200": sma200, "atr": atr,
+            "status": status_msg,
             "riesgo_pips": round(sl_dist * multiplier, 1),
             "rr_ratio": round(rr_actual, 2),
             "setup": "Consolidacion" if consolidacion else "Doble Toque",
@@ -417,32 +433,13 @@ class SMABot:
 
     async def _execute_trades(self, signal: Dict, symbolInfo):
         symbol = symbolInfo['symbol']
-        for account in self.accounts:
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "SMA20-200"): continue
-            
-            posSize, _, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']), riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'], symbolInfo=symbolInfo, entryPrice=signal.get('entryPrice')
-            )
-            if posSize is None or posSize == 0: continue
-
-            trade = {
-                "idCuenta": account['idCuenta'], "symbol": symbol, "direction": signal['direction'],
-                "entryPrice": signal['entryPrice'], "openTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": signal['stopLoss'], "takeProfit": signal['takeProfit'], "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''), "status": "OPEN",
-                "strategy": "SMA20_200", "margin_used": marginUsed,
-            }
-
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "SMA20_200", df=df)
-            
-            if success and msgId:
-                await self.cleanupOldMessages(account['TokenMsg'], account['idGrupoMsg'])
-                self.lastMessageIds[symbol] = msgId
-                self.sentMessages.append({"token": account['TokenMsg'], "chatId": account['idGrupoMsg'], "msgId": msgId, "sentTime": datetime.now()})
-                self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
+        
+        from Sentinel.execution.engine import execute_signal
+        success, msgId = await execute_signal(signal, symbolInfo, "SMA20_200", df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbol] = msgId
+            self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
 
     def _filtrar_velas_completas(self, df: pd.DataFrame, ahora_cdmx, interval: str) -> pd.DataFrame:
         interval_map = {'1min': 1, '5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '1day': 1440}
@@ -470,7 +467,6 @@ class SMABot:
 
         signal = await self._get_signal(data, symbol, interval, apiKey)
         if signal and not self.esSenalDuplicada(symbol, signal['direction'], signal['candle_time']):
-            if not self.accounts: self.accounts = dbManager.getAccount()
-            if self.accounts: await self._execute_trades(signal, symbolInfo)
+            await self._execute_trades(signal, symbolInfo)
 
         logger.info(f"◀ SALIENDO análisis para {symbol}")

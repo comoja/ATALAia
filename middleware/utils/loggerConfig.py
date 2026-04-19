@@ -50,7 +50,7 @@ class ColorFormatter(logging.Formatter):
         formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
         return formatter.format(record)
 
-def setupLogging(logPara: str = "app", projectDir: str = None):
+def setupLogging(logPara: str = "app", projectDir: str | None = None, enableConsole: bool = True):
     if projectDir is None:
         projectDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     logDir = os.path.join(projectDir, 'logs')
@@ -59,24 +59,25 @@ def setupLogging(logPara: str = "app", projectDir: str = None):
 
     logFilename = os.path.join(logDir, f"{logPara}.log")
     
-    # Manejador para archivo diario (Sin colores para evitar caracteres extraños en archivos)
+    # Usar el nombre del proceso como nombre de logger
+    logger = logging.getLogger(logPara)
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    
+    # Manejador para archivo diario
     fileHandler = TimedRotatingFileHandler(
         logFilename, when="midnight", interval=1, backupCount=30, encoding='utf-8'
     )
     fileHandler.suffix = "%Y-%m-%d"
     fileFormatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     fileHandler.setFormatter(fileFormatter)
+    logger.addHandler(fileHandler)
     
-    # Manejador para consola (Con colores)
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(ColorFormatter())
-
-    # Configuración raíz
-    rootLogger = logging.getLogger()
-    if not rootLogger.handlers:
-        rootLogger.setLevel(logging.INFO)
-        rootLogger.addHandler(fileHandler)
-        rootLogger.addHandler(consoleHandler)
+    # Manejador para consola (Con colores) - solo si está habilitado
+    if enableConsole:
+        consoleHandler = logging.StreamHandler()
+        consoleHandler.setFormatter(ColorFormatter())
+        logger.addHandler(consoleHandler)
 
     # Silenciar logs de terceros
     logging.getLogger("httpx").setLevel(logging.WARNING)

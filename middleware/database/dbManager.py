@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 from middleware.database import dbConnection
 
 try:
+    from dataSymbol.core.databaseManager import DatabaseManager
+except ImportError:
+    DatabaseManager = None
+
+try:
     from middleware.config.constants import DATA_SOURCE, INTERVAL, API_KEYS
 except ImportError:
     DATA_SOURCE = "db"
@@ -126,6 +131,20 @@ def getAccount(id=None):
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return []
+
+def getCuentaCapital(idCuenta: int) -> float:
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT Capital FROM CUENTA WHERE idCuenta = %s", (idCuenta,))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return float(result['Capital'])
+        return 0.0
+    except Exception as e:
+        logger.error(f"Error al obtener capital de cuenta {idCuenta}: {e}")
+        return 0.0
 
 def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bool:
     try:
@@ -372,7 +391,7 @@ def getOpenTrades():
         logger.error(f"❌ Error en getOpenTrades: {e}")
         return []
 
-def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
+def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -391,21 +410,25 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str):
         margin_used = float(trade['margin_used']) if trade['margin_used'] else 0
         closeTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        nuevo_pnl = pnl_anterior + pnl if pnl_anterior is not None else pnl
+        
         cursor.execute("""
             UPDATE trades 
             SET closeTime = %s, exitPrice = %s, pnl = %s, status = 'CLOSED' 
             WHERE idTrade = %s
-        """, (closeTime, exitPrice, pnl, idTrade))
+        """, (closeTime, exitPrice, nuevo_pnl, idTrade))
         
-        capital_change = pnl + margin_used
-        cursor.execute("""
-            UPDATE Cuenta SET Capital = Capital + %s WHERE idCuenta = %s
-        """, (capital_change, idCuenta))
+        if capital_anterior is not None:
+            capital_nuevo = capital_anterior + pnl + margin_used
+            cursor.execute("UPDATE Cuenta SET Capital = %s WHERE idCuenta = %s", (capital_nuevo, idCuenta))
+        else:
+            capital_change = pnl + margin_used
+            cursor.execute("UPDATE Cuenta SET Capital = Capital + %s WHERE idCuenta = %s", (capital_change, idCuenta))
         
         conn.commit()
         conn.close()
         color_tag = "✅" if pnl >= 0 else "❌"
-        logger.info(f"{color_tag} Trade {idTrade} Symbol: {trade['symbol']} | Cerrado: {reason} | PnL: {pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_change:.2f}")
+        logger.info(f"{color_tag} Trade {idTrade} Symbol: {trade['symbol']} | Cerrado: {reason} | PnL: {nuevo_pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_nuevo if capital_anterior is not None else capital_change:.2f}")
         return True
         
     except Exception as e:
@@ -605,5 +628,7 @@ def get_min_wait_time() -> int:
     - "12data": 3 segundos (límite de 8 llamadas/min)
     """
     if DATA_SOURCE == "db":
-        return 2
-    return 4
+        return 1
+    return 3
+
+

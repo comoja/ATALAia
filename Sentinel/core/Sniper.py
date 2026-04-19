@@ -2,7 +2,8 @@
 Core Trading Bot Class
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
@@ -23,7 +24,9 @@ from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
+from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +301,23 @@ class SniperBot:
         elif cdlDoji != 0:
             confianza *= 0.95  # Doji = indecisión leve, no destruir la señal
 
+        # ── ORDER BLOCK CONFLUENCE (ICT) ─────────────────────────────────
+        ob_dir = 'LARGO' if direction == 'LARGO' else 'CORTO'
+        obs_sniper   = detect_order_blocks(df, ob_dir, lookback=60)
+        ob_conf_data = ob_confluence_score(close, obs_sniper, ob_dir, atr=currentAtr)
+        ob_score     = ob_conf_data['score']
+
+        if ob_conf_data['in_ob_zone']:
+            confirmaciones += 1
+            confianza += 10
+            detalles.append("OB_ZONE")
+            logger.info(f"[{symbol}] Precio en Order Block alineado ✅ +1 conf, +10% confianza")
+        elif ob_score >= 10:
+            confianza += 5
+            detalles.append("OB_NEAR")
+            logger.info(f"[{symbol}] Precio cerca de Order Block (+5% confianza, score={ob_score})")
+        # ────────────────────────────────────────────────────────────
+
         # --- Minimum Confidence Filter ---
         if confianza < config.MIN_CONFIDENCE_THRESHOLD:
             logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}% < {config.MIN_CONFIDENCE_THRESHOLD}%).")
@@ -330,12 +350,20 @@ class SniperBot:
             sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
             tp_structural = levels['low_zone']
 
+        # --- SEMÁFORO DE ENTRADA (Price Action) ---
+        # Al ser el momento de la detección el progreso es 0%
+        status_msg = "EN ZONA ✅"
+
         return {
+            "strategy": "ML SNIPER SETUP",
             "direction": direction,
             "confidence": confianza,
             "entryPrice": close,
             "slDistance": sl_dist,
             "tpStructural": tp_structural,
+            "status": status_msg,
+            "ob_score":    ob_score,
+            "in_ob_zone":  ob_conf_data['in_ob_zone'],
             "latestMetrics": latestFullData.to_dict(),
             "symbolInfo": symbol,
             "confirmaciones": confirmaciones,
@@ -347,88 +375,61 @@ class SniperBot:
         if not signal:
             return
 
-        for account in self.accounts:
-            # --- Risk and Position Sizing ---
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entryPrice')
-            )
-            
-            # --- Define SL/TP ---
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
+        # --- Define SL/TP ---
+        direction = signal['direction']
+        entryPrice = signal['entryPrice']
+        slDist = signal['slDistance']
 
-            slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
+        slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
+        
+        # Dynamic RR
+        ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
+        
+        # TP estructural prioritario, con fallback basado en ratioBase
+        tp_initial = signal.get('tpStructural')
+        if not tp_initial:
+            tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
             
-            # Dynamic RR
-            ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
-            
-            # TP estructural prioritario, con fallback basado en ratioBase
-            tp_initial = signal.get('tpStructural')
-            if not tp_initial:
-                tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
-                
-            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
-            
-            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
-            multiplier = getPipMultiplier(symbolInfo['symbol'])
-            
-            min_distance_pips = 6.0
-            min_distance_absolute = min_distance_pips / multiplier
-            
-            if slDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            tpDist = abs(tpPrice - entryPrice)
-            if tpDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            # Enriquecer señal con métricas para el constructor de alertas
-            signal['riesgo_pips'] = round(slDist * multiplier, 1)
-            signal['rr_ratio'] = round(rr_actual, 2)
-            
-            if posSize is None:
-                posSize = 0
-                marginUsed = 0
-                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
-            
-            # --- Create Trade Object ---
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": direction,
-                "entryPrice": entryPrice,
-                "openTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice,
-                "takeProfit": tpPrice,
-                "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''),
-                "status": "OPEN",
-                "strategy": "Sniper",
-                "margin_used": marginUsed,
-            }
-            
-            # --- Execution and Alert via Gateway ---
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=latestFullData)
-            
-            # Delete previous message if interval is 1h and we have a new msgId
-            intervalo = symbolInfo.get('intervalo', '')
-            symbol = symbolInfo['symbol']
-            if success and msgId and intervalo == '1h' and symbol in self.lastMessageIds:
-                prevMsgId = self.lastMessageIds[symbol]
-                await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
-                self.lastMessageIds[symbol] = msgId
-            elif success and msgId:
-                self.lastMessageIds[symbol] = msgId
-                    
-                logger.info(f"✅ Alerta enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
+        tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
+        
+        rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
+        multiplier = getPipMultiplier(symbolInfo['symbol'])
+        
+        min_distance_pips = 6.0
+        min_distance_absolute = min_distance_pips / multiplier
+        
+        if slDist < min_distance_absolute:
+            logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        tpDist = abs(tpPrice - entryPrice)
+        if tpDist < min_distance_absolute:
+            logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        # Enriquecer señal para el ExecutionEngine y Alertas
+        signal['stopLoss'] = slPrice
+        signal['takeProfit'] = tpPrice
+        signal['riesgo_pips'] = round(slDist * multiplier, 1)
+        signal['rr_ratio'] = round(rr_actual, 2)
+        
+        from Sentinel.execution.engine import execute_signal
+        # Ejecutar la señal y recibir el msgId
+        success, msgId = await execute_signal(signal, symbolInfo, "Sniper", df=None)
+        
+        symbol = symbolInfo['symbol']
+        intervalo = symbolInfo.get('intervalo', '')
+        
+        # Lógica particular de Sentinel Sniper para reemplazar mensajes de 1H
+        """ Si enviaste señales previas para 1H, quita las antiguas para no hacer flood """
+        if success and msgId:
+            if intervalo == '1h' and symbol in self.lastMessageIds:
+                # Opcional (Dependiendo de si manejas token globalmente):
+                # prevMsgId = self.lastMessageIds[symbol]
+                # await deleteTelegramMessage(token, chat_id, prevMsgId)
+                pass 
+            self.lastMessageIds[symbol] = msgId
+
     
     
 
@@ -488,7 +489,9 @@ class SniperBot:
 
         signal = await self._get_signal(data, symbol)
         if signal:
-            signal['candle_time'] = data.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+            last_closed = get_last_closed_candle(now_cdmx, interval=5)
+            signal['candle_time'] = last_closed.strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"[{symbol}] Señal: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
             await self._execute_trades(signal, symbolInfo)
         else:

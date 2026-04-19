@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
@@ -12,6 +13,7 @@ from Sentinel.analysis import risk
 from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +198,9 @@ class BaseImbalanceBot:
         
         signals = []
         ahora = self.getMexicoTime().replace(tzinfo=None)
+        now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+        last_closed = get_last_closed_candle(now_cdmx, interval=5)
+        last_closed_str = last_closed.strftime("%Y-%m-%d %H:%M:%S")
         
         for idx, fvg in enumerate(fvgs):
             logger.info(f"[{self.strategy_name}] FVG {idx+1}: {fvg['type']}, idx: {fvg['idx']}")
@@ -291,6 +296,24 @@ class BaseImbalanceBot:
                 logger.info(f"[{self.strategy_name}] FVG {idx+1} rechazada: distancia TP ({distancia_tp:.5f}) < 0.3*ATR ({atr_min_distance:.5f})")
                 continue
             
+            # --- SEMÁFORO DE ENTRADA (Price Action) ---
+            fvg_mid = entryPrice # En esta clase base, entryPrice ya es fvg['mid']
+            total_path = abs(takeProfit - fvg_mid)
+            if total_path == 0: total_path = 0.001
+            
+            # Calcular progreso: (Precio Actual - Mid) / Distancia Total al TP
+            if direction == 'LONG':
+                progress_pct = (precioActual - fvg_mid) / total_path
+            else:
+                progress_pct = (fvg_mid - precioActual) / total_path
+                
+            if progress_pct >= 1.0:
+                status_msg = "META ALCANZADA 🚨"
+            elif progress_pct > 0.5:
+                status_msg = "ALEJÁNDOSE ⚠️"
+            else:
+                status_msg = "EN ZONA ✅"
+
             signals.append({
                 "symbol": symbol,
                 "direction": signalDirection,
@@ -309,7 +332,8 @@ class BaseImbalanceBot:
                 "velaCorteType": direction,
                 "symbolInfo": symbolInfo,
                 "confidence": 75,
-                "candle_time": datos5min.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+                "candle_time": last_closed_str,
+                "status": status_msg
             })
         
         self.signalGenerada = True
@@ -319,72 +343,31 @@ class BaseImbalanceBot:
         if not signal:
             return
 
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                logger.warning(f"[{self.strategy_name}] No hay cuentas disponibles")
-                return
-
-        for account in self.accounts:
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], self.strategy_name):
-                logger.info(f"[{self.strategy_name}] Estrategia deshabilitada para cuenta {account['idCuenta']}, omitiendo...")
-                continue
-            
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entryPrice')
-            )
-            
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
-            fvgNum = signal.get('fvgNum', 0)
-            
-            slPrice = signal['stopLoss']
-            
-            ratioBase = 2.0
-            tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
-            
-            if posSize is None:
-                posSize = 0
-                marginUsed = 0
-                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
-            
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": direction,
-                "entryPrice": entryPrice,
-                "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice,
-                "takeProfit": tpPrice,
-                "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''),
-                "status": "OPEN",
-                "strategy": self.strategy_name,
-                "fvgNum": fvgNum,
-                "margin_used": marginUsed,
-            }
-            
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, self.strategy_name, df=datos5min)
-            
-            if success and msgId:
-                self.lastMessageIds[symbolInfo['symbol']] = msgId
-                    
-                logger.info(f"✅ Alerta {self.strategy_name} enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']} | Size: {posSize}")
+        direction = signal['direction']
+        entryPrice = signal['entryPrice']
+        slDist = signal['slDistance']
+        fvgNum = signal.get('fvgNum', 0)
         
-        fvg_num = signal.get('fvgNum', 0)
+        slPrice = signal['stopLoss']
+        
+        ratioBase = 2.0
+        tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
+        
+        signal['takeProfit'] = tpPrice
+        
+        from Sentinel.execution.engine import execute_signal
+        # Ejecutar la señal 
+        success, msgId = await execute_signal(signal, symbolInfo, self.strategy_name, df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbolInfo['symbol']] = msgId
+            
         ahora = self.getMexicoTime()
-        if fvg_num == 1:
+        if fvgNum == 1:
             self.signal1_enviada = True
             self.timestamp_signal1 = ahora
             logger.info(f"[{self.strategy_name}] Marcando señal 1 como enviada a las {ahora}")
-        elif fvg_num == 2:
+        elif fvgNum == 2:
             self.signal2_enviada = True
             self.timestamp_signal2 = ahora
             logger.info(f"[{self.strategy_name}] Marcando señal 2 como enviada a las {ahora}")

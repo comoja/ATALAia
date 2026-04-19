@@ -9,14 +9,82 @@ from datetime import datetime
 import warnings
 
 from middleware.utils.communications import alertaInmediata
+from middleware.database import dbManager
 import logging
 logger = logging.getLogger(__name__)
 
 warnings.filterwarnings("ignore")
 
 
-# Diccionario inicializado
+# Diccionario en memoria (se carga desde DB al iniciar)
 estadosPorSimbolo = {} 
+
+def _cargar_estados_desde_db():
+    """Carga los estados guardados desde la BD al iniciar."""
+    global estadosPorSimbolo
+    try:
+        conn = dbManager.dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        # Cargar estados de HOY
+        cursor.execute("SELECT symbol, estado FROM momentum_estados WHERE DATE(fecha) = CURDATE()")
+        results = cursor.fetchall()
+        for row in results:
+            estadosPorSimbolo[row['symbol']] = row['estado']
+        conn.close()
+        logger.info(f"[Momentum] Estados cargados desde DB: {len(estadosPorSimbolo)} símbolos")
+        return estadosPorSimbolo
+    except Exception as e:
+        logger.error(f"[Momentum] Error cargando estados desde DB: {e}")
+        return {}
+
+async def _enviar_resumen_inicial(df_dict: dict):
+    """Envía resumen de estados actuales al iniciar (a cuenta 1 - Sentinel)."""
+    mensaje = (
+        f"<b><center>📊 MOMENTUM - RESUMEN DE HOY</center></b>\n"
+        f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M')}</center>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+    )
+    for symbol, df in df_dict.items():
+        if df is None or len(df) < 15:
+            continue
+        df_calc = calcularAngulos(df.tail(15))
+        last = df_calc.iloc[-1]
+        estado, _ = obtenerEstado(last.get('ang_rsi'), last.get('ang_close'))
+        
+        # Usar icono según el estado real
+        estado_icono_map = {
+            "🚀 ALCISTA": "📈",
+            "📉 BAJISTA": "📉",
+            "💸 LIQUIDACIÓN": "💸",
+            "💎 GIRO": "💎",
+            "🌋 PARÁBOLA": "🌋",
+            "☁️ NEUTRAL": "➡️",
+            "☁️ SIN DATOS": "❓"
+        }
+        icono = estado_icono_map.get(estado, "⚡")
+        mensaje += f"<b>{icono} {symbol}</b>: {estado} (${last.get('close', 0):,.2f})\n"
+    
+    mensaje += "━━━━━━━━━━━━━━━━\n"
+    mensaje += f"<i>Estados actuales al iniciar Sentinel</i>"
+    
+    try:
+        await alertaInmediata(1, mensaje, False)
+        logger.info("[Momentum] Resumen inicial enviado a cuenta 1")
+    except Exception as e:
+        logger.error(f"[Momentum] Error enviando resumen: {e}")
+
+def _guardar_estado_en_db(symbol: str, estado: str):
+    """Guarda el estado del símbolo en la BD."""
+    try:
+        conn = dbManager.dbConnection.getConnection()
+        cursor = conn.cursor()
+        # Usar REPLACE para insertar o actualizar
+        cursor.execute("REPLACE INTO momentum_estados (symbol, estado, fecha) VALUES (%s, %s, NOW())", 
+                    (symbol, estado))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[Momentum] Error guardando estado en DB: {e}")
 
 def calcularAngulos(df, ventana=14):
     # Asegurar que las columnas sean numéricas para evitar el TypeError
@@ -50,6 +118,11 @@ def centrarTexto(texto, ancho=50):
 
 async def momentum(symbol, df, intervalo=None):   
     global estadosPorSimbolo 
+    
+    # Cargar estados desde DB si está vacío (al reiniciar Sentinel)
+    if not estadosPorSimbolo:
+        _cargar_estados_desde_db()
+    
     # 1. Procesar datos
     df = calcularAngulos(df)
     last = df.iloc[-1]
@@ -97,7 +170,8 @@ async def momentum(symbol, df, intervalo=None):
         elif estadoActual not in ["☁️ SIN DATOS", "☁️ NEUTRAL"]:
             await alertaInmediata(1, mensajeFinal, esCritico)
             
-        # 5. Actualizar el diccionario
+        # 5. Actualizar el diccionario y guardar en DB
         estadosPorSimbolo[symbol] = estadoActual
+        _guardar_estado_en_db(symbol, estadoActual)
 
     return estadosPorSimbolo

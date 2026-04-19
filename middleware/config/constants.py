@@ -2,6 +2,11 @@
 Centralized configuration for ATALAia middleware.
 This file contains all shared constants and settings used across subprojects.
 """
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).parent.parent.parent.resolve()
+
 import numpy as np
 
 SYMBOLS = np.array(["USD/MXN", "XAU/USD"])
@@ -11,7 +16,8 @@ FESTIVOS = ["2026-01-01", "2026-12-25", "2026-05-01"]
 API_KEYS = [
     "98c13fd2d0714dc984ca2791e9e3d521",
     "99cc3d9bead5422c99f5614131c9ba4c",
-    "6ac737658dde42fc9874bec8200b01ca"
+    "6ac737658dde42fc9874bec8200b01ca",
+    "a227afb20ee24294a55afe11e526bf6f"
 ]
 
 TWELVE_DATA_API_URL = "https://api.twelvedata.com"
@@ -83,8 +89,8 @@ ATR_MULTIPLIER_HIGH_CONFIDENCE = 1.15
 BASE_RISK_REWARD_RATIO = 2.0
 HIGH_CONFIDENCE_RISK_REWARD_RATIO = 2.2
 
-MODEL_FILE_PATH = "Sentinel/ml/trainedModel.joblib"
-MODEL_REG_FILE_PATH = "Sentinel/ml/trainedRegModel.joblib"
+MODEL_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedModel.joblib")
+MODEL_REG_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedRegModel.joblib")
 
 # --- Production Settings ---
 PRODUCTION_MODE = False # Cambiar a True para ejecución real en Broker

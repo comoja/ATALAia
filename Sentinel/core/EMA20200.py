@@ -1,6 +1,7 @@
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any
 import pandas as pd
 import numpy as np
@@ -22,6 +23,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.database import dbManager
 from Sentinel.analysis import technical, risk
+from Sentinel.analysis.technical import resample_to_interval
 from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
@@ -29,6 +31,7 @@ from middleware.utils.communications import sendTelegramAlert
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 
 from middleware.config.constants import TIMEZONE
+from dataSymbol.mainOrchestrator import get_last_closed_candle
 
 logger = logging.getLogger(__name__)
 
@@ -71,16 +74,7 @@ class EMA20200Bot:
     # RESAMPLE HTF
     # =========================
     def resampleTo1H(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-
-        df1h = df.resample('1h', label='right', closed='right').agg({
-            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'
-        })
-        if df.index[-1] < df1h.index[-1]:
-            df1h = df1h.iloc[:-1]
-        return df1h.dropna()
+        return technical.resample_to_interval(df, '1h')
 
     # =========================
     # INDICADORES
@@ -156,76 +150,50 @@ class EMA20200Bot:
     # EJECUCIÓN (SYNC)
     # =========================
     async def _executeTrades(self, signal: dict, symbolInfo: dict):
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                logger.warning("No hay cuentas disponibles")
-                return
-
         symbol = symbolInfo['symbol']
+        direction = signal['direction']
+        entryPrice = signal['entryPrice']
+        slDist = signal['slDistance']
+        # Garantizar RR mínimo de 1.5
+        slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
         
-        for account in self.accounts:
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "EMA20200"):
-                continue
+        # TP estructural prioritario, con fallback a 2.0 RR
+        tp_initial = signal.get('tpStructural')
+        if not tp_initial:
+            tp_initial = entryPrice + (slDist * 2) if direction == "LARGO" else entryPrice - (slDist * 2)
+            
+        tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
+        
+        rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
+        multiplier = getPipMultiplier(symbol)
+        
+        min_distance_pips = 6.0
+        min_distance_absolute = min_distance_pips / multiplier
+        
+        if slDist < min_distance_absolute:
+            logger.info(f"[EMA20200] {symbol} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        tpDist = abs(tpPrice - entryPrice)
+        if tpDist < min_distance_absolute:
+            logger.info(f"[EMA20200] {symbol} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        # Enriquecer señal con métricas para el mensaje
+        signal['stopLoss'] = slPrice
+        signal['takeProfit'] = tpPrice
+        signal['riesgo_pips'] = round(slDist * multiplier, 1)
+        signal['rr_ratio'] = round(rr_actual, 2)
+
+        # Ejecución centralizada vía ExecutionEngine 
+        from Sentinel.execution.engine import execute_signal
+        
+        # Notar que en DB "EMA20_200" o "EMA20200" puede estar registrado para `isEstrategiaHabilitadaParaCuenta`
+        success, msgId = await execute_signal(signal, symbolInfo, "EMA20_200", df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbol] = msgId
                 
-            posSize, _, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']), 
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'], 
-                symbolInfo=symbolInfo, 
-                entryPrice=signal['entryPrice']
-            )
-
-            if posSize is None or posSize == 0:
-                continue
-
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
-            # Garantizar RR mínimo de 1.5
-            slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
-            
-            # TP estructural prioritario, con fallback a 2.0 RR
-            tp_initial = signal.get('tpStructural')
-            if not tp_initial:
-                tp_initial = entryPrice + (slDist * 2) if direction == "LARGO" else entryPrice - (slDist * 2)
-                
-            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
-            
-            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
-            multiplier = getPipMultiplier(symbol)
-            
-            min_distance_pips = 6.0
-            min_distance_absolute = min_distance_pips / multiplier
-            
-            if slDist < min_distance_absolute:
-                logger.info(f"[EMA20200] {symbol} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            tpDist = abs(tpPrice - entryPrice)
-            if tpDist < min_distance_absolute:
-                logger.info(f"[EMA20200] {symbol} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            # Enriquecer señal con métricas para el mensaje
-            signal['riesgo_pips'] = round(slDist * multiplier, 1)
-            signal['rr_ratio'] = round(rr_actual, 2)
-
-            trade = {
-                "idCuenta": account['idCuenta'], "symbol": symbol, "direction": direction,
-                "entryPrice": entryPrice, "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice, "takeProfit": tpPrice, "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', self.interval), "status": "OPEN",
-                "strategy": "EMA20200", "margin_used": marginUsed,
-            }
-
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "EMA20200", df=df)
-            
-            if success and msgId:
-                self.lastMessageIds[symbol] = msgId
-                    
         self.lastSignals[symbol] = signal['candle_time']
 
     # =========================
@@ -327,12 +295,24 @@ class EMA20200Bot:
                 sl_dist = max(atr_val * 0.8, min(sl_price - price, atr_val * 2.5))
                 tp_structural = levels['low_zone']
 
+            # --- SEMÁFORO DE ENTRADA (Price Action) ---
+            total_dist = abs(tp_structural - price)
+            # Al ser el momento de la detección, el progreso es inicial (0%)
+            progress_pct = 0
+            
+            status_msg = "EN ZONA ✅"
+            if progress_pct > 100: status_msg = "META ALCANZADA 🚨"
+            elif progress_pct > 50: status_msg = "ALEJÁNDOSE ⚠️"
+
+            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+            last_closed = get_last_closed_candle(now_cdmx, interval=5)
             signal = {
                 "direction": direction,
                 "entryPrice": price,
                 "slDistance": sl_dist,
                 "tpStructural": tp_structural,
-                "candle_time": df.index[-1].strftime("%Y-%m-%d %H:%M:%S"),
+                "candle_time": last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": status_msg,
                 "slope": slope_val,
                 "separation": separation,
                 "confidence": int(prob * 100),
