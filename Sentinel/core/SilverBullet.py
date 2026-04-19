@@ -632,67 +632,17 @@ class SilverBulletBot:
         if not signal:
             return
 
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                logger.warning("[SilverBullet] No hay cuentas disponibles")
-                return
-
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account["idCuenta"], "SilverBullet"):
-                logger.info(
-                    f"[SilverBullet] Estrategia deshabilitada para cuenta "
-                    f"{account['idCuenta']}, omitiendo..."
-                )
-                continue
-
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account["Capital"]),
-                riskPercentage=float(account["ganancia"]),
-                slDistance=signal["slDistance"],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get("entryPrice"),
+        from Sentinel.execution.engine import execute_signal
+        success, msgId = await execute_signal(signal, symbolInfo, "SilverBullet", df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbolInfo["symbol"]] = msgId
+            logger.info(
+                f"✅ [SilverBullet] Alerta ejecutada satisfactoriamente para {symbolInfo['symbol']} | "
+                f"{signal['direction']} @ {signal['entryPrice']:.4f} "
+                f"SL={signal['stopLoss']:.4f} TP={signal['takeProfit']:.4f} "
+                f"RR={signal['rr_ratio']}"
             )
-
-            if posSize is None or posSize == 0:
-                logger.warning(
-                    f"[SilverBullet] Size=0 para {symbolInfo['symbol']} "
-                    f"cuenta {account['idCuenta']}"
-                )
-                continue
-
-            signal['profit'] = riskUsd
-            trade = {
-                "idCuenta":   account["idCuenta"],
-                "symbol":     symbolInfo["symbol"],
-                "direction":  signal["direction"],
-                "entryPrice": signal["entryPrice"],
-                "openTime":   datetime.now(MX_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss":   signal["stopLoss"],
-                "takeProfit": signal["takeProfit"],
-                "size":       posSize,
-                "intervalo":  "5min",
-                "status":     "OPEN",
-                "strategy":   "SilverBullet",
-                "margin_used": marginUsed,
-            }
-
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(
-                trade, signal, account, "SilverBullet"
-            )
-
-            if success and msgId:
-                self.lastMessageIds[symbolInfo["symbol"]] = msgId
-                logger.info(
-                    f"✅ [SilverBullet] Alerta enviada para {symbolInfo['symbol']} "
-                    f"cuenta {account['idCuenta']} | "
-                    f"{signal['direction']} @ {signal['entryPrice']:.4f} "
-                    f"SL={signal['stopLoss']:.4f} TP={signal['takeProfit']:.4f} "
-                    f"RR={signal['rr_ratio']}"
-                )
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Entry point principal — llamado desde main.py

@@ -433,35 +433,13 @@ class SMABot:
 
     async def _execute_trades(self, signal: Dict, symbolInfo):
         symbol = symbolInfo['symbol']
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "SMA20_200"): continue
-            
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']), riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'], symbolInfo=symbolInfo, entryPrice=signal.get('entryPrice')
-            )
-            if posSize is None or posSize == 0: continue
-
-            signal['profit'] = riskUsd
-            trade = {
-                "idCuenta": account['idCuenta'], "symbol": symbol, "direction": signal['direction'],
-                "entryPrice": signal['entryPrice'], "openTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": signal['stopLoss'], "takeProfit": signal['takeProfit'], "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''), "status": "OPEN",
-                "strategy": "SMA20_200", "margin_used": marginUsed,
-            }
-
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "SMA20_200", df=df)
-            
-            if success and msgId:
-                await self.cleanupOldMessages(account['TokenMsg'], account['idGrupoMsg'])
-                self.lastMessageIds[symbol] = msgId
-                self.sentMessages.append({"token": account['TokenMsg'], "chatId": account['idGrupoMsg'], "msgId": msgId, "sentTime": datetime.now()})
-                self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
+        
+        from Sentinel.execution.engine import execute_signal
+        success, msgId = await execute_signal(signal, symbolInfo, "SMA20_200", df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbol] = msgId
+            self.lastSignals[symbol] = {"direction": signal['direction'], "candle_time": signal['candle_time']}
 
     def _filtrar_velas_completas(self, df: pd.DataFrame, ahora_cdmx, interval: str) -> pd.DataFrame:
         interval_map = {'1min': 1, '5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '1day': 1440}
@@ -489,7 +467,6 @@ class SMABot:
 
         signal = await self._get_signal(data, symbol, interval, apiKey)
         if signal and not self.esSenalDuplicada(symbol, signal['direction'], signal['candle_time']):
-            if not self.accounts: self.accounts = dbManager.getAccount()
-            if self.accounts: await self._execute_trades(signal, symbolInfo)
+            await self._execute_trades(signal, symbolInfo)
 
         logger.info(f"◀ SALIENDO análisis para {symbol}")

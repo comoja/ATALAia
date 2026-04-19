@@ -1054,63 +1054,23 @@ class SesgoBiasHTFBot:
     async def _executeTrades(self, signal: Dict, symbolInfo: Dict, df_used: pd.DataFrame = None):
         if not signal:
             return
-
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                return
-
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'SesgoBiasHTF'):
-                continue
             
-            entry_price = signal['entrada']
-            sl_price = signal['stop_loss']
-            sl_distance = abs(entry_price - sl_price)
-            
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=sl_distance,
-                symbolInfo=symbolInfo,
-                entryPrice=entry_price
-            )
-            
-            if posSize is None or posSize == 0:
-                continue
-            
-            signal['profit'] = riskUsd
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": signal['direccion'],
-                "entryPrice": entry_price,
-                "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": sl_price,
-                "takeProfit": signal['take_profit'],
-                "size": posSize,
-                "intervalo": "4h",
-                "status": "OPEN",
-                "strategy": "SesgoBiasHTF",
-                "margin_used": marginUsed,
-            }
-            
-            from middleware.execution.broker_gateway import gateway
-            
-            signal_norm = {
-                **signal,
-                "direction": signal.get("direccion"),
-                "entryPrice": signal.get("entrada"),
-                "confidence": signal.get("confianza", 75),
-                "setup": signal.get("tipo_entrada", "SESGO_BIAS_HTF_PO3"),
-                "candle_time": signal.get("candle_time", self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"))
-            }
-            
-            success, msgId = await gateway.execute_trade(trade, signal_norm, account, "SesgoBiasHTF", df=df_used)
-            if success and msgId:
-                self.lastMessageIds[symbolInfo['symbol']] = msgId
+        from Sentinel.execution.engine import execute_signal
+        
+        signal_norm = {
+            **signal,
+            "direction": signal.get("direccion"),
+            "entryPrice": signal.get("entrada"),
+            "stopLoss": signal.get("stop_loss"),
+            "takeProfit": signal.get("take_profit"),
+            "confidence": signal.get("confianza", 75),
+            "setup": signal.get("tipo_entrada", "SESGO_BIAS_HTF_PO3"),
+            "candle_time": signal.get("candle_time", self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"))
+        }
+        
+        success, msgId = await execute_signal(signal_norm, symbolInfo, "SesgoBiasHTF", df=df_used)
+        if success and msgId:
+            self.lastMessageIds[symbolInfo['symbol']] = msgId
         
         self.signalsGeneradas[symbolInfo['symbol']] = True
 
@@ -1126,9 +1086,9 @@ class SesgoBiasHTFBot:
             logger.info(f"◀ SALIENDO análisis para {symbol} (datos insuficientes 4h)")
             return
         
-        df_1d = self.resample_ohlcv(df_4h, '1D')
+        df_1d = preloadedData.get('1D') if preloadedData and '1D' in preloadedData else self.resample_ohlcv(df_4h, '1D')
         df_1w = self.resample_ohlcv(df_4h, '1W')
-        df_1M = self.resample_ohlcv(df_4h, '1M')
+        df_1M = self.resample_ohlcv(df_4h, 'ME')
         
         datos = {
             '4h': df_4h, 
@@ -1170,7 +1130,7 @@ def executeSesgoBiasHTF(datos: Dict[str, pd.DataFrame], symbolInfo: Dict) -> Opt
     
     df_1d = bot.resample_ohlcv(df_4h, '1D')
     df_1w = bot.resample_ohlcv(df_4h, '1W')
-    df_1M = bot.resample_ohlcv(df_4h, '1M')
+    df_1M = bot.resample_ohlcv(df_4h, 'ME')
     
     datos_completos = {
         '4h': df_4h,

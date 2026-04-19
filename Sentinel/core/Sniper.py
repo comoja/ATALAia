@@ -375,97 +375,61 @@ class SniperBot:
         if not signal:
             return
 
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "Sniper"): continue
-            
-            # --- Risk and Position Sizing ---
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entryPrice')
-            )
-            
-            if posSize is None or posSize == 0:
-                continue
-            
-            signal['profit'] = riskUsd
-            
-            # --- Define SL/TP ---
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
+        # --- Define SL/TP ---
+        direction = signal['direction']
+        entryPrice = signal['entryPrice']
+        slDist = signal['slDistance']
 
-            slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
+        slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
+        
+        # Dynamic RR
+        ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
+        
+        # TP estructural prioritario, con fallback basado en ratioBase
+        tp_initial = signal.get('tpStructural')
+        if not tp_initial:
+            tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
             
-            # Dynamic RR
-            ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
-            
-            # TP estructural prioritario, con fallback basado en ratioBase
-            tp_initial = signal.get('tpStructural')
-            if not tp_initial:
-                tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
-                
-            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
-            
-            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
-            multiplier = getPipMultiplier(symbolInfo['symbol'])
-            
-            min_distance_pips = 6.0
-            min_distance_absolute = min_distance_pips / multiplier
-            
-            if slDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            tpDist = abs(tpPrice - entryPrice)
-            if tpDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            # Enriquecer señal con métricas para el constructor de alertas
-            signal['riesgo_pips'] = round(slDist * multiplier, 1)
-            signal['rr_ratio'] = round(rr_actual, 2)
-            
-            if posSize is None:
-                posSize = 0
-                marginUsed = 0
-                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
-            
-            # --- Create Trade Object ---
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": direction,
-                "entryPrice": entryPrice,
-                "openTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice,
-                "takeProfit": tpPrice,
-                "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''),
-                "status": "OPEN",
-                "strategy": "Sniper",
-                "margin_used": marginUsed,
-            }
-            
-            # --- Execution and Alert via Gateway ---
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=latestFullData)
-            
-            # Delete previous message if interval is 1h and we have a new msgId
-            intervalo = symbolInfo.get('intervalo', '')
-            symbol = symbolInfo['symbol']
-            if success and msgId and intervalo == '1h' and symbol in self.lastMessageIds:
-                prevMsgId = self.lastMessageIds[symbol]
-                await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
-                self.lastMessageIds[symbol] = msgId
-            elif success and msgId:
-                self.lastMessageIds[symbol] = msgId
-                    
-                logger.info(f"✅ Alerta enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
+        tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
+        
+        rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
+        multiplier = getPipMultiplier(symbolInfo['symbol'])
+        
+        min_distance_pips = 6.0
+        min_distance_absolute = min_distance_pips / multiplier
+        
+        if slDist < min_distance_absolute:
+            logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        tpDist = abs(tpPrice - entryPrice)
+        if tpDist < min_distance_absolute:
+            logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
+            return
+        
+        # Enriquecer señal para el ExecutionEngine y Alertas
+        signal['stopLoss'] = slPrice
+        signal['takeProfit'] = tpPrice
+        signal['riesgo_pips'] = round(slDist * multiplier, 1)
+        signal['rr_ratio'] = round(rr_actual, 2)
+        
+        from Sentinel.execution.engine import execute_signal
+        # Ejecutar la señal y recibir el msgId
+        success, msgId = await execute_signal(signal, symbolInfo, "Sniper", df=None)
+        
+        symbol = symbolInfo['symbol']
+        intervalo = symbolInfo.get('intervalo', '')
+        
+        # Lógica particular de Sentinel Sniper para reemplazar mensajes de 1H
+        """ Si enviaste señales previas para 1H, quita las antiguas para no hacer flood """
+        if success and msgId:
+            if intervalo == '1h' and symbol in self.lastMessageIds:
+                # Opcional (Dependiendo de si manejas token globalmente):
+                # prevMsgId = self.lastMessageIds[symbol]
+                # await deleteTelegramMessage(token, chat_id, prevMsgId)
+                pass 
+            self.lastMessageIds[symbol] = msgId
+
     
     
 

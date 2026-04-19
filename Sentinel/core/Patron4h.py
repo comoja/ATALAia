@@ -659,62 +659,25 @@ class Patron4HBot:
         if not signal:
             return
 
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                return
+        from Sentinel.execution.engine import execute_signal
 
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], 'Patron4h'):
-                continue
-            
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=abs(signal['entrada'] - signal['stop_loss']),
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entrada')
-            )
-            
-            if posSize is None or posSize == 0:
-                continue
-            
-            signal['profit'] = riskUsd
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": signal['direccion'],
-                "entryPrice": signal['entrada'],
-                "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": signal['stop_loss'],
-                "takeProfit": signal['take_profit'],
-                "size": posSize,
-                "intervalo": "15min",
-                "status": "OPEN",
-                "strategy": "Patron4h",
-                "margin_used": marginUsed,
-            }
-            
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            
-            # Normalización para el generador de alertas
-            now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-            last_closed = get_last_closed_candle(now_cdmx, interval=15)
-            signal_norm = {
-                **signal,
-                "direction": signal.get("direccion"),
-                "entryPrice": signal.get("entrada"),
-                "confidence": signal.get("confianza", 70),
-                "setup": signal.get("tipo_entrada", "N/A"),
-                "candle_time": last_closed.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            
-            success, msgId = await gateway.execute_trade(trade, signal_norm, account, "Patron4h", df=df_15m)
-            if success and msgId:
-                self.lastMessageIds[symbolInfo['symbol']] = msgId
+        # Normalización para el generador de alertas
+        now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
+        last_closed = get_last_closed_candle(now_cdmx, interval=15)
+        signal_norm = {
+            **signal,
+            "direction": signal.get("direccion"),
+            "entryPrice": signal.get("entrada"),
+            "stopLoss": signal.get("stop_loss"),
+            "takeProfit": signal.get("take_profit"),
+            "confidence": signal.get("confianza", 70),
+            "setup": signal.get("tipo_entrada", "N/A"),
+            "candle_time": last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        success, msgId = await execute_signal(signal_norm, symbolInfo, "Patron4h", df=df_15m)
+        if success and msgId:
+            self.lastMessageIds[symbolInfo['symbol']] = msgId
         
         self.signalsGeneradas[symbolInfo['symbol']] = True
 
@@ -726,8 +689,8 @@ class Patron4HBot:
             logger.info(f"◀ SALIENDO análisis para {symbol} (datos insuficientes)")
             return
         
-        df_1h = self.resample_ohlcv(df_15m, '1H')
-        df_4h = self.resample_ohlcv(df_15m, '4H')
+        df_1h = self.resample_ohlcv(df_15m, '1h')
+        df_4h = self.resample_ohlcv(df_15m, '4h')
         df_1d = self.resample_ohlcv(df_15m, '1D')
         
         datos = {'15m': df_15m, '1h': df_1h, '4h': df_4h, '1d': df_1d}
@@ -762,8 +725,8 @@ def executePatron4H(datos: Dict[str, pd.DataFrame], symbolInfo: Dict) -> Optiona
     if df_15m is None: return None
     datos_completos = {
         '15m': df_15m,
-        '1h': datos.get('1h') if datos.get('1h') is not None else bot.resample_ohlcv(df_15m, '1H'),
-        '4h': datos.get('4h') if datos.get('4h') is not None else bot.resample_ohlcv(df_15m, '4H'),
+        '1h': datos.get('1h') if datos.get('1h') is not None else bot.resample_ohlcv(df_15m, '1h'),
+        '4h': datos.get('4h') if datos.get('4h') is not None else bot.resample_ohlcv(df_15m, '4h'),
         '1d': datos.get('1d') if datos.get('1d') is not None else bot.resample_ohlcv(df_15m, '1D')
     }
     return bot.analizar_top_down(datos_completos, symbolInfo)

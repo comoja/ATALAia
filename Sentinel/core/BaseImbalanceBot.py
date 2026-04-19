@@ -343,75 +343,31 @@ class BaseImbalanceBot:
         if not signal:
             return
 
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-            if not self.accounts:
-                logger.warning(f"[{self.strategy_name}] No hay cuentas disponibles")
-                return
-
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], self.strategy_name):
-                logger.info(f"[{self.strategy_name}] Estrategia deshabilitada para cuenta {account['idCuenta']}, omitiendo...")
-                continue
-            
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entryPrice')
-            )
-            
-            if posSize is None or posSize == 0:
-                logger.warning(f"[{self.strategy_name}] Size=0 para {symbolInfo['symbol']} - riesgo ${riskUsd:.2f} < $5 mínimo")
-                continue
-            
-            signal['profit'] = riskUsd
-            
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
-            fvgNum = signal.get('fvgNum', 0)
-            
-            slPrice = signal['stopLoss']
-            
-            ratioBase = 2.0
-            tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
-            
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": direction,
-                "entryPrice": entryPrice,
-                "openTime": self.getMexicoTime().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice,
-                "takeProfit": tpPrice,
-                "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''),
-                "status": "OPEN",
-                "strategy": self.strategy_name,
-                "fvgNum": fvgNum,
-                "margin_used": marginUsed,
-            }
-            
-            # Ejecución centralizada vía Gateway (DB + Telegram + Broker)
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, self.strategy_name, df=datos5min)
-            
-            if success and msgId:
-                self.lastMessageIds[symbolInfo['symbol']] = msgId
-                    
-                logger.info(f"✅ Alerta {self.strategy_name} enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']} | Size: {posSize}")
+        direction = signal['direction']
+        entryPrice = signal['entryPrice']
+        slDist = signal['slDistance']
+        fvgNum = signal.get('fvgNum', 0)
         
-        fvg_num = signal.get('fvgNum', 0)
+        slPrice = signal['stopLoss']
+        
+        ratioBase = 2.0
+        tpPrice = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
+        
+        signal['takeProfit'] = tpPrice
+        
+        from Sentinel.execution.engine import execute_signal
+        # Ejecutar la señal 
+        success, msgId = await execute_signal(signal, symbolInfo, self.strategy_name, df=None)
+        
+        if success and msgId:
+            self.lastMessageIds[symbolInfo['symbol']] = msgId
+            
         ahora = self.getMexicoTime()
-        if fvg_num == 1:
+        if fvgNum == 1:
             self.signal1_enviada = True
             self.timestamp_signal1 = ahora
             logger.info(f"[{self.strategy_name}] Marcando señal 1 como enviada a las {ahora}")
-        elif fvg_num == 2:
+        elif fvgNum == 2:
             self.signal2_enviada = True
             self.timestamp_signal2 = ahora
             logger.info(f"[{self.strategy_name}] Marcando señal 2 como enviada a las {ahora}")

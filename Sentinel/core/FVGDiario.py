@@ -84,13 +84,13 @@ class FVGDiarioBot:
             
             await self.analyze_symbol(symbol_data)
     
-    async def analyze_symbol(self, symbolData: Dict):
-        """Analiza un símbolo en busca de señales."""
+    async def runAnalysisCycleForSymbol(self, symbolData: Dict, preloadedData: Dict, *args):
+        """Analiza un símbolo en busca de señales usando Data pre-cargada."""
         symbol = symbolData['symbol']
         
         try:
             # Obtener datos diarios para Daily Bias
-            df_daily = self._get_daily_data(symbol)
+            df_daily = preloadedData.get('1D')
             if df_daily is None or len(df_daily) < 2:
                 return
             
@@ -104,7 +104,7 @@ class FVGDiarioBot:
             opposite_liquidity = pdl if daily_bias == "BULLISH" else pdh
             
             # Detectar manipulación en datos intradía
-            df_intraday = self._get_intraday_data(symbol)
+            df_intraday = preloadedData.get('15min')
             if df_intraday is None or len(df_intraday) < 20:
                 return
             
@@ -393,98 +393,18 @@ class FVGDiarioBot:
         }
         
         # Preparar trade
-        trade = {
-            "symbol": symbol,
-            "direction": direction,
-            "entryPrice": entry_price,
-            "stopLoss": stop_loss,
-            "takeProfit": take_profit,
-            "intervalo": "15min",
-            "strategy": self.strategy_name,
-            "size": 1.0  # Se calculará por cuenta
-        }
+        from Sentinel.execution.engine import execute_signal
+        success, msgId = await execute_signal(signal, symbolData, self.strategy_name, df=None)
         
-        # Enviar a cada cuenta
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-        
-        for account in self.accounts:
-            # Excluir cuenta maestra
-            if account['idCuenta'] == 1:
-                continue
-            
-            # Verificar estrategia habilitada
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(
-                account['idCuenta'], self.strategy_name
-            ):
-                continue
-            
-            # Calcular tamaño de posición
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=sl_distance,
-                symbolInfo=symbolData,
-                entryPrice=entry_price
+        if success and msgId:
+            self._sent_signals[signal_key] = True
+            logger.info(
+                f"✅ {self.strategy_name} enviado para {symbol} "
+                f"[{direction}] @ {entry_price:.4f} "
+                f"SL={stop_loss:.4f} TP={take_profit:.4f}"
             )
-            
-            if posSize is None or posSize == 0:
-                logger.warning(
-                    f"[{self.strategy_name}] Size=0 para {symbol} - "
-                    f"riesgo ${riskUsd:.2f} < $5 mínimo"
-                )
-                continue
-            
-            signal['profit'] = riskUsd
-            
-            trade['idCuenta'] = account['idCuenta']
-            trade['size'] = posSize
-            trade['margin_used'] = marginUsed
-            
-            # Enviar vía gateway
-            success, msgId = await gateway.execute_trade(
-                trade, signal, account, self.strategy_name
-            )
-            
-            if success and msgId:
-                self._sent_signals[signal_key] = True
-                logger.info(
-                    f"✅ {self.strategy_name} enviado para {symbol} "
-                    f"[{direction}] cuenta {account['idCuenta']}"
-                )
     
-    def _get_daily_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Obtiene datos diarios del símbolo."""
-        try:
-            tz = 'America/Mexico_City'
-            df = getParametros(symbol, '1D', 5, tz)
-            if df is not None and len(df) > 0:
-                df = df.tail(5)
-            return df
-        except Exception as e:
-            logger.error(f"Error obteniendo datos diarios para {symbol}: {e}")
-            return None
-    
-    def _get_intraday_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """Obtiene datos intradía (15min) del símbolo."""
-        try:
-            from middleware.config.constants import TIMEZONE
-            tz = TIMEZONE
-            df = getParametros(symbol, '15min', 50, tz)
-            if df is not None and len(df) > 0:
-                df = df.tail(50)
-            return df
-        except Exception as e:
-            logger.error(f"Error obteniendo datos 15min para {symbol}: {e}")
-            return None
-    
-    def get_mexico_time(self) -> datetime:
-        """Obtiene la hora actual en timezone México."""
-        from datetime import datetime, timezone
-        import pytz
-        
-        mexico_tz = pytz.timezone('America/Mexico_City')
-        return datetime.now(mexico_tz)
+
 
 
 async def main():

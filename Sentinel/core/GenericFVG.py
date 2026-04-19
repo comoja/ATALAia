@@ -39,12 +39,13 @@ class GenericFVGBot:
     def getMexicoTime(self) -> datetime:
         return datetime.now(pytz.timezone(TIMEZONE))
 
-    async def analyze(self, symbolInfo: Dict, df5m: pd.DataFrame):
+    async def analyze(self, symbolInfo: Dict, preloadedData: Dict):
         """Analiza un símbolo en todas las temporalidades configuradas."""
         logger.info(f"Analizando {symbolInfo['symbol']} en intervalos {self.intervals}")
         
         symbol = symbolInfo['symbol']
         
+        df5m = preloadedData.get('5m')
         if df5m is None or len(df5m) < 20:
             return
 
@@ -64,8 +65,11 @@ class GenericFVGBot:
             if signal_key in self._sent_signals:
                 continue
             
-            # Resamplear para obtener datos de precio (necesario para SL/TP)
-            df = technical.resample_to_interval(df5m, interval)
+            # Obtener datos de precio listos desde preloaded_master
+            df = preloadedData.get(interval)
+            if df is None:
+                df = technical.resample_to_interval(df5m, interval)
+                
             if len(df) < 3:
                 continue
             
@@ -156,33 +160,9 @@ class GenericFVGBot:
             }
 
             # Ejecutar vía Gateway (DB + Telegram + Broker) para cada cuenta válida
-            if not self.accounts:
-                self.accounts = dbManager.getAccount()
+            from Sentinel.execution.engine import execute_signal
+            success, msg_id = await execute_signal(signal_data, symbolInfo, self.strategy_name, df=df)
             
-            for account in self.accounts:
-                # Excluir cuenta maestra de señales (SENTINEL)
-                if account['idCuenta'] == 1: 
-                    continue
-                
-                posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                    capital=float(account['Capital']),
-                    riskPercentage=float(account['ganancia']),
-                    slDistance=risk_dist,
-                    symbolInfo=symbolInfo,
-                    entryPrice=entry_price
-                )
-                
-                if posSize is None or posSize == 0:
-                    logger.warning(f"[GenericFVG] Size=0 para {symbol} - riesgo ${riskUsd:.2f} < $5 mínimo")
-                    continue
-                
-                signal_data['profit'] = riskUsd
-                trade_data['idCuenta'] = account['idCuenta']
-                trade_data['size'] = posSize
-                trade_data['margin_used'] = marginUsed
-
-                success, msg_id = await gateway.execute_trade(trade_data, signal_data, account, self.strategy_name, df=df)
-                if success:
-                    self._sent_signals[signal_key] = True
-                    logger.info(f"✅ Señal estandarizada enviada para {symbol} [{interval}] a cuenta {account['idCuenta']}")
-
+            if success:
+                self._sent_signals[signal_key] = True
+                logger.info(f"✅ Señal estandarizada ejecutada satisfactoriamente para {symbol} [{interval}]")
