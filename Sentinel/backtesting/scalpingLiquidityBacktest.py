@@ -105,7 +105,7 @@ class LiquidityScalpingBacktest:
         if idx >= len(df) - 3:
             return None
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             lowN = df['low'].iloc[idx]
             highN2 = df['high'].iloc[idx + 2]
             if lowN > highN2:
@@ -184,11 +184,11 @@ class LiquidityScalpingBacktest:
             
             if price > h1Level['high'] and prevCandle['close'] < h1Level['high']:
                 breakoutPrice = price
-                direction = 'SHORT'
+                direction = 'CORTO'
                 manipulationCandle = prevCandle
             elif price < h1Level['low'] and prevCandle['close'] > h1Level['low']:
                 breakoutPrice = price
-                direction = 'LONG'
+                direction = 'LARGO'
                 manipulationCandle = prevCandle
             
             if not breakoutPrice:
@@ -199,13 +199,13 @@ class LiquidityScalpingBacktest:
             if fvg:
                 entryPrice = fvg['mid']
                 
-                if direction == 'SHORT':
+                if direction == 'CORTO':
                     sl = manipulationCandle['high'] * 1.001
                 else:
                     sl = manipulationCandle['low'] * 0.999
                 
                 risk = abs(entryPrice - sl)
-                tp = entryPrice + (risk * 2) if direction == 'LONG' else entryPrice - (risk * 2)
+                tp = entryPrice + (risk * 2) if direction == 'LARGO' else entryPrice - (risk * 2)
                 
                 self.trades.append({
                     'entryTime': dt,
@@ -242,7 +242,7 @@ class LiquidityScalpingBacktest:
             tp = trade['tp']
             direction = trade['direction']
             
-            if direction == 'LONG':
+            if direction == 'LARGO':
                 if tp > entry:
                     pnl = tp - entry
                     wins += 1
@@ -315,16 +315,16 @@ class LiquidityScalpingBacktest:
             
             for idx in self.dataM3.index:
                 if idx > entryTime:
-                    if direction == 'LONG' and self.dataM3.loc[idx, 'low'] <= trade['sl']:
+                    if direction == 'LARGO' and self.dataM3.loc[idx, 'low'] <= trade['sl']:
                         exits.loc[idx] = True
                         break
-                    elif direction == 'SHORT' and self.dataM3.loc[idx, 'high'] >= trade['sl']:
+                    elif direction == 'CORTO' and self.dataM3.loc[idx, 'high'] >= trade['sl']:
                         exits.loc[idx] = True
                         break
-                    elif direction == 'LONG' and self.dataM3.loc[idx, 'high'] >= tp:
+                    elif direction == 'LARGO' and self.dataM3.loc[idx, 'high'] >= tp:
                         exits.loc[idx] = True
                         break
-                    elif direction == 'SHORT' and self.dataM3.loc[idx, 'low'] <= tp:
+                    elif direction == 'CORTO' and self.dataM3.loc[idx, 'low'] <= tp:
                         exits.loc[idx] = True
                         break
         

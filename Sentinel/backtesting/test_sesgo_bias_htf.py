@@ -92,10 +92,10 @@ def test_fibonacci_zones():
     bot = SesgoBiasHTFBot()
     df = generate_sample_data("EURUSD", 100)
     
-    zone_short = bot.calculate_fibonacci_zone(df, 'SHORT', lookback=50)
-    print(f"  Zona PREMIUM: {zone_short['type']}")
-    print(f"  Fib 50%: {zone_short['fib_50']:.5f}")
-    assert zone_short['type'] == 'PREMIUM', "Tipo de zona incorrecto"
+    zone_CORTO = bot.calculate_fibonacci_zone(df, 'CORTO', lookback=50)
+    print(f"  Zona PREMIUM: {zone_CORTO['type']}")
+    print(f"  Fib 50%: {zone_CORTO['fib_50']:.5f}")
+    assert zone_CORTO['type'] == 'PREMIUM', "Tipo de zona incorrecto"
     
     zone_long = bot.calculate_fibonacci_zone(df, 'LONG', lookback=50)
     print(f"  Zona DISCOUNT: {zone_long['type']}")
@@ -120,7 +120,7 @@ def test_engulfing_detection():
         'close': [1.0860, 1.0840, 1.0835]
     })
     
-    engulf_bearish = bot.detect_engulfing(df, 2, 'SHORT')
+    engulf_bearish = bot.detect_engulfing(df, 2, 'CORTO')
     print(f"  Engulfing Bajista detectado: {engulf_bearish is not None}")
     if engulf_bearish:
         print(f"  Tipo: {engulf_bearish['type']}")

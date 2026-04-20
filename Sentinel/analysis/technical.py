@@ -170,8 +170,8 @@ def calculate_ote_zone(
     Args:
         swing_start : Inicio del impulso (punto A — donde empezó el movimiento).
         swing_end   : Fin del impulso (punto B — extremo del movimiento, e.g. sweep).
-        direction   : 'LONG' o 'LARGO' → buscamos compras (retroceso hacia abajo).
-                      'SHORT' o 'CORTO' → buscamos ventas (retroceso hacia arriba).
+        direction   : 'LARGO' → buscamos compras (retroceso hacia abajo).
+                      'CORTO' → buscamos ventas (retroceso hacia arriba).
         fib_min     : Nivel Fibonacci mínimo de la zona OTE (default 0.62).
         fib_max     : Nivel Fibonacci máximo de la zona OTE (default 0.79).
 
@@ -185,13 +185,13 @@ def calculate_ote_zone(
 
     direction_upper = direction.upper()
 
-    if direction_upper in ("LONG", "LARGO"):
+    if direction_upper == "LARGO":
         # Impulso alcista: swing_start < swing_end (precio subió).
         # El retroceso va hacia abajo. OTE = retracement 62-79% desde swing_end.
         ote_high = swing_end - rango * fib_min    # 62% retracement → precio más alto de la zona
         ote_low  = swing_end - rango * fib_max    # 79% retracement → precio más bajo de la zona
         sweet_spot = swing_end - rango * 0.705    # 70.5% — "sweet spot" ICT
-    else:  # SHORT / CORTO
+    else:  # CORTO
         # Impulso bajista: swing_start > swing_end (precio bajó).
         # El retroceso va hacia arriba. OTE = retracement 62-79% desde swing_end.
         ote_low  = swing_end + rango * fib_min    # 62% retracement → precio más bajo de la zona
@@ -569,7 +569,7 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
         entry: Precio de entrada.
         tp: Precio del take profit.
         sl: Precio del stop loss.
-        direction: Dirección de la operación ('LONG'/'LARGO' o 'SHORT'/'CORTO').
+        direction: Dirección de la operación ('LARGO' o 'CORTO').
         threshold: Umbral de bloqueo (default 0.60 = 60%).
         
     Returns:
@@ -649,14 +649,14 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
         # ═══════════════════════════════════════════════════════════════
         # VERIFICACIÓN: TODO el DataFrame (no solo desde origen)
         # ═══════════════════════════════════════════════════════════════
-        if direction_upper in ("LONG", "LARGO"):
+        if direction_upper == "LARGO":
             # Máximo HIGH en TODO el DataFrame
             max_all = float(df['high'].max())
             # Mínimo LOW en TODO el DataFrame
             min_all = float(df['low'].min())
             current_close = float(df['close'].iloc[-1])
             
-            logger.info(f"[Exhaustion] LONG: max_all={max_all:.5f}, min_all={min_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
+            logger.info(f"[Exhaustion] LARGO: max_all={max_all:.5f}, min_all={min_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
             
             # Verificar si TP ya fue alcanzado en CUALQUIER momento
             if max_all >= tp:
@@ -685,16 +685,16 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
             # Usar el mayor de los dos
             recorrido_pct = max(recorrido_actual, recorrido_max)
             
-            logger.debug(f"[Exhaustion] LONG: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
+            logger.debug(f"[Exhaustion] LA: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
             
-        else:  # SHORT / CORTO
+        else:  # CORTO
             # Mínimo LOW en TODO el DataFrame
             min_all = float(df['low'].min())
             # Máximo HIGH en TODO el DataFrame
             max_all = float(df['high'].max())
             current_close = float(df['close'].iloc[-1])
             
-            logger.info(f"[Exhaustion] SHORT: min_all={min_all:.5f}, max_all={max_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
+            logger.info(f"[Exhaustion] CORTO: min_all={min_all:.5f}, max_all={max_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
             
             # Verificar si TP ya fue alcanzado en CUALQUIER momento
             if min_all <= tp:
@@ -723,7 +723,7 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
             # Usar el mayor de los dos
             recorrido_pct = max(recorrido_actual, recorrido_max)
             
-            logger.debug(f"[Exhaustion] SHORT: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
+            logger.debug(f"[Exhaustion] CORTO: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
         
         # Verificar si excedió el umbral
         if recorrido_pct > threshold:

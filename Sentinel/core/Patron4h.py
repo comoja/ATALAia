@@ -76,7 +76,7 @@ class Patron4HBot:
         if idx < 2 or idx >= len(df) - 1:
             return None
         
-        if direction == 'LONG':
+        if direction == 'LARGO':
             low_n = df['low'].iloc[idx]
             high_n2 = df['high'].iloc[idx - 2]
             if low_n > high_n2:
@@ -138,7 +138,7 @@ class Patron4HBot:
             if avg_vol > 0 and curr_vol < (avg_vol * 1.2):
                 return None
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             if close_price < open_price and (cuerpo / rango) > 0.6:
                 # La mecha inferior (rechazo) debe ser muy pequeña en un corto institucional
                 if ((close_price - low_price) / rango) <= 0.25:
@@ -174,7 +174,7 @@ class Patron4HBot:
         highs = df['high'].values
         lows = df['low'].values
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             ultimo_high_local = max(highs[-5:-1])
             if closes[-1] < ultimo_high_local:
                 return True
@@ -223,11 +223,11 @@ class Patron4HBot:
         
         fvgs_diarios = []
         for i in range(2, len(df_1d)):
-            fvg_alcista = self.detectar_fvg(df_1d, i, 'LONG')
+            fvg_alcista = self.detectar_fvg(df_1d, i, 'LARGO')
             if fvg_alcista:
                 fvgs_diarios.append(fvg_alcista)
             
-            fvg_bajista = self.detectar_fvg(df_1d, i, 'SHORT')
+            fvg_bajista = self.detectar_fvg(df_1d, i, 'CORTO')
             if fvg_bajista:
                 fvgs_diarios.append(fvg_bajista)
         
@@ -288,7 +288,7 @@ class Patron4HBot:
         
         tendencia = contexto['tendencia']
         fvgs_diarios = contexto.get('fvgs_diarios', [])
-        direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
+        direction = 'CORTO' if tendencia == 'BAJISTA' else 'LARGO'
         
         adx = ta.ADX(df_tf['high'], df_tf['low'], df_tf['close'], timeperiod=14).iloc[-1]
         mercado_erratico = True if (not pd.isna(adx) and adx < 20) else False
@@ -342,7 +342,7 @@ class Patron4HBot:
                     swing_high = df_tf['high'].iloc[max(0, i-20):i].max()
                     swing_low  = df_tf['low'].iloc[max(0, i-20):i].min()
 
-                    if direction == 'LONG':
+                    if direction == 'LARGO':
                         # Buscamos compras: FVG en retroceso 62-79% del impulso bajista
                         in_ote, ote_zone = is_in_ote_zone(
                             fvg['mid'], swing_high, swing_low, 'LARGO',
@@ -424,7 +424,7 @@ class Patron4HBot:
 
     def generar_señal_15m(self, catalizador: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, contexto: dict) -> Optional[dict]:
         tendencia = contexto['tendencia']
-        direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
+        direction = 'CORTO' if tendencia == 'BAJISTA' else 'LARGO'
         fvgs = catalizador.get('fvgs', [])
         fvg_principal = next((f for f in fvgs if (tendencia == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (tendencia == 'ALCISTA' and f['type'] == 'Bullish_FVG')), None)
         
@@ -478,7 +478,7 @@ class Patron4HBot:
         rr_actual = distancia_tp / riesgo
         
         if rr_actual < self.rr_ratio_min:
-            if direction == 'LONG' or direction == 'LARGO':
+            if direction == 'LARGO':
                 tp = entry + (riesgo * self.rr_ratio_min)
             else:
                 tp = entry - (riesgo * self.rr_ratio_min)
@@ -502,9 +502,9 @@ class Patron4HBot:
         momentum_bonus = 0
         
         direction_upper = direction.upper() if direction else ""
-        if direction_upper in ("LONG", "LARGO") and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
+        if direction_upper == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
             momentum_bonus = 10
-        elif direction_upper == "SHORT" and momentum_estado in ["📉 BAJISTA"]:
+        elif direction_upper == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
             momentum_bonus = 10
         elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
             momentum_bonus = -5
@@ -526,7 +526,7 @@ class Patron4HBot:
 
         return {
             'tipo_entrada': setup_name, 
-            'direccion': 'LARGO' if (direction == 'LONG' or direction == 'LARGO') else 'CORTO',
+            'direccion': 'LARGO' if direction == 'LARGO' else 'CORTO',
             'entrada': round(entry, 5), 
             'stop_loss': round(sl, 5), 
             'take_profit': round(tp, 5),
@@ -555,7 +555,7 @@ class Patron4HBot:
         entrada = float(vela_confirmacion['close'])
         padding = self._get_atr_padding(df_15m, multiplier=0.5)
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             sl = (nivel_origen + padding) if (nivel_origen and nivel_origen > entrada) else float(df_tf['high'].iloc[idx_fvg:idx_fvg+3].max()) + padding
             tp_tecnico = levels['low_zone']
         else:
@@ -583,7 +583,7 @@ class Patron4HBot:
         entrada = float(fvg_15m['mid'])
         padding = self._get_atr_padding(df_15m, multiplier=0.5)
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             idx_fvg = fvg.get('idx', len(df_tf_sup) - 5)
             sl = (nivel_origen + padding) if (nivel_origen and nivel_origen > entrada) else float(df_tf_sup['high'].iloc[max(0, idx_fvg-2):idx_fvg+3].max()) + padding
             tp_tecnico = levels['low_zone']
@@ -600,7 +600,7 @@ class Patron4HBot:
         entrada = float(df_tf['close'].iloc[idx])
         padding = self._get_atr_padding(df_15m, multiplier=0.8)
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             sl = entrada + padding
             tp_tecnico = entrada - (padding * self.rr_ratio_min)
         else:
@@ -615,7 +615,7 @@ class Patron4HBot:
         entrada = float(df_tf['close'].iloc[idx])
         padding = self._get_atr_padding(df_15m, multiplier=0.8)
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             sl = entrada + padding
             tp_tecnico = entrada - (padding * self.rr_ratio_min)
         else:
@@ -626,7 +626,7 @@ class Patron4HBot:
 
     def generar_señal_15m(self, catalizador: dict, df_15m: pd.DataFrame, df_tf_sup: pd.DataFrame, contexto: dict, symbol: str, symbolInfo: Dict = None) -> Optional[dict]:
         tendencia = contexto['tendencia']
-        direction = 'SHORT' if tendencia == 'BAJISTA' else 'LONG'
+        direction = 'CORTO' if tendencia == 'BAJISTA' else 'LARGO'
         fvgs = catalizador.get('fvgs', [])
         fvg_principal = next((f for f in fvgs if (tendencia == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (tendencia == 'ALCISTA' and f['type'] == 'Bullish_FVG')), None)
         
@@ -634,7 +634,7 @@ class Patron4HBot:
             fvg_principal = fvgs[0]
         
         disp_info = catalizador.get('displacement_info', {})
-        nivel_origen = disp_info.get('vela_low' if direction == 'LONG' else 'vela_high')
+        nivel_origen = disp_info.get('vela_low' if direction == 'LARGO' else 'vela_high')
         vela_origen_idx = catalizador.get('vela_origen_idx')
         
         if catalizador['hay_displacement'] and catalizador['hay_fvg']:

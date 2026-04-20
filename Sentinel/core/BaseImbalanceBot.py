@@ -59,7 +59,7 @@ class BaseImbalanceBot:
         if idx >= len(datos5min) - 3:
             return None
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             lowN = datos5min['low'].iloc[idx]
             highN2 = datos5min['high'].iloc[idx + 2]
             if lowN > highN2:
@@ -104,7 +104,7 @@ class BaseImbalanceBot:
                 # Filtro agresivo: Vela fuerte (cuerpo > 60%) y cierre cerca del máximo (mecha superior muy pequeña)
                 if closePrice > openPrice and (cuerpo / rango) > 0.6 and ((highPrice - closePrice) / rango) <= 0.25:
                     return {
-                        'type': 'LONG',
+                        'type': 'LARGO',
                         'idx': i,
                         'vela': vela,
                         'precioRuptura': bodyTop
@@ -114,7 +114,7 @@ class BaseImbalanceBot:
                 # Filtro agresivo: Vela fuerte (cuerpo > 60%) y cierre cerca del mínimo (mecha inferior muy pequeña)
                 if closePrice < openPrice and (cuerpo / rango) > 0.6 and ((closePrice - lowPrice) / rango) <= 0.25:
                     return {
-                        'type': 'SHORT',
+                        'type': 'CORTO',
                         'idx': i,
                         'vela': vela,
                         'precioRuptura': bodyBottom
@@ -250,10 +250,10 @@ class BaseImbalanceBot:
             from Sentinel.analysis import technical
             levels = technical.get_structural_levels(datos5min, lookback=30)
             
-            if direction == 'SHORT':
+            if direction == 'CORTO':
+                lowN = datos5min['low'].iloc[idx]
                 setupType = "LIQUIDATION_SELL"
                 # Stop loss arriba de la formación del FVG o el máximo reciente
-                # Usamos el máximo entre la zona del FVG y el swing high reciente
                 zona_high_fvg = datos5min['high'].iloc[fvg['idx']:fvg['idx']+2].max() if (fvg['idx']+2 < len(datos5min)) else datos5min['high'].iloc[fvg['idx']]
                 stop_ref = max(zona_high_fvg, levels['swing_high'])
                 stopLoss = stop_ref + padding_pips
@@ -262,7 +262,7 @@ class BaseImbalanceBot:
                 tp_structural = levels['low_zone']
                 
                 # Priorizar TP estructural si cumple RR
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "SHORT", minRR=1.5)
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "CORTO", minRR=1.5)
                 takeProfit = tp_final
                 signalDirection = "CORTO"
             else:
@@ -275,11 +275,11 @@ class BaseImbalanceBot:
                 distanciaSl = stopLoss - entryPrice
                 tp_structural = levels['high_zone']
                 
-                # Priorizar TP estructural if cumple RR
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LONG", minRR=1.5)
+                # Priorizar TP estructural si cumple RR
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LARGO", minRR=1.5)
                 takeProfit = tp_final
                 signalDirection = "LARGO"
-                
+            
             rr_actual = calculateRR(entryPrice, stopLoss, takeProfit)
             multiplier = getPipMultiplier(symbol)
             
@@ -318,7 +318,7 @@ class BaseImbalanceBot:
             if total_path == 0: total_path = 0.001
             
             # Calcular progreso: (Precio Actual - Mid) / Distancia Total al TP
-            if direction == 'LONG':
+            if direction == 'LARGO':
                 progress_pct = (precioActual - fvg_mid) / total_path
             else:
                 progress_pct = (fvg_mid - precioActual) / total_path

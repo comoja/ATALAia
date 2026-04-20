@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from middleware.utils.loggerConfig import setupLogging
-setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__file__)), enableConsole=False)
+setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__file__)), enableConsole=True)
 
 from middleware.database import dbManager as middlewareDb
 from middleware.scheduler.autoScheduler import isRestTime

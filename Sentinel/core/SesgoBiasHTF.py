@@ -266,7 +266,7 @@ class SesgoBiasHTFBot:
         if idx > last_closed_idx:
             return None
         
-        if direction == 'LONG':
+        if direction == 'LARGO':
             low_n = float(df['low'].iloc[idx])
             high_n2 = float(df['high'].iloc[idx - 2])
             if low_n > high_n2:
@@ -309,7 +309,7 @@ class SesgoBiasHTFBot:
         closes = df['close'].values
         opens = df['open'].values
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             for i in range(len(df) - self.mss_lookback, len(df) - 1):
                 prev_high = max(closes[max(0, i-self.mss_lookback):i])
                 if closes[-1] < prev_high and closes[-1] < opens[-1]:
@@ -342,7 +342,7 @@ class SesgoBiasHTFBot:
         if range_v == 0 or body / range_v < 0.6:
             return None
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             if close_p < open_p and body / range_v >= 0.6:
                 if ((close_p - low_p) / range_v) <= 0.25:
                     return {
@@ -381,14 +381,14 @@ class SesgoBiasHTFBot:
         swing_low  = float(relevant['low'].min())
         price      = float(df['close'].iloc[-1])
 
-        if direction in ('LONG', 'LARGO'):
+        if direction in ('LARGO'):
             # Impulso previo: precio cayó desde swing_high hasta swing_low
             # Ahora buscamos entrada en retroceso alcista (62-79% desde swing_low)
             in_ote, zone = is_in_ote_zone(
                 price, swing_high, swing_low, 'LARGO',
                 fib_min=self.ote_fib_min, fib_max=self.ote_fib_max
             )
-        else:  # SHORT / CORTO
+        else:  #  CORTO
             # Impulso previo: precio subió desde swing_low hasta swing_high
             # Ahora buscamos entrada en retroceso bajista (62-79% desde swing_high)
             in_ote, zone = is_in_ote_zone(
@@ -451,7 +451,7 @@ class SesgoBiasHTFBot:
         
         relevant_data = df.iloc[-lookback:]
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             swing_low = float(relevant_data['low'].min())
             swing_high = float(relevant_data['high'].max())
             
@@ -509,7 +509,7 @@ class SesgoBiasHTFBot:
         curr_body_top = max(curr_open, curr_close)
         curr_body_bottom = min(curr_open, curr_close)
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             if prev_close > prev_open:
                 return None
             if curr_close >= curr_open:
@@ -564,7 +564,7 @@ class SesgoBiasHTFBot:
                 high = float(vela['high'])
                 low = float(vela['low'])
                 
-                if direction == 'SHORT':
+                if direction == 'CORTO':
                     if high > level:
                         return {
                             'idx': i,
@@ -599,7 +599,7 @@ class SesgoBiasHTFBot:
             fvg_top = fvg['top']
             fvg_bottom = fvg['bottom']
             
-            if direction == 'SHORT':
+            if direction == 'CORTO':
                 if low < fvg_bottom and body_top > fvg_bottom:
                     return True
             else:
@@ -664,7 +664,7 @@ class SesgoBiasHTFBot:
         if candle_range == 0:
             return None
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             entry_min = candle_high - (candle_range * self.entry_fib_max)
             entry_max = candle_high - (candle_range * self.entry_fib_min)
         else:
@@ -677,7 +677,7 @@ class SesgoBiasHTFBot:
         """
         Stop Loss: Siempre por debajo/encima de la mecha del sweep.
         """
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             return sweep_info['swept_price'] + (sweep_info.get('candle_range', 0.001) * 0.1)
         else:
             return sweep_info['swept_price'] - (sweep_info.get('candle_range', 0.001) * 0.1)
@@ -690,7 +690,7 @@ class SesgoBiasHTFBot:
         """
         tp_levels = []
         
-        if direction == 'SHORT':
+        if direction == 'CORTO':
             if liquidity.get('eqh'):
                 for eqh in liquidity['eqh'][:2]:
                     if float(df['close'].iloc[-1]) > eqh:
@@ -717,7 +717,7 @@ class SesgoBiasHTFBot:
                     if float(df['close'].iloc[-1]) < sh:
                         tp_levels.append(sh)
         
-        return sorted(tp_levels, reverse=(direction == 'SHORT'))
+        return sorted(tp_levels, reverse=(direction == 'CORTO'))
 
     def analyze_po3_cycle(self, df: pd.DataFrame, direction: str, 
                           zone: Dict, liquidity: Dict) -> Optional[Dict]:
@@ -916,7 +916,7 @@ class SesgoBiasHTFBot:
         #     return {'status': 'FUERA_DE_KILLZONE', 'biases': biases}
         # ─────────────────────────────────────────────────────────────────────
         
-        direction = 'LONG' if bias == 'LARGO' else 'SHORT'
+        direction = 'LARGO' if bias == 'LARGO' else 'CORTO'
         
         if df_1d is not None and len(df_1d) >= 20:
             zone = self.calculate_fibonacci_zone(df_1d, direction, lookback=self.swing_lookback)

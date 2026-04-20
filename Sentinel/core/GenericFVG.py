@@ -61,7 +61,11 @@ class GenericFVGBot:
             # Control de duplicados usando el timestamp del FVG
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
             if signal_key in self._sent_signals:
+                logger.info(f"[GenericFVG] Señal ya enviada: {signal_key}")
                 continue
+            
+            # Marcar como enviada ANTES de procesar para evitar duplicados
+            self._sent_signals[signal_key] = True
             
             # Resamplear para obtener datos de precio (necesario para SL/TP)
             df = technical.resample_to_interval(df5m, interval)
@@ -217,6 +221,5 @@ class GenericFVGBot:
 
                 success, msg_id = await gateway.execute_trade(trade_data, signal_data, account, self.strategy_name, df=df)
                 if success:
-                    self._sent_signals[signal_key] = True
                     logger.info(f"✅ Señal estandarizada enviada para {symbol} [{interval}] a cuenta {account['idCuenta']}")
 

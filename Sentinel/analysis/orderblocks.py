@@ -57,8 +57,8 @@ def detect_order_blocks(
 
     Args:
         df                        : OHLCV DataFrame (cualquier timeframe).
-        direction                 : 'LONG'/'LARGO' → Bullish OB.
-                                    'SHORT'/'CORTO' → Bearish OB.
+        direction                 : 'LARGO' → Bullish OB.
+                                    'CORTO' → Bearish OB.
         lookback                  : Número de velas a analizar desde el final.
         min_displacement_body_pct : % mínimo de cuerpo sobre rango para el
                                     displacement (0.60 = 60%).
@@ -92,7 +92,7 @@ def detect_order_blocks(
         cuerpo_next = abs(n_c - n_o)
         body_pct_next = cuerpo_next / rango_next
 
-        if direction_upper in ('LONG', 'LARGO'):
+        if direction_upper in ('LARGO'):
             # ── Bullish Order Block ─────────────────────────────────────────
             # Vela OB: bajista (body con cierre < apertura)
             # Displacement: alcista, cuerpo > 60%, mecha superior < 30%,
@@ -122,7 +122,7 @@ def detect_order_blocks(
                     'age_candles':     len(df) - 1 - i,
                 })
 
-        else:  # SHORT / CORTO
+        else:  # CORTO
             # ── Bearish Order Block ─────────────────────────────────────────
             # Vela OB: alcista (body con cierre > apertura)
             # Displacement: bajista, cuerpo > 60%, mecha inferior < 30%,
@@ -262,18 +262,18 @@ def get_nearest_ob(
 ) -> Optional[Dict]:
     """
     Retorna el OB más cercano al precio en la dirección dada.
-    Para LONG: el OB bullish más cercano por debajo del precio.
-    Para SHORT: el OB bearish más cercano por encima del precio.
+    Para LARGO: el OB bullish más cercano por debajo del precio.
+    Para CORTO: el OB bearish más cercano por encima del precio.
     """
     direction_upper = direction.upper()
     candidates = []
 
     for ob in obs:
-        if direction_upper in ('LONG', 'LARGO') and ob['type'] == 'Bullish_OB':
+        if direction_upper in ('LARGO') and ob['type'] == 'Bullish_OB':
             if ob['top'] <= price:  # OB está por DEBAJO del precio actual
                 dist = price - ob['top']
                 candidates.append((dist, ob))
-        elif direction_upper in ('SHORT', 'CORTO') and ob['type'] == 'Bearish_OB':
+        elif direction_upper in ('CORTO') and ob['type'] == 'Bearish_OB':
             if ob['bottom'] >= price:  # OB está Por ENCIMA del precio actual
                 dist = ob['bottom'] - price
                 candidates.append((dist, ob))
@@ -314,7 +314,7 @@ def ob_confluence_score(
     else:
         # Distancia al OB en términos de ATR
         if atr > 0:
-            if direction.upper() in ('LONG', 'LARGO'):
+            if direction.upper() in ('LARGO'):
                 dist = price - nearest['top']
             else:
                 dist = nearest['bottom'] - price

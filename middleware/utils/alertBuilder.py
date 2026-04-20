@@ -33,7 +33,7 @@ def adjustTPForMinRR(entry: float, sl: float, tp: float, direction: str, minRR: 
     if riesgo == 0: return tp
     rr = abs(tp - entry) / riesgo
     if rr < minRR:
-        if direction.upper() in ["LONG", "LARGO", "COMPRA"]:
+        if direction.upper() in [ "LARGO"]:
             return entry + (riesgo * minRR)
         else:
             return entry - (riesgo * minRR)
@@ -46,8 +46,8 @@ def buildAlertMessage(
     extraFields: dict = None
 ) -> str:
     direction = signal['direction']
-    directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
-    colorHeader = "🟩" if direction == "LARGO" else "🟥"
+    directionStr = "COMPRA" if direction in ["LARGO"] else "VENTA"
+    colorHeader = "🟩" if direction in ["LARGO"] else "🟥"
     
     close = signal['entryPrice']
     tp = trade['takeProfit']

@@ -122,19 +122,19 @@ class SniperBot:
         # --- SEÑALES INDIVIDUALES ---
         # MACD
         macdCrossLong = (macdLine > macdSignal) and (df["macd"].iloc[-2] <= df["macdSig"].iloc[-2])
-        macdCrossShort = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
+        macdCrossCORTO = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
         histImprovingLong = histVal > prevHistVal
-        histImprovingShort = histVal < prevHistVal
+        histImprovingCORTO = histVal < prevHistVal
         macdZeroCrossLong = (prevHistVal <= 0 and histVal > 0)
-        macdZeroCrossShort = (prevHistVal >= 0 and histVal < 0)
+        macdZeroCrossCORTO = (prevHistVal >= 0 and histVal < 0)
         
         # EMA Trend
         emaTrendLong = ema20 > ema50
-        emaTrendShort = ema20 < ema50
+        emaTrendCORTO = ema20 < ema50
         
         # RSI
         rsiImprovingLong = rsi > prevRsi
-        rsiImprovingShort = rsi < prevRsi
+        rsiImprovingCORTO = rsi < prevRsi
         
         # Alerta de sobrecompra/sobreventa (informativa)
         """
@@ -153,7 +153,7 @@ class SniperBot:
         
         # CCI + RSI pendientes
         techConfLong = (self.latestFullData["pendienteCci"] > 0.5 and self.latestFullData["pendienteRsi"] > 0.1)
-        techConfShort = (self.latestFullData["pendienteCci"] < -0.5 and self.latestFullData["pendienteRsi"] < -0.1)
+        techConfCORTO = (self.latestFullData["pendienteCci"] < -0.5 and self.latestFullData["pendienteRsi"] < -0.1)
         
         # --- MOMENTUM FILTER (usar pre-calculado desde main.py) ---
         momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
@@ -211,16 +211,16 @@ class SniperBot:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_BAJISTA")
         else:  # CORTO
-            if histImprovingShort or macdZeroCrossShort or macdCrossShort:
+            if histImprovingCORTO or macdZeroCrossCORTO or macdCrossCORTO:
                 confirmaciones += 1
                 detalles.append("MACD")
-            if emaTrendShort:
+            if emaTrendCORTO:
                 confirmaciones += 1
                 detalles.append("EMA")
-            if rsiImprovingShort:
+            if rsiImprovingCORTO:
                 confirmaciones += 1
                 detalles.append("RSI")
-            if techConfShort:
+            if techConfCORTO:
                 confirmaciones += 1
                 detalles.append("CCI+RSI_pend")
             if rsi > config.RSI_SOLD_THRESHOLD:
@@ -271,9 +271,9 @@ class SniperBot:
             if emaTrendLong: confianza += 8
             if bullishDivergence: confianza += 12  # Divergencia oculta alcista
         else:
-            if macdZeroCrossShort: confianza += 15
-            elif macdCrossShort: confianza += 10
-            if emaTrendShort: confianza += 8
+            if macdZeroCrossCORTO: confianza += 15
+            elif macdCrossCORTO: confianza += 10
+            if emaTrendCORTO: confianza += 8
             if bearishDivergence: confianza += 12
         
         # Bonus por cantidad de confirmaciones (3+ = señal muy sólida)
