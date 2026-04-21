@@ -24,6 +24,7 @@ from Sentinel.analysis import technical, risk
 from Sentinel.analysis.technical import check_tp_exhaustion
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
+from middleware.utils import momentum
 from middleware.utils.alertBuilder import buildSMAAlertMessage, adjustTPForMinRR, getPipMultiplier
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
@@ -350,14 +351,7 @@ class SMABot:
         
         # Momentum Filter: Usar momentum pre-calculado desde main.py
         momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
-        momentum_bonus = 0
-        
-        if direction == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
-            momentum_bonus = 10
-        elif direction == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
-            momentum_bonus = 10
-        elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
-            momentum_bonus = -5
+        momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, direction)
         
         logger.info(f"[{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
         
@@ -525,6 +519,11 @@ class SMABot:
 
         signal = await self._get_signal(data, symbol, interval, apiKey, symbolInfo)
         if signal and not self.esSenalDuplicada(symbol, signal['direction'], signal['candle_time']):
+            # Verificar si ya existe trade abierto para este símbolo
+            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+            if existing_trade:
+                logger.info(f"[SMA20_200] Trade ya abierto para {symbol} - omitiendo")
+                return
             if not self.accounts: self.accounts = dbManager.getAccount()
             if self.accounts: await self._execute_trades(signal, symbolInfo, data)
 

@@ -391,6 +391,21 @@ def getOpenTrades():
         logger.error(f"❌ Error en getOpenTrades: {e}")
         return []
 
+def getOpenTradeBySymbol(symbol: str):
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT * FROM trades WHERE symbol = %s AND status = 'OPEN' LIMIT 1",
+            (symbol,)
+        )
+        trade = cursor.fetchone()
+        conn.close()
+        return trade
+    except Exception as e:
+        logger.error(f"❌ Error en getOpenTradeBySymbol: {e}")
+        return None
+
 def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
     try:
         conn = dbConnection.getConnection()

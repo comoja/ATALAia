@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Any
 
 from middleware.database import dbManager
 from middleware.execution.broker_gateway import gateway
+from middleware.utils import momentum
 from Sentinel.analysis import technical, risk
 from Sentinel.analysis.technical import check_tp_exhaustion
 from datetime import datetime, timedelta
@@ -355,6 +356,16 @@ class FVGDiarioBot:
         signal_key = f"{symbol}_{fvg['timestamp']}"
         if signal_key in self._sent_signals:
             return
+        
+        # Verificar en DB si ya existe trade abierto para este símbolo
+        existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+        if existing_trade:
+            logger.info(f"[FVGDiario] Trade ya abierto para {symbol} - omitiendo")
+            self._sent_signals[signal_key] = True
+            return
+        
+        # Marcar antes de procesar para evitar reintentos
+        self._sent_signals[signal_key] = True
         
         # ── FILTRO: ADX - Vetar si < 20 (mercado lateral) ──
         if df is not None:

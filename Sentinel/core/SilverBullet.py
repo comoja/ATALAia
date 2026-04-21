@@ -731,6 +731,13 @@ class SilverBulletBot:
         if self._signals_sent.get(sig_key, False):
             logger.info(f"[SilverBullet][{symbol}] Señal ya enviada para esta ventana hoy")
             return
+        
+        # Verificar en DB si ya existe trade abierto para este símbolo
+        existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+        if existing_trade:
+            logger.info(f"[SilverBullet] Trade ya abierto para {symbol} - omitiendo")
+            self._signals_sent[sig_key] = True
+            return
 
         # ── Obtener datos ────────────────────────────────────────────────────
         df = preloadedData.get(symbol) if preloadedData else None

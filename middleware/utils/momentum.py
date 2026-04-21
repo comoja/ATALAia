@@ -40,7 +40,7 @@ def _cargar_estados_desde_db():
 async def _enviar_resumen_inicial(df_dict: dict):
     """Envía resumen de estados actuales al iniciar (a cuenta 1 - Sentinel)."""
     mensaje = (
-        f"<b><center>📊 MOMENTUM - RESUMEN DE HOY</center></b>\n"
+        f"<b><center>MOMENTUM - RESUMEN</center></b>\n"
         f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M')}</center>\n"
         f"━━━━━━━━━━━━━━━━\n"
     )
@@ -62,10 +62,9 @@ async def _enviar_resumen_inicial(df_dict: dict):
             "☁️ SIN DATOS": "❓"
         }
         icono = estado_icono_map.get(estado, "⚡")
-        mensaje += f"<b>{icono} {symbol}</b>: {estado} (${last.get('close', 0):,.2f})\n"
+        mensaje += f"<b>{symbol}</b>: {estado} (${last.get('close', 0):,.2f})\n"
     
     mensaje += "━━━━━━━━━━━━━━━━\n"
-    mensaje += f"<i>Estados actuales al iniciar Sentinel</i>"
     
     try:
         await alertaInmediata(1, mensaje, False)
@@ -111,6 +110,36 @@ def obtenerEstado(angR, angP):
     if angR > 30:   return "🚀 ALCISTA", "✅ Tendencia positiva."
     if angR < -30:  return "📉 BAJISTA", "🔻 Presión de venta."
     return "☁️ NEUTRAL", "💤 Sin movimiento claro."
+
+MOMENTUM_BONUS_POSITIVE = ["🚀 ALCISTA", "💎 GIRO"]
+MOMENTUM_BONUS_NEGATIVE = ["📉 BAJISTA"]
+MOMENTUM_PENALTY = ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]
+
+def getMomentumBonus(momentum_estado: str, direction: str) -> tuple:
+    """
+    Calcula el bonus/penalización de confianza basado en el momentum.
+    Args:
+        momentum_estado: Estado actual del símbolo (ej: '🚀 ALCISTA')
+        direction: Dirección de la signal ('LARGO' o 'CORTO')
+    Returns:
+        (bonus: int, aligned: bool) - bonus de confianza y si está alineado
+    """
+    bonus = 0
+    aligned = False
+    
+    if direction == "LARGO":
+        if momentum_estado in MOMENTUM_BONUS_POSITIVE:
+            bonus = 10
+            aligned = True
+    elif direction == "CORTO":
+        if momentum_estado in MOMENTUM_BONUS_NEGATIVE:
+            bonus = 10
+            aligned = True
+    
+    if momentum_estado in MOMENTUM_PENALTY:
+        bonus = -5
+    
+    return bonus, aligned
 
 def centrarTexto(texto, ancho=50):
     espacios = (ancho - len(texto)) // 2

@@ -61,10 +61,17 @@ class GenericFVGBot:
             # Control de duplicados usando el timestamp del FVG
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
             if signal_key in self._sent_signals:
-                logger.info(f"[GenericFVG] Señal ya enviada: {signal_key}")
+                logger.info(f"[GenericFVG] Señal ya enviada en RAM: {signal_key}")
                 continue
             
-            # Marcar como enviada ANTES de procesar para evitar duplicados
+            # Verificar en DB si ya existe trade abierto para este símbolo
+            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+            if existing_trade:
+                logger.info(f"[GenericFVG] Trade ya abierto para {symbol} [{self.strategy_name}] - omitiendo")
+                self._sent_signals[signal_key] = True
+                continue
+            
+            # Marcar como enviada ANTES de procesar para evitar duplicados por reintentos
             self._sent_signals[signal_key] = True
             
             # Resamplear para obtener datos de precio (necesario para SL/TP)

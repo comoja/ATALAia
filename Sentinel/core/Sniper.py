@@ -86,9 +86,9 @@ class SniperBot:
 
         # --- Get Current Values ---
         latest = X.iloc[-1]
-        self.latestFullData = df.iloc[-1]
+        self.latestFullData = df  # Guardar DataFrame completo para acceso histórico
         
-        close = self.latestFullData["close"]
+        close = self.latestFullData["close"].iloc[-1]
         currentAtr = latest["atr"]
         avgAtr = df["atr"].iloc[-20:].mean()
         volPercent = (currentAtr / close) * 100
@@ -105,36 +105,34 @@ class SniperBot:
             return None
 
         # --- INDICADORES TÉCNICOS ---
-        histVal = self.latestFullData["macdHist"]
+        histVal = self.latestFullData["macdHist"].iloc[-1]
         prevHistVal = df["macdHist"].iloc[-2]
         
-        macdLine = self.latestFullData["macd"]
-        macdSignal = self.latestFullData["macdSig"]
+        macdLine = self.latestFullData["macd"].iloc[-1]
+        macdSignal = self.latestFullData["macdSig"].iloc[-1]
         
         rsi = latest["rsi"]
         prevRsi = df["rsi"].iloc[-2]
         
-        close = self.latestFullData["close"]
-        
-        ema20 = self.latestFullData["ema20"]
-        ema50 = self.latestFullData["ema50"]
+        ema20 = self.latestFullData["ema20"].iloc[-1]
+        ema50 = self.latestFullData["ema50"].iloc[-1]
         
         # --- SEÑALES INDIVIDUALES ---
         # MACD
         macdCrossLong = (macdLine > macdSignal) and (df["macd"].iloc[-2] <= df["macdSig"].iloc[-2])
-        macdCrossCORTO = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
+        macdCrossShort = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
         histImprovingLong = histVal > prevHistVal
-        histImprovingCORTO = histVal < prevHistVal
+        histImprovingShort = histVal < prevHistVal
         macdZeroCrossLong = (prevHistVal <= 0 and histVal > 0)
-        macdZeroCrossCORTO = (prevHistVal >= 0 and histVal < 0)
+        macdZeroCrossShort = (prevHistVal >= 0 and histVal < 0)
         
         # EMA Trend
         emaTrendLong = ema20 > ema50
-        emaTrendCORTO = ema20 < ema50
+        emaTrendShort = ema20 < ema50
         
         # RSI
         rsiImprovingLong = rsi > prevRsi
-        rsiImprovingCORTO = rsi < prevRsi
+        rsiImprovingShort = rsi < prevRsi
         
         # Alerta de sobrecompra/sobreventa (informativa)
         """
@@ -152,8 +150,8 @@ class SniperBot:
         bullishDivergence = (prices[-1] < np.min(prices[:-1])) and (hists[-1] > np.min(hists[:-1]))
         
         # CCI + RSI pendientes
-        techConfLong = (self.latestFullData["pendienteCci"] > 0.5 and self.latestFullData["pendienteRsi"] > 0.1)
-        techConfCORTO = (self.latestFullData["pendienteCci"] < -0.5 and self.latestFullData["pendienteRsi"] < -0.1)
+        techConfLong = (self.latestFullData["pendienteCci"].iloc[-1] > 0.5 and self.latestFullData["pendienteRsi"].iloc[-1] > 0.1)
+        techConfShort = (self.latestFullData["pendienteCci"].iloc[-1] < -0.5 and self.latestFullData["pendienteRsi"].iloc[-1] < -0.1)
         
         # --- MOMENTUM FILTER (usar pre-calculado desde main.py) ---
         momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
@@ -164,7 +162,9 @@ class SniperBot:
         
         momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
         momentumBearish = momentumEstado in ["📉 BAJISTA"]
+        momentumNeutral = momentumEstado in ["☁️ NEUTRAL"]
         momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN"]
+        
         if momentumVeto:
             logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado crítico ({momentumEstado}). Señal vetada.")
             return None
@@ -185,6 +185,17 @@ class SniperBot:
         else:
             logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f}, zona neutral)")
             return None
+        
+        # --- NEW: Verificar tendencia cuando momentum es Neutral ---
+        if momentumNeutral and len(self.latestFullData) >= 8:
+            close = self.latestFullData["close"].iloc[-1]
+            price_4h_ago = self.latestFullData["close"].iloc[-8]
+            if direction == "LARGO" and close <= price_4h_ago:
+                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + precio lateral/bajista (no comprar aún)")
+                return None
+            elif direction == "CORTO" and close >= price_4h_ago:
+                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + precio lateral/alcista (no vender aún)")
+                return None
         
         # --- Contar confirmaciones técnicas ---
         confirmaciones = 0
@@ -211,16 +222,16 @@ class SniperBot:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_BAJISTA")
         else:  # CORTO
-            if histImprovingCORTO or macdZeroCrossCORTO or macdCrossCORTO:
+            if histImprovingShort or macdZeroCrossShort or macdCrossShort:
                 confirmaciones += 1
                 detalles.append("MACD")
-            if emaTrendCORTO:
+            if emaTrendShort:
                 confirmaciones += 1
                 detalles.append("EMA")
-            if rsiImprovingCORTO:
+            if rsiImprovingShort:
                 confirmaciones += 1
                 detalles.append("RSI")
-            if techConfCORTO:
+            if techConfShort:
                 confirmaciones += 1
                 detalles.append("CCI+RSI_pend")
             if rsi > config.RSI_SOLD_THRESHOLD:
@@ -271,9 +282,9 @@ class SniperBot:
             if emaTrendLong: confianza += 8
             if bullishDivergence: confianza += 12  # Divergencia oculta alcista
         else:
-            if macdZeroCrossCORTO: confianza += 15
-            elif macdCrossCORTO: confianza += 10
-            if emaTrendCORTO: confianza += 8
+            if macdZeroCrossShort: confianza += 15
+            elif macdCrossShort: confianza += 10
+            if emaTrendShort: confianza += 8
             if bearishDivergence: confianza += 12
         
         # Bonus por cantidad de confirmaciones (3+ = señal muy sólida)
@@ -297,10 +308,10 @@ class SniperBot:
             confianza -= 15
             
         # --- Candle Patterns (solo bonus, sin penalización injusta) ---
-        cdlEngulfing = self.latestFullData.get("cdlEngulfing", 0)
-        cdlHammer = self.latestFullData.get("cdlHammer", 0)
-        cdlShootingStar = self.latestFullData.get("cdlShootingStar", 0)
-        cdlDoji = self.latestFullData.get("cdlDoji", 0)
+        cdlEngulfing = self.latestFullData["cdlEngulfing"].iloc[-1] if "cdlEngulfing" in self.latestFullData.columns else 0
+        cdlHammer = self.latestFullData["cdlHammer"].iloc[-1] if "cdlHammer" in self.latestFullData.columns else 0
+        cdlShootingStar = self.latestFullData["cdlShootingStar"].iloc[-1] if "cdlShootingStar" in self.latestFullData.columns else 0
+        cdlDoji = self.latestFullData["cdlDoji"].iloc[-1] if "cdlDoji" in self.latestFullData.columns else 0
 
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
             confianza *= 1.10
@@ -539,9 +550,16 @@ class SniperBot:
 
         signal = await self._get_signal(data, symbol, symbolInfo)
         if signal:
+            # Verificar si ya existe trade abierto para este símbolo
+            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+            if existing_trade:
+                logger.info(f"[Sniper] Trade ya abierto para {symbol} - omitiendo")
+                return
+            
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
             last_closed = get_last_closed_candle(now_cdmx, interval=5)
             signal['candle_time'] = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+            signal['setup'] = f"ML SNIPER {signal.get('intervalo', '15min').upper()}"
             logger.info(f"[{symbol}] Señal: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
             await self._execute_trades(signal, symbolInfo)
         else:

@@ -12,6 +12,7 @@ from middleware.database import dbManager
 from Sentinel.analysis import risk
 from Sentinel.analysis.technical import check_tp_exhaustion
 from middleware.utils.communications import sendTelegramAlert
+from middleware.utils import momentum
 
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 from middleware.config.constants import TIMEZONE
@@ -180,6 +181,13 @@ class BaseImbalanceBot:
             logger.debug(f"[{self.strategy_name}] Señales ya generadas anteriormente")
             return []
         
+        # Verificar en DB si ya existe trade abierto para este símbolo
+        existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+        if existing_trade:
+            logger.info(f"[{self.strategy_name}] Trade ya abierto para {symbol} - omitiendo")
+            self.signalGenerada = True
+            return []
+        
         if self.velaCorte is None:
             velaCorte = self.findVelaCorte(datos5min, precioMaximo, precioMinimo)
             if velaCorte is None:
@@ -331,16 +339,9 @@ class BaseImbalanceBot:
                 status_msg = "EN ZONA ✅"
 
             # Momentum Filter: Usar momentum pre-calculado desde main.py
-            momentum_bonus = 0
             momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
+            momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, signalDirection)
             
-            if signalDirection == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
-                momentum_bonus = 10
-            elif signalDirection == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
-                momentum_bonus = 10
-            elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
-                momentum_bonus = -5
-                
             logger.info(f"[{self.strategy_name}][{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
             
             signals.append({

@@ -28,6 +28,7 @@ from Sentinel.data.dataLoader import getParametros
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
 from middleware.utils.communications import sendTelegramAlert
+from middleware.utils import momentum
 from middleware.utils.alertBuilder import buildImbalanceLDNAlertMessage, buildImbalanceNYAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
 
 from middleware.config.constants import TIMEZONE
@@ -266,6 +267,12 @@ class EMA20200Bot:
             ema20_last = ema20.iloc[-1]
 
             # Detect and save cross
+            # Verificar si ya existe trade abierto para este símbolo
+            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+            if existing_trade:
+                logger.info(f"[EMA20200] Trade ya abierto para {symbol} - omitiendo")
+                return
+            
             if directionCross:
                 self.waitingPullback[symbol] = {"direction": directionCross, "active": True}
                 logger.info(f"[{symbol}] Cruce EMA detectado ({directionCross}), esperando pullback...")
@@ -302,17 +309,7 @@ class EMA20200Bot:
             
             # Momentum Filter: Usar momentum pre-calculado desde main.py
             momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
-            momentum_bonus = 0
-            momentum_alineado = False
-            
-            if direction == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
-                momentum_bonus = 10
-                momentum_alineado = True
-            elif direction == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
-                momentum_bonus = 10
-                momentum_alineado = True
-            elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
-                momentum_bonus = -5  # Señal debil
+            momentum_bonus, momentum_alineado = momentum.getMomentumBonus(momentum_estado, direction)
             
             logger.info(f"[{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
             

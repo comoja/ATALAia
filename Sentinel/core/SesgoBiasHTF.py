@@ -1148,6 +1148,12 @@ class SesgoBiasHTFBot:
         
         resultado = self.analyze_top_down(datos, symbolInfo)
         
+        # Verificar en DB si ya existe trade abierto para este símbolo
+        existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+        if existing_trade:
+            logger.info(f"[SesgoBiasHTF] Trade ya abierto para {symbol} - omitiendo")
+            return
+        
         if resultado['status'] == 'SENAL_GENERADA' and resultado.get('senal'):
             señal = resultado['senal']
             self.timestamps_signals[symbol] = self.getMexicoTime().replace(tzinfo=None)

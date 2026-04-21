@@ -32,6 +32,7 @@ from middleware.database import dbManager
 from Sentinel.analysis import risk
 from Sentinel.data.dataLoader import getParametros
 from middleware.utils.communications import sendTelegramAlert
+from middleware.utils import momentum
 from middleware.utils.alertBuilder import buildAlertMessage, buildPatron4HAlertMessage
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
@@ -499,16 +500,8 @@ class Patron4HBot:
         
         # Momentum Filter: Usar momentum pre-calculado desde main.py
         momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
-        momentum_bonus = 0
+        momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, direction_upper)
         
-        direction_upper = direction.upper() if direction else ""
-        if direction_upper == "LARGO" and momentum_estado in ["🚀 ALCISTA", "💎 GIRO"]:
-            momentum_bonus = 10
-        elif direction_upper == "CORTO" and momentum_estado in ["📉 BAJISTA"]:
-            momentum_bonus = 10
-        elif momentum_estado in ["💸 LIQUIDACIÓN", "🌋 PARÁBOLA"]:
-            momentum_bonus = -5
-            
         logger.info(f"[{symbol}] Momentum: {momentum_estado} → {'+' if momentum_bonus > 0 else ''}{momentum_bonus}% confianza")
         
         # --- SEMÁFORO DE ENTRADA (Price Action) ---
@@ -781,6 +774,12 @@ class Patron4HBot:
         resultado = self.analizar_top_down(datos, symbolInfo)
         
         if resultado['status'] == 'SENAL_GENERADA' and resultado.get('señal'):
+            # Verificar si ya existe trade abierto para este símbolo
+            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
+            if existing_trade:
+                logger.info(f"[Patron4h] Trade ya abierto para {symbol} - omitiendo")
+                return
+            
             señal = resultado['señal']
             self.timestamps_signals[symbol] = self.getMexicoTime().replace(tzinfo=None)
             

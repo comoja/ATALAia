@@ -34,6 +34,7 @@ from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resu
 
 # Flag para enviar resumen solo una vez
 _resumen_momentum_enviado = False
+_momentum_data_cache = {}  # Cache para收集 datos de momentum
 from middleware.config import constants as config
 from middleware.database import dbManager
 from middleware.database.dbManager import get_min_wait_time
@@ -269,11 +270,17 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         
         logger.info(f"[{symbol}] Momentum: 5m={momentum_5m} | 15m={momentum_15m} | 1h={momentum_1h} | 4h={momentum_4h}")
         
-        # Enviar resumen de momentum al inicio (solo una vez)
-        global _resumen_momentum_enviado
-        if not _resumen_momentum_enviado:
-            _resumen_momentum_enviado = True
-            await _enviar_resumen_inicial({symbol: df})
+        # Cachear datos de momentum para resumen
+        global _momentum_data_cache
+        _momentum_data_cache[symbol] = df
+        
+        # Enviar resumen de momentum al inicio (solo una vez, después de todos los símbolos)
+        if symbol == symbolsToScan[-1]:  # Último símbolo
+            global _resumen_momentum_enviado
+            if not _resumen_momentum_enviado:
+                _resumen_momentum_enviado = True
+                await _enviar_resumen_inicial(_momentum_data_cache)
+                _momentum_data_cache = {}  # Limpiar cache
         
         # 2. Ejecutar Sniper (usa 15min)
         logger.debug(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
