@@ -45,15 +45,15 @@ def buildAlertMessage(
     strategyName: str,
     extraFields: dict = None
 ) -> str:
-    direction = signal['direction']
-    directionStr = "COMPRA" if direction in ["LARGO"] else "VENTA"
-    colorHeader = "🟩" if direction in ["LARGO"] else "🟥"
+    direction = signal.get('direction', signal.get('direccion', 'LARGO'))
+    directionStr = "COMPRA" if direction in ["LARGO", "BUY"] else "VENTA"
+    colorHeader = "🟩" if direction in ["LARGO", "BUY"] else "🟥"
     
-    close = signal['entryPrice']
-    tp = trade['takeProfit']
-    sl = trade['stopLoss']
-    confianza = signal['confidence']
-    setup = signal.get('setup', 'N/A')
+    close = signal.get('entryPrice', signal.get('entrada', 0))
+    tp = trade.get('takeProfit', signal.get('take_profit', 0))
+    sl = trade.get('stopLoss', signal.get('stop_loss', 0))
+    confianza = signal.get('confidence', signal.get('confianza', 0))
+    setup = signal.get('setup', signal.get('tipo_entrada', 'N/A'))
 
     if direction == "LARGO":
         text = (
@@ -181,15 +181,23 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    tp1 = signal.get('tp1')
+    tp2 = signal.get('tp2')
+    tp_final = signal.get('tp_final')
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Riesgo Pips': signal.get('riesgo_pips', 0) or 0,
+        'RR Ratio': signal.get('rr_ratio', 0) or 0,
+        'Riesgo Máx:': f"${(signal.get('profit') or 0):.2f} USD",
         'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
         'TF Señal': signal.get('timeframe_entrada', '15M'),
         'Vela Origen': signal.get('vela_origen', 'N/A'),
-        'Momentum': momentum
+        'Momentum': momentum,
+        'TP1': round(tp1, 5) if tp1 and tp1 > 0 else 0.0,
+        'TP2': round(tp2, 5) if tp2 and tp2 > 0 else 0.0,
+        'TP3': round(tp_final, 5) if tp_final and tp_final > 0 else 0.0
     }
     
     return buildAlertMessage(

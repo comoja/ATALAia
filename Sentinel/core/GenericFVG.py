@@ -18,6 +18,10 @@ from Sentinel.analysis import technical, risk
 from middleware.execution.broker_gateway import gateway
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
+from middleware.utils.alertBuilder import getPipMultiplier
+
+
+from Sentinel.core.models import Signal
 
 logger = logging.getLogger("sentinel")
 
@@ -30,7 +34,6 @@ class GenericFVGBot:
     def __init__(self):
         self.intervals = ['15min', '1h', '4h']
         self._sent_signals = {}
-        self.accounts = None
         self.strategy_name = "GenericFVG"
         
         logger.info(f"GenericFVGBot iniciado para intervalos: {self.intervals}")
@@ -38,22 +41,27 @@ class GenericFVGBot:
     def getMexicoTime(self) -> datetime:
         return datetime.now(pytz.timezone(TIMEZONE))
 
-    async def analyze(self, symbolInfo: Dict, df5m: pd.DataFrame):
-        """Analiza un símbolo en todas las temporalidades configuradas."""
-        logger.info(f"Analizando {symbolInfo['symbol']} en intervalos {self.intervals}")
-        
+    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None) -> List[Signal]:
+        """Analiza un símbolo en todas las temporalidades configuradas y devuelve una lista de señales."""
         symbol = symbolInfo['symbol']
+        logger.info(f"Analizando {symbol} en intervalos {self.intervals}")
+        signals = []
         
-        if df5m is None or len(df5m) < 20:
-            return
+        # Punto 3: Master Dictionary integration
+        master = preloadedData.get(symbol) if preloadedData else None
+
 
         for interval in self.intervals:
+            df_tf = master.get(interval) if master else None
+            
+            # Si no hay master o no tiene el intervalo, detect_fvg_closed hará el resampleo
             latest_fvg = technical.detect_fvg_closed(
-                df_source=df5m,
+                df_source=df_tf if df_tf is not None else df_input,
                 interval=interval,
                 min_gap_pct=0.0005,
                 min_adx=20
             )
+
             
             if not latest_fvg:
                 continue
@@ -61,18 +69,8 @@ class GenericFVGBot:
             # Control de duplicados usando el timestamp del FVG
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
             if signal_key in self._sent_signals:
-                logger.info(f"[GenericFVG] Señal ya enviada en RAM: {signal_key}")
+                logger.debug(f" Señal ya enviada en RAM: {signal_key}")
                 continue
-            
-            # Verificar en DB si ya existe trade abierto para este símbolo
-            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
-            if existing_trade:
-                logger.info(f"[GenericFVG] Trade ya abierto para {symbol} [{self.strategy_name}] - omitiendo")
-                self._sent_signals[signal_key] = True
-                continue
-            
-            # Marcar como enviada ANTES de procesar para evitar duplicados por reintentos
-            self._sent_signals[signal_key] = True
             
             # Resamplear para obtener datos de precio (necesario para SL/TP)
             df = technical.resample_to_interval(df5m, interval)
@@ -80,16 +78,12 @@ class GenericFVGBot:
                 continue
             
             # El idx del FVG es respecto al df resampleado
-            # Ajustar indices basados en el df resampleado
             last_closed_idx = len(df) - 2
             if latest_fvg['idx'] > last_closed_idx:
                 continue
             
             v1_idx = latest_fvg['idx'] - 1
-            if v1_idx < 0: 
-                continue
-            
-            if v1_idx >= len(df):
+            if v1_idx < 0 or v1_idx >= len(df):
                 continue
             
             vela1 = df.iloc[v1_idx]
@@ -115,8 +109,6 @@ class GenericFVGBot:
             else:
                 if tp1 >= entry_price: tp1 = entry_price - (risk_dist * 1.5)
 
-            min_lots = float(symbolInfo.get('min_lots', 1.0))
-
             tp2 = entry_price + (risk_dist * 2) if latest_fvg['type'] == 'Bullish_FVG' else entry_price - (risk_dist * 2)
 
             fvg_mid = float(latest_fvg['mid'])
@@ -136,15 +128,19 @@ class GenericFVGBot:
                 status_msg = "EN ZONA ✅"
 
             # ===== FILTROS DE CALIDAD =====
+            from middleware.database import dbManager
+            strat_config = dbManager.getStrategyConfig("GenericFVG") or {}
+            
             current_price = float(df['close'].iloc[-1])
             rr_ratio = round(abs(tp1 - entry_price) / risk_dist, 2)
-            min_rr = 0.5
+            min_rr = float(strat_config.get('min_rr', 0.5))
             max_sl_proximity = 0.2
             
             # 1. Filtrar RR muy bajo
             if rr_ratio < min_rr:
                 logger.info(f" RR={rr_ratio:.2f} < {min_rr} - descartando señal")
                 continue
+
             
             # 2. Verificar que precio actual no esté muy cerca del SL
             if latest_fvg['type'] == 'Bullish_FVG':
@@ -168,65 +164,32 @@ class GenericFVGBot:
                     logger.info(f" Precio fuera de zona FVG - descartando")
                     continue
 
-            # Preparar Dicc de Señal para Gateway
-            signal_data = {
-                "strategy": self.strategy_name,
-                "symbol": symbol,
-                "direction": "LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO",
-                "entryPrice": entry_price,
-                "stopLoss": sl,
-                "takeProfit": tp1,
-                "slDistance": risk_dist,
-                "riesgo_pips": round(risk_dist * technical.get_pip_multiplier(symbol), 1),
-                "rr_ratio": round(abs(tp1 - entry_price) / risk_dist, 2),
-                "fvg": latest_fvg['type'],
-                "candle_time": latest_fvg['timestamp'],
-                "confidence": 85,
-                "setup": f"FVG {interval}",
-                "status": status_msg
-            }
-
-            # Preparar Dicc de Trade para Gateway/DB
-            trade_data = {
-                "symbol": symbol,
-                "direction": signal_data['direction'],
-                "entryPrice": entry_price,
-                "stopLoss": sl,
-                "takeProfit": tp1,
-                "intervalo": interval,
-                "strategy": self.strategy_name,
-                "size": min_lots,
-                "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-
-            # Ejecutar vía Gateway (DB + Telegram + Broker) para cada cuenta válida
-            if not self.accounts:
-                self.accounts = dbManager.getAccount()
+            # Marcar como enviada en RAM (el motor se encargará de persistir si es necesario)
+            self._sent_signals[signal_key] = True
             
-            for account in self.accounts:
-                # Excluir cuenta maestra de señales (SENTINEL)
-                if account['idCuenta'] == 1: 
-                    continue
-                
-                posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                    capital=float(account['Capital']),
-                    riskPercentage=float(account['ganancia']),
-                    slDistance=risk_dist,
-                    symbolInfo=symbolInfo,
-                    entryPrice=entry_price
-                )
-                
-                if posSize is None or posSize == 0:
-                    risk_display = f"{riskUsd:.2f}" if riskUsd is not None else "N/A"
-                    logger.warning(f"[GenericFVG] Size=0 para {symbol} - riesgo ${risk_display} < $5 mínimo")
-                    continue
-                
-                signal_data['profit'] = riskUsd
-                trade_data['idCuenta'] = account['idCuenta']
-                trade_data['size'] = posSize
-                trade_data['margin_used'] = marginUsed
+            # Crear objeto Signal
+            signal = Signal(
+                strategy=self.strategy_name,
+                symbol=symbol,
+                direction="LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO",
+                entry_price=entry_price,
+                stop_loss=sl,
+                take_profit=tp1,
+                sl_distance=risk_dist,
+                riesgo_pips=round(risk_dist * getPipMultiplier(symbol), 1),
+                rr_ratio=round(abs(tp1 - entry_price) / risk_dist, 2),
+                confidence=85,
+                setup=f"FVG {interval}",
+                status=status_msg,
+                candle_time=latest_fvg['timestamp'],
+                intervalo=interval,
+                metadata={
+                    "fvg": latest_fvg['type'],
+                    "tp2": tp2
+                }
+            )
+            signals.append(signal)
 
-                success, msg_id = await gateway.execute_trade(trade_data, signal_data, account, self.strategy_name, df=df)
-                if success:
-                    logger.info(f"✅ Señal estandarizada enviada para {symbol} [{interval}] a cuenta {account['idCuenta']}")
+        return signals
+
 

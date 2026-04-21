@@ -64,9 +64,20 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     # --- Base Indicators ---
     ema20 = dfFeatured["close"].ewm(span=20, adjust=False).mean()
     ema50 = dfFeatured["close"].ewm(span=50, adjust=False).mean()
+    ema200 = dfFeatured["close"].ewm(span=200, adjust=False).mean()
     dfFeatured["ema20"] = ema20
     dfFeatured["ema50"] = ema50
+    dfFeatured["ema200"] = ema200
+
+    # --- Punto 3: SMAs and Bollinger Bands for SMA20_200 Bot ---
+    dfFeatured["sma20"] = ta.SMA(dfFeatured["close"].values, timeperiod=20)
+    dfFeatured["sma200"] = ta.SMA(dfFeatured["close"].values, timeperiod=200)
+    dfFeatured["bb_upper"], dfFeatured["bb_middle"], dfFeatured["bb_lower"] = ta.BBANDS(
+        dfFeatured["close"].values, timeperiod=20, nbdevup=2, nbdevdn=2
+    )
+
     dfFeatured["emaDist"] = (dfFeatured["close"] - ema20) / dfFeatured["close"]
+
     dfFeatured["emaTrend"] = (ema20 - ema50) / dfFeatured["close"]
     dfFeatured["slopeEma50"] = ema50.pct_change(12)
     dfFeatured["atr"] = ta.ATR(dfFeatured["high"], dfFeatured["low"], dfFeatured["close"], 14)
@@ -626,6 +637,8 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
         if current_time.tzinfo is not None:
             current_time = current_time.replace(tzinfo=None)
         
+        logger.info(f"[Exhaustion] Vela origen: {vela_origen_time.strftime('%Y-%m-%d %H:%M')} | Current: {current_time.strftime('%Y-%m-%d %H:%M')}")
+        
         diferencia = (current_time - vela_origen_time).total_seconds() / 60
         
         # SI la vela origen es FUTURA, BLOQUEAR
@@ -633,9 +646,9 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
             logger.warning(f"[Exhaustion] 🚫 Vela origen FUTURA ({diferencia:.0f} min), se BLOQUEA (idx={vela_origen_idx})")
             return (False, 0.0, f"Vela origen futura ({diferencia:.0f} min), se bloquea")
         
-        # SI la vela origen es muy antigua (>60 min para cualquier TF), BLOQUEAR
-        if diferencia > 60:
-            logger.warning(f"[Exhaustion] 🚫 Vela origen muy antigua ({diferencia:.0f} min > 60), se BLOQUEA (idx={vela_origen_idx})")
+        # SI la vela origen es muy antigua (>120 min para cualquier TF), BLOQUEAR
+        if diferencia > 120:
+            logger.warning(f"[Exhaustion] 🚫 Vela origen muy antigua ({diferencia:.0f} min > 120), se BLOQUEA (idx={vela_origen_idx})")
             return (False, 0.0, f"Vela origen antigua ({diferencia:.0f} min), se bloquea")
         
         logger.debug(f"[Exhaustion] Origen OK: {diferencia:.0f} min")

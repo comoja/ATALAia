@@ -190,6 +190,13 @@ class BrokerGateway:
 
         # 4. Notificación Telegram (Independiente del éxito en DB)
         msg_id = None
+        candle_time = signal.get('candle_time')
+        
+        # Punto 5: Persistencia de Alertas (Evitar duplicados tras reinicio)
+        if candle_time and dbManager.is_alert_sent(trade_data['symbol'], strategy_name, candle_time):
+            logger.info(f"⏭️ Alerta ya enviada anteriormente para {trade_data['symbol']} | {strategy_name} | {candle_time} - Omitiendo.")
+            return exec_success, "ALREADY_SENT"
+
         logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
         try:
             msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
@@ -197,10 +204,14 @@ class BrokerGateway:
                 logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
             else:
                 logger.info(f"✅ Alerta enviada con éxito (ID: {msg_id})")
+                # Punto 5: Marcar como enviada en la BD
+                if candle_time:
+                    dbManager.mark_alert_sent(trade_data['symbol'], strategy_name, candle_time)
         except Exception as e:
             logger.error(f"❌ Excepción al enviar alerta de Telegram: {e}")
 
         return exec_success, msg_id
+
 
     def _build_message(self, strategy_name: str, signal: dict, trade_data: dict) -> str:
         """

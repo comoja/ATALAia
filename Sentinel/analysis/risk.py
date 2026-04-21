@@ -213,6 +213,186 @@ def checkTradeClosure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]) -> 
         logger.error(f"Error al verificar cierre de trade: {e}", exc_info=True)
         return None
 
+
+def check_multi_tp_closure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]) -> Dict[str, Any] | None:
+    """
+    Analiza nuevas velas para verificar si un trade open alcanzó sus niveles de TP múltiples.
+    Soporta cierres parciales: 30% en TP1, 40% en TP2, 30% en TP_FINAL.
+    
+    Returns:
+        Dict con detalles del cierre si el trade se cierra completamente, 
+        o dict con 'partial' = True si es cierre parcial.
+        None si el trade permanece abierto.
+    """
+    try:
+        side = tradeData['direction'].upper()
+        stopLoss = tradeData.get('stopLoss')
+        entryPrice = tradeData.get('entryPrice')
+        
+        tp1 = tradeData.get('tp1')
+        tp2 = tradeData.get('tp2')
+        tp_final = tradeData.get('tp_final', tradeData.get('takeProfit'))
+        
+        partial_levels = tradeData.get('partial_close_levels', [])
+        closed_levels = tradeData.get('closed_tp_levels', [])
+        
+        if closed_levels is None:
+            closed_levels = []
+        
+        result = {
+            'closed': False,
+            'partial': False,
+            'reason': None,
+            'exitPrice': None,
+            'closeTime': None,
+            'closed_tp_levels': closed_levels.copy(),
+            'remaining_size_pct': 100
+        }
+        
+        pct_closed = 0
+        for level in closed_levels:
+            pct_closed += level.get('pct', 0)
+        result['remaining_size_pct'] = 100 - pct_closed
+        
+        for timestamp, row in dfNewCandles.iterrows():
+            velaHigh = float(row['high'])
+            velaLow = float(row['low'])
+            velaClose = float(row['close'])
+            
+            if side in ("BUY", "LARGO"):
+                if stopLoss and velaLow <= stopLoss:
+                    return {
+                        "status": "CLOSED", 
+                        "reason": "SL", 
+                        "exitPrice": stopLoss, 
+                        "closeTime": timestamp,
+                        "full_close": True
+                    }
+                
+                if tp1 and tp1 not in [l.get('tp') for l in closed_levels] and velaHigh >= tp1:
+                    pct_to_add = 30 if not any(l.get('tp') == tp1 for l in partial_levels) else 0
+                    if pct_to_add > 0:
+                        result['closed_tp_levels'].append({'tp': tp1, 'pct': pct_to_add})
+                        result['partial'] = True
+                        result['exitPrice'] = tp1
+                        result['closeTime'] = timestamp
+                        pct_closed += pct_to_add
+                        
+                        if pct_closed >= 70:
+                            return {
+                                "status": "PARTIAL_CLOSED",
+                                "reason": "TP1",
+                                "exitPrice": tp1,
+                                "closeTime": timestamp,
+                                "partial": True,
+                                "closed_tp_levels": result['closed_tp_levels'],
+                                "remaining_size_pct": 100 - pct_closed
+                            }
+                
+                if tp2 and tp2 not in [l.get('tp') for l in closed_levels] and velaHigh >= tp2:
+                    pct_to_add = 40 if not any(l.get('tp') == tp2 for l in partial_levels) else 0
+                    if pct_to_add > 0:
+                        result['closed_tp_levels'].append({'tp': tp2, 'pct': pct_to_add})
+                        result['partial'] = True
+                        result['exitPrice'] = tp2
+                        result['closeTime'] = timestamp
+                        pct_closed += pct_to_add
+                        
+                        if pct_closed >= 70:
+                            return {
+                                "status": "PARTIAL_CLOSED",
+                                "reason": "TP2",
+                                "exitPrice": tp2,
+                                "closeTime": timestamp,
+                                "partial": True,
+                                "closed_tp_levels": result['closed_tp_levels'],
+                                "remaining_size_pct": 100 - pct_closed
+                            }
+                
+                if tp_final and tp_final not in [l.get('tp') for l in closed_levels] and velaHigh >= tp_final:
+                    pct_to_add = 30
+                    result['closed_tp_levels'].append({'tp': tp_final, 'pct': pct_to_add})
+                    return {
+                        "status": "CLOSED",
+                        "reason": "TP_FINAL",
+                        "exitPrice": tp_final,
+                        "closeTime": timestamp,
+                        "full_close": True,
+                        "closed_tp_levels": result['closed_tp_levels']
+                    }
+            
+            else:  # SELL, CORTO
+                if stopLoss and velaHigh >= stopLoss:
+                    return {
+                        "status": "CLOSED",
+                        "reason": "SL",
+                        "exitPrice": stopLoss,
+                        "closeTime": timestamp,
+                        "full_close": True
+                    }
+                
+                if tp1 and tp1 not in [l.get('tp') for l in closed_levels] and velaLow <= tp1:
+                    pct_to_add = 30 if not any(l.get('tp') == tp1 for l in partial_levels) else 0
+                    if pct_to_add > 0:
+                        result['closed_tp_levels'].append({'tp': tp1, 'pct': pct_to_add})
+                        result['partial'] = True
+                        result['exitPrice'] = tp1
+                        result['closeTime'] = timestamp
+                        pct_closed += pct_to_add
+                        
+                        if pct_closed >= 70:
+                            return {
+                                "status": "PARTIAL_CLOSED",
+                                "reason": "TP1",
+                                "exitPrice": tp1,
+                                "closeTime": timestamp,
+                                "partial": True,
+                                "closed_tp_levels": result['closed_tp_levels'],
+                                "remaining_size_pct": 100 - pct_closed
+                            }
+                
+                if tp2 and tp2 not in [l.get('tp') for l in closed_levels] and velaLow <= tp2:
+                    pct_to_add = 40 if not any(l.get('tp') == tp2 for l in partial_levels) else 0
+                    if pct_to_add > 0:
+                        result['closed_tp_levels'].append({'tp': tp2, 'pct': pct_to_add})
+                        result['partial'] = True
+                        result['exitPrice'] = tp2
+                        result['closeTime'] = timestamp
+                        pct_closed += pct_to_add
+                        
+                        if pct_closed >= 70:
+                            return {
+                                "status": "PARTIAL_CLOSED",
+                                "reason": "TP2",
+                                "exitPrice": tp2,
+                                "closeTime": timestamp,
+                                "partial": True,
+                                "closed_tp_levels": result['closed_tp_levels'],
+                                "remaining_size_pct": 100 - pct_closed
+                            }
+                
+                if tp_final and tp_final not in [l.get('tp') for l in closed_levels] and velaLow <= tp_final:
+                    pct_to_add = 30
+                    result['closed_tp_levels'].append({'tp': tp_final, 'pct': pct_to_add})
+                    return {
+                        "status": "CLOSED",
+                        "reason": "TP_FINAL",
+                        "exitPrice": tp_final,
+                        "closeTime": timestamp,
+                        "full_close": True,
+                        "closed_tp_levels": result['closed_tp_levels']
+                    }
+        
+        if result['partial']:
+            return result
+        
+        return None
+
+    except Exception as e:
+        logger.error(f"Error al verificar cierre multi-TP: {e}", exc_info=True)
+        return None
+
+
 def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> float:
     """
     Calculates the net Profit and Loss for a closed trade.

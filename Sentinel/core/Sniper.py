@@ -29,12 +29,13 @@ from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
 from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
 
+from Sentinel.core.models import Signal
+
 logger = logging.getLogger("sentinel")
 
 class SniperBot:
     def __init__(self, mlModelInstance):
         self.model = mlModelInstance
-        self.accounts = []
         self.estadosPorSimbolo = {}
         self.lastMessageIds = {}  # {symbol: message_id}
 
@@ -76,8 +77,8 @@ class SniperBot:
             
         return dfFinal
 
-    async def _get_signal(self, df: pd.DataFrame, symbol: str, symbolInfo: Dict = None) -> Dict[str, Any] | None:
-        """Analyzes the data to generate a trading signal dictionary."""
+    async def _get_signal(self, df: pd.DataFrame, symbol: str, symbolInfo: Dict = None) -> Optional[Signal]:
+        """Analyzes the data to generate a Signal object."""
         
         X, _ = mlModel.cleanDataForModel(df)
         if len(X) < 100:
@@ -91,7 +92,6 @@ class SniperBot:
         close = self.latestFullData["close"].iloc[-1]
         currentAtr = latest["atr"]
         avgAtr = df["atr"].iloc[-20:].mean()
-        volPercent = (currentAtr / close) * 100
         
         # --- FILTERS (VETO) ---
         if currentAtr < avgAtr * 0.5:
@@ -134,15 +134,6 @@ class SniperBot:
         rsiImprovingLong = rsi > prevRsi
         rsiImprovingShort = rsi < prevRsi
         
-        # Alerta de sobrecompra/sobreventa (informativa)
-        """
-        if rsi >= 68:
-            await alertaInmediata(1, f"🟩🟩🟩 <b>SOBRECOMPRA</b> 🟩🟩🟩\n━━━━━━━━━━━━━━━━\n<center>{symbol}</center>\n<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n━━━━━━━━━━━━━━━━\n")
-            await asyncio.sleep(2)
-        elif rsi <= 32:
-            await alertaInmediata(1, f"🟥🟥🟥 <b>SOBREVENTA</b> 🟥🟥🟥\n━━━━━━━━━━━━━━━━\n<center>{symbol}</center>\n<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n━━━━━━━━━━━━━━━━\n")
-            await asyncio.sleep(2)
-        """
         # Divergencia MACD (últimas 5 velas)
         prices = df["close"].iloc[-5:].values
         hists = df["macdHist"].iloc[-5:].values
@@ -169,22 +160,25 @@ class SniperBot:
             logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado crítico ({momentumEstado}). Señal vetada.")
             return None
         
-        # ============================================================
-        # SISTEMA DINÁMICO DE CONFIRMACIONES (en vez de AND rígido)
-        # Se cuentan las confirmaciones técnicas. Se necesitan >= 2 de 5.
-        # Esto evita que un solo indicador desalineado bloquee todo.
-        # ============================================================
-        
         # --- Determinar dirección por ML ---
-        if proba >= config.PROBA_THRESHOLD_LONG:
+        from middleware.database import dbManager
+        strat_config = dbManager.getStrategyConfig("Sniper") or {}
+        
+        # Usar umbral dinámico desde BD si existe, de lo contrario usar constante
+        min_conf_db = float(strat_config.get('min_confidence', 55)) / 100.0
+        thresh_long = min_conf_db
+        thresh_short = 1.0 - min_conf_db
+        
+        if proba >= thresh_long:
             direction = "LARGO"
             confianza = proba * 100
-        elif proba <= config.PROBA_THRESHOLD_SHORT:
+        elif proba <= thresh_short:
             direction = "CORTO"
             confianza = (1 - proba) * 100
         else:
-            logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f}, zona neutral)")
+            logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f}, zona neutral o debajo de umbral {min_conf_db})")
             return None
+
         
         # --- NEW: Verificar tendencia cuando momentum es Neutral ---
         if momentumNeutral and len(self.latestFullData) >= 8:
@@ -217,7 +211,6 @@ class SniperBot:
             if rsi < config.RSI_OVERBOUGHT_THRESHOLD:
                 confirmaciones += 1
                 detalles.append("RSI_no_sobrecompra")
-            # Veto por divergencia bajista
             if bearishDivergence:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_BAJISTA")
@@ -237,12 +230,11 @@ class SniperBot:
             if rsi > config.RSI_SOLD_THRESHOLD:
                 confirmaciones += 1
                 detalles.append("RSI_no_sobreventa")
-            # Veto por divergencia alcista
             if bullishDivergence:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_ALCISTA")
         
-        # --- ADX Dinámico: ajustar exigencia según estado del mercado ---
+        # --- ADX Dinámico ---
         try:
             high = df['high'].values.astype(float)
             low = df['low'].values.astype(float)
@@ -258,103 +250,64 @@ class SniperBot:
                 dx = 100 * np.abs(di_plus - di_minus) / np.where((di_plus + di_minus) > 0, di_plus + di_minus, 1)
                 adx_val = float(pd.Series(dx).rolling(n).mean().iloc[-1])
             else:
-                adx_val = 25  # Default neutral
+                adx_val = 25
         except:
             adx_val = 25
         
         mercado_erratico = adx_val < 20
         min_confirmaciones = 3 if mercado_erratico else 2
-        logger.info(f"[{symbol}] ADX={adx_val:.1f} ({'ERRÁTICO' if mercado_erratico else 'TENDENCIA'}) → mín_conf={min_confirmaciones}")
         
         if mercado_erratico:
             logger.info(f"[{symbol}] Rechazada: Mercado lateral (ADX={adx_val:.1f} < 20)")
             return None
-        logger.info(f"[{symbol}] Confirmaciones: {confirmaciones}/5 ({', '.join(detalles)})")
         
         if confirmaciones < min_confirmaciones:
             logger.info(f"[{symbol}] Rechazada: Solo {confirmaciones} confirmaciones (mín={min_confirmaciones})")
             return None
         
-        # --- Bonificaciones por señales fuertes ---
+        # --- Confidence Bonus ---
         if direction == "LARGO":
             if macdZeroCrossLong: confianza += 15
             elif macdCrossLong: confianza += 10
             if emaTrendLong: confianza += 8
-            if bullishDivergence: confianza += 12  # Divergencia oculta alcista
+            if bullishDivergence: confianza += 12
         else:
             if macdZeroCrossShort: confianza += 15
             elif macdCrossShort: confianza += 10
             if emaTrendShort: confianza += 8
             if bearishDivergence: confianza += 12
         
-        # Bonus por cantidad de confirmaciones (3+ = señal muy sólida)
-        if confirmaciones >= 4:
-            confianza += 10
-        elif confirmaciones >= 3:
-            confianza += 5
+        if confirmaciones >= 4: confianza += 10
+        elif confirmaciones >= 3: confianza += 5
         
-        # --- Momentum Bonus/Penalty ---
-        if direction == "LARGO" and momentumBullish:
-            logger.info(f"[{symbol}] MOMENTUM favorable ({momentumEstado}): +10% confianza")
-            confianza += 10
-        elif direction == "LARGO" and momentumBearish:
-            logger.info(f"[{symbol}] MOMENTUM desfavorable ({momentumEstado}): -15% confianza")
-            confianza -= 15
-        elif direction == "CORTO" and momentumBearish:
-            logger.info(f"[{symbol}] MOMENTUM favorable ({momentumEstado}): +10% confianza")
-            confianza += 10
-        elif direction == "CORTO" and momentumBullish:
-            logger.info(f"[{symbol}] MOMENTUM desfavorable ({momentumEstado}): -15% confianza")
-            confianza -= 15
+        if direction == "LARGO" and momentumBullish: confianza += 10
+        elif direction == "LARGO" and momentumBearish: confianza -= 15
+        elif direction == "CORTO" and momentumBearish: confianza += 10
+        elif direction == "CORTO" and momentumBullish: confianza -= 15
             
-        # --- Candle Patterns (solo bonus, sin penalización injusta) ---
         cdlEngulfing = self.latestFullData["cdlEngulfing"].iloc[-1] if "cdlEngulfing" in self.latestFullData.columns else 0
         cdlHammer = self.latestFullData["cdlHammer"].iloc[-1] if "cdlHammer" in self.latestFullData.columns else 0
         cdlShootingStar = self.latestFullData["cdlShootingStar"].iloc[-1] if "cdlShootingStar" in self.latestFullData.columns else 0
-        cdlDoji = self.latestFullData["cdlDoji"].iloc[-1] if "cdlDoji" in self.latestFullData.columns else 0
 
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
             confianza *= 1.10
-            logger.info(f"[{symbol}] Patrón de vela favorable: +10% confianza")
-        elif cdlDoji != 0:
-            confianza *= 0.95  # Doji = indecisión leve, no destruir la señal
 
-        # ── ORDER BLOCK CONFLUENCE (ICT) ─────────────────────────────────
+        # Order Block
         ob_dir = 'LARGO' if direction == 'LARGO' else 'CORTO'
-        obs_sniper   = detect_order_blocks(df, ob_dir, lookback=60)
+        obs_sniper = detect_order_blocks(df, ob_dir, lookback=60)
         ob_conf_data = ob_confluence_score(close, obs_sniper, ob_dir, atr=currentAtr)
-        ob_score     = ob_conf_data['score']
+        ob_score = ob_conf_data['score']
 
         if ob_conf_data['in_ob_zone']:
-            confirmaciones += 1
             confianza += 10
-            detalles.append("OB_ZONE")
-            logger.info(f"[{symbol}] Precio en Order Block alineado ✅ +1 conf, +10% confianza")
         elif ob_score >= 10:
             confianza += 5
-            detalles.append("OB_NEAR")
-            logger.info(f"[{symbol}] Precio cerca de Order Block (+5% confianza, score={ob_score})")
-        # ────────────────────────────────────────────────────────────
 
-        # --- Minimum Confidence Filter ---
         if confianza < config.MIN_CONFIDENCE_THRESHOLD:
-            logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}% < {config.MIN_CONFIDENCE_THRESHOLD}%).")
+            logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}%).")
             return None
 
-        # --- NEW: Veto Parábola condicional (Solo si la confianza no es extrema) ---
-        if momentumEstado == "🌋 PARÁBOLA" and confianza < 80:
-            logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado PARÁBOLA con confianza insuficiente ({confianza:.1f} < 80).")
-            return None
-
-        # --- Contratendencia ---
-        if confianza < config.CONTRARIAN_CONFIDENCE_THRESHOLD:
-            isAgainstTrend = (direction == "LARGO" and close < ema50) or (direction == "CORTO" and close > ema50)
-            if isAgainstTrend:
-                logger.info(f"[{symbol}] Filtrado: Contratendencia con confianza baja ({confianza:.1f}%).")
-                return None
-
-        # Niveles estructurales para SL y TP lógicos (sensibilidad aumentada)
-        from Sentinel.analysis import technical
+        # Structural Levels
         levels = technical.get_structural_levels(self.latestFullData, lookback=40)
         atr_val = latest["atr"]
         atr_padding = atr_val * 0.2
@@ -368,170 +321,47 @@ class SniperBot:
             sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
             tp_structural = levels['low_zone']
 
-        # --- SEMÁFORO DE ENTRADA (Price Action) ---
-        # Al ser el momento de la detección el progreso es 0%
-        status_msg = "EN ZONA ✅"
-
-        # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
-        vela_origen_idx = len(df) - 5  # Usar vela actual como origen
-        is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, sl_price, direction, threshold=0.60, timeframe="15M")
+        # Exhaustion Filter
+        vela_origen_idx = len(df) - 5
+        is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, sl_price, direction, threshold=0.60, timeframe="15M")
         if not is_valid:
-            logger.info(f"[Sniper][{symbol}] Señal descartada: Exhaustion - {mensaje}")
+            logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
             return None
 
-        return {
-            "strategy": "ML SNIPER SETUP",
-            "direction": direction,
-            "confidence": confianza,
-            "entryPrice": close,
-            "slDistance": sl_dist,
-            "tpStructural": tp_structural,
-            "status": status_msg,
-            "ob_score":    ob_score,
-            "in_ob_zone":  ob_conf_data['in_ob_zone'],
-            "latestMetrics": self.latestFullData.to_dict(),
-            "symbolInfo": symbol,
-            "confirmaciones": confirmaciones,
-            "detalles_conf": detalles
-        }
-    
-    async def _execute_trades(self, signal: Dict, symbolInfo: Dict):
-        """Processes a valid signal, calculates risk, and sends alerts for all accounts."""
-        if not signal:
-            return
-
-        for account in self.accounts:
-            # Excluir cuenta maestra de señales (SENTINEL)
-            if account['idCuenta'] == 1: continue
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(account['idCuenta'], "Sniper"): continue
-            
-            # --- Risk and Position Sizing ---
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=signal['slDistance'],
-                symbolInfo=symbolInfo,
-                entryPrice=signal.get('entryPrice')
-            )
-            
-            if posSize is None or posSize == 0:
-                continue
-            
-            signal['profit'] = riskUsd
-            
-            # --- Define SL/TP ---
-            direction = signal['direction']
-            entryPrice = signal['entryPrice']
-            slDist = signal['slDistance']
-
-            slPrice = entryPrice - slDist if direction == "LARGO" else entryPrice + slDist
-            
-            # Dynamic RR
-            ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if signal['confidence'] > 85 else config.BASE_RISK_REWARD_RATIO
-            
-            # TP estructural prioritario, con fallback basado en ratioBase
-            tp_initial = signal.get('tpStructural')
-            if not tp_initial:
-                tp_initial = entryPrice + (slDist * ratioBase) if direction == "LARGO" else entryPrice - (slDist * ratioBase)
-                
-            tpPrice = adjustTPForMinRR(entryPrice, slPrice, tp_initial, direction, minRR=1.5)
-            
-            rr_actual = calculateRR(entryPrice, slPrice, tpPrice)
-            multiplier = getPipMultiplier(symbolInfo['symbol'])
-            
-            min_distance_pips = 6.0
-            min_distance_absolute = min_distance_pips / multiplier
-            
-            if slDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia SL muy pequeña ({slDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            tpDist = abs(tpPrice - entryPrice)
-            if tpDist < min_distance_absolute:
-                logger.info(f"[Sniper] {symbolInfo['symbol']} rechazada: distancia TP muy pequeña ({tpDist * multiplier:.1f} pips < {min_distance_pips} pips)")
-                return
-            
-            # Enriquecer señal con métricas para el constructor de alertas
-            signal['riesgo_pips'] = round(slDist * multiplier, 1)
-            signal['rr_ratio'] = round(rr_actual, 2)
-            
-            if posSize is None:
-                posSize = 0
-                marginUsed = 0
-                logger.warning(f"[{account['idCuenta']}] Trade no ejecutada: {symbolInfo['symbol']} - size=0 (margen/riesgo excede capital)")
-            
-            # --- Create Trade Object ---
-            trade = {
-                "idCuenta": account['idCuenta'],
-                "symbol": symbolInfo['symbol'],
-                "direction": direction,
-                "entryPrice": entryPrice,
-                "openTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "stopLoss": slPrice,
-                "takeProfit": tpPrice,
-                "size": posSize,
-                "intervalo": symbolInfo.get('intervalo', ''),
-                "status": "OPEN",
-                "strategy": "Sniper",
-                "margin_used": marginUsed,
+        # Prepare final SL/TP (logic moved from _execute_trades to here)
+        slPrice = close - sl_dist if direction == "LARGO" else close + sl_dist
+        ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if confianza > 85 else config.BASE_RISK_REWARD_RATIO
+        
+        tp_initial = tp_structural if tp_structural else (close + (sl_dist * ratioBase) if direction == "LARGO" else close - (sl_dist * ratioBase))
+        tpPrice = adjustTPForMinRR(close, slPrice, tp_initial, direction, minRR=1.5)
+        
+        multiplier = getPipMultiplier(symbol)
+        
+        return Signal(
+            strategy="Sniper",
+            symbol=symbol,
+            direction=direction,
+            entry_price=close,
+            stop_loss=slPrice,
+            take_profit=tpPrice,
+            sl_distance=sl_dist,
+            confidence=confianza,
+            setup=f"ML SNIPER {symbolInfo.get('intervalo', '15min').upper()}",
+            status="EN ZONA ✅",
+            candle_time="", # Will be set in runAnalysisCycle
+            intervalo=symbolInfo.get('intervalo', '15min'),
+            riesgo_pips=round(sl_dist * multiplier, 1),
+            rr_ratio=round(calculateRR(close, slPrice, tpPrice), 2),
+            metadata={
+                "ob_score": ob_score,
+                "in_ob_zone": ob_conf_data['in_ob_zone'],
+                "confirmaciones": confirmaciones,
+                "detalles_conf": detalles
             }
-            
-            # --- Execution and Alert via Gateway ---
-            from middleware.execution.broker_gateway import gateway
-            success, msgId = await gateway.execute_trade(trade, signal, account, "Sniper", df=self.latestFullData)
-            
-            # Delete previous message if interval is 1h and we have a new msgId
-            intervalo = symbolInfo.get('intervalo', '')
-            symbol = symbolInfo['symbol']
-            if success and msgId and intervalo == '1h' and symbol in self.lastMessageIds:
-                prevMsgId = self.lastMessageIds[symbol]
-                await deleteTelegramMessage(account['TokenMsg'], account['idGrupoMsg'], prevMsgId)
-                self.lastMessageIds[symbol] = msgId
-            elif success and msgId:
-                self.lastMessageIds[symbol] = msgId
-                    
-                logger.info(f"✅ Alerta enviada para {symbolInfo['symbol']} a la cuenta {account['idCuenta']}")
-    
-    
+        )
 
-    async def runAnalysisCycle(self, preloaded_data: Dict = None):
-        """The main operational loop of the bot."""
-        self.accounts = dbManager.getAccount()
-        if not self.accounts:
-            logger.error("No se encontraron cuentas en la base de datos. El bot no puede operar.")
-            return
-
-        logger.info("Iniciando ciclo de análisis...")
-        
-        symbolsToScan = dbManager.getSymbols()
-        
-        for symbolInfo in symbolsToScan:
-            symbol = symbolInfo['symbol']
-            # These parameters are now fetched per symbol, as in the original logic
-            apiKey, interval, _, nVelas, waitMin = getParametros()
-            symbolInfo['intervalo'] = interval # Augment symbolInfo
-            
-            logger.info(f"Analizando {symbol} en intervalo {interval}...")
-
-            # Use preloaded data if available
-            raw_df = preloaded_data.get(symbol) if preloaded_data else None
-            data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, raw_df)
-            if data is None:
-                continue
-            
-
-            
-            signal = await self._get_signal(data, symbol, symbolInfo)
-            if signal:
-                logger.info(f"[{symbol}] Señal generada: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
-                await self._execute_trades(signal, symbolInfo)
-            else:
-                logger.info(f"[{symbol}] Sin señal en intervalo {interval}.")
-            await asyncio.sleep(5)
-        logger.info("✅ Ciclo de análisis completado.")
-
-    async def runAnalysisCycle_for_symbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None):
-        """Procesa un solo símbolo (usado para análisis secuencial)."""
+    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None) -> Optional[Signal]:
+        """Procesa un solo símbolo y devuelve una señal si existe."""
         
         symbol = symbolInfo['symbol']
         interval = symbolInfo.get('intervalo', '15min')
@@ -545,26 +375,17 @@ class SniperBot:
         raw_df = preloaded_data.get(symbol) if preloaded_data else None
         data = await self._get_and_prepare_data(symbolInfo, apiKey, nVelas, interval, raw_df)
         if data is None:
-            logger.info(f"◀ SALIENDO análisis para {symbol} (sin datos)")
-            return
+            return None
 
         signal = await self._get_signal(data, symbol, symbolInfo)
         if signal:
-            # Verificar si ya existe trade abierto para este símbolo
-            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
-            if existing_trade:
-                logger.info(f"[Sniper] Trade ya abierto para {symbol} - omitiendo")
-                return
-            
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-            last_closed = get_last_closed_candle(now_cdmx, interval=5)
-            signal['candle_time'] = last_closed.strftime("%Y-%m-%d %H:%M:%S")
-            signal['setup'] = f"ML SNIPER {signal.get('intervalo', '15min').upper()}"
-            logger.info(f"[{symbol}] Señal: {signal['direction']} ({signal['confidence']:.1f}% confianza)")
-            await self._execute_trades(signal, symbolInfo)
-        else:
-            logger.info(f"[{symbol}] Sin señal en intervalo {interval}.")
+            last_closed = get_last_closed_candle(now_cdmx, interval=15)
+            signal.candle_time = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"[{symbol}] Señal generada: {signal.direction} ({signal.confidence:.1f}% confianza)")
+            return signal
         
-        logger.info(f"◀ SALIENDO análisis para {symbol}")
+        return None
+
 
 

@@ -11,6 +11,111 @@ logger = logging.getLogger(__name__)
 
 from middleware.database import dbConnection
 
+def init_alerts_table():
+    """Crea la tabla de registro de alertas y asegura que strategyConfig tenga las columnas necesarias."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor()
+        
+        # Tabla de Alertas
+        sql_alerts = """
+            CREATE TABLE IF NOT EXISTS sentinel_alerts_sent (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                symbol VARCHAR(20),
+                strategy VARCHAR(50),
+                candle_time DATETIME,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_alert (symbol, strategy, candle_time)
+            )
+        """
+        dbCursor.execute(sql_alerts)
+        
+        # Tabla de Configuración de Estrategias (Asegurar columnas)
+        dbCursor.execute("SHOW TABLES LIKE 'strategyConfig'")
+        if not dbCursor.fetchone():
+            sql_config = """
+                CREATE TABLE strategyConfig (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    nombre VARCHAR(50) NOT NULL UNIQUE,
+                    enabled BOOLEAN DEFAULT TRUE,
+                    max_minutos_fvg INT DEFAULT 40,
+                    max_minutos_signal INT DEFAULT 40,
+                    min_rr DOUBLE DEFAULT 1.5,
+                    min_confidence INT DEFAULT 70,
+                    max_drawdown_percent DOUBLE DEFAULT 5.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """
+            dbCursor.execute(sql_config)
+            
+            # Insertar defaults
+            strategies = [
+                ('EMA20200', 1.5, 70), ('Sniper', 2.0, 80), ('SMA20_200', 1.5, 70),
+                ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
+                ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60)
+            ]
+            for name, rr, conf in strategies:
+                dbCursor.execute(
+                    "INSERT IGNORE INTO strategyConfig (nombre, min_rr, min_confidence) VALUES (%s, %s, %s)",
+                    (name, rr, conf)
+                )
+        else:
+            # Asegurar que existan las columnas nuevas (alter table if not exists pattern)
+            cols = {
+                "min_rr": "DOUBLE DEFAULT 1.5",
+                "min_confidence": "INT DEFAULT 70",
+                "max_drawdown_percent": "DOUBLE DEFAULT 5.0"
+            }
+            for col, definition in cols.items():
+                try:
+                    dbCursor.execute(f"ALTER TABLE strategyConfig ADD COLUMN {col} {definition}")
+                except:
+                    pass # Ya existe
+        
+        dbConn.commit()
+    except Exception as e:
+        logger.error(f"❌ Error al inicializar tablas: {e}")
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def is_alert_sent(symbol, strategy, candle_time):
+    """Verifica si ya se envió una alerta para este símbolo, estrategia y vela."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor()
+        
+        sql = "SELECT id FROM sentinel_alerts_sent WHERE symbol=%s AND strategy=%s AND candle_time=%s"
+        dbCursor.execute(sql, (symbol, strategy, candle_time))
+        result = dbCursor.fetchone()
+        return result is not None
+    except Exception as e:
+        logger.error(f"❌ Error en is_alert_sent: {e}")
+        return False
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def mark_alert_sent(symbol, strategy, candle_time):
+    """Registra que se ha enviado una alerta."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor()
+        
+        sql = "INSERT IGNORE INTO sentinel_alerts_sent (symbol, strategy, candle_time) VALUES (%s, %s, %s)"
+        dbCursor.execute(sql, (symbol, strategy, candle_time))
+        dbConn.commit()
+    except Exception as e:
+        logger.error(f"❌ Error en mark_alert_sent: {e}")
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+# Inicializar tabla al cargar módulo
+init_alerts_table()
+
+
+
 try:
     from dataSymbol.core.databaseManager import DatabaseManager
 except ImportError:

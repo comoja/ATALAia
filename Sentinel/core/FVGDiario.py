@@ -20,8 +20,12 @@ from middleware.execution.broker_gateway import gateway
 from middleware.utils import momentum
 from Sentinel.analysis import technical, risk
 from Sentinel.analysis.technical import check_tp_exhaustion
+from middleware.utils.alertBuilder import getPipMultiplier
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from Sentinel.core.models import Signal
 
 logger = logging.getLogger("sentinel")
 
@@ -64,45 +68,35 @@ class FVGDiarioBot:
         if config:
             self.config.update(config)
         
-        self.accounts = []
         self._sent_signals = {}
         
         logger.info(f"🤖 {self.strategy_name} iniciado")
     
-    async def start(self):
-        """Inicia el análisis de la estrategia."""
-        self.accounts = dbManager.getAccount()
-        
-        if not self.accounts:
-            logger.warning(f"[{self.strategy_name}] No hay cuentas activas")
-            return
-        
-        symbols = dbManager.getSymbols()
-        
-        for symbol_data in symbols:
-            if not symbol_data.get('Activo', 1) == 1:
-                continue
-            
-            await self.analyze_symbol(symbol_data)
-    
-    async def analyze_symbol(self, symbolData: Dict, df_15m: pd.DataFrame = None):
-        """Analiza un símbolo en busca de señales."""
+    async def runAnalysisCycleForSymbol(self, symbolData: Dict, preloadedData: Dict = None) -> Optional[Signal]:
+        """Analiza un símbolo en busca de señales y devuelve un objeto Signal si existe."""
         symbol = symbolData['symbol']
         logger.info(f"▶ Iniciando análisis para {symbol}")
         
         try:
-            # Usar datos recibidos o detectar Daily Bias desde 15m
-            if df_15m is None or len(df_15m) < 20:
-                logger.info(f"[{symbol}] Datos 15m insuficientes ({len(df_15m) if df_15m is not None else 0})")
-                return
+            # Punto 3: Master Dictionary integration
+            master = preloadedData.get(symbol) if preloadedData else None
             
-            df_intraday = df_15m
+            if isinstance(master, dict):
+
+                df_intraday = master.get('15min')
+                df_daily = master.get('1d')
+            else:
+                df_intraday = df_input
+                df_daily = technical.resample_to_interval(df_input, '1D') if (df_input is not None and len(df_input) > 100) else None
+
+            if df_intraday is None or len(df_intraday) < 20:
+                logger.info(f"[{symbol}] Datos 15m insuficientes")
+                return None
             
-            # Calcular Daily Bias desde datos 15m (resamplear a 1D)
-            df_daily = technical.resample_to_interval(df_15m, '1D') if len(df_15m) > 100 else None
             if df_daily is None or len(df_daily) < 2:
                 logger.info(f"[{symbol}] Datos diarios insuficientes para Daily Bias")
-                return
+                return None
+
             
             # Identificar Daily Bias
             daily_bias = self._get_daily_bias(df_daily)
@@ -119,49 +113,34 @@ class FVGDiarioBot:
             )
             
             if not manipulation:
-                return
+                return None
             
             # Verificar cambio de estructura tras manipulación
-            if not self._check_market_structure_shift(
-                df_intraday, manipulation, daily_bias
-            ):
-                return
+            if not self._check_market_structure_shift( df_intraday, manipulation, daily_bias):
+                return None
             
             # Buscar FVG tras manipulación
-            fvg = self._find_fvg_after_manipulation(
-                df_intraday, manipulation, daily_bias
-            )
+            fvg = self._find_fvg_after_manipulation(df_intraday, manipulation, daily_bias)
             
             if not fvg:
-                return
+                return None
             
             # Generar señal
-            await self._generate_signal(
-                symbolData, daily_bias, pdh, pdl,
-                manipulation, fvg, opposite_liquidity, df_intraday
-            )
+            return await self._generate_signal(symbolData, daily_bias, pdh, pdl, manipulation, fvg, opposite_liquidity, df_intraday)
             
         except Exception as e:
-            logger.error(f"[{self.strategy_name}] Error análisis {symbol}: {e}")
+            logger.error(f" Error análisis {symbol}: {e}")
+            return None
     
     def _get_daily_bias(self, df_daily: pd.DataFrame) -> str:
-        """
-        Determina el Daily Bias basándose en el día anterior completo.
-        
-        Returns:
-            "BULLISH" si close > open (vela alcista)
-            "BEARISH" si close < open (vela bajista)
-            "NEUTRAL" si no hay diferencia clara
-        """
+        """Determina el Daily Bias basándose en el día anterior completo."""
         if df_daily is None or len(df_daily) < 2:
             return "NEUTRAL"
         
-        # Usar el día ANTERIOR completo (iloc[-2]), no el actual
         last_candle = df_daily.iloc[-2]
         close = last_candle['close']
         open_price = last_candle['open']
         
-        # Calcular cuerpo de la vela
         body = close - open_price
         high_val = last_candle.get('high', last_candle.get('High', 0))
         low_val = last_candle.get('low', last_candle.get('Low', 0))
@@ -170,7 +149,6 @@ class FVGDiarioBot:
         if total_range == 0:
             return "NEUTRAL"
         
-        # Considerar bullish si el cuerpo es más del 50% del rango
         if body / total_range >= 0.5 and body > 0:
             return "BULLISH"
         elif body / total_range >= 0.5 and body < 0:
@@ -179,111 +157,56 @@ class FVGDiarioBot:
         return "NEUTRAL"
     
     def _get_pdh_pdl(self, df_daily: pd.DataFrame) -> tuple:
-        """
-        Obtiene el Previous Day High (PDH) y Previous Day Low (PDL).
-        
-        Returns:
-            (pdh, pdl) - Valores del día anterior
-        """
+        """Obtiene el Previous Day High (PDH) y Previous Day Low (PDL)."""
         if df_daily is None or len(df_daily) < 2:
             return None, None
         
-        # Día anterior (índice -2 porque el último es el día actual)
         prev_day = df_daily.iloc[-2]
-        
         pdh = float(prev_day.get('high', prev_day.get('High', 0)))
         pdl = float(prev_day.get('low', prev_day.get('Low', 0)))
         
         return pdh, pdl
     
-    def _detect_manipulation(
-        self,
-        df: pd.DataFrame,
-        pdh: float,
-        pdl: float,
-        daily_bias: str
-    ) -> Optional[Dict]:
-        """
-        Detecta manipulación del nivel diario.
-        
-        La manipulación ocurre cuando el precio excede brevemente el PDH/PDL
-        y luego se reversa.
-        
-        Returns:
-            Dict con info de manipulación o None
-        """
+    def _detect_manipulation(self, df: pd.DataFrame, pdh: float, pdl: float, daily_bias: str) -> Optional[Dict]:
+        """Detecta manipulación del nivel diario."""
         if df is None or len(df) < 10:
             return None
         
         recent = df.tail(10)
         
         if daily_bias == "BEARISH":
-            # Buscar manipulación en PDH (buscar liquidez de venta)
             for i in range(len(recent) - 1, -1, -1):
                 row_high = recent.iloc[i].get('high', recent.iloc[i].get('High', 0))
                 if row_high >= pdh:
-                    return {
-                        "type": "MANIPULATION_UP",
-                        "level": pdh,
-                        "index": i,
-                        "timestamp": str(recent.index[i]),
-                        "price": float(row_high)
-                    }
+                    return {"type": "MANIPULATION_UP", "level": pdh, "index": i, "timestamp": str(recent.index[i]), "price": float(row_high)}
         
         elif daily_bias == "BULLISH":
-            # Buscar manipulación en PDL (buscar liquidez de compra)
             for i in range(len(recent) - 1, -1, -1):
                 row_low = recent.iloc[i].get('low', recent.iloc[i].get('Low', 0))
                 if row_low <= pdl:
-                    return {
-                        "type": "MANIPULATION_DOWN",
-                        "level": pdl,
-                        "index": i,
-                        "timestamp": str(recent.index[i]),
-                        "price": float(row_low)
-                    }
+                    return {"type": "MANIPULATION_DOWN", "level": pdl, "index": i, "timestamp": str(recent.index[i]), "price": float(row_low)}
         
         return None
     
-    def _check_market_structure_shift(
-        self,
-        df: pd.DataFrame,
-        manipulation: Dict,
-        daily_bias: str
-    ) -> bool:
-        """
-        Verifica si hay un Market Structure Shift (MSS) tras la manipulación.
-        
-        Un MSS ocurre cuando:
-        - Para bearish: el precio hace lower low tras manipular PDH
-        - Para bullish: el precio hace higher high tras manipular PDL
-        
-        Returns:
-            True si hay MSS
-        """
+    def _check_market_structure_shift(self, df: pd.DataFrame, manipulation: Dict, daily_bias: str) -> bool:
+        """Verifica si hay un Market Structure Shift (MSS) tras la manipulación."""
         if df is None or manipulation is None:
             return False
         
         manip_idx = manipulation['index']
-        
-        # Necesitamos al menos 2 velas después de la manipulación
         if manip_idx + 2 >= len(df):
             return False
         
         post_manip = df.iloc[manip_idx + 1:]
-        
         if len(post_manip) < 2:
             return False
         
         if daily_bias == "BEARISH":
-            # Buscar lower low (precio rompe bajo tras manipular)
             recent_lows = post_manip['low'].values
             for low in recent_lows:
                 if low < manipulation['level']:
                     return True
-        
         elif daily_bias == "BULLISH":
-            # Buscar higher high (precio rompe arriba tras manipular)
             col_high = 'high' if 'high' in post_manip.columns else 'High'
             recent_highs = post_manip[col_high].values if col_high in post_manip.columns else []
             for high in recent_highs:
@@ -292,26 +215,12 @@ class FVGDiarioBot:
         
         return False
     
-    def _find_fvg_after_manipulation(
-        self,
-        df: pd.DataFrame,
-        manipulation: Dict,
-        daily_bias: str
-    ) -> Optional[Dict]:
-        """
-        Busca un Fair Value Gap Formación después de la manipulación.
-        
-        El FVG debe formarse tras el rompimiento de la estructura.
-        Usa detect_fvg_closed para solo usar velas terminadas.
-        
-        Returns:
-            Dict con info del FVG o None
-        """
+    def _find_fvg_after_manipulation(self, df: pd.DataFrame, manipulation: Dict, daily_bias: str) -> Optional[Dict]:
+        """Busca un Fair Value Gap Formación después de la manipulación."""
         if df is None or manipulation is None:
             return None
         
         manip_idx = manipulation['index']
-        
         start_idx = max(0, manip_idx + 2)
         end_idx = min(len(df), start_idx + 5)
         
@@ -319,14 +228,7 @@ class FVGDiarioBot:
             return None
         
         df_after = df.iloc[start_idx:end_idx]
-        
-        latest_fvg = technical.detect_fvg_closed(
-            df_source=df_after,
-            interval='15min',
-            min_gap_pct=0.0005,
-            min_adx=20,
-            lookback=10
-        )
+        latest_fvg = technical.detect_fvg_closed(df_source=df_after, interval='15min', min_gap_pct=0.0005, min_adx=20, lookback=10)
         
         if not latest_fvg:
             return None
@@ -338,173 +240,71 @@ class FVGDiarioBot:
         
         return None
     
-    async def _generate_signal(
-        self,
-        symbolData: Dict,
-        daily_bias: str,
-        pdh: float,
-        pdl: float,
-        manipulation: Dict,
-        fvg: Dict,
-        opposite_liquidity: float,
-        df: pd.DataFrame = None
-    ):
-        """Genera y envía la señal a las cuentas."""
+    async def _generate_signal(self, symbolData: Dict, daily_bias: str, pdh: float, pdl: float, manipulation: Dict, fvg: Dict, opposite_liquidity: float, df: pd.DataFrame = None) -> Optional[Signal]:
+        """Genera y devuelve una señal."""
         symbol = symbolData['symbol']
         
-        # Verificar si la señal ya fue enviada
+        # Verificar si la señal ya fue enviada en RAM
         signal_key = f"{symbol}_{fvg['timestamp']}"
         if signal_key in self._sent_signals:
-            return
+            return None
         
-        # Verificar en DB si ya existe trade abierto para este símbolo
-        existing_trade = dbManager.getOpenTradeBySymbol(symbol)
-        if existing_trade:
-            logger.info(f"[FVGDiario] Trade ya abierto para {symbol} - omitiendo")
-            self._sent_signals[signal_key] = True
-            return
-        
-        # Marcar antes de procesar para evitar reintentos
-        self._sent_signals[signal_key] = True
-        
-        # ── FILTRO: ADX - Vetar si < 20 (mercado lateral) ──
+        # ── FILTRO: ADX ──
         if df is not None:
             adx_ok, adx_value = technical.is_market_trending(df, min_adx=20, period=14)
             if not adx_ok:
-                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: ADX={adx_value:.1f} (< 20 = mercado lateral)")
-                return
+                logger.info(f"[{symbol}] Señal descartada: ADX={adx_value:.1f} (< 20)")
+                return None
         
-        # ── MOMENTUM: Usar momentum pre-calculado desde main.py (ya está en symbolData) ──
-        momentum_estado = symbolData.get('momentum', '☁️ SIN DATOS') if symbolData else '☁️ SIN DATOS'
-        
-        if momentum_estado and momentum_estado != '☁️ SIN DATOS':
-            logger.info(f"[{self.strategy_name}][{symbol}] Momentum: {momentum_estado}")
-        
-        # Calcular niveles de entrada, SL y TP
+        # Calcular niveles
         entry_price = float(fvg['mid'])
         
         if daily_bias == "BULLISH":
-            # Entrada en el FVG bullish, SL debajo
             stop_loss = float(fvg['bottom'])
             take_profit = entry_price + (entry_price - stop_loss) * self.config['min_rr_ratio']
             direction = "LARGO"
         else:
-            # Entrada en el FVG bearish, SL encima
             stop_loss = float(fvg['top'])
             take_profit = entry_price - (stop_loss - entry_price) * self.config['min_rr_ratio']
             direction = "CORTO"
         
-        # Calcular distancia de SL
         sl_distance = abs(entry_price - stop_loss)
-        rr_ratio = round(
-            abs(take_profit - entry_price) / sl_distance, 2
-        )
         
-        # ── FILTRO: Verificar si el precio ya recorrió >60% hacia el TP ──
+        # ── FILTRO: Exhaustion ──
         if df is not None:
-            vela_origen_idx = len(df) - 5  # Usar vela actual como origen
-            is_valid, recorrido_pct, mensaje = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, stop_loss, direction, threshold=0.60, timeframe="15M")
+            vela_origen_idx = len(df) - 5
+            is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, stop_loss, direction, threshold=0.60, timeframe="15M")
             if not is_valid:
-                logger.info(f"[{self.strategy_name}][{symbol}] Señal descartada: Exhaustion - {mensaje}")
-                return
+                logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
+                return None
         
-        # Preparar señal
-        base_confidence = 75
-        if momentum_estado:
-            aligned = (direction == 1 and momentum_estado in ['ALCISTA', 'RECUPERANDO_ALCISTA']) or \
-                      (direction == -1 and momentum_estado in ['BAJISTA', 'RECUPERANDO_BAJISTA'])
-            extreme = momentum_estado in ['EXTREMO_ALCISTA', 'EXTREMO_BAJISTA']
-            
-            if aligned:
-                base_confidence = 85
-            elif extreme:
-                base_confidence = 70
+        # Marcar como enviada
+        self._sent_signals[signal_key] = True
         
-        signal = {
-            "strategy": self.strategy_name,
-            "symbol": symbol,
-            "direction": direction,
-            "entryPrice": entry_price,
-            "stopLoss": stop_loss,
-            "takeProfit": take_profit,
-            "slDistance": sl_distance,
-            "riesgo_pips": round(
-                sl_distance * technical.get_pip_multiplier(symbol), 1
-            ),
-            "rr_ratio": rr_ratio,
-            "daily_bias": daily_bias,
-            "pdh": pdh,
-            "pdl": pdl,
-            "manipulation_type": manipulation['type'],
-            "fvg_type": fvg['type'],
-            "opposite_liquidity": opposite_liquidity,
-            "confidence": base_confidence,
-            "momentum": momentum_estado,
-            "setup": "FVG Diario + Manipulación",
-            "status": "EN ZONA ✅"
-        }
-        
-        # Preparar trade
-        trade = {
-            "symbol": symbol,
-            "direction": direction,
-            "entryPrice": entry_price,
-            "stopLoss": stop_loss,
-            "takeProfit": take_profit,
-            "intervalo": "15min",
-            "strategy": self.strategy_name,
-            "size": 1.0,  # Se calculará por cuenta
-            "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        # Enviar a cada cuenta
-        if not self.accounts:
-            self.accounts = dbManager.getAccount()
-        
-        for account in self.accounts:
-            # Excluir cuenta maestra
-            if account['idCuenta'] == 1:
-                continue
-            
-            # Verificar estrategia habilitada
-            if not dbManager.isEstrategiaHabilitadaParaCuenta(
-                account['idCuenta'], self.strategy_name
-            ):
-                continue
-            
-            # Calcular tamaño de posición
-            posSize, riskUsd, marginUsed = risk.calculatePositionSize(
-                capital=float(account['Capital']),
-                riskPercentage=float(account['ganancia']),
-                slDistance=sl_distance,
-                symbolInfo=symbolData,
-                entryPrice=entry_price
-            )
-            
-            if posSize is None or posSize == 0:
-                logger.warning(
-                    f"[{self.strategy_name}] Size=0 para {symbol} - "
-                    f"riesgo ${riskUsd:.2f} < $5 mínimo"
-                )
-                continue
-            
-            signal['profit'] = riskUsd
-            
-            trade['idCuenta'] = account['idCuenta']
-            trade['size'] = posSize
-            trade['margin_used'] = marginUsed
-            
-            # Enviar vía gateway
-            success, msgId = await gateway.execute_trade(
-                trade, signal, account, self.strategy_name
-            )
-            
-            if success and msgId:
-                self._sent_signals[signal_key] = True
-                logger.info(
-                    f"✅ {self.strategy_name} enviado para {symbol} "
-                    f"[{direction}] cuenta {account['idCuenta']}"
-                )
+        return Signal(
+            strategy=self.strategy_name,
+            symbol=symbol,
+            direction=direction,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            sl_distance=sl_distance,
+            confidence=85 if daily_bias != "NEUTRAL" else 75,
+            setup="FVG Diario + Manipulación",
+            status="EN ZONA ✅",
+            candle_time=fvg['timestamp'],
+            intervalo="15min",
+            riesgo_pips=round(sl_distance * getPipMultiplier(symbol), 1),
+            rr_ratio=round(abs(take_profit - entry_price) / sl_distance, 2),
+            metadata={
+                "daily_bias": daily_bias,
+                "pdh": pdh,
+                "pdl": pdl,
+                "manipulation_type": manipulation['type'],
+                "fvg_type": fvg['type']
+            }
+        )
+
     
 
     

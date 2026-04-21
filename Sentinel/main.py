@@ -45,6 +45,7 @@ from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
 from middleware.config import settings
 from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
+from Sentinel.core.execution import ExecutionEngine
 
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 MAX_CANDLES_PER_CALL = 5000
@@ -54,86 +55,6 @@ from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
 INTERVALmax = settings.INTERVALmax
-
-
-async def checkAndCloseTrades():
-    """Check open trades and close if SL or TP is hit."""
-    try:
-        # Solo verificar trades de cuentas que estén actualmente ACTIVAS
-        open_trades = dbManager.getOpenTradesForActiveAccounts()
-        if not open_trades:
-            return
-        
-        ahora = datetime.now()
-        GRACE_PERIOD_SECONDS = 120 # 2 minutos de gracia para evitar cierres inmediatos en el mismo ciclo
-        
-        for trade in open_trades:
-            symbol = trade['symbol']
-            direction = trade['direction'].upper()
-            entryPrice = float(trade['entryPrice'])
-            stopLoss = float(trade['stopLoss'])
-            takeProfit = float(trade['takeProfit'])
-            size = float(trade['size'])
-            idTrade = trade['idTrade']
-            openTimeStr = trade['openTime']
-
-            # --- NUEVO: Filtro de periodo de gracia (07/04/2026) ---
-            try:
-                if isinstance(openTimeStr, str):
-                    openTime = datetime.strptime(openTimeStr, "%Y-%m-%d %H:%M:%S")
-                else:
-                    openTime = openTimeStr # Ya es datetime
-                
-                # Calcular antigüedad en segundos
-                age_seconds = (ahora - openTime).total_seconds()
-                if age_seconds < GRACE_PERIOD_SECONDS:
-                    logger.info(f"[{symbol}] Omitiendo verificación (Trade recién abierto: {age_seconds:.0f}s < {GRACE_PERIOD_SECONDS}s)")
-                    continue
-            except Exception as e:
-                logger.warning(f"Error calculando antigüedad de trade {idTrade}: {e}")
-            
-            df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "outputsize": 20})
-            if df is None or df.empty:
-                continue
-            
-            latest = df.iloc[-1]
-            currentPrice = float(latest['close'])
-            high = float(latest['high'])
-            low = float(latest['low'])
-            
-            closed = False
-            exitPrice = 0
-            reason = ""
-            
-            if direction == "LARGO":
-                if low <= stopLoss:
-                    exitPrice = stopLoss
-                    reason = "SL"
-                    closed = True
-                elif high >= takeProfit:
-                    exitPrice = takeProfit
-                    reason = "TP"
-                    closed = True
-            else:  # CORTO
-                if high >= stopLoss:
-                    exitPrice = stopLoss
-                    reason = "SL"
-                    closed = True
-                elif low <= takeProfit:
-                    exitPrice = takeProfit
-                    reason = "TP"
-                    closed = True
-            
-            if closed:
-                capital_anterior = dbManager.getCuentaCapital(trade['idCuenta'])
-                pnl_anterior = float(trade.get('pnl', 0) or 0)
-                
-                from middleware.execution.broker_gateway import gateway
-                await gateway.close_trade(idTrade, exitPrice, reason, capital_anterior, pnl_anterior)
-                
-    except Exception as e:
-        logger.error(f"Error en checkAndCloseTrades: {e}")
-
 
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """
@@ -151,27 +72,15 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-
-async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, interval, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, interval, nVelas):
     """
-    Ejecuta el análisis de forma secuencial:
-    1. Obtener API key para este símbolo (rota entre cuentas)
-    2. Descargar símbolo
-    3. Ejecutar Sniper
-    4. Ejecutar SMA20-200
-    5. Ejecutar ImbalanceNY  (apertura NY 08:00-09:00 NY)
-    6. Ejecutar ImbalanceLDN (apertura LDN 08:00-09:00 London)
-    7. Ejecutar ImbalancePMNY (apertura NY PM 14:00-15:00 NY) — ICT killzone tarde
-    8. Ejecutar Silver Bullet (London / NY AM / NY PM)
-    9. Ejecutar EMA20_200
-    10. Ejecutar Patron4H
-    11. Ejecutar SesgoBiasHTF
-    12. Esperar mínimos entre descargas (para no exceder 8 llamadas/min)
+    Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
-    
     from middleware.utils.communications import alertaInmediata as _alertaInmediata
     
+    all_signals = []
+
     for idx, symbolInfo in enumerate(symbolsToScan):
         symbol = symbolInfo['symbol']
         start_time = time.time()
@@ -180,408 +89,120 @@ async def run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalan
         symbolApiKey, _, nombreKey, _, _ = getParametros()
         logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...", extra={"color": "orange"})
         
-        # Guardar nombreKey en symbolInfo para usar en logs de descarga
-        symbolInfo['cuenta'] = nombreKey
-        
-        # 1. Descargar datos para este símbolo (siempre 5min - intervalo base)
-        logger.info(f"Descargando datos de {dbManager.DATA_SOURCE} para {symbol} [{nombreKey}] (5min)...")
-        
-        params = {
-                "symbol": symbol,
-                "interval": "5min",
-                "apikey": symbolApiKey,
-                "outputSize": MAX_CANDLES_PER_CALL
-            }
+        # 1. Descargar datos
+        params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": MAX_CANDLES_PER_CALL}
         df = await tdApi.getTimeSeries(params)
         
-        if df is None or len(df) < 100:
+        if df is None or len(df) < 200:
             logger.warning(f"[{symbol}] Datos insuficientes. Saltando...")
-            if idx < len(symbolsToScan) - 1:
-                await asyncio.sleep(MIN_WAIT_SECONDS)
+            if idx < len(symbolsToScan) - 1: await asyncio.sleep(MIN_WAIT_SECONDS)
             continue
         
-        # Limpiar NaN básicos de los datos descargados
-        df = df.dropna(subset=['close', 'high', 'low', 'open'])
-        logger.info(f"[{symbol}] Tras limpieza inicial: {len(df)} velas válidas")
+        # --- Punto 3: Diccionario Maestro de Datos (Optimización Pandas) ---
+        # Calculamos resampleos y features UNA SOLA VEZ para todos los bots
+        df_5m = df.dropna(subset=['close', 'high', 'low', 'open'])
+        df_5m = calculateFeatures(df_5m)
         
-        if len(df) < 200:
-            logger.warning(f"[{symbol}] Datos insuficientes tras limpieza. Saltando...")
-            if idx < len(symbolsToScan) - 1:
-                await asyncio.sleep(MIN_WAIT_SECONDS)
-            continue
-        
-        # Calcular indicadores técnicos base para el análisis (RSI, MACD, etc.)
-        df = calculateFeatures(df)
+        df_15m = calculateFeatures(resample_to_interval(df_5m, "15min"))
+        df_1h  = calculateFeatures(resample_to_interval(df_5m, "1h"))
+        df_4h  = calculateFeatures(resample_to_interval(df_5m, "4h"))
+        df_1d  = calculateFeatures(resample_to_interval(df_5m, "1d"))
 
-        # Calcular momentum para este símbolo
-        logger.info(f"Calculando momentum para {symbol}...", extra={"color": "dark_orange"})
+        preloaded_master = {
+            '5min':  df_5m,
+            '15min': df_15m,
+            '1h':    df_1h,
+            '4h':    df_4h,
+            '1d':    df_1d
+        }
+
+        # Momentum calculation (usando el master)
         try:
-            estadosMomentum = await momentumAnalyzer(symbol, df)
+            estadosMomentum = await momentumAnalyzer(symbol, df_5m)
             symbolInfo['momentum'] = estadosMomentum
-        except Exception as e:
-            logger.error(f"[{symbol}] Error calculando momentum: {e}")
+        except:
             symbolInfo['momentum'] = None
         
-        # --- RESAMPLEO LOCAL (Optimización: 06/04/2026) ---
-        # Generamos todas las temporalidades necesarias en memoria para evitar latencia de DB
-        logger.info(f"[{symbol}] Generando resampleos locales (5min, 15min, 1h, 4h)...")
-        df5m = df.copy()  # Ya tenemos 5min
-        df15m = resample_to_interval(df, "15min")
-        df1h = resample_to_interval(df, "1h")
-        df4h = resample_to_interval(df, "4h")
-        
-        # Calcular features y momentum para cada timeframe
+        # Enriquecer momentum por TF (usando el master)
         from middleware.utils.momentum import calcularAngulos, obtenerEstado
         
-        df5m_feat = calculateFeatures(df5m)
-        df5m_ang = calcularAngulos(df5m_feat.copy())
-        last_5m = df5m_ang.iloc[-1]
-        momentum_5m, _ = obtenerEstado(last_5m.get('ang_rsi'), last_5m.get('ang_close'))
-        
-        df15m_feat = calculateFeatures(df15m)
-        df15m_ang = calcularAngulos(df15m_feat.copy())
-        last_15m = df15m_ang.iloc[-1]
+        last_15m = calcularAngulos(df_15m.copy()).iloc[-1]
         momentum_15m, _ = obtenerEstado(last_15m.get('ang_rsi'), last_15m.get('ang_close'))
         
-        df1h_feat = calculateFeatures(df1h)
-        df1h_ang = calcularAngulos(df1h_feat.copy())
-        last_1h = df1h_ang.iloc[-1]
+        last_1h = calcularAngulos(df_1h.copy()).iloc[-1]
         momentum_1h, _ = obtenerEstado(last_1h.get('ang_rsi'), last_1h.get('ang_close'))
         
-        df4h_feat = calculateFeatures(df4h)
-        df4h_ang = calcularAngulos(df4h_feat.copy())
-        last_4h = df4h_ang.iloc[-1]
+        last_4h = calcularAngulos(df_4h.copy()).iloc[-1]
         momentum_4h, _ = obtenerEstado(last_4h.get('ang_rsi'), last_4h.get('ang_close'))
-        
-        # Guardar momentum por timeframe en symbolInfo
-        symbolInfo['momentum'] = momentum_15m  # Default 15m para compatibilidad
-        symbolInfo['momentum_by_tf'] = {
-            '5min': momentum_5m,
-            '15min': momentum_15m,
-            '1h': momentum_1h,
-            '4h': momentum_4h
-        }
-        symbolInfo['momentum_df_by_tf'] = {
-            '5min': df5m_ang,
-            '15min': df15m_ang,
-            '1h': df1h_ang,
-            '4h': df4h_ang
-        }
-        
-        logger.info(f"[{symbol}] Momentum: 5m={momentum_5m} | 15m={momentum_15m} | 1h={momentum_1h} | 4h={momentum_4h}")
-        
-        # Cachear datos de momentum para resumen
-        global _momentum_data_cache
-        _momentum_data_cache[symbol] = df
-        
-        # Enviar resumen de momentum al inicio (solo una vez, después de todos los símbolos)
-        if symbol == symbolsToScan[-1]:  # Último símbolo
-            global _resumen_momentum_enviado
-            if not _resumen_momentum_enviado:
-                _resumen_momentum_enviado = True
-                await _enviar_resumen_inicial(_momentum_data_cache)
-                _momentum_data_cache = {}  # Limpiar cache
-        
-        # 2. Ejecutar Sniper (usa 15min)
-        logger.debug(f"[ML SNIPER SETUP] Ejecutando para {symbol}...")
-        preloadedDataSniper = {symbol: df15m_feat}
-        symbolInfo['momentum'] = momentum_15m  # Sniper usa 15min
-        await sniper_bot.runAnalysisCycle_for_symbol(symbolInfo, preloadedDataSniper, symbolApiKey)
-        
-        # 3. Ejecutar SMA20-200 (usa 15min)
-        logger.debug(f"[TREND SMA ADVANCED] Ejecutando para {symbol}...")
-        logger.debug(f"[{symbol}] df15m ultimas 2 velas: {df15m.index[-2].strftime('%H:%M')}, {df15m.index[-1].strftime('%H:%M')}")
-        logger.debug(f"[{symbol}] df original ultimas 2 velas: {df.index[-2].strftime('%H:%M')}, {df.index[-1].strftime('%H:%M')}")
-        preloadedDataSMA = {symbol: df15m_feat}
-        symbolInfo['intervalo'] = "15min"
-        symbolInfo['momentum'] = momentum_15m  # SMA usa 15min
-        try:
-            logger.debug(f"[TREND SMA ADVANCED] >>> Entrando para {symbol}")
-            
-            await sma_bot.runAnalysisCycle_for_symbol(
-                symbolInfo, 
-                preloadedDataSMA, 
-                symbolApiKey
-            )
-            
-            logger.debug(f"[TREND SMA ADVANCED] <<< Terminó para {symbol}")
 
-        except Exception as e:
-            logger.error(f"[TREND SMA ADVANCED] ERROR para {symbol}: {e}", exc_info=True)
-        
-        # 4. Ejecutar ImbalanceNY (solo después de la apertura NY: 8:00 - 9:00 NY)
-        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
-        
-        # Cálculo automático de sesión NY (8:00 - 9:00 Apertura, 14:00 Cierre NY Time)
-        inicioAperturaNY, finAperturaNY, cierreNY = get_localized_session_times(
-            'America/New_York', 8, 0, 9, 0, 14, 0
-        )
-        
-        logger.info(f"[IMBNY] Hora MX: {ahoraMX.hour}:{ahoraMX.minute:02d}, Programación NY (Auto): Inicio: {inicioAperturaNY.strftime('%H:%M')} MX, Fin: {finAperturaNY.strftime('%H:%M')} MX, Cierre: {cierreNY.strftime('%H:%M')} MX", extra={"color": "cyan"})
-        
-        horasDesdeFinApertura = (ahoraMX - finAperturaNY).total_seconds() / 3600
-        
-        if ahoraMX <= finAperturaNY:
-            logger.info(f"[IMBNY] Aún no abre sesión NY (hora {ahoraMX.hour}), saltando...")
-        
-        else:
-            logger.debug(f"[IMBNY] Ejecutando para {symbol}...")
-            
-            dfIndex = df.index
-            if dfIndex.tz is None:
-                dfIndex = dfIndex.tz_localize(TIMEZONE)
-            
-            maskApertura = (dfIndex >= inicioAperturaNY) & (dfIndex < finAperturaNY)
-            dfApertura = df.loc[maskApertura]
-            
-            if len(dfApertura) > 0:
-                precioMaximo = dfApertura['high'].max()
-                precioMinimo = dfApertura['low'].min()
-                
-                logger.info(f"[IMBNY]  Nivel sesión NY: Max={precioMaximo}, Min={precioMinimo}", extra={"color": "green"})
-                
-                textNivel = (
-                    f"<b>APERTURA NY 🇺🇸 {symbol}</b>\n"
-                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"<center><b>Sesión: {inicioAperturaNY.strftime('%H:%M')} - {finAperturaNY.strftime('%H:%M')}</b></center>\n\n"
-                    f"  ⬆️ MAX: {precioMaximo:,.4f}\n"
-                    f"  ⬇️ MIN: {precioMinimo:,.4f}\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                )
-                if horasDesdeFinApertura <= 4 and symbol not in alertasNyEnviadas:  
-                    await _alertaInmediata(1, textNivel)
-                    alertasNyEnviadas.add(symbol)
-                    await asyncio.sleep(4)
-                
-                maskPostApertura = dfIndex >= finAperturaNY
-                dfPostApertura = df.loc[maskPostApertura]
-                
-                logger.info(f"[IMBNY]  Velas post-apertura: {len(dfPostApertura)}")
-                
-                preloadedDataSCLPNG = {symbol: df5m_feat}
-                symbolInfo['intervalo'] = "5min"
-                symbolInfo['precioMaximo'] = precioMaximo
-                symbolInfo['precioMinimo'] = precioMinimo
-                symbolInfo['finAperturaNY'] = finAperturaNY
-                symbolInfo['cierreNY'] = cierreNY
-                symbolInfo['momentum'] = momentum_5m  # ImbalanceNY usa 5min
-                
-                await imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSCLPNG, symbolApiKey)
-            else:
-                logger.warning(f"[IMBNY]  No se encontraron velas en período de apertura NY")
-        
-        # 5. Ejecutar ImbalanceLDN (solo después de la apertura LDN: 8:00 - 9:00 London)
-        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
-        
-        # Cálculo automático de sesión LDN (8:00 - 9:00 Apertura, 14:00 Cierre London Time)
-        inicioAperturaLDN, finAperturaLDN, cierreLDN = get_localized_session_times('Europe/London', 8, 0, 9, 0, 14, 0 )
-        
-        logger.info(f"[IMBLDN] Hora MX: {ahoraMX.hour}:{ahoraMX.minute:02d}, Programación LDN (Auto): Inicio: {inicioAperturaLDN.strftime('%H:%M')} MX, Fin: {finAperturaLDN.strftime('%H:%M')} MX, Cierre: {cierreLDN.strftime('%H:%M')} MX", extra={"color": "cyan"})
-        
-        horasDesdeFinAperturaLDN = (ahoraMX - finAperturaLDN).total_seconds() / 3600
-        
-        if ahoraMX <= finAperturaLDN:
-            logger.info(f"[IMBLDN] Aún no abre sesión LDN (hora {ahoraMX.hour}), saltando...")
-        else:
-            logger.debug(f"[IMBLDN] Ejecutando para {symbol}...")
-            
-            dfIndex = df.index
-            if dfIndex.tz is None:
-                dfIndex = dfIndex.tz_localize(TIMEZONE)
-            
-            maskAperturaLDN = (dfIndex >= inicioAperturaLDN) & (dfIndex < finAperturaLDN)
-            dfAperturaLDN = df.loc[maskAperturaLDN]
-            
-            if len(dfAperturaLDN) > 0:
-                precioMaximoLDN = dfAperturaLDN['high'].max()
-                precioMinimoLDN = dfAperturaLDN['low'].min()
-                
-                logger.info(f"[IMBLDN] Nivel sesión LDN: Max={precioMaximoLDN}, Min={precioMinimoLDN}", extra={"color": "green"})
-                
-                textNivelLDN = (
-                    f"<b>APERTURA LNDN 🇬🇧 {symbol}</b>\n"
-                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"<b><center>Sesión: {inicioAperturaLDN.strftime('%H:%M')} - {finAperturaLDN.strftime('%H:%M')}</center></b>\n\n"
-                    f"  ⬆️ MAX: {precioMaximoLDN:,.4f}\n"
-                    f"  ⬇️ MIN: {precioMinimoLDN:,.4f}\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                )
-                if horasDesdeFinAperturaLDN <= 7 and symbol not in alertasLdnEnviadas:
-                    await _alertaInmediata(1, textNivelLDN)
-                    alertasLdnEnviadas.add(symbol)
-                    await asyncio.sleep(4)
-                
-                maskPostAperturaLDN = dfIndex >= finAperturaLDN
-                dfPostAperturaLDN = df.loc[maskPostAperturaLDN]
-                
-                logger.debug(f"[IMBLDN] Velas post-apertura: {len(dfPostAperturaLDN)}")
-                
-                preloadedDataLDN = {symbol: df5m_feat}
-                symbolInfo['intervalo'] = "5min"
-                symbolInfo['precioMaximo'] = precioMaximoLDN
-                symbolInfo['precioMinimo'] = precioMinimoLDN
-                symbolInfo['momentum'] = momentum_5m  # ImbalanceLDN usa 5min
-                
-                await imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataLDN, symbolApiKey)
-            else:
-                logger.warning(f"[IMBLDN] No se encontraron velas en período de apertura LDN")
-        
-        # 7. Ejecutar ImbalancePMNY (apertura NY tarde: 14:00 - 15:00 NY)
-        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
-        inicioAperturaPM, finAperturaPM, cierreNYPM = get_localized_session_times('America/New_York', 14, 0, 15, 0, 17, 0)
-        
-        logger.info(f"[IMBPM] Hora MX: {ahoraMX.hour}:{ahoraMX.minute:02d}, Sesión PM NY: Inicio: {inicioAperturaPM.strftime('%H:%M')} MX, Fin: {finAperturaPM.strftime('%H:%M')} MX", extra={'color': 'cyan'})
-        
-        horasDesdeFinAperturaPM = (ahoraMX - finAperturaPM).total_seconds() / 3600
-        
-        if ahoraMX <= finAperturaPM:
-            logger.info(f"[IMBPM] Aún no abre sesión PM NY (hora {ahoraMX.hour}), saltando...")
-        else:
-            logger.debug(f"[IMBPM] Ejecutando para {symbol}...")
-            
-            dfIndex = df.index
-            if dfIndex.tz is None:
-                dfIndex = dfIndex.tz_localize(TIMEZONE)
-            
-            maskAperturaPM = (dfIndex >= inicioAperturaPM) & (dfIndex < finAperturaPM)
-            dfAperturaPM = df.loc[maskAperturaPM]
-            
-            if len(dfAperturaPM) > 0:
-                precioMaximoPM = dfAperturaPM['high'].max()
-                precioMinimoPM = dfAperturaPM['low'].min()
-                
-                logger.info(f"[IMBPM] Nivel sesión PM: Max={precioMaximoPM}, Min={precioMinimoPM}", extra={'color': 'green'})
-                
-                textNivelPM = (
-                    f"<b>APERTURA NY PM 🇺🇸 {symbol}</b>\n"
-                    f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"<b><center>Sesión: {inicioAperturaPM.strftime('%H:%M')} - {finAperturaPM.strftime('%H:%M')}</center></b>\n\n"
-                    f"  ⬆️ MAX: {precioMaximoPM:,.4f}\n"
-                    f"  ⬇️ MIN: {precioMinimoPM:,.4f}\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                )
-                if horasDesdeFinAperturaPM <= 4 and symbol not in alertasPmNyEnviadas:
-                    await _alertaInmediata(1, textNivelPM)
-                    alertasPmNyEnviadas.add(symbol)
-                    await asyncio.sleep(4)
-                
-                maskPostAperturaPM = dfIndex >= finAperturaPM
-                dfPostAperturaPM = df.loc[maskPostAperturaPM]
-                
-                logger.info(f"[IMBPM] Velas post-apertura: {len(dfPostAperturaPM)}")
-                
-                preloadedDataPM = {symbol: df5m_feat}
-                symbolInfo['intervalo'] = "5min"
-                symbolInfo['precioMaximo'] = precioMaximoPM
-                symbolInfo['precioMinimo'] = precioMinimoPM
-                symbolInfo['finAperturaPM'] = finAperturaPM
-                symbolInfo['cierreNYPM'] = cierreNYPM
-                symbolInfo['momentum'] = momentum_5m  # ImbalancePMNY usa 5min
-                
-                await imbalance_pm_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataPM, symbolApiKey)
-            else:
-                logger.warning(f"[IMBPM] No se encontraron velas en período de apertura PM NY")
-        
-        # 8. Ejecutar Silver Bullet (actúa solo en su ventana horaria activa)
-        #logger.info(f"[SilverBullet] Ejecutando para {symbol}...")
-        preloadedDataSB = {symbol: df5m_feat}  # Usa datos 5min con features
-        symbolInfo['intervalo'] = "5min"
-        symbolInfo['momentum'] = momentum_5m  # SilverBullet usa 5min
-        await silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSB, symbolApiKey)
+        symbolInfo['momentum'] = momentum_15m
+        symbolInfo['momentum_by_tf'] = {'5min': symbolInfo.get('momentum'), '15min': momentum_15m, '1h': momentum_1h, '4h': momentum_4h}
 
-        # 9. Ejecutar EMA20_200 (usa 1h resampleado)
-        logger.debug(f"[TREND EMA INSTITUTIONAL] Ejecutando para {symbol} (1h)...")
+
+        # --- Preparación de Tareas en Paralelo (Punto 2: Optimización) ---
+        tasks = []
         
-        preloadedDataEMA = {symbol: df1h_feat}
-        symbolInfo['intervalo'] = "1h"
-        symbolInfo['momentum'] = momentum_1h  # EMA usa 1h
-        await ema20200_bot.analyze(symbolInfo, preloadedDataEMA)
-        
-        # 10. Ejecutar Patron4H (usa 15min y 4h)
-        logger.debug(f"[PATTERN 4H HTF] Ejecutando para {symbol}...")
-        
-        preloadedDataP4H = {'15m': df15m_feat, '4h': df4h_feat}
-        symbolInfo['intervalo'] = "15min"
-        symbolInfo['momentum'] = momentum_4h  # Patron4H usa 4h para confirmación
-        await patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataP4H, symbolApiKey)
-        
-        # 10. Ejecutar SesgoBiasHTF (usa 4h)
-        logger.debug(f"[BIAS HTF ANALYSIS] Ejecutando para {symbol}...")
-        
-        preloadedDataSesgo = {'4h': df4h_feat}
-        symbolInfo['intervalo'] = "4h"
-        symbolInfo['momentum'] = momentum_4h  # SesgoBiasHTF usa 4h
-        await sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, preloadedDataSesgo, symbolApiKey)
-        
-        # 11. Ejecutar GenericFVG (Price Action puro en 15m, 1h, 4h)
-        logger.debug(f"[FVG Generico] Ejecutando para {symbol}...")
-        symbolInfo['momentum'] = momentum_15m  # GenericFVG usa 15m
-        await generic_fvg_bot.analyze(symbolInfo, df15m_feat)
-        
-        # 12. Ejecutar FVGDiario (Manipulación + Daily Bias en 15m)
-        logger.debug(f"[FVG Diario] Ejecutando para {symbol}...")
-        symbolInfo['momentum'] = momentum_15m  # FVGDiario usa 15m
-        await fvg_diario_bot.analyze_symbol(symbolInfo, df15m_feat)
-        
-        # 12. Calcular tiempo total y esperar lo necesario para cumplir 3s mínimo entre descargas
+        # 1. Sniper & SMA (15min)
+        tasks.append(sniper_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
+        tasks.append(sma_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
+
+        # 2. Imbalances (Pre-cálculo de niveles para seguridad en paralelo)
+        ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
+        iNY, fNY, cNY = get_localized_session_times('America/New_York', 8, 0, 9, 0, 14, 0)
+        if ahoraMX > fNY:
+            symbolInfo_NY = symbolInfo.copy()
+            symbolInfo_NY['precioMaximo'], symbolInfo_NY['precioMinimo'] = df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['high'].max(), df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['low'].min()
+            tasks.append(imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo_NY, {symbol: preloaded_master}, symbolApiKey))
+            
+        iLDN, fLDN, cLDN = get_localized_session_times('Europe/London', 8, 0, 9, 0, 14, 0)
+        if ahoraMX > fLDN:
+            symbolInfo_LDN = symbolInfo.copy()
+            symbolInfo_LDN['precioMaximo'], symbolInfo_LDN['precioMinimo'] = df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['high'].max(), df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['low'].min()
+            tasks.append(imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo_LDN, {symbol: preloaded_master}, symbolApiKey))
+
+        # 3. EMA, Patron4H, Sesgo, SB, FVGs
+        tasks.append(ema20200_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+
+
+
+        # Ejecutar todas las estrategias en paralelo
+        results = await asyncio.gather(*tasks)
+
+        # Recolectar señales
+        for res in results:
+            if not res: continue
+            if isinstance(res, list):
+                all_signals.extend(res)
+            else:
+                all_signals.append(res)
+
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
-        
-        if wait_time > 0:
-            logger.debug(f"Esperando {wait_time:.1f}s para cumplir límite de 12Data.com (8 llamadas/min)...\n\n")
-            await asyncio.sleep(wait_time)
-        else:
-            logger.info(f"Ciclo completado en {elapsed:.1f}s (sin espera adicional)\n\n")
+        if wait_time > 0: await asyncio.sleep(wait_time)
 
-# 1. Set up logging at the very beginning
+
+    # --- Procesamiento Centralizado de Señales ---
+    if all_signals:
+        logger.info(f"Enviando {len(all_signals)} señales al ExecutionEngine...")
+        await engine.process_signals(all_signals)
+
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
 
 async def main():
-    """
-    Main execution function.
-    """
-    logger.info("===================================================")
-    logger.info("====== Inicializando Bot de Trading Sentinel ======")
-    logger.info("===================================================")
+    logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
     
-    # --- Model Loading/Training ---
-    # Attempt to load the pre-trained model
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
-
     if model is None:
-        logger.warning("No se encontró modelo pre-entrenado. Intentando entrenar uno nuevo.")
-        logger.info("Obteniendo gran dataset para entrenamiento inicial del modelo...")
-        
-        # We need data to train. We'll use the old API module temporarily
-        # to get a large chunk of data. This should be a separate, offline script in a real scenario.
-        apiKey, interval, _, nVelas, _ = getParametros()
-        
-        # Fetch a large number of candles just for training
-        params = {
-                "symbol": "XAU/USD",
-                "interval": interval,
-                "apikey": apiKey,
-                "outputSize": MAX_CANDLES_PER_CALL
-            }
-        trainingDf = await tdApi.getTimeSeries(params)
+        logger.error("No se pudo cargar el modelo ML.")
+        return
 
-        if trainingDf is not None and not trainingDf.empty:
-            logger.info("Calculando features (incluyendo ATR) para datos de entrenamiento...")
-            trainingDf = calculateFeatures(trainingDf)
-            # This is a synchronous call, which is fine for a one-off training task
-            mlModel.trainAndSaveModel(trainingDf, config.MODEL_FILE_PATH)
-            # Try loading again
-            model = mlModel.loadModel(config.MODEL_FILE_PATH)
-        
-        if model is None:
-            logger.critical("Error al entrenar o cargar el modelo. El bot no puede continuar sin un modelo.")
-            return
-
-    # --- Bot Initialization ---
+    engine = ExecutionEngine()
     sniper_bot = SniperBot(mlModelInstance=model)
     sma_bot = SMABot()
     imbalance_ny_bot = ImbalanceNYBot()
@@ -594,78 +215,24 @@ async def main():
     generic_fvg_bot = GenericFVGBot()
     fvg_diario_bot = FVGDiarioBot()
     
-    lastAlertDate = None
-    alertasNyEnviadas  = set()
-    alertasLdnEnviadas = set()
-    alertasPmNyEnviadas = set()
-    
-    def resetAlertFlags():
-        nonlocal lastAlertDate
-        hoy = datetime.now().date()
-        if lastAlertDate != hoy:
-            lastAlertDate = hoy
-            alertasNyEnviadas.clear()
-            alertasLdnEnviadas.clear()
-            alertasPmNyEnviadas.clear()
-            logger.info(f"[ALERTAS] Flags de alertas reseteados para fecha: {hoy}")
-    
-    logger.info("Bot inicializado correctamente. Iniciando bucle principal...")
-
-    # --- Main Loop ---
-    wasOperating = True  # Assume we're operating initially
-    
     while True:
         try:
-            isOperating = not isRestTime()
-            
-            # Detectar cambio de estado
-            if wasOperating and not isOperating:
-                # Se acaba de detener (viernes 17:00)
-                logger.info("\n\n====== MERCADO CERRADO - Bot detenido ======\n\n")
-            elif not wasOperating and isOperating:
-                # Se acaba de iniciar (domingo 17:00)
-                logger.info("\n\n====== MERCADO ABIERTO - Bot iniciado ======\n\n")
-            
-            wasOperating = isOperating
-            
-            if isOperating:
-                resetAlertFlags()
+            if not isRestTime():
                 logger.info("Iniciando ciclo de análisis...")
+                # El motor ya gestiona los cierres y el riesgo
                 
-                logger.info("Verificando trades abiertos...")
-                await checkAndCloseTrades()
-                
-                await asyncio.sleep(5)
-                
-                # Obtener parámetros ANTES del análisis
-                apiKey, intervaloActual, nombreKey, nVelas, _ = getParametros()
-                
-                # Obtener símbolos a analizar
+                apiKey, _, _, nVelas, _ = getParametros()
                 symbolsToScan = dbManager.getSymbols()
                 
-                # Ejecutar análisis de forma SECUENCIAL (descarga -> Sniper -> SMA -> SCLPNG -> espera 9s)
-                logger.info("Iniciando análisis secuencial con límite de 12Data.com...")
-                await run_sequential_analysis(sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas, alertasNyEnviadas, alertasLdnEnviadas, alertasPmNyEnviadas)
-                # Calcular espera para el PRÓXIMO ciclo (Siempre 5 minutos para mantener reactividad)
-                proximaEspera = 5
+                await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 
-                from middleware.scheduler.autoScheduler import get_next_sync_time
-                proximo = get_next_sync_time(proximaEspera)
-                hora_ejecucion = proximo.strftime("%H:%M:%S")
-                
-                logger.info(f"✅ Ciclo completado. Próxima ejecución: {hora_ejecucion} (Frecuencia 5 min)\n")
-                await getTiempoEspera(proximaEspera)
-            
+                await getTiempoEspera(5)
             else:
-                logger.info("Mercado cerrado o en horario de descanso. Durmiendo.")
-                _, _, _, _, esperaMin = getParametros()
-                await getTiempoEspera(esperaMin)
-
+                logger.info("Mercado cerrado. Durmiendo.")
+                await asyncio.sleep(600)
         except Exception as e:
-            logger.critical(f"Ocurrió un error inesperado en el bucle principal: {e}", exc_info=True)
-            logger.info("Reiniciando bucle después de 60 segundos de espera...")
+            logger.critical(f"Error en bucle: {e}", exc_info=True)
             await asyncio.sleep(60)
-
 
 if __name__ == "__main__":
     try:
@@ -676,3 +243,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Ocurrió un error fatal fuera del bucle principal: {e}", exc_info=True)
         sys.exit(1)
+
