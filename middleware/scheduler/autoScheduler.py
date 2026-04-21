@@ -6,7 +6,7 @@ import asyncio
 
 from middleware.config.constants import timeZone, FESTIVOS
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sentinel")
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 try:
