@@ -101,6 +101,14 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         # --- Punto 3: Diccionario Maestro de Datos (Optimización Pandas) ---
         # Calculamos resampleos y features UNA SOLA VEZ para todos los bots
         df_5m = df.dropna(subset=['close', 'high', 'low', 'open'])
+        
+        # Asegurar consistencia de zona horaria (tz-aware)
+        cdmx_tz = pytz.timezone(TIMEZONE)
+        if df_5m.index.tzinfo is None:
+            df_5m.index = df_5m.index.tz_localize(cdmx_tz)
+        else:
+            df_5m.index = df_5m.index.tz_convert(cdmx_tz)
+
         df_5m = calculateFeatures(df_5m)
         
         df_15m = calculateFeatures(resample_to_interval(df_5m, "15min"))

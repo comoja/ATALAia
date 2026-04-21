@@ -159,6 +159,9 @@ class Patron4HBot:
         fvg = next((f for f in catalizador['fvgs'] if (trend == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (trend == 'ALCISTA' and f['type'] == 'Bullish_FVG')), catalizador['fvgs'][0] if catalizador['fvgs'] else None)
         if not fvg: return None
         
+        # Si no hay vela de desplazamiento, usamos el FVG como origen para el filtro de agotamiento
+        v_origen = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
+        
         entry = float(fvg['mid'])
         from Sentinel.analysis import technical
         levels = technical.get_structural_levels(df_15m, lookback=50)
@@ -170,7 +173,7 @@ class Patron4HBot:
         sl_dist = abs(entry - sl)
         multiplier = getPipMultiplier(symbol)
         
-        is_valid, _, _ = check_tp_exhaustion(df_15m, catalizador['vela_origen_idx'], entry, tp, sl, direction, threshold=0.60, timeframe="15min")
+        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen, entry, tp, sl, direction, threshold=0.60, timeframe="15min")
         if not is_valid: return None
         
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')

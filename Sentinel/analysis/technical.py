@@ -555,14 +555,6 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> float:
 def is_market_trending(df: pd.DataFrame, min_adx: float = 20, period: int = 14) -> tuple:
     """
     Determina si el mercado tiene tendencia suficiente para operar.
-    
-    Args:
-        df: DataFrame con columnas high, low, close.
-        min_adx: ADX mínimo requerido (default 20).
-        period: Periodo para el cálculo del ADX (default 14).
-        
-    Returns:
-        Tupla (is_trending: bool, adx_value: float)
     """
     adx = calculate_adx(df, period)
     return (adx >= min_adx, adx)
@@ -571,20 +563,6 @@ def is_market_trending(df: pd.DataFrame, min_adx: float = 20, period: int = 14) 
 def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp: float, sl: float, direction: str, threshold: float = 0.60, timeframe: str = "15M") -> tuple:
     """
     Verifica si el precio ya recorrió demasiado hacia el TP desde la vela origen.
-    Si el mercado ya caminó > threshold hacia el TP, la señal está "gastada".
-    También verifica si el TP o SL ya fueron alcanzados.
-    
-    Args:
-        df: DataFrame con columnas high, low, close.
-        vela_origen_idx: Índice de la vela donde se formó el patrón/displacement original.
-        entry: Precio de entrada.
-        tp: Precio del take profit.
-        sl: Precio del stop loss.
-        direction: Dirección de la operación ('LARGO' o 'CORTO').
-        threshold: Umbral de bloqueo (default 0.60 = 60%).
-        
-    Returns:
-        Tupla (is_valid: bool, recorrido_pct: float, message: str)
     """
     logger = logging.getLogger("sentinel")
     
@@ -592,160 +570,48 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
         logger.warning(f"[Exhaustion] Sin índice de vela origen válido ({vela_origen_idx}), se BLOQUEA señal por seguridad")
         return (False, 0.0, "Sin índice de vela origen, se bloquea")
     
-    if df is None or len(df) <= vela_origen_idx:
-        logger.warning(f"[Exhaustion] DataFrame insuficiente para exhaustion check, se BLOQUEA por seguridad")
-        return (False, 0.0, "DataFrame insuficiente, se bloquea")
-    
-    # Verificar el orden del DataFrame (ascendente vs descendente)
-    try:
-        first_idx = df.index[0]
-        last_idx = df.index[-1]
-        
-        if hasattr(first_idx, 'to_pydatetime'):
-            first_idx = first_idx.to_pydatetime()
-            last_idx = last_idx.to_pydatetime()
-        
-        if first_idx.tzinfo is not None:
-            first_idx = first_idx.replace(tzinfo=None)
-            last_idx = last_idx.replace(tzinfo=None)
-        
-        # Si el DataFrame está ordenado del más reciente al más antiguo, invertir
-        if first_idx > last_idx:
-            df = df.iloc[::-1].copy()
-            # Recalcular vela_origen_idx desde "el final"
-            vela_origen_idx = len(df) - 5
-            logger.info(f"[Exhaustion] DataFramesonvertido a orden ascendente")
-    except Exception as e:
-        logger.debug(f"[Exhaustion] Error verificando orden del DataFrame: {e}")
-    
-# ═══════════════════════════════════════════════════════════════
-    # CHECK: Verificar si vela origen es futura (esto sí bloquea siempre)
-    # ═════════════════════════════════════════════════════════════==]
-    logger.info(f"[Exhaustion] START: vela_idx={vela_origen_idx}, df_len={len(df)}, entry={entry:.5f}, tp={tp:.5f}, sl={sl:.5f}")
-    
-    try:
-        vela_origen_time = df.index[vela_origen_idx]
-        current_time = df.index[-1]
-        
-        if hasattr(vela_origen_time, 'to_pydatetime'):
-            vela_origen_time = vela_origen_time.to_pydatetime()
-        if hasattr(current_time, 'to_pydatetime'):
-            current_time = current_time.to_pydatetime()
-            
-        if vela_origen_time.tzinfo is not None:
-            vela_origen_time = vela_origen_time.replace(tzinfo=None)
-        if current_time.tzinfo is not None:
-            current_time = current_time.replace(tzinfo=None)
-        
-        logger.info(f"[Exhaustion] Vela origen: {vela_origen_time.strftime('%Y-%m-%d %H:%M')} | Current: {current_time.strftime('%Y-%m-%d %H:%M')}")
-        
-        diferencia = (current_time - vela_origen_time).total_seconds() / 60
-        
-        # SI la vela origen es FUTURA, BLOQUEAR
-        if diferencia < 0:
-            logger.warning(f"[Exhaustion] 🚫 Vela origen FUTURA ({diferencia:.0f} min), se BLOQUEA (idx={vela_origen_idx})")
-            return (False, 0.0, f"Vela origen futura ({diferencia:.0f} min), se bloquea")
-        
-        # SI la vela origen es muy antigua (>120 min para cualquier TF), BLOQUEAR
-        if diferencia > 120:
-            logger.warning(f"[Exhaustion] 🚫 Vela origen muy antigua ({diferencia:.0f} min > 120), se BLOQUEA (idx={vela_origen_idx})")
-            return (False, 0.0, f"Vela origen antigua ({diferencia:.0f} min), se bloquea")
-        
-        logger.debug(f"[Exhaustion] Origen OK: {diferencia:.0f} min")
-    except Exception as e:
-        logger.debug(f"[Exhaustion] Error calculating time: {e}")
-    
     try:
         direction_upper = direction.upper() if direction else ""
-        vela_origen_time = df.index[vela_origen_idx] if vela_origen_idx < len(df.index) else "N/A"
+        current_close = float(df['close'].iloc[-1])
         
-        # ═══════════════════════════════════════════════════════════════
-        # VERIFICACIÓN: TODO el DataFrame (no solo desde origen)
-        # ═══════════════════════════════════════════════════════════════
+        # 1. Verificar si TP/SL ya fueron alcanzados en el pasado (desde origen hasta ahora)
+        df_since_origen = df.iloc[vela_origen_idx:]
+        max_since_origen = float(df_since_origen['high'].max())
+        min_since_origen = float(df_since_origen['low'].min())
+        
         if direction_upper == "LARGO":
-            # Máximo HIGH en TODO el DataFrame
-            max_all = float(df['high'].max())
-            # Mínimo LOW en TODO el DataFrame
-            min_all = float(df['low'].min())
-            current_close = float(df['close'].iloc[-1])
-            
-            logger.info(f"[Exhaustion] LARGO: max_all={max_all:.5f}, min_all={min_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
-            
-            # Verificar si TP ya fue alcanzado en CUALQUIER momento
-            if max_all >= tp:
-                logger.info(f"[Exhaustion] 🚫 TP YA ALCANZADO (todo el DF): max_all={max_all:.5f} >= tp={tp:.5f}")
+            if max_since_origen >= tp:
                 return (False, 1.0, "TP ya alcanzado")
-            
-            # Verificar si SL ya fue alcanzado en CUALQUIER momento
-            if min_all <= sl:
-                logger.info(f"[Exhaustion] 🚫 SL YA ALCANZADO (todo el DF): min_all={min_all:.5f} <= sl={sl:.5f}")
+            if min_since_origen <= sl:
                 return (False, 0.0, "SL ya alcanzado")
-            
-            # Verificar recorrido desde ENTRADA hasta ahora (no desde origen)
-            distancia_entry_tp = abs(tp - entry)
-            if distancia_entry_tp > 0:
-                recorrido_actual = (current_close - entry) / distancia_entry_tp
+                
+            distancia_total = abs(tp - entry)
+            if distancia_total > 0:
+                recorrido_actual = (current_close - entry) / distancia_total
+                recorrido_max = (max_since_origen - entry) / distancia_total
+                recorrido_pct = max(recorrido_actual, recorrido_max)
             else:
-                recorrido_actual = 0
-            
-            # Verificar recorrido MÁXIMO desde origen (para detectar si price ya caminó mucho)
-            distancia_origen_tp = abs(tp - float(df['close'].iloc[vela_origen_idx]))
-            if distancia_origen_tp > 0:
-                recorrido_max = (max_since_origen - float(df['close'].iloc[vela_origen_idx])) / distancia_origen_tp
-            else:
-                recorrido_max = 0
-            
-            # Usar el mayor de los dos
-            recorrido_pct = max(recorrido_actual, recorrido_max)
-            
-            logger.debug(f"[Exhaustion] LA: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
-            
-        else:  # CORTO
-            # Mínimo LOW en TODO el DataFrame
-            min_all = float(df['low'].min())
-            # Máximo HIGH en TODO el DataFrame
-            max_all = float(df['high'].max())
-            current_close = float(df['close'].iloc[-1])
-            
-            logger.info(f"[Exhaustion] CORTO: min_all={min_all:.5f}, max_all={max_all:.5f}, entry={entry:.5f}, sl={sl:.5f}, tp={tp:.5f}")
-            
-            # Verificar si TP ya fue alcanzado en CUALQUIER momento
-            if min_all <= tp:
-                logger.info(f"[Exhaustion] 🚫 TP YA ALCANZADO (todo el DF): min_all={min_all:.5f} <= tp={tp:.5f}")
+                recorrido_pct = 0
+        else: # CORTO
+            if min_since_origen <= tp:
                 return (False, 1.0, "TP ya alcanzado")
-            
-            # Verificar si SL ya fue alcanzado en CUALQUIER momento
-            if max_all >= sl:
-                logger.info(f"[Exhaustion] 🚫 SL YA ALCANZADO (todo el DF): max_all={max_all:.5f} >= sl={sl:.5f}")
+            if max_since_origen >= sl:
                 return (False, 0.0, "SL ya alcanzado")
-            
-            # Verificar recorrido desde ENTRADA hasta ahora (no desde origen)
-            distancia_entry_tp = abs(tp - entry)
-            if distancia_entry_tp > 0:
-                recorrido_actual = (entry - current_close) / distancia_entry_tp
+                
+            distancia_total = abs(entry - tp)
+            if distancia_total > 0:
+                recorrido_actual = (entry - current_close) / distancia_total
+                recorrido_max = (entry - min_since_origen) / distancia_total
+                recorrido_pct = max(recorrido_actual, recorrido_max)
             else:
-                recorrido_actual = 0
-            
-            # Verificar recorrido MÁXIMO desde origen (para detectar si price ya caminó mucho)
-            distancia_origen_tp = abs(tp - float(df['close'].iloc[vela_origen_idx]))
-            if distancia_origen_tp > 0:
-                recorrido_max = (float(df['close'].iloc[vela_origen_idx]) - min_since_origen) / distancia_origen_tp
-            else:
-                recorrido_max = 0
-            
-            # Usar el mayor de los dos
-            recorrido_pct = max(recorrido_actual, recorrido_max)
-            
-            logger.debug(f"[Exhaustion] CORTO: recorrido_desde_entrada={recorrido_actual*100:.1f}%, recorrido_max={recorrido_max*100:.1f}%")
+                recorrido_pct = 0
         
-        # Verificar si excedió el umbral
         if recorrido_pct > threshold:
-            logger.info(f"[Exhaustion] 🚫 Señal descartada: Precio ya recorrió {recorrido_pct*100:.1f}% hacia TP (umbral: {threshold*100:.0f}%)")
-            return (False, recorrido_pct, f"Bloqueado: {recorrido_pct*100:.1f}% > {threshold*100:.0f}%")
-        
-        logger.info(f"[Exhaustion] ✅ Exhaustion OK: recorrido={recorrido_pct*100:.1f}% (umbral: {threshold*100:.0f}%)")
+            logger.info(f"[Exhaustion] 🚫 Señal descartada: Recorrido {recorrido_pct*100:.1f}% > {threshold*100:.0f}%")
+            return (False, recorrido_pct, f"Agotado: {recorrido_pct*100:.1f}%")
+            
         return (True, recorrido_pct, "Válido")
         
     except Exception as e:
-        logger.debug(f"[Exhaustion] Error calculando exhaustion: {e}")
+        logger.error(f"[Exhaustion] Error: {e}", exc_info=True)
         return (True, 0.0, f"Error: {e}")

@@ -49,20 +49,24 @@ class GenericFVGBot:
         
         # Punto 3: Master Dictionary integration
         master = preloadedData.get(symbol) if preloadedData else None
-
+        
+        if not master or '5min' not in master:
+            logger.warning(f"[{symbol}] Sin datos base (5min) para GenericFVG")
+            return []
+            
+        df_5m = master.get('5min')
 
         for interval in self.intervals:
-            df_tf = master.get(interval) if master else None
+            df_tf = master.get(interval)
             
             # Si no hay master o no tiene el intervalo, detect_fvg_closed hará el resampleo
             latest_fvg = technical.detect_fvg_closed(
-                df_source=df_tf if df_tf is not None else df_input,
+                df_source=df_tf if df_tf is not None else df_5m,
                 interval=interval,
                 min_gap_pct=0.0005,
                 min_adx=20
             )
 
-            
             if not latest_fvg:
                 continue
             
@@ -72,8 +76,8 @@ class GenericFVGBot:
                 logger.debug(f" Señal ya enviada en RAM: {signal_key}")
                 continue
             
-            # Resamplear para obtener datos de precio (necesario para SL/TP)
-            df = technical.resample_to_interval(df5m, interval)
+            # Usar el dataframe de la temporalidad correspondiente
+            df = df_tf if df_tf is not None else technical.resample_to_interval(df_5m, interval)
             if len(df) < 3:
                 continue
             

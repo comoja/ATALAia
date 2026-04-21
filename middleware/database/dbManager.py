@@ -669,6 +669,12 @@ async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 50
             
             df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'])
+            
+            # Localizar a la zona horaria del sistema
+            from middleware.config.constants import TIMEZONE
+            import pytz
+            df['timestamp'] = df['timestamp'].dt.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
+            
             df = df.sort_values('timestamp').set_index('timestamp')
             
             for col in ['open', 'high', 'low', 'close']:
