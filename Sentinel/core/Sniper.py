@@ -38,6 +38,7 @@ class SniperBot:
         self.model = mlModelInstance
         self.estadosPorSimbolo = {}
         self.lastMessageIds = {}  # {symbol: message_id}
+        self._signals_sent = {}   # {"SYMBOL_candle_time": True} — dedup intra-ciclo
 
 
 
@@ -143,6 +144,17 @@ class SniperBot:
         # CCI + RSI pendientes
         techConfLong = (self.latestFullData["pendienteCci"].iloc[-1] > 0.5 and self.latestFullData["pendienteRsi"].iloc[-1] > 0.1)
         techConfShort = (self.latestFullData["pendienteCci"].iloc[-1] < -0.5 and self.latestFullData["pendienteRsi"].iloc[-1] < -0.1)
+        
+        # Preparar métricas para la alerta
+        latest_metrics = {
+            "rsi": float(rsi),
+            "atr": float(currentAtr),
+            "macdHist": float(histVal),
+            "macd": float(macdLine),
+            "macdSig": float(macdSignal),
+            "pendienteRsi": float(self.latestFullData["pendienteRsi"].iloc[-1]),
+            "pendienteCci": float(self.latestFullData["pendienteCci"].iloc[-1])
+        }
         
         # --- MOMENTUM FILTER (usar pre-calculado desde main.py) ---
         momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
@@ -356,7 +368,8 @@ class SniperBot:
                 "ob_score": ob_score,
                 "in_ob_zone": ob_conf_data['in_ob_zone'],
                 "confirmaciones": confirmaciones,
-                "detalles_conf": detalles
+                "detalles_conf": detalles,
+                "latestMetrics": latest_metrics
             }
         )
 
@@ -382,6 +395,14 @@ class SniperBot:
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
             last_closed = get_last_closed_candle(now_cdmx, interval=15)
             signal.candle_time = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Deduplicación intra-ciclo: misma vela = misma señal ya procesada
+            sig_key = f"{symbol}_{signal.candle_time}"
+            if sig_key in self._signals_sent:
+                logger.info(f"[{symbol}] Señal ya emitida en este ciclo para vela {signal.candle_time} — omitiendo duplicado.")
+                return None
+            self._signals_sent[sig_key] = True
+            
             logger.info(f"[{symbol}] Señal generada: {signal.direction} ({signal.confidence:.1f}% confianza)")
             return signal
         

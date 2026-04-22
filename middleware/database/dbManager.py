@@ -72,9 +72,64 @@ def init_alerts_table():
                 except:
                     pass # Ya existe
         
+        # Tabla de Uso de API
+        sql_api = """
+            CREATE TABLE IF NOT EXISTS api_usage (
+                account_name VARCHAR(50) PRIMARY KEY,
+                api_key VARCHAR(100),
+                calls_today INT DEFAULT 0,
+                last_call TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_reset_date DATE
+            )
+        """
+        dbCursor.execute(sql_api)
+        
         dbConn.commit()
     except Exception as e:
         logger.error(f"❌ Error al inicializar tablas: {e}")
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def get_api_usage(account_name):
+    """Obtiene el consumo actual de una cuenta desde la DB."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor(dictionary=True)
+        sql = "SELECT calls_today, last_reset_date FROM api_usage WHERE account_name = %s"
+        dbCursor.execute(sql, (account_name,))
+        result = dbCursor.fetchone()
+        
+        today = datetime.now().date()
+        if result:
+            if result['last_reset_date'] != today:
+                # Si es un nuevo día, reseteamos en DB
+                update_api_usage(account_name, 0, reset=True)
+                return 0
+            return result['calls_today']
+        return 0
+    except Exception as e:
+        logger.error(f"Error en get_api_usage: {e}")
+        return 0
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def update_api_usage(account_name, calls, reset=False):
+    """Actualiza o resetea el contador de llamadas en la DB."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor()
+        today = datetime.now().date()
+        if reset:
+            sql = "INSERT INTO api_usage (account_name, calls_today, last_reset_date) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE calls_today=%s, last_reset_date=%s"
+            dbCursor.execute(sql, (account_name, 0, today, 0, today))
+        else:
+            sql = "UPDATE api_usage SET calls_today = %s, last_call = CURRENT_TIMESTAMP WHERE account_name = %s"
+            dbCursor.execute(sql, (calls, account_name))
+        dbConn.commit()
+    except Exception as e:
+        logger.error(f"Error en update_api_usage: {e}")
     finally:
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
@@ -181,7 +236,7 @@ def verificaCierreTrade(tradeData, dfVelas):
                 precioCierre = 0
                 motivoCierre = ""
 
-                if direction == 'buy':
+                if direction == 'largo':
                     if velaLow <= stopLoss:
                         precioCierre = stopLoss
                         motivoCierre = "STOP_LOSS"
@@ -189,7 +244,7 @@ def verificaCierreTrade(tradeData, dfVelas):
                         precioCierre = takeProfit
                         motivoCierre = "TAKE_PROFIT"
 
-                elif direction == 'sell':
+                elif direction == 'corto':
                     if velaHigh >= stopLoss:
                         precioCierre = stopLoss
                         motivoCierre = "STOP_LOSS"
@@ -265,7 +320,10 @@ def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bo
         
         estrategias_str = result['estrategias']
         estrategias = [e.strip() for e in estrategias_str.split(',')]
-        return nombreEstrategia in estrategias
+        
+        # Validación flexible: permite coincidencia exacta o base (ej. Patron4h_TP1 -> Patron4h)
+        base_name = nombreEstrategia.split('_')[0]
+        return (nombreEstrategia in estrategias) or (base_name in estrategias)
     except Exception as e:
         logger.error(f"Error en isEstrategiaHabilitadaParaCuenta: {e}", exc_info=True)
         return True
@@ -496,20 +554,20 @@ def getOpenTrades():
         logger.error(f"❌ Error en getOpenTrades: {e}")
         return []
 
-def getOpenTradeBySymbol(symbol: str):
+def getOpenTradesBySymbol(symbol: str) -> list:
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT * FROM trades WHERE symbol = %s AND status = 'OPEN' LIMIT 1",
+            "SELECT * FROM trades WHERE symbol = %s AND status = 'OPEN'",
             (symbol,)
         )
-        trade = cursor.fetchone()
+        trades = cursor.fetchall()
         conn.close()
-        return trade
+        return trades if trades else []
     except Exception as e:
-        logger.error(f"❌ Error en getOpenTradeBySymbol: {e}")
-        return None
+        logger.error(f"❌ Error en getOpenTradesBySymbol: {e}")
+        return []
 
 def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
     try:

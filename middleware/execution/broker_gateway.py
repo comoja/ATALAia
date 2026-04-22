@@ -227,7 +227,7 @@ class BrokerGateway:
             return buildImbalanceNYAlertMessage(signal, trade_data)
         elif strategy_name == "ImbalanceLDN":
             return buildImbalanceLDNAlertMessage(signal, trade_data)
-        elif strategy_name == "Patron4h":
+        elif strategy_name.startswith("Patron4h"):
             return buildPatron4HAlertMessage(signal, trade_data)
         elif strategy_name == "SesgoBiasHTF":
             return buildSesgoBiasHTFAlertMessage(signal, trade_data)

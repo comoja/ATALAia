@@ -6,7 +6,9 @@ def getPipMultiplier(symbol: str) -> float:
     try:
         symbolData = dbManager.getSymbol(symbol)
         if symbolData and 'pip' in symbolData and symbolData['pip'] is not None:
-            return float(symbolData['pip'])
+            pip_val = float(symbolData['pip'])
+            if pip_val > 0:
+                return 1.0 / pip_val
     except Exception:
         pass
     
@@ -45,9 +47,13 @@ def buildAlertMessage(
     strategyName: str,
     extraFields: dict = None
 ) -> str:
-    direction = signal.get('direction', signal.get('direccion', 'LARGO'))
-    directionStr = "COMPRA" if direction in ["LARGO", "BUY"] else "VENTA"
-    colorHeader = "🟩" if direction in ["LARGO", "BUY"] else "🟥"
+    # Normalización de dirección
+    raw_dir = signal.get('direction', signal.get('direccion', 'LARGO'))
+    direction = str(raw_dir).strip().upper() if raw_dir else "LARGO"
+    
+    # Mapeo estricto: LARGO = COMPRA, CORTO = VENTA
+    directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
+    colorHeader = "🟩" if direction == "LARGO" else "🟥"
     
     close = signal.get('entryPrice', signal.get('entrada', 0))
     tp = trade.get('takeProfit', signal.get('take_profit', 0))

@@ -121,11 +121,10 @@ class Patron4HBot:
         res['confirmado'] = (res['hay_displacement'] or (len(res['fvgs'])>0 and res['hay_mss'])) if self.modo_flexible else (res['hay_displacement'] and len(res['fvgs'])>0)
         return res
 
-    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
+    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[List[Signal]]:
         symbol = symbolInfo['symbol']
         master = preloadedData.get(symbol) if preloadedData else None
         
-        # Punto 3: Usar master dictionary si existe, sino fallback a lo que haya
         if isinstance(master, dict):
             df_15m = master.get('15min')
             df_1h = master.get('1h')
@@ -137,7 +136,6 @@ class Patron4HBot:
 
         if df_15m is None or len(df_15m) < 100: return None
         
-        # Fallback de resampleo solo si no vienen en el master (Punto 3)
         if df_1h is None: df_1h = resample_to_interval(df_15m, '1h')
         if df_4h is None: df_4h = resample_to_interval(df_15m, '4h')
         if df_1d is None: df_1d = resample_to_interval(df_15m, '1d')
@@ -145,7 +143,6 @@ class Patron4HBot:
         ctx = self.obtener_contexto_diario(df_1d)
         if ctx['tendencia'] == 'LATERAL': return None
 
-        
         price = float(df_15m['close'].iloc[-1])
         raid = self.detectar_liquidity_raid(price, ctx['max_dia_anterior'], ctx['min_dia_anterior'], ctx['tendencia'])
         
@@ -153,46 +150,76 @@ class Patron4HBot:
         catalizador = c4h if c4h['confirmado'] else c1h if c1h['confirmado'] else None
         if not catalizador: return None
         
-        # Generar señal simplificada
         trend = ctx['tendencia']
         direction = 'CORTO' if trend == 'BAJISTA' else 'LARGO'
         fvg = next((f for f in catalizador['fvgs'] if (trend == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (trend == 'ALCISTA' and f['type'] == 'Bullish_FVG')), catalizador['fvgs'][0] if catalizador['fvgs'] else None)
         if not fvg: return None
         
-        # Si no hay vela de desplazamiento, usamos el FVG como origen para el filtro de agotamiento
-        v_origen = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
+        v_origen_idx = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
+        v_origen_time = str(df_15m.index[v_origen_idx]) if v_origen_idx < len(df_15m) else "N/A"
         
         entry = float(fvg['mid'])
+        
         from Sentinel.analysis import technical
         levels = technical.get_structural_levels(df_15m, lookback=50)
         atr = ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).iloc[-1]
         sl = (entry + atr*1.5) if direction == 'CORTO' else (entry - atr*1.5)
-        tp = levels['low_zone'] if direction == 'CORTO' else levels['high_zone']
-        tp = adjustTPForMinRR(entry, sl, tp, direction, minRR=1.5)
-        
         sl_dist = abs(entry - sl)
+        
+        tp_final_val = levels['low_zone'] if direction == 'CORTO' else levels['high_zone']
+        tp_final_val = adjustTPForMinRR(entry, sl, tp_final_val, direction, minRR=1.5)
+        
+        if direction == "LARGO":
+            tp1_val = entry + (sl_dist * 1.25)
+            tp2_val = (tp1_val + tp_final_val) / 2
+        else:
+            tp1_val = entry - (sl_dist * 1.25)
+            tp2_val = (tp1_val + tp_final_val) / 2
+
         multiplier = getPipMultiplier(symbol)
         
-        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen, entry, tp, sl, direction, threshold=0.60, timeframe="15min")
+        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=0.60, timeframe="15min")
         if not is_valid: return None
         
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
         mom_bonus, _ = momentum.getMomentumBonus(mom_state, direction)
         
-        return Signal(
-            strategy="Patron4h",
-            symbol=symbol,
-            direction=direction,
-            entry_price=entry,
-            stop_loss=sl,
-            take_profit=tp,
-            sl_distance=sl_dist,
-            confidence=70 + mom_bonus,
-            setup=f"TopDown-{catalizador['timeframe']}",
-            status="EN ZONA ✅",
-            candle_time=get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S"),
-            intervalo="15min",
-            riesgo_pips=round(sl_dist * multiplier, 1),
-            rr_ratio=round(abs(tp - entry) / sl_dist, 2),
-            metadata={"trend": trend, "timeframe": catalizador['timeframe'], "momentum": mom_state}
-        )
+        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S")
+        
+        signals = []
+        tp_configs = [
+            ("TP1", tp1_val, "TP1 [1.25 RR]"),
+            ("TP2", tp2_val, "TP2 [Intermedio]"),
+            ("TP3", tp_final_val, "TP3 [Estructural]")
+        ]
+        
+        for suffix, tp_val, setup_label in tp_configs:
+            signals.append(Signal(
+                strategy=f"Patron4h_{suffix}", # Nombre único por TP para independencia total
+                symbol=symbol,
+                direction=direction,
+                entry_price=entry,
+                stop_loss=sl,
+                take_profit=tp_val,
+                sl_distance=sl_dist,
+                risk_factor=0.33, 
+                confidence=70 + mom_bonus,
+                setup=setup_label,
+                status="EN ZONA ✅",
+                candle_time=candle_time,
+                intervalo="15min",
+                riesgo_pips=round(sl_dist * multiplier, 1),
+                rr_ratio=round(abs(tp_val - entry) / sl_dist, 2),
+                metadata={
+                    "trend": trend, 
+                    "timeframe_confirmacion": catalizador['timeframe'], 
+                    "timeframe_entrada": "15M",
+                    "momentum": mom_state,
+                    "vela_origen": v_origen_time,
+                    "tp1": tp1_val,
+                    "tp2": tp2_val,
+                    "tp_final": tp_final_val
+                }
+            ))
+            
+        return signals

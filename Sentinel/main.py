@@ -196,8 +196,18 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
 
     # --- Procesamiento Centralizado de Señales ---
     if all_signals:
-        logger.info(f"Enviando {len(all_signals)} señales al ExecutionEngine...")
-        await engine.process_signals(all_signals)
+        # Deduplicar señales: misma estrategia + símbolo + dirección = una sola ejecución
+        seen_keys = set()
+        unique_signals = []
+        for sig in all_signals:
+            key = (sig.strategy, sig.symbol, sig.direction)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                unique_signals.append(sig)
+            else:
+                logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
+        logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
+        await engine.process_signals(unique_signals)
 
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")

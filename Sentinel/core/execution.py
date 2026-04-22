@@ -51,12 +51,14 @@ class ExecutionEngine:
                 logger.error(f"[ExecutionEngine] No se encontró información para el símbolo {symbol}. Omitiendo señal.")
                 return False
 
-        # 2. Check if trade is already open for this symbol
+        # 2. Check if EXACT trade is already open (Same Symbol, Same Strategy, Same Setup)
         try:
-            existing_trade = dbManager.getOpenTradeBySymbol(symbol)
-            if existing_trade:
-                logger.info(f"[ExecutionEngine] [{symbol}] Trade ya abierto ({existing_trade['strategy']}) - omitiendo señal de {strategy_name}")
-                return False
+            # Obtenemos todos los trades abiertos para este símbolo
+            open_trades = dbManager.getOpenTradesBySymbol(symbol)
+            for ot in open_trades:
+                if ot['strategy'] == strategy_name and ot.get('setup') == signal.setup:
+                    logger.info(f"[ExecutionEngine] [{symbol}] {strategy_name} ({signal.setup}) ya abierto - omitiendo.")
+                    return False
         except Exception as e:
             logger.error(f"[ExecutionEngine] Error verificando trades abiertos para {symbol}: {e}")
 
@@ -80,11 +82,14 @@ class ExecutionEngine:
                 logger.debug(f"[ExecutionEngine] Estrategia {strategy_name} no habilitada para cuenta {account_id}")
                 continue
 
-            # 4. Calculate Risk and Position Size
+            # 4. Calculate Risk and Position Size (Apply risk_factor)
             try:
+                base_risk = float(account['ganancia'])
+                effective_risk = base_risk * signal.risk_factor
+                
                 pos_size, risk_usd, margin_used = risk.calculatePositionSize(
                     capital=float(account['Capital']),
-                    riskPercentage=float(account['ganancia']),
+                    riskPercentage=effective_risk,
                     slDistance=signal.sl_distance,
                     symbolInfo=symbol_info,
                     entryPrice=signal.entry_price
@@ -109,10 +114,13 @@ class ExecutionEngine:
                 "entryPrice": signal.entry_price,
                 "stopLoss": signal.stop_loss,
                 "takeProfit": signal.take_profit,
+                "takeProfit2": signal.take_profit2,
+                "takeProfit3": signal.take_profit3,
                 "size": pos_size,
                 "margin_used": margin_used,
                 "intervalo": signal.intervalo,
                 "strategy": strategy_name,
+                "setup": signal.setup,
                 "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "status": "OPEN"
             }

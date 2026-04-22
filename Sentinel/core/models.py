@@ -18,6 +18,9 @@ class Signal:
     status: str
     candle_time: str
     intervalo: str
+    take_profit2: Optional[float] = None
+    take_profit3: Optional[float] = None
+    risk_factor: float = 1.0
     
     # Metrics for building alerts and logging
     riesgo_pips: Optional[float] = None
@@ -26,6 +29,11 @@ class Signal:
     
     # Additional strategy-specific metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Normaliza la dirección para garantizar consistencia interna."""
+        if self.direction:
+            self.direction = self.direction.strip().upper()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert signal to dictionary for compatibility with legacy components."""
@@ -36,6 +44,8 @@ class Signal:
             "entryPrice": self.entry_price,
             "stopLoss": self.stop_loss,
             "takeProfit": self.take_profit,
+            "takeProfit2": self.take_profit2,
+            "takeProfit3": self.take_profit3,
             "slDistance": self.sl_distance,
             "riesgo_pips": self.riesgo_pips,
             "rr_ratio": self.rr_ratio,

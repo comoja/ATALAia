@@ -195,13 +195,13 @@ def checkTradeClosure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]) -> 
         takeProfit = tradeData.get('takeProfit')
 
         for timestamp, row in dfNewCandles.iterrows():
-            if side == "BUY":
+            if side == "LARGO":
                 if stopLoss and row['low'] <= stopLoss:
                     return {"status": "CLOSED", "reason": "SL", "exitPrice": stopLoss, "closeTime": timestamp}
                 if takeProfit and row['high'] >= takeProfit:
                     return {"status": "CLOSED", "reason": "TP", "exitPrice": takeProfit, "closeTime": timestamp}
             
-            elif side == "SELL":
+            elif side == "CORTO":
                 if stopLoss and row['high'] >= stopLoss:
                     return {"status": "CLOSED", "reason": "SL", "exitPrice": stopLoss, "closeTime": timestamp}
                 if takeProfit and row['low'] <= takeProfit:
@@ -259,7 +259,7 @@ def check_multi_tp_closure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]
             velaLow = float(row['low'])
             velaClose = float(row['close'])
             
-            if side in ("BUY", "LARGO"):
+            if side == "LARGO":
                 if stopLoss and velaLow <= stopLoss:
                     return {
                         "status": "CLOSED", 
@@ -321,7 +321,7 @@ def check_multi_tp_closure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]
                         "closed_tp_levels": result['closed_tp_levels']
                     }
             
-            else:  # SELL, CORTO
+            else:  # CORTO
                 if stopLoss and velaHigh >= stopLoss:
                     return {
                         "status": "CLOSED",
@@ -410,9 +410,9 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         else:
             commission = float(commission)
 
-        if side in ("BUY", "LARGO"):
+        if side == "LARGO":
             grossPnl = (exitPrice - entryPrice) * size
-        else: # SELL, CORTO
+        else:  # CORTO
             grossPnl = (entryPrice - exitPrice) * size
         
         netPnl = grossPnl - commission

@@ -97,7 +97,7 @@ def test_fibonacci_zones():
     print(f"  Fib 50%: {zone_CORTO['fib_50']:.5f}")
     assert zone_CORTO['type'] == 'PREMIUM', "Tipo de zona incorrecto"
     
-    zone_long = bot.calculate_fibonacci_zone(df, 'LONG', lookback=50)
+    zone_long = bot.calculate_fibonacci_zone(df, 'LARGO', lookback=50)
     print(f"  Zona DISCOUNT: {zone_long['type']}")
     print(f"  Fib 50%: {zone_long['fib_50']:.5f}")
     assert zone_long['type'] == 'DISCOUNT', "Tipo de zona incorrecto"
