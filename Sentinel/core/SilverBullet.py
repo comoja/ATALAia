@@ -66,25 +66,25 @@ class SilverBulletBot:
         for i in range(len(df_post)):
             v = df_post.iloc[i]
             if v["low"] < ref["low"] and v["close"] > ref["low"]:
-                return {"type": "BULLISH", "swept_level": ref["low"], "sweep_low": v["low"], "candle_idx": df_post.index[i]}
+                return {"type": "LARGO", "swept_level": ref["low"], "sweep_low": v["low"], "candle_idx": df_post.index[i]}
             if v["high"] > ref["high"] and v["close"] < ref["high"]:
-                return {"type": "BEARISH", "swept_level": ref["high"], "sweep_high": v["high"], "candle_idx": df_post.index[i]}
+                return {"type": "CORTO", "swept_level": ref["high"], "sweep_high": v["high"], "candle_idx": df_post.index[i]}
         return None
 
     def _detect_mss(self, df: pd.DataFrame, sweep: Dict) -> bool:
         if len(df) < 7: return False
         h, l, c = df["high"].values, df["low"].values, df["close"].values
-        if sweep["type"] == "BULLISH": return float(c[-1]) > float(np.max(h[-6:-1]))
+        if sweep["type"] == "LARGO": return float(c[-1]) > float(np.max(h[-6:-1]))
         else: return float(c[-1]) < float(np.min(l[-6:-1]))
 
     def _detect_fvg(self, df: pd.DataFrame, direction: str) -> Optional[Dict]:
         for i in range(len(df)-1, max(2, len(df)-15), -1):
             if i > len(df)-2: continue
             h2, l2, h, l, c = df["high"].iloc[i-2], df["low"].iloc[i-2], df["high"].iloc[i], df["low"].iloc[i], df["close"].iloc[i]
-            if direction == "BULLISH" and l > h2 and (l-h2)/c >= self.fvg_min_pct:
-                return {"type": "Bullish_FVG", "mid": (h2+l)/2, "idx": i, "candle_time": df.index[i]}
-            if direction == "BEARISH" and h < l2 and (l2-h)/c >= self.fvg_min_pct:
-                return {"type": "Bearish_FVG", "mid": (h+l2)/2, "idx": i, "candle_time": df.index[i]}
+            if direction == "LARGO" and l > h2 and (l-h2)/c >= self.fvg_min_pct:
+                return {"type": "LARGO_FVG", "mid": (h2+l)/2, "idx": i, "candle_time": df.index[i]}
+            if direction == "CORTO" and h < l2 and (l2-h)/c >= self.fvg_min_pct:
+                return {"type": "CORTO_FVG", "mid": (h+l2)/2, "idx": i, "candle_time": df.index[i]}
         return None
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
@@ -99,6 +99,7 @@ class SilverBulletBot:
         from middleware.database import dbManager
         strat_config = dbManager.getStrategyConfig("SilverBullet") or {}
         min_rr_val = float(strat_config.get('min_rr', 1.5))
+        min_confidence = float(strat_config.get('min_confidence', 70))
         
         # Punto 3: Master Dictionary integration
         if isinstance(master, dict):
@@ -124,31 +125,42 @@ class SilverBulletBot:
         
         entry = fvg["mid"]
         atr = ta.ATR(df["high"], df["low"], df["close"], 14).iloc[-1]
-        sl = (sweep.get("sweep_low", sweep["swept_level"]) - atr*0.15) if sweep["type"] == "BULLISH" else (sweep.get("sweep_high", sweep["swept_level"]) + atr*0.15)
+        sl = (sweep.get("sweep_low", sweep["swept_level"]) - atr*0.15) if sweep["type"] == "LARGO" else (sweep.get("sweep_high", sweep["swept_level"]) + atr*0.15)
         
         levels = technical.get_structural_levels(df, lookback=50)
-        tp_ref = levels["high_zone"] if sweep["type"] == "BULLISH" else levels["low_zone"]
-        tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "BULLISH" else "CORTO", minRR=min_rr_val)
+        tp_ref = levels["high_zone"] if sweep["type"] == "LARGO" else levels["low_zone"]
+        tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "LARGO" else "CORTO", minRR=min_rr_val)
         
         sl_dist = abs(entry - sl)
         multiplier = getPipMultiplier(symbol)
         
-        if not technical.check_tp_exhaustion(df, fvg["idx"], entry, tp, sl, "LARGO" if sweep["type"] == "BULLISH" else "CORTO", threshold=0.60, timeframe="5min")[0]:
+        if not technical.check_tp_exhaustion(df, fvg["idx"], entry, tp, sl, "LARGO" if sweep["type"] == "LARGO" else "CORTO", threshold=0.60, timeframe="5min")[0]:
+            return None
+        
+        current_price = float(df['close'].iloc[-1])
+        fvg_time = fvg.get("candle_time", "")
+        fvg_time_str = fvg_time.strftime("%Y-%m-%d %H:%M:%S") if fvg_time else ""
+        if not technical.check_signal_health(entry, tp, sl, "LARGO" if sweep["type"] == "LARGO" else "CORTO", current_price, threshold=0.65, candle_time=fvg_time_str)[0]:
+            return None
+        
+        base_confidence = 80
+        if base_confidence < min_confidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
             return None
         
         self._signals_sent[sig_key] = True
         return Signal(
             strategy="SilverBullet",
             symbol=symbol,
-            direction="LARGO" if sweep["type"] == "BULLISH" else "CORTO",
+            direction="LARGO" if sweep["type"] == "LARGO" else "CORTO",
             entry_price=entry,
             stop_loss=sl,
             take_profit=tp,
             sl_distance=sl_dist,
-            confidence=80,
+            confidence=base_confidence,
             setup=f"Silver Bullet {window['emoji']} {window['label']}",
             status="EN ZONA ✅",
-            candle_time=get_last_closed_candle(self._now_mx(), 5).strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=get_last_closed_candle(self._now_mx(), 5).strftime("%Y-%m-%d %H:%M:%S"),
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp - entry) / sl_dist, 2),

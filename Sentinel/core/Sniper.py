@@ -17,7 +17,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
-from Sentinel.analysis.technical import check_tp_exhaustion
+from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
@@ -28,6 +28,7 @@ from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
 from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
+from middleware.database import dbManager
 
 from Sentinel.core.models import Signal
 
@@ -38,7 +39,7 @@ class SniperBot:
         self.model = mlModelInstance
         self.estadosPorSimbolo = {}
         self.lastMessageIds = {}  # {symbol: message_id}
-        self._signals_sent = {}   # {"SYMBOL_candle_time": True} — dedup intra-ciclo
+        self._signals_sent = {}   # {"SYMBOL_candleTime": True} — dedup intra-ciclo
 
 
 
@@ -173,24 +174,40 @@ class SniperBot:
             return None
         
         # --- Determinar dirección por ML ---
-        from middleware.database import dbManager
+        
         strat_config = dbManager.getStrategyConfig("Sniper") or {}
         
         # Usar umbral dinámico desde BD si existe, de lo contrario usar constante
         min_conf_db = float(strat_config.get('min_confidence', 55)) / 100.0
-        thresh_long = min_conf_db
-        thresh_short = 1.0 - min_conf_db
+        thresh_long = 0.5
+        thresh_short = 0.5
         
-        if proba >= thresh_long:
-            direction = "LARGO"
-            confianza = proba * 100
-        elif proba <= thresh_short:
+        if proba > thresh_long:
             direction = "CORTO"
+            logger.info(f"[{symbol}] ML proba={proba:.2f} -> CORTO (modelo predice precio BAJA)")
             confianza = (1 - proba) * 100
+        elif proba < thresh_short:
+            direction = "LARGO"
+            logger.info(f"[{symbol}] ML proba={proba:.2f} -> LARGO (modelo predice precio SUBE)")
+            confianza = proba * 100
         else:
-            logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f}, zona neutral o debajo de umbral {min_conf_db})")
+            logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f} == 0.5)")
             return None
-
+        
+        # --- Filtro de contradicción ML vs MACD ---
+        macdLine = self.latestFullData["macd"].iloc[-1]
+        macdSignal = self.latestFullData["macdSig"].iloc[-1]
+        macd_alcista = macdLine > macdSignal
+        
+        if direction == "LARGO" and not macd_alcista:
+            logger.info(f"[{symbol}] Filtrado CONTRADICCIÓN: ML dice LARGO pero MACD bajista")
+            return None
+        elif direction == "CORTO" and macd_alcista:
+            logger.info(f"[{symbol}] Filtrado CONTRADICCIÓN: ML dice CORTO pero MACD alcista")
+            return None
+        else:
+            logger.info(f"[{symbol}] Confirmado por MACD: {'ALCISTA' if macd_alcista else 'BAJISTA'}")
+        
         
         # --- NEW: Verificar tendencia cuando momentum es Neutral ---
         if momentumNeutral and len(self.latestFullData) >= 8:
@@ -333,7 +350,7 @@ class SniperBot:
             sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
             tp_structural = levels['low_zone']
 
-        # Exhaustion Filter
+# Exhaustion Filter
         vela_origen_idx = len(df) - 5
         is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, sl_price, direction, threshold=0.60, timeframe="15M")
         if not is_valid:
@@ -345,9 +362,19 @@ class SniperBot:
         ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if confianza > 85 else config.BASE_RISK_REWARD_RATIO
         
         tp_initial = tp_structural if tp_structural else (close + (sl_dist * ratioBase) if direction == "LARGO" else close - (sl_dist * ratioBase))
-        tpPrice = adjustTPForMinRR(close, slPrice, tp_initial, direction, minRR=1.5)
+        strat_config = dbManager.getStrategyConfig("sniper") or {}
+        min_rr_val = float(strat_config.get('min_rr', 1.5))
+        tpPrice = adjustTPForMinRR(close, slPrice, tp_initial, direction, minRR=min_rr_val)
+        
+        current_price = float(df['close'].iloc[-1])
+        is_valid, _, mensaje = check_signal_health(close, tpPrice, slPrice, direction, current_price, threshold=0.65)
+        if not is_valid:
+            logger.info(f"[{symbol}] Señal descartada: Health - {mensaje}")
+            return None
         
         multiplier = getPipMultiplier(symbol)
+        
+        confianza = min(100, max(0, confianza))
         
         return Signal(
             strategy="Sniper",
@@ -360,7 +387,7 @@ class SniperBot:
             confidence=confianza,
             setup=f"ML SNIPER {symbolInfo.get('intervalo', '15min').upper()}",
             status="EN ZONA ✅",
-            candle_time="", # Will be set in runAnalysisCycle
+            candleTime="", # Will be set in runAnalysisCycle
             intervalo=symbolInfo.get('intervalo', '15min'),
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(calculateRR(close, slPrice, tpPrice), 2),
@@ -394,12 +421,11 @@ class SniperBot:
         if signal:
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
             last_closed = get_last_closed_candle(now_cdmx, interval=15)
-            signal.candle_time = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+            signal.candleTime = last_closed.strftime("%Y-%m-%d %H:%M:%S")
             
-            # Deduplicación intra-ciclo: misma vela = misma señal ya procesada
-            sig_key = f"{symbol}_{signal.candle_time}"
+            sig_key = f"{symbol}_{signal.candleTime}"
             if sig_key in self._signals_sent:
-                logger.info(f"[{symbol}] Señal ya emitida en este ciclo para vela {signal.candle_time} — omitiendo duplicado.")
+                logger.info(f"[{symbol}] Señal ya emitida en este ciclo para vela {signal.candleTime} — omitiendo duplicado.")
                 return None
             self._signals_sent[sig_key] = True
             

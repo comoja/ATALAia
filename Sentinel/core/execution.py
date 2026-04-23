@@ -99,7 +99,8 @@ class ExecutionEngine:
                 continue
 
             if pos_size is None or pos_size == 0:
-                logger.warning(f"[ExecutionEngine] [{symbol}] Size=0 para cuenta {account_id} - riesgo ${risk_usd:.2f} insuficiente o margen excedido.")
+                risk_str = f"${risk_usd:.2f}" if risk_usd else "None"
+                logger.warning(f"[ExecutionEngine] [{symbol}] Size=0 para cuenta {account_id} - riesgo {risk_str} insuficiente o margen excedido.")
                 continue
 
             # 5. Prepare Trade Data
@@ -122,7 +123,8 @@ class ExecutionEngine:
                 "strategy": strategy_name,
                 "setup": signal.setup,
                 "openTime": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "status": "OPEN"
+                "status": "OPEN",
+                "candleTime": signal.candleTime
             }
 
             # 6. Execute via Gateway

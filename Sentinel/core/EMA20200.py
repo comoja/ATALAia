@@ -9,7 +9,7 @@ import pytz
 
 from middleware.database import dbManager
 from Sentinel.analysis import technical
-from Sentinel.analysis.technical import resample_to_interval, check_tp_exhaustion
+from Sentinel.analysis.technical import resample_to_interval, check_tp_exhaustion, check_signal_health
 from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateRR
 
 from Sentinel.ml import model as mlModel
@@ -107,6 +107,10 @@ class EMA20200Bot:
         
         if not check_tp_exhaustion(df, len(df)-5, price, tp_price, sl_price, direction, threshold=0.60, timeframe="5min")[0]: return None
         
+        current_price = float(df['close'].iloc[-1])
+        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 5).strftime("%Y-%m-%d %H:%M:%S")
+        if not check_signal_health(price, tp_price, sl_price, direction, current_price, threshold=0.65, candle_time=candle_time)[0]: return None
+        
         self.waitingPullback.pop(symbol, None)
         multiplier = getPipMultiplier(symbol)
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
@@ -123,7 +127,7 @@ class EMA20200Bot:
             confidence=int(prob*100) + mom_bonus,
             setup="EMA Pullback",
             status="EN ZONA ✅",
-            candle_time=get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 5).strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 5).strftime("%Y-%m-%d %H:%M:%S"),
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp_price - price)/sl_dist, 2),

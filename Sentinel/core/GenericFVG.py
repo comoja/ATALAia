@@ -63,12 +63,14 @@ class GenericFVGBot:
             latest_fvg = technical.detect_fvg_closed(
                 df_source=df_tf if df_tf is not None else df_5m,
                 interval=interval,
-                min_gap_pct=0.0005,
-                min_adx=20
+                min_gap_pct=0.0001,  # Reducido para detectar FVGs más pequeños
+                min_adx=15  # Reducido para no perder señales
             )
 
             if not latest_fvg:
                 continue
+            
+            logger.info(f"[{symbol}] {interval}: FVG detectado - {latest_fvg['type']} @ idx={latest_fvg['idx']}")
             
             # Control de duplicados usando el timestamp del FVG
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
@@ -84,6 +86,7 @@ class GenericFVGBot:
             # El idx del FVG es respecto al df resampleado
             last_closed_idx = len(df) - 2
             if latest_fvg['idx'] > last_closed_idx:
+                logger.debug(f" FVG idx={latest_fvg['idx']} > last_closed_idx={last_closed_idx} - descartado")
                 continue
             
             v1_idx = latest_fvg['idx'] - 1
@@ -131,47 +134,69 @@ class GenericFVGBot:
             else:
                 status_msg = "EN ZONA ✅"
 
-            # ===== FILTROS DE CALIDAD =====
+# ===== FILTROS DE CALIDAD =====
             from middleware.database import dbManager
             strat_config = dbManager.getStrategyConfig("GenericFVG") or {}
             
             current_price = float(df['close'].iloc[-1])
             rr_ratio = round(abs(tp1 - entry_price) / risk_dist, 2)
-            min_rr = float(strat_config.get('min_rr', 0.5))
+            min_rr = float(strat_config.get('min_rr', 0.35))
+            min_confidence = float(strat_config.get('min_confidence', 70))
             max_sl_proximity = 0.2
             
             # 1. Filtrar RR muy bajo
             if rr_ratio < min_rr:
-                logger.info(f" RR={rr_ratio:.2f} < {min_rr} - descartando señal")
+                logger.info(f"[{symbol}] {interval}: RR={rr_ratio:.2f} < {min_rr} - descartando señal")
                 continue
 
             
             # 2. Verificar que precio actual no esté muy cerca del SL
+            #    y que no haya recorrido más del 65% hacia el TP
+            max_progress = 0.65
+            
             if latest_fvg['type'] == 'Bullish_FVG':
-                dist_to_sl = (sl - current_price) / risk_dist if risk_dist > 0 else 0
-                if dist_to_sl < max_sl_proximity:
-                    logger.info(f" Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                # Para LONG: descartar si precio está por debajo del SL (se acercó al SL)
+                # o si ya avanzó más del 65% hacia el TP
+                dist_to_sl = (current_price - sl) / risk_dist if risk_dist > 0 else 0
+                if current_price <= sl:
+                    logger.info(f"[{symbol}] {interval}: Precio bajo SL (price={current_price:.5f}, sl={sl:.5f}) - descartando")
+                    continue
+                if progress_pct > max_progress:
+                    logger.info(f"[{symbol}] {interval} [{latest_fvg['timestamp']}]: Progreso {progress_pct:.1%} > {max_progress:.0%} hacia TP (entry={entry_price:.5f}, tp1={tp1:.5f}, current={current_price:.5f}) - descartando")
                     continue
             else:
-                dist_to_sl = (current_price - sl) / risk_dist if risk_dist > 0 else 0
-                if dist_to_sl < max_sl_proximity:
-                    logger.info(f" Precio muy cerca del SL ({dist_to_sl:.2f}) - descartando")
+                # Para SHORT: descartar si precio está por encima del SL (se acercó al SL)
+                # o si ya avanzó más del 65% hacia el TP
+                dist_to_sl = (sl - current_price) / risk_dist if risk_dist > 0 else 0
+                if current_price >= sl:
+                    logger.info(f"[{symbol}] {interval} [{latest_fvg['timestamp']}]: Precio sobre SL (price={current_price:.5f}, sl={sl:.5f}) - descartando")
+                    continue
+                if progress_pct > max_progress:
+                    logger.info(f"[{symbol}] {interval} [{latest_fvg['timestamp']}]: Progreso {progress_pct:.1%} > {max_progress:.0%} hacia TP (entry={entry_price:.5f}, tp1={tp1:.5f}, current={current_price:.5f}) - descartando")
                     continue
             
             # 3. Verificar que precio actual esté dentro de la zona del FVG
             if latest_fvg['type'] == 'Bullish_FVG':
                 if current_price <= sl or current_price >= tp1:
-                    logger.info(f" Precio fuera de zona FVG - descartando")
+                    logger.info(f"[{symbol}] {interval}: Precio fuera de zona FVG (price={current_price:.5f}, sl={sl:.5f}, tp1={tp1:.5f}) - descartando")
                     continue
             else:
                 if current_price >= sl or current_price <= tp1:
-                    logger.info(f" Precio fuera de zona FVG - descartando")
+                    logger.info(f"[{symbol}] {interval}: Precio fuera de zona FVG (price={current_price:.5f}, sl={sl:.5f}, tp1={tp1:.5f}) - descartando")
                     continue
-
+            
+            # 4. Filtrar por confianza mínima
+            base_confidence = 85
+            if base_confidence < min_confidence:
+                logger.info(f"[{symbol}] {interval}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
+                continue
+            
             # Marcar como enviada en RAM (el motor se encargará de persistir si es necesario)
             self._sent_signals[signal_key] = True
             
-            # Crear objeto Signal
+            # Crear objeto Signal con confianza calculada
+            calc_confidence = 85 - (0 if latest_fvg['type'] == 'Bullish_FVG' else 0)  # Placeholder para ajustes futuros
+            
             signal = Signal(
                 strategy=self.strategy_name,
                 symbol=symbol,
@@ -182,10 +207,10 @@ class GenericFVGBot:
                 sl_distance=risk_dist,
                 riesgo_pips=round(risk_dist * getPipMultiplier(symbol), 1),
                 rr_ratio=round(abs(tp1 - entry_price) / risk_dist, 2),
-                confidence=85,
+                confidence=calc_confidence,
                 setup=f"FVG {interval}",
                 status=status_msg,
-                candle_time=latest_fvg['timestamp'],
+                candleTime=latest_fvg['timestamp'],
                 intervalo=interval,
                 metadata={
                     "fvg": latest_fvg['type'],

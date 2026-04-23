@@ -19,7 +19,7 @@ from middleware.database import dbManager
 from middleware.execution.broker_gateway import gateway
 from middleware.utils import momentum
 from Sentinel.analysis import technical, risk
-from Sentinel.analysis.technical import check_tp_exhaustion
+from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from middleware.utils.alertBuilder import getPipMultiplier
 
 from datetime import datetime, timedelta
@@ -105,7 +105,7 @@ class FVGDiarioBot:
             pdh, pdl = self._get_pdh_pdl(df_daily)
             
             # Obtener nivel de liquidez opuesto (para TP)
-            opposite_liquidity = pdl if daily_bias == "BULLISH" else pdh
+            opposite_liquidity = pdl if daily_bias == "LARGO" else pdh
             
             # Buscar manipulación
             manipulation = self._detect_manipulation(
@@ -150,9 +150,9 @@ class FVGDiarioBot:
             return "NEUTRAL"
         
         if body / total_range >= 0.5 and body > 0:
-            return "BULLISH"
+            return "LARGO"
         elif body / total_range >= 0.5 and body < 0:
-            return "BEARISH"
+            return "CORTO"
         
         return "NEUTRAL"
     
@@ -174,13 +174,13 @@ class FVGDiarioBot:
         
         recent = df.tail(10)
         
-        if daily_bias == "BEARISH":
+        if daily_bias == "CORTO":
             for i in range(len(recent) - 1, -1, -1):
                 row_high = recent.iloc[i].get('high', recent.iloc[i].get('High', 0))
                 if row_high >= pdh:
                     return {"type": "MANIPULATION_UP", "level": pdh, "index": i, "timestamp": str(recent.index[i]), "price": float(row_high)}
         
-        elif daily_bias == "BULLISH":
+        elif daily_bias == "LARGO":
             for i in range(len(recent) - 1, -1, -1):
                 row_low = recent.iloc[i].get('low', recent.iloc[i].get('Low', 0))
                 if row_low <= pdl:
@@ -201,12 +201,12 @@ class FVGDiarioBot:
         if len(post_manip) < 2:
             return False
         
-        if daily_bias == "BEARISH":
+        if daily_bias == "CORTO":
             recent_lows = post_manip['low'].values
             for low in recent_lows:
                 if low < manipulation['level']:
                     return True
-        elif daily_bias == "BULLISH":
+        elif daily_bias == "LARGO":
             col_high = 'high' if 'high' in post_manip.columns else 'High'
             recent_highs = post_manip[col_high].values if col_high in post_manip.columns else []
             for high in recent_highs:
@@ -228,14 +228,14 @@ class FVGDiarioBot:
             return None
         
         df_after = df.iloc[start_idx:end_idx]
-        latest_fvg = technical.detect_fvg_closed(df_source=df_after, interval='15min', min_gap_pct=0.0005, min_adx=20, lookback=10)
+        latest_fvg = technical.detect_fvg_closed(df_source=df_after, interval='15min', min_gap_pct=0.0001, min_adx=15, lookback=10)
         
         if not latest_fvg:
             return None
         
-        if daily_bias == "BULLISH" and latest_fvg.get("type") == "Bullish_FVG":
+        if daily_bias == "LARGO":
             return latest_fvg
-        elif daily_bias == "BEARISH" and latest_fvg.get("type") == "Bearish_FVG":
+        elif daily_bias == "CORTO":
             return latest_fvg
         
         return None
@@ -259,13 +259,17 @@ class FVGDiarioBot:
         # Calcular niveles
         entry_price = float(fvg['mid'])
         
-        if daily_bias == "BULLISH":
+        strat_config = dbManager.getStrategyConfig("FVGDiario") or {}
+        min_rr_val = float(strat_config.get('min_rr', 2.0))
+        min_confidence = float(strat_config.get('min_confidence', 70))
+        
+        if daily_bias == "LARGO":
             stop_loss = float(fvg['bottom'])
-            take_profit = entry_price + (entry_price - stop_loss) * self.config['min_rr_ratio']
+            take_profit = entry_price + (entry_price - stop_loss) * min_rr_val
             direction = "LARGO"
         else:
             stop_loss = float(fvg['top'])
-            take_profit = entry_price - (stop_loss - entry_price) * self.config['min_rr_ratio']
+            take_profit = entry_price - (stop_loss - entry_price) * min_rr_val
             direction = "CORTO"
         
         sl_distance = abs(entry_price - stop_loss)
@@ -278,6 +282,20 @@ class FVGDiarioBot:
                 logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
                 return None
         
+        if df is not None:
+            current_price = float(df['close'].iloc[-1])
+            fvg_time = fvg.get('timestamp', '')
+            is_valid, _, mensaje = check_signal_health(entry_price, take_profit, stop_loss, direction, current_price, threshold=0.65, candle_time=fvg_time)
+            if not is_valid:
+                logger.info(f"[{symbol}] Señal descartada: Health - {mensaje}")
+                return None
+        
+        # Calcular confianza
+        base_confidence = 85 if daily_bias != "NEUTRAL" else 75
+        if base_confidence < min_confidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
+            return None
+        
         # Marcar como enviada
         self._sent_signals[signal_key] = True
         
@@ -289,10 +307,10 @@ class FVGDiarioBot:
             stop_loss=stop_loss,
             take_profit=take_profit,
             sl_distance=sl_distance,
-            confidence=85 if daily_bias != "NEUTRAL" else 75,
+            confidence=base_confidence,
             setup="FVG Diario + Manipulación",
             status="EN ZONA ✅",
-            candle_time=fvg['timestamp'],
+            candleTime=fvg['timestamp'],
             intervalo="15min",
             riesgo_pips=round(sl_distance * getPipMultiplier(symbol), 1),
             rr_ratio=round(abs(take_profit - entry_price) / sl_distance, 2),

@@ -16,7 +16,7 @@ class Signal:
     confidence: float
     setup: str
     status: str
-    candle_time: str
+    candleTime: str
     intervalo: str
     take_profit2: Optional[float] = None
     take_profit3: Optional[float] = None
@@ -52,7 +52,7 @@ class Signal:
             "confidence": self.confidence,
             "setup": self.setup,
             "status": self.status,
-            "candle_time": self.candle_time,
+            "candleTime": self.candleTime,
             "intervalo": self.intervalo,
             "profit": self.profit,
             **self.metadata

@@ -15,7 +15,7 @@ from middleware.database import dbManager
 from Sentinel.analysis import technical
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
-from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, check_tp_exhaustion
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, check_tp_exhaustion, check_signal_health
 from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier
 from Sentinel.analysis.orderblocks import detect_order_blocks, detect_breaker_blocks, ob_confluence_score
 
@@ -91,10 +91,10 @@ class SesgoBiasHTFBot:
         lh_ratio = lh_count / total_swings
         ll_ratio = ll_count / total_swings
         counts = {'hh': hh_count, 'hl': hl_count, 'lh': lh_count, 'll': ll_count}
-        if hh_ratio > 0.4 and hl_ratio > 0.3: return 'ALCISTA', {'counts': counts, 'ratios': {'hh': hh_ratio, 'hl': hl_ratio}}
-        elif ll_ratio > 0.4 and lh_ratio > 0.3: return 'BAJISTA', {'counts': counts, 'ratios': {'ll': ll_ratio, 'lh': lh_ratio}}
-        elif hh_ratio > lh_ratio and hl_ratio > ll_ratio: return 'ALCISTA', {'counts': counts, 'ratios': {'hh': hh_ratio, 'hl': hl_ratio}}
-        elif lh_ratio > hh_ratio and ll_ratio > hl_ratio: return 'BAJISTA', {'counts': counts, 'ratios': {'ll': ll_ratio, 'lh': lh_ratio}}
+        if hh_ratio > 0.4 and hl_ratio > 0.3: return 'LARGO', {'counts': counts, 'ratios': {'hh': hh_ratio, 'hl': hl_ratio}}
+        elif ll_ratio > 0.4 and lh_ratio > 0.3: return 'CORTO', {'counts': counts, 'ratios': {'ll': ll_ratio, 'lh': lh_ratio}}
+        elif hh_ratio > lh_ratio and hl_ratio > ll_ratio: return 'LARGO', {'counts': counts, 'ratios': {'hh': hh_ratio, 'hl': hl_ratio}}
+        elif lh_ratio > hh_ratio and ll_ratio > hl_ratio: return 'CORTO', {'counts': counts, 'ratios': {'ll': ll_ratio, 'lh': lh_ratio}}
         return 'INDETERMINADO', {'counts': counts}
 
     def is_market_inactive(self, df: pd.DataFrame, lookback: int = 20) -> bool:
@@ -249,8 +249,8 @@ class SesgoBiasHTFBot:
 
     def get_consensus_bias(self, biases: Dict[str, str]) -> Tuple[str, float]:
         weights = {'H4': 0.35, 'D': 0.35, 'W': 0.20, 'M': 0.10}
-        bullish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'ALCISTA')
-        bearish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'BAJISTA')
+        bullish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'LARGO')
+        bearish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'CORTO')
         if bullish_score > bearish_score: return 'LARGO', bullish_score
         elif bearish_score > bullish_score: return 'CORTO', bearish_score
         return 'NO_TRADE', 0.0
@@ -326,8 +326,12 @@ class SesgoBiasHTFBot:
         is_valid, _, mensaje = check_tp_exhaustion(df_15m, len(df_15m)-5, entry_price, tp_price, sl_price, consensus_direction, threshold=0.60, timeframe="15M")
         if not is_valid: return None
         
+        current_price = float(df_15m['close'].iloc[-1])
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
         last_closed = get_last_closed_candle(now_cdmx, interval=15)
+        candle_time = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        is_valid, _, mensaje = check_signal_health(entry_price, tp_price, sl_price, consensus_direction, current_price, threshold=0.65, candle_time=candle_time)
+        if not is_valid: return None
         
         return Signal(
             strategy="SesgoBiasHTF",
@@ -340,7 +344,7 @@ class SesgoBiasHTFBot:
             confidence=confidence,
             setup="PO3 + MSS + FVG",
             status="EN ZONA ✅",
-            candle_time=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
             intervalo="15min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp_price - entry_price) / sl_dist, 2),

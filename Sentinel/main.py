@@ -30,6 +30,7 @@ from Sentinel.core.GenericFVG import GenericFVGBot
 from Sentinel.core.FVGDiario import FVGDiarioBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
+from Sentinel.analysis import risk
 from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
 
 # Flag para enviar resumen solo una vez
@@ -46,6 +47,7 @@ from Sentinel.data.dataLoader import getParametros
 from middleware.config import settings
 from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
 from Sentinel.core.execution import ExecutionEngine
+from middleware.execution.broker_gateway import gateway
 
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 MAX_CANDLES_PER_CALL = 5000
@@ -102,6 +104,34 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         # Calculamos resampleos y features UNA SOLA VEZ para todos los bots
         df_5m = df.dropna(subset=['close', 'high', 'low', 'open'])
         
+        # --- Revisar trades abiertos para este símbolo ---
+        try:
+            from middleware.database import dbManager
+            open_trades = dbManager.getOpenTradesBySymbol(symbol)
+            for trade in open_trades:
+                # Filtrar velas desde la hora de apertura del trade
+                trade_open_time = trade.get('candleTime') or trade.get('openTime')
+                if trade_open_time and len(df_5m) > 0:
+                    # Asegurar que ambas fechas sean comparables
+                    trade_time = pd.to_datetime(trade_open_time)
+                    if df_5m.index.tz is not None and trade_time.tz is None:
+                        trade_time = trade_time.tz_localize(df_5m.index.tz)
+                    df_since_trade = df_5m[df_5m.index >= trade_time]
+                else:
+                    df_since_trade = df_5m
+                
+                sl_val = trade.get('stopLoss') or 0
+                tp_val = trade.get('takeProfit') or 0
+                logger.info(f"Revisando trade {trade.get('idTrade')} - SL={sl_val:.5f}, TP={tp_val:.5f}, direction={trade.get('direction')}, desde={trade_open_time}")
+                closure = risk.checkTradeClosure(df_since_trade, trade)
+                if closure and closure.get('status') == 'CLOSED':
+                    reason = closure.get('reason', 'UNKNOWN')
+                    exit_price = closure.get('exitPrice')
+                    logger.info(f"[{symbol}] Trade {trade['idTrade']} alcanzando {reason} - Cerrando...")
+                    await gateway.close_trade(trade['idTrade'], exit_price, reason)
+        except Exception as e:
+            logger.error(f"Error revisando trades abiertos para {symbol}: {e}")
+        
         # Asegurar consistencia de zona horaria (tz-aware)
         cdmx_tz = pytz.timezone(TIMEZONE)
         if df_5m.index.tzinfo is None:
@@ -145,8 +175,8 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
 
         symbolInfo['momentum'] = momentum_15m
         symbolInfo['momentum_by_tf'] = {'5min': symbolInfo.get('momentum'), '15min': momentum_15m, '1h': momentum_1h, '4h': momentum_4h}
-
-
+        
+        
         # --- Preparación de Tareas en Paralelo (Punto 2: Optimización) ---
         tasks = []
         
@@ -175,7 +205,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-
+        
 
 
         # Ejecutar todas las estrategias en paralelo
@@ -201,11 +231,24 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         unique_signals = []
         for sig in all_signals:
             key = (sig.strategy, sig.symbol, sig.direction)
-            if key not in seen_keys:
+            
+            # Verificar si ya existe trade en DB (mismo symbol, strategy, direction, status=OPEN)
+            try:
+                from middleware.database import dbManager
+                existing = dbManager.is_trade_duplicate(
+                    sig.symbol, sig.strategy, sig.intervalo, sig.direction, None, None
+                )
+            except:
+                existing = False
+            
+            if key not in seen_keys and not existing:
                 seen_keys.add(key)
                 unique_signals.append(sig)
             else:
-                logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
+                if existing:
+                    logger.warning(f"⚠️ Trade existente en BD: {sig.strategy} {sig.symbol} {sig.direction}")
+                else:
+                    logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
         logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
         await engine.process_signals(unique_signals)
 
@@ -214,6 +257,22 @@ logger = logging.getLogger("sentinel")
 
 async def main():
     logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
+    
+    # Auto-reentrenamiento diario a la 1am
+    from Sentinel.ml.auto_retrain import should_retrain
+    if asyncio.iscoroutinefunction(should_retrain) or callable(should_retrain):
+        try:
+            should_run = should_retrain()
+            if asyncio.iscoroutine(should_run):
+                should_run = await should_run
+            if should_run:
+                logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML...")
+                from Sentinel.ml import retrain_ml, train_reg_model
+                await retrain_ml.retrain()
+                await train_reg_model.train_reg()
+                logger.info("✅ Auto-reentrenamiento completado")
+        except Exception as e:
+            logger.error(f"Error en auto-reentrenamiento: {e}")
     
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
     if model is None:

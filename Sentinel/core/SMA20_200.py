@@ -21,7 +21,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
-from Sentinel.analysis.technical import check_tp_exhaustion
+from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.utils import momentum
@@ -78,16 +78,59 @@ class SMABot:
 
     def build_features(self, df):
         row = df.iloc[-1]
+        close = row["close"]
+        atr = row["atr"]
+        
+        cci = ta.CCI(df['high'], df['low'], df['close'], timeperiod=14).iloc[-1]
+        
+        rsi = ta.RSI(df['close'], timeperiod=14).iloc[-1]
+        
+        macd, macd_signal, macdHist = ta.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+        macd = macd.iloc[-1]
+        macdHist_val = macdHist.iloc[-1] if not pd.isna(macdHist.iloc[-1]) else 0
+        
+        ema20 = ta.EMA(df['close'], timeperiod=20).iloc[-1]
+        ema50 = ta.EMA(df['close'], timeperiod=50).iloc[-1] if len(df) >= 50 else close
+        emaDist = (close - ema20) / close
+        emaTrend = 1 if ema20 > ema50 else -1
+        
+        sar = ta.SAR(df['high'], df['low'], acceleration=0.05, maximum=0.2).iloc[-1]
+        sarDist = (close - sar) / close if not pd.isna(sar) else 0
+        sarTrend = 1 if close > sar else -1
+        
+        ema50_series = df["close"].tail(10) if len(df) >= 10 else df["close"]
+        x = np.arange(len(ema50_series))
+        slopeEma50 = np.polyfit(x, ema50_series.values, 1)[0] if len(ema50_series) >= 2 else 0
+        
+        vol_media = df["volume"].rolling(20).mean().iloc[-1] if len(df) >= 20 else df["volume"].mean()
+        volRatio = df["volume"].iloc[-1] / vol_media if vol_media > 0 else 1.0
+        volRegime = 1 if volRatio > 1.5 else -1 if volRatio < 0.7 else 0
+        
         features = {
-            "close": row["close"],
-            "atr": row["atr"],
-            "atr_norm": row["atr"] / row["close"],
+            "close": close,
+            "atr": atr,
+            "atr_norm": atr / close,
             "sma20": row["sma20"],
             "sma200": row["sma200"],
-            "dist_sma20": (row["close"] - row["sma20"]) / row["close"],
-            "dist_sma200": (row["close"] - row["sma200"]) / row["close"],
+            "dist_sma20": (close - row["sma20"]) / close,
+            "dist_sma200": (close - row["sma200"]) / close,
             "log_return": np.log(df["close"].iloc[-1] / df["close"].iloc[-2]),
-            "range": (row["high"] - row["low"]) / row["close"],
+            "range": (row["high"] - row["low"]) / close,
+            "cci": cci if not pd.isna(cci) else 0,
+            "emaDist": emaDist,
+            "emaTrend": emaTrend,
+            "lag1": df["close"].iloc[-1] / df["close"].iloc[-2] if len(df) >= 2 else 1.0,
+            "lag2": df["close"].iloc[-1] / df["close"].iloc[-3] if len(df) >= 3 else 1.0,
+            "lag3": df["close"].iloc[-1] / df["close"].iloc[-4] if len(df) >= 4 else 1.0,
+            "macdHist": macdHist_val,
+            "macdNorm": macdHist_val / close if not pd.isna(macdHist_val) else 0,
+            "pendienteRsi": rsi - ta.RSI(df['close'], timeperiod=14).iloc[-3] if len(df) >= 3 and not pd.isna(rsi) else 0,
+            "rsi": rsi if not pd.isna(rsi) else 50,
+            "sarDist": sarDist,
+            "sarTrend": sarTrend,
+            "slopeEma50": slopeEma50 / close,
+            "volRatio": volRatio,
+            "volRegime": volRegime,
         }
         sma_series = df["sma20"].tail(10)
         x = np.arange(len(sma_series))
@@ -107,7 +150,7 @@ class SMABot:
         if symbol not in self.lastSignals:
             return False
         last = self.lastSignals[symbol]
-        return last["direction"] == direction and last["candle_time"] == candleTime
+        return last["direction"] == direction and last["candleTime"] == candleTime
 
     def detectar_rebote_sma_doble(self, df, sma20, intervalo, symbol=None, tendencia=None):
         cdmx_tz = pytz.timezone(TIMEZONE)
@@ -156,10 +199,14 @@ class SMABot:
             if separacion < 0 or separacion > 25: continue
 
             close_actual = df["close"].iloc[-1]
-            if t1["direccion"] == "ALCISTA" and close_actual >= sma20 * 0.995:
-                return "LARGO", t2["time_cdmx"]
-            elif t1["direccion"] == "BAJISTA" and close_actual <= sma20 * 1.005:
-                return "CORTO", t2["time_cdmx"]
+            
+            # Lógica corregida: seguir la tendencia
+            # BAJISTA toca desde arriba → CORTO (venta)
+            # ALCISTA toca desde abajo → LARGO (compra)
+            if t1["direccion"] == "BAJISTA" and close_actual <= sma20 * 1.005:
+                return "CORTO", t2["time_cdmx"]  # Venta siguiendo tendencia
+            elif t1["direccion"] == "ALCISTA" and close_actual >= sma20 * 0.995:
+                return "LARGO", t2["time_cdmx"]  # Compra siguiendo tendencia
 
         return None, None
     
@@ -298,14 +345,18 @@ class SMABot:
         return True
 
     def _validar_ml(self, df: pd.DataFrame, close: float, sma20: float, atr: float) -> Tuple[bool, float, float]:
-        features = self.build_features(df)
-        prob = self.model_clf.predict_proba(features)[0][1] if self.model_clf else 0.55
+        try:
+            features = self.build_features(df)
+            prob = self.model_clf.predict_proba(features)[0][1] if self.model_clf else 0.55
+            expected_return = max(0.2, min(self.model_reg.predict(features)[0] if self.model_reg else 0.5, 2.0))
+        except Exception:
+            prob = 0.55
+            expected_return = 0.5
         
         distanciaSma20Pct = abs(close - sma20) / close * 100
         atrRelativo = atr / close * 100
         threshold = 0.40 if distanciaSma20Pct < atrRelativo * 0.5 else 0.45 if distanciaSma20Pct < atrRelativo else 0.50 if distanciaSma20Pct < atrRelativo * 1.5 else 0.55
         
-        expected_return = max(0.2, min(self.model_reg.predict(features)[0] if self.model_reg else 0.5, 2.0))
         return prob >= threshold, prob, expected_return
 
     async def _get_signal(self, df: pd.DataFrame, symbol: str, intervalo: str, apiKey: str = None, symbolInfo: Dict = None) -> Optional[Signal]:
@@ -397,8 +448,13 @@ class SMABot:
         if not is_valid:
             return None
         
+        current_price = float(df['close'].iloc[-1])
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
         last_closed = get_last_closed_candle(now_cdmx, interval=5)
+        last_closed_str = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        is_valid, _, mensaje = check_signal_health(close, take_profit, stop_loss, direction, current_price, threshold=0.65, candle_time=last_closed_str)
+        if not is_valid:
+            return None
         
         return Signal(
             strategy="SMA20_200",
@@ -411,7 +467,7 @@ class SMABot:
             confidence=int(prob * 100) + bb_bonus + momentum_bonus,
             setup="Consolidacion" if consolidacion else "Doble Toque",
             status="EN ZONA ✅",
-            candle_time=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
             intervalo=intervalo,
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(rr_actual, 2),
@@ -455,8 +511,8 @@ class SMABot:
         if data is None: return None
 
         signal = await self._get_signal(data, symbol, interval, apiKey, symbolInfo)
-        if signal and not self.esSenalDuplicada(symbol, signal.direction, signal.candle_time):
-            self.lastSignals[symbol] = {"direction": signal.direction, "candle_time": signal.candle_time}
+        if signal and not self.esSenalDuplicada(symbol, signal.direction, signal.candleTime):
+            self.lastSignals[symbol] = {"direction": signal.direction, "candleTime": signal.candleTime}
             return signal
 
         return None

@@ -13,7 +13,7 @@ from middleware.utils import momentum
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.analysis import technical as tech_module
-from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval, check_tp_exhaustion
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval, check_tp_exhaustion, check_signal_health
 from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR
 
 from Sentinel.core.models import Signal
@@ -181,10 +181,15 @@ class Patron4HBot:
         is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=0.60, timeframe="15min")
         if not is_valid: return None
         
+        current_price = float(df_15m['close'].iloc[-1])
+        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S")
+        is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=0.65, candle_time=candle_time)
+        if not is_valid: return None
+        
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
         mom_bonus, _ = momentum.getMomentumBonus(mom_state, direction)
         
-        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S")
+        candleTime = candle_time
         
         signals = []
         tp_configs = [
@@ -206,7 +211,7 @@ class Patron4HBot:
                 confidence=70 + mom_bonus,
                 setup=setup_label,
                 status="EN ZONA ✅",
-                candle_time=candle_time,
+                candleTime=candleTime,
                 intervalo="15min",
                 riesgo_pips=round(sl_dist * multiplier, 1),
                 rr_ratio=round(abs(tp_val - entry) / sl_dist, 2),

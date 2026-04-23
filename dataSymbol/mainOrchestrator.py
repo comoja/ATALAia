@@ -257,7 +257,7 @@ async def main():
                 await asyncio.sleep(2)
                 continue
 
-            logger.info(f"🚀 [{symbol}] -> {accountName} | {startDate.strftime('%H:%M')} a {endDate.strftime('%H:%M')}")
+            logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%H:%M')} a {endDate.strftime('%H:%M')}")
             
             try:
                 params = {
@@ -275,7 +275,7 @@ async def main():
                 if df is not None and not df.empty:
                     inserted = db.saveBulkData(df, symbol, "5min")
                     if inserted > 0:
-                        logger.info(f"📊 [{symbol}] +{inserted} velas guardadas.")
+                        logger.info(f"[{symbol}] +{inserted} velas guardadas.")
                 
                 # Espera dinámica entre llamadas
                 await asyncio.sleep(SLEEP_BETWEEN_CALLS)

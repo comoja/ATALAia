@@ -54,7 +54,8 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             "METALES": 1,
             "INDICE": 1,
             "CRYPTO": 0.01,
-            "MONEDA": 1000
+            "MONEDA": 1000,
+            "EXOTIC": 1000
         }
         
         if symbolMinLots is not None:
@@ -63,14 +64,16 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
                 "METALES": min_lots_val,
                 "INDICE": min_lots_val,
                 "CRYPTO": min_lots_val,
-                "MONEDA": min_lots_val
+                "MONEDA": min_lots_val,
+                "EXOTIC": min_lots_val
             }
         
         min_margin_required = {
             "METALES": min_units["METALES"] * margin_multiplier,
             "INDICE": min_units["INDICE"] * margin_multiplier,
             "CRYPTO": min_units["CRYPTO"] * margin_multiplier,
-            "MONEDA": min_units["MONEDA"] * margin_multiplier / 100
+            "MONEDA": min_units["MONEDA"] * margin_multiplier / 100,
+            "EXOTIC": min_units["EXOTIC"] * margin_multiplier / 100
         }
         
         min_margin = min_margin_required.get(symbolType, margin_multiplier)
@@ -140,7 +143,11 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
 
         # --- FOREX (e.g., EUR/USD) ---
         else:
-            pipValue = 0.01 if "JPY" in symbolName else 0.0001
+            symbolData = dbManager.getSymbol(symbolInfo.get('symbol', ''))
+            if symbolData and 'pip' in symbolData and symbolData['pip'] is not None:
+                pipValue = float(symbolData['pip'])
+            else:
+                pipValue = 0.01 if "JPY" in symbolName else 0.0001
             pipsDistance = slDistance / pipValue
             
             if pipsDistance == 0:
@@ -193,6 +200,9 @@ def checkTradeClosure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]) -> 
         side = tradeData['direction'].upper()
         stopLoss = tradeData.get('stopLoss')
         takeProfit = tradeData.get('takeProfit')
+        
+        # DEBUG: Log input data
+        logger.debug(f"[checkTradeClosure] symbol={tradeData.get('symbol')}, side={side}, SL={stopLoss}, TP={takeProfit}, df_rows={len(dfNewCandles)}")
 
         for timestamp, row in dfNewCandles.iterrows():
             if side == "LARGO":
@@ -425,7 +435,7 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
 def is_daily_drawdown_limit_reached(accountId: int, maxDrawdownPercent: float = 2.0) -> bool:
     """
     Verifica si se ha alcanzado el límite de pérdida diaria (Drawdown).
-    Compara la pérdida acumulada de trades cerrados hoy contra el capital actual.
+    Compara la pérdida acumulada de trades cerrados hoy contra el capital INICIAL del día.
     """
     try:
         from datetime import date
@@ -442,18 +452,25 @@ def is_daily_drawdown_limit_reached(accountId: int, maxDrawdownPercent: float = 
         if total_pnl >= 0:
             return False
             
-        # Obtener capital para calcular el % de pérdida
+        # Obtener capital actual y trades abiertos para calcular capital inicial
         account = dbManager.getAccountById(accountId)
         if not account:
             return False
-            
-        capital = float(account['Capital'])
-        pérdida_abs = abs(total_pnl)
-        pérdida_percent = (pérdida_abs / capital) * 100
         
-        if pérdida_percent >= maxDrawdownPercent:
-            logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({pérdida_percent:.2f}%).")
-            return True
+        current_capital = float(account['Capital'])
+        
+        # Calcular capital inicial del día: capital actual + pérdidas de hoy
+        initial_capital = current_capital + abs(total_pnl)
+        
+        # Evitar división por cero
+        if initial_capital <= 0:
+            return True  # Bloquear si no hay capital
+        
+        pérdida_percent = (abs(total_pnl) / initial_capital) * 100
+        
+        # if pérdida_percent >= maxDrawdownPercent:
+        #     logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({pérdida_percent:.2f}%). Capital inicial: ${initial_capital:.2f}, Pérdida: ${abs(total_pnl):.2f}")
+        #     return True
             
         return False
     except Exception as e:

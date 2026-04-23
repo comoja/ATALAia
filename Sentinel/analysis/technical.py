@@ -615,3 +615,63 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
     except Exception as e:
         logger.error(f"[Exhaustion] Error: {e}", exc_info=True)
         return (True, 0.0, f"Error: {e}")
+
+
+def check_signal_health(entry: float, tp: float, sl: float, direction: str, current_price: float, threshold: float = 0.65, candle_time: str = "") -> tuple:
+    """
+    Verifica la salud de una señal potencial:
+    1. Si el precio ya cruzó el SL (se acercó demasiado al SL)
+    2. Si el precio ya recorrió más del threshold hacia el TP
+    
+    Args:
+        entry: Precio de entrada
+        tp: Take profit
+        sl: Stop loss
+        direction: 'LARGO' o 'CORTO'
+        current_price: Precio actual
+        threshold: Porcentaje máximo de recorrido hacia TP (default 0.65 = 65%)
+        candle_time: Timestamp de la vela de entrada (opcional)
+    
+    Returns:
+        (is_valid, progress_pct, message)
+    """
+    logger = logging.getLogger("sentinel")
+    time_prefix = f"[{candle_time}] " if candle_time else ""
+    
+    try:
+        direction_upper = direction.upper()
+        risk_dist = abs(entry - sl)
+        
+        if risk_dist == 0:
+            return (True, 0.0, "Risk_dist=0, skip check")
+        
+        if direction_upper == "LARGO":
+            if current_price <= sl:
+                logger.info(f"[Health] {time_prefix}🚫 LARGO: precio {current_price:.5f} <= SL {sl:.5f} - descartando")
+                return (False, 0.0, "Precio bajo SL")
+            
+            distancia_total = abs(tp - entry)
+            if distancia_total > 0:
+                progress_pct = (current_price - entry) / distancia_total
+            else:
+                progress_pct = 0
+        else:
+            if current_price >= sl:
+                logger.info(f"[Health] {time_prefix}🚫 CORTO: precio {current_price:.5f} >= SL {sl:.5f} - descartando")
+                return (False, 0.0, "Precio sobre SL")
+            
+            distancia_total = abs(entry - tp)
+            if distancia_total > 0:
+                progress_pct = (entry - current_price) / distancia_total
+            else:
+                progress_pct = 0
+        
+        if progress_pct > threshold:
+            logger.info(f"[Health] {time_prefix}🚫 Progreso {progress_pct*100:.1f}% > {threshold*100:.0f}% hacia TP - discardando")
+            return (False, progress_pct, f"Agotado: {progress_pct*100:.1f}%")
+        
+        return (True, progress_pct, "Válido")
+    
+    except Exception as e:
+        logger.error(f"[Health] Error: {e}", exc_info=True)
+        return (True, 0.0, f"Error: {e}")

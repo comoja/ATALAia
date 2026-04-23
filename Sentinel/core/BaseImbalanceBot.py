@@ -9,7 +9,7 @@ import asyncio
 import pytz
 
 from middleware.database import dbManager
-from Sentinel.analysis.technical import check_tp_exhaustion
+from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from middleware.utils import momentum
 
 from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, calculateRR
@@ -218,7 +218,8 @@ class BaseImbalanceBot:
                 stop_ref = max(zona_high_fvg, levels['swing_high'])
                 stopLoss = stop_ref + padding_pips
                 tp_structural = levels['low_zone']
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "CORTO", minRR=1.5)
+                min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "CORTO", minRR=min_rr_val)
                 signalDirection = "CORTO"
             else:
                 setupType = "LIQUIDATION_BUY"
@@ -226,7 +227,8 @@ class BaseImbalanceBot:
                 stop_ref = min(zona_low_fvg, levels['swing_low'])
                 stopLoss = stop_ref - padding_pips
                 tp_structural = levels['high_zone']
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LARGO", minRR=1.5)
+                min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
+                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LARGO", minRR=min_rr_val)
                 signalDirection = "LARGO"
             
             distancia_sl = abs(entryPrice - stopLoss)
@@ -238,8 +240,20 @@ class BaseImbalanceBot:
             if not is_valid:
                 continue
             
+            # Signal Health Filter (precio actual vs SL y progreso)
+            current_price = float(datos5min['close'].iloc[-1])
+            is_valid, _, mensaje = check_signal_health(entryPrice, tp_final, stopLoss, signalDirection, current_price, threshold=0.65, candle_time=last_closed_str)
+            if not is_valid:
+                continue
+            
             momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS')
             momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, signalDirection)
+            
+            base_confidence = 75 + momentum_bonus
+            min_confidence = float(dbManager.getStrategyConfig(self.strategy_name).get('min_confidence', 70)) if dbManager.getStrategyConfig(self.strategy_name) else 70
+            if base_confidence < min_confidence:
+                logger.info(f"[{symbol}] {self.strategy_name}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
+                continue
             
             signals.append(Signal(
                 strategy=self.strategy_name,
@@ -249,10 +263,10 @@ class BaseImbalanceBot:
                 stop_loss=stopLoss,
                 take_profit=tp_final,
                 sl_distance=distancia_sl,
-                confidence=75 + momentum_bonus,
+                confidence=base_confidence,
                 setup=setupType,
                 status="EN ZONA ✅",
-                candle_time=last_closed_str,
+                candleTime=last_closed_str,
                 intervalo="5min",
                 riesgo_pips=round(distancia_sl * multiplier, 1),
                 rr_ratio=round(calculateRR(entryPrice, stopLoss, tp_final), 2),

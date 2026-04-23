@@ -134,14 +134,18 @@ def update_api_usage(account_name, calls, reset=False):
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
 
-def is_alert_sent(symbol, strategy, candle_time):
-    """Verifica si ya se envió una alerta para este símbolo, estrategia y vela."""
+def is_alert_sent(symbol, strategy, candle_time, id_cuenta=None):
+    """Verifica si ya se envió una alerta para este símbolo, estrategia, vela y cuenta (usando trades)."""
     try:
         dbConn = dbConnection.getConnection()
         dbCursor = dbConn.cursor()
         
-        sql = "SELECT id FROM sentinel_alerts_sent WHERE symbol=%s AND strategy=%s AND candle_time=%s"
-        dbCursor.execute(sql, (symbol, strategy, candle_time))
+        if id_cuenta:
+            sql = "SELECT idTrade FROM trades WHERE symbol=%s AND strategy=%s AND candleTime=%s AND idCuenta=%s AND sentAt IS NOT NULL"
+            dbCursor.execute(sql, (symbol, strategy, candle_time, id_cuenta))
+        else:
+            sql = "SELECT idTrade FROM trades WHERE symbol=%s AND strategy=%s AND candleTime=%s AND sentAt IS NOT NULL"
+            dbCursor.execute(sql, (symbol, strategy, candle_time))
         result = dbCursor.fetchone()
         return result is not None
     except Exception as e:
@@ -151,20 +155,42 @@ def is_alert_sent(symbol, strategy, candle_time):
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
 
-def mark_alert_sent(symbol, strategy, candle_time):
-    """Registra que se ha enviado una alerta."""
+def is_trade_duplicate(symbol, strategy, intervalo, direction, size, id_cuenta=None):
+    """Verifica si ya existe un trade con los mismos parámetros y status=OPEN."""
     try:
         dbConn = dbConnection.getConnection()
-        dbCursor = dbConn.cursor()
+        dbCursor = dbConn.cursor(dictionary=True)
         
-        sql = "INSERT IGNORE INTO sentinel_alerts_sent (symbol, strategy, candle_time) VALUES (%s, %s, %s)"
-        dbCursor.execute(sql, (symbol, strategy, candle_time))
-        dbConn.commit()
+        sql = """
+            SELECT idTrade FROM trades 
+            WHERE symbol = %s 
+              AND strategy = %s 
+              AND intervalo = %s 
+              AND direction = %s 
+              AND size = %s 
+              AND status = 'OPEN'
+        """
+        params = (symbol, strategy, intervalo, direction, size)
+        
+        if id_cuenta:
+            sql += " AND idCuenta = %s"
+            params = (symbol, strategy, intervalo, direction, size, id_cuenta)
+        
+        sql += " LIMIT 1"
+        
+        dbCursor.execute(sql, params)
+        result = dbCursor.fetchone()
+        return result is not None
     except Exception as e:
-        logger.error(f"❌ Error en mark_alert_sent: {e}")
+        logger.error(f"❌ Error en is_trade_duplicate: {e}")
+        return False
     finally:
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
+
+def mark_alert_sent(symbol, strategy, candle_time):
+    """Registra que se ha enviado una alerta (ya se hace al insertar en trades)."""
+    pass
 
 # Inicializar tabla al cargar módulo
 init_alerts_table()
@@ -496,13 +522,40 @@ def actualizarTrade(idTrade, data):
 def insertarTrade(data):
     try:
         conn = dbConnection.getConnection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
+        symbol = data.get('symbol')
+        strategy = data.get('strategy', '')
+        intervalo = data.get('intervalo', '15min')
+        direction = data.get('direction')
+        size = data.get('size')
+        idCuenta = data.get('idCuenta')
+
+        cursor.execute("""
+            SELECT idTrade FROM trades 
+            WHERE idCuenta = %s 
+              AND symbol = %s 
+              AND strategy = %s 
+              AND intervalo = %s 
+              AND direction = %s 
+              AND size = %s 
+              AND status = 'OPEN'
+            LIMIT 1
+        """, (idCuenta, symbol, strategy, intervalo, direction, size))
+        existing = cursor.fetchone()
+
+        if existing:
+            conn.close()
+            logger.warning(f"⚠️ Trade duplicado omitido: {symbol} | {strategy} | {intervalo} | {direction} | size={size}")
+            return None
+
+        cursor = conn.cursor()
         margin_used = float(data.get('margin_used', 0))
+        candle_time = data.get('candleTime')
         
         sqlInsert = """
-            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit,intervalo, strategy, margin_used)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s)
+            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit, intervalo, strategy, margin_used, candleTime, sentAt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         valores = (
             data['idCuenta'], data['symbol'], data['direction'], 
@@ -510,7 +563,8 @@ def insertarTrade(data):
             data.get('stopLoss'), data.get('takeProfit'),
             data.get('intervalo', '15min'),
             data.get('strategy', ''),
-            margin_used
+            margin_used,
+            candle_time
         )
 
         cursor.execute(sqlInsert, valores)

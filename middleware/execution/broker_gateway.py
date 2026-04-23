@@ -50,7 +50,7 @@ class BrokerGateway:
             import pytz
             from middleware.config.constants import TIMEZONE, MAX_SIGNAL_AGE_MINUTES
             
-            candle_time_str = signal.get('candle_time')
+            candle_time_str = signal.get('candleTime')
             if not candle_time_str:
                 logger.warning("No se encontró 'candle_time' en la señal. Saltando validación de tiempo.")
                 return False
@@ -152,7 +152,7 @@ class BrokerGateway:
         # 0.2 Filtro de Seguridad: Drawdown Diario
         from Sentinel.analysis import risk
         strategy_config = dbManager.getStrategyConfig(strategy_name)
-        max_dd_percent = float(strategy_config.get('max_drawdown_percent', 50.0)) if strategy_config else 50.0
+        max_dd_percent = float(strategy_config.get('max_drawdown_percent', 5.0)) if strategy_config else 5.0
         if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=max_dd_percent):
             logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario >= {max_dd_percent}% en cuenta {account['idCuenta']}")
             return False, None
@@ -182,33 +182,47 @@ class BrokerGateway:
                 logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
                 return False, None
 
-        # 3. Registro en Base de Datos
-        try:
-            dbManager.buscaTrade(trade_data)
-        except Exception as e:
-            logger.error(f"⚠️ Error al registrar trade en DB: {e} (Continuando con alerta...)")
+        # 3. Verificar TRADE DUPLICADO antes de Telegram (mismo symbol, strategy, intervalo, direction, size)
+        is_dup = dbManager.is_trade_duplicate(
+            trade_data['symbol'],
+            strategy_name,
+            trade_data.get('intervalo', '15min'),
+            trade_data['direction'],
+            trade_data['size'],
+            trade_data.get('idCuenta')
+        )
+        if is_dup:
+            logger.warning(f"⏭️ Trade duplicado detectado: {trade_data['symbol']} | {strategy_name} | {trade_data['direction']} | size={trade_data['size']} - Omitiendo Telegram y DB")
+            return exec_success, "DUPLICATE_TRADE"
 
-        # 4. Notificación Telegram (Independiente del éxito en DB)
+        # 3.1 Verificar si la alerta ya fue enviada ANTES de guardar en DB (por símbolo + estrategia + vela + cuenta)
+        candle_time = trade_data.get('candleTime')
+        id_cuenta = trade_data.get('idCuenta')
+        if candle_time and dbManager.is_alert_sent(trade_data['symbol'], strategy_name, candle_time, id_cuenta):
+            logger.info(f"⏭️ Alerta ya enviada para {trade_data['symbol']} | {strategy_name} | cuenta {id_cuenta} | {candle_time} - Omitiendo.")
+            return exec_success, "ALREADY_SEND"
+
+        # 4. Notificación Telegram
         msg_id = None
-        candle_time = signal.get('candle_time')
         
-        # Punto 5: Persistencia de Alertas (Evitar duplicados tras reinicio)
-        if candle_time and dbManager.is_alert_sent(trade_data['symbol'], strategy_name, candle_time):
-            logger.info(f"⏭️ Alerta ya enviada anteriormente para {trade_data['symbol']} | {strategy_name} | {candle_time} - Omitiendo.")
-            return exec_success, "ALREADY_SENT"
-
         logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
+        logger.info(f"[TELEGRAM] Mensaje a enviar: \n{message[:500]}...")
+        logger.info(f"[TELEGRAM] 🔐 Token: {account['TokenMsg'][:15]}... | 💬 ChatId: {account['idGrupoMsg']}")
         try:
             msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
             if not msg_id:
                 logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
             else:
                 logger.info(f"✅ Alerta enviada con éxito (ID: {msg_id})")
-                # Punto 5: Marcar como enviada en la BD
-                if candle_time:
-                    dbManager.mark_alert_sent(trade_data['symbol'], strategy_name, candle_time)
         except Exception as e:
             logger.error(f"❌ Excepción al enviar alerta de Telegram: {e}")
+
+        # 5. Registro en Base de Datos (solo si se envió Telegram exitosamente)
+        if msg_id:
+            try:
+                dbManager.buscaTrade(trade_data)
+            except Exception as e:
+                logger.error(f"⚠️ Error al registrar trade en DB: {e} (Continuando con alerta...)")
 
         return exec_success, msg_id
 
@@ -250,9 +264,14 @@ class BrokerGateway:
         """
         Cierra un trade en la DB y, si es Live, en el Broker.
         """
+        import traceback
         try:
             from middleware.database import dbManager, dbConnection
             from Sentinel.analysis import risk
+            
+            # Log detallado para debug
+            logger.info(f"[DEBUG] close_trade llamado: id={id_trade}, reason={reason}, exit_price={exit_price}")
+            logger.debug(f"[DEBUG] Stack trace: {traceback.format_stack()[-5:-1]}")
             
             conn = dbConnection.getConnection()
             if conn is None:
