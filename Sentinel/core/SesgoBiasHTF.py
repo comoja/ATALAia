@@ -333,6 +333,17 @@ class SesgoBiasHTFBot:
         is_valid, _, mensaje = check_signal_health(entry_price, tp_price, sl_price, consensus_direction, current_price, threshold=0.65, candle_time=candle_time)
         if not is_valid: return None
         
+        # ── FILTRO: Tendencia mensual ──
+        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+        logger.debug(f"[{symbol}] SesgoBiasHTF: consensus_direction={consensus_direction}, monthly_trend={monthly_trend}")
+        
+        if monthly_trend == "BAJISTA" and consensus_direction == "LARGO":
+            logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
+            return None
+        elif monthly_trend == "ALCISTA" and consensus_direction == "CORTO":
+            logger.info(f"[{symbol}] Señal CORTO descartada - tendencia mensual ALCISTA")
+            return None
+        
         return Signal(
             strategy="SesgoBiasHTF",
             symbol=symbol,

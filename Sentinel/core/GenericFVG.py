@@ -191,6 +191,17 @@ class GenericFVGBot:
                 logger.info(f"[{symbol}] {interval}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
                 continue
             
+            # 5. Filtrar por tendencia mensual
+            monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+            signal_direction = "LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO"
+            
+            if monthly_trend == "BAJISTA" and signal_direction == "LARGO":
+                logger.info(f"[{symbol}] {interval}: Señal LARGO descartada - tendencia mensual BAJISTA")
+                continue
+            elif monthly_trend == "ALCISTA" and signal_direction == "CORTO":
+                logger.info(f"[{symbol}] {interval}: Señal CORTO descartada - tendencia mensual ALCISTA")
+                continue
+            
             # Marcar como enviada en RAM (el motor se encargará de persistir si es necesario)
             self._sent_signals[signal_key] = True
             

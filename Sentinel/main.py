@@ -8,6 +8,8 @@ import os
 import time
 import pandas as pd
 import pytz
+import numpy as np
+import talib as ta
 from datetime import datetime
 
 # --- Path Setup ---
@@ -33,9 +35,12 @@ from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
 from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
 
-# Flag para enviar resumen solo una vez
-_resumen_momentum_enviado = False
-_momentum_data_cache = {}  # Cache para收集 datos de momentum
+try:
+    from middleware.config.constants import DATA_SOURCE
+except ImportError:
+    DATA_SOURCE = "db"
+
+
 from middleware.config import constants as config
 from middleware.database import dbManager
 from middleware.database.dbManager import get_min_wait_time
@@ -57,6 +62,135 @@ from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
 INTERVALmax = settings.INTERVALmax
+# Flag para enviar resumen solo una vez
+_resumen_momentum_enviado = False
+_momentum_data_cache = {}  # Cache para收集 datos de momentum
+_weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
+diasTendencia = 7
+
+# --- Funciones de Tendencia ---
+def _linear_regression_slope(series):
+    """Calcula la pendiente de regresión lineal"""
+    x = np.arange(len(series))
+    y = series.values
+    slope, _ = np.polyfit(x, y, 1)
+    return slope
+
+def _classify_trend(df_daily: pd.DataFrame, symbol: str = None) -> dict:
+    """
+    Clasifica tendencia usando últimas velas D1 con:
+    - EMA 20
+    - ATR (volatilidad)
+    - Regresión lineal (pendiente normalizada por ATR)
+    """
+    if df_daily is None or len(df_daily) < 20:
+        return {"trend": "NEUTRAL", "strength": 0, "slope": 0, "price": 0, "ema20": 0, "atr": 0}
+    
+    # Normalizar columnas a minúsculas
+    rename_map = {}
+    for col in df_daily.columns:
+        if col.lower() in ['high', 'low', 'open', 'close']:
+            rename_map[col] = col.lower()
+    if rename_map:
+        df_daily = df_daily.rename(columns=rename_map)
+    
+    # Usar últimas diasTendencia velas
+    df = df_daily.tail(diasTendencia).copy()
+    
+    if len(df) < diasTendencia:
+        return {"trend": "NEUTRAL", "strength": 0, "slope": 0, "price": 0, "ema20": 0, "atr": 0}
+    
+    # Calcular EMA 20 y ATR
+    df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['atr'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=14)
+    
+    # Obtener valores actuales
+    last_price = float(df['close'].iloc[-1])
+    last_ema = float(df['ema20'].iloc[-1])
+    last_atr = float(df['atr'].iloc[-1])
+    
+    # Calcular pendiente
+    slope = _linear_regression_slope(df['close'])
+    
+    # Normalizar pendiente por ATR (strength)
+    strength = slope / last_atr if last_atr != 0 else 0
+    
+    # Clasificar - solo por signo de pendiente (simple)
+    # Pendiente positiva = ALCISTA, negativa = BAJISTA
+    if slope > 0:
+        trend = "ALCISTA"
+    elif slope < 0:
+        trend = "BAJISTA"
+    else:
+        trend = "NEUTRAL"
+    
+    result = {
+        "trend": trend,
+        "strength": round(strength, 4),
+        "slope": round(slope, 4),
+        "price": round(last_price, 5),
+        "ema20": round(last_ema, 5),
+        "atr": round(last_atr, 5)
+    }
+    
+    logger.debug(f"[{symbol or 'UNKNOWN'}] Tendencia: {trend} | slope={slope:.4f}, price={last_price:.5f}, ema20={last_ema:.5f}")
+    
+    return result
+
+def _calculate_monthly_trend(df_daily: pd.DataFrame, symbol: str = None) -> str:
+    """Legacy wrapper - retorna solo el trend string"""
+    return _classify_trend(df_daily, symbol)["trend"]
+
+def _calculate_monthly_trend_debug(df_daily: pd.DataFrame, symbol: str = None) -> str:
+    """Versión con debug de _calculate_monthly_trend"""
+    result = _calculate_monthly_trend(df_daily)
+    logger.info(f"[{symbol or 'UNKNOWN'}] Tendencia: {result}")
+    return result
+
+async def _load_monthly_trends(symbolsToScan, apiKey):
+    """
+    Calcula la tendencia mensual para cada símbolo UNA SOLA VEZ al inicio.
+    Resamplea velas 5min a 1D y evalúa los últimos 30 días.
+    Para 30 días necesitamos ~6500 velas de 5min.
+    """
+    global _weekly_trend_cache
+    _weekly_trend_cache = {}
+    
+    logger.info("Cargando tendencias mensuales (últimos {} dias)...".format(diasTendencia))
+    
+    for symbolInfo in symbolsToScan:
+        symbol = symbolInfo['symbol']
+        try:
+            # Descargar velas 5min - 6500 para cubrir 30 días
+            params = {"symbol": symbol, "interval": "5min", "apikey": apiKey, "outputSize": 6500 if  DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL}
+            df_5m = await tdApi.getTimeSeries(params)
+            
+            if df_5m is not None and len(df_5m) >= 200:
+                # Asegurar columnas minúsculas
+                df_5m = df_5m.dropna(subset=['close', 'high', 'low', 'open'])
+                
+                # Resamplear a 1D
+                df_1d = resample_to_interval(df_5m, "1d")
+                
+                if df_1d is not None and len(df_1d) >= 5:
+                    trend = _calculate_monthly_trend(df_1d, symbol)
+                    _weekly_trend_cache[symbol] = trend
+                    logger.info(f"  [{symbol}] Tendencia de los {diasTendencia} ultimos dias: {trend}")
+                else:
+                    _weekly_trend_cache[symbol] = "NEUTRAL"
+                    logger.warning(f"  [{symbol}] Sin datos 1D suficientes tras resampleo")
+            else:
+                _weekly_trend_cache[symbol] = "NEUTRAL"
+                logger.warning(f"  [{symbol}] Sin datos 5min suficientes")
+        except Exception as e:
+            logger.error(f"  [{symbol}] Error calculando tendencia: {e}")
+            _weekly_trend_cache[symbol] = "NEUTRAL"
+    
+    logger.info(f"✅ Tendencias mensuales cargadas para {len(_weekly_trend_cache)} símbolos")
+
+def get_weekly_trend(symbol: str) -> str:
+    """Obtiene la tendencia mensual cacheada para un símbolo."""
+    return _weekly_trend_cache.get(symbol, "NEUTRAL")
 
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """
@@ -175,6 +309,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
 
         symbolInfo['momentum'] = momentum_15m
         symbolInfo['momentum_by_tf'] = {'5min': symbolInfo.get('momentum'), '15min': momentum_15m, '1h': momentum_1h, '4h': momentum_4h}
+        symbolInfo['weekly_trend'] = get_weekly_trend(symbol)
         
         
         # --- Preparación de Tareas en Paralelo (Punto 2: Optimización) ---
@@ -292,14 +427,21 @@ async def main():
     generic_fvg_bot = GenericFVGBot()
     fvg_diario_bot = FVGDiarioBot()
     
+    _weekly_trends_loaded_today = None  # Track fecha de última carga
+    
     while True:
         try:
             if not isRestTime():
                 logger.info("Iniciando ciclo de análisis...")
-                # El motor ya gestiona los cierres y el riesgo
-                
                 apiKey, _, _, nVelas, _ = getParametros()
                 symbolsToScan = dbManager.getSymbols()
+                
+                # Cargar tendencias mensuales UNA SOLA VEZ por día/inicio
+                today_str = datetime.now(TIMEZONE_LOCAL).strftime("%Y-%m-%d")
+                if _weekly_trends_loaded_today != today_str:
+                    logger.info("🆕 Nuevo día detectado - Cargando tendencias mensuales...")
+                    await _load_monthly_trends(symbolsToScan, apiKey)
+                    _weekly_trends_loaded_today = today_str
                 
                 await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 

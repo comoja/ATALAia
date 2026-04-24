@@ -296,6 +296,15 @@ class FVGDiarioBot:
             logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
             return None
         
+        # ── FILTRO: Tendencia mensual ──
+        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+        if monthly_trend == "BAJISTA" and direction == "LARGO":
+            logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
+            return None
+        elif monthly_trend == "ALCISTA" and direction == "CORTO":
+            logger.info(f"[{symbol}] Señal CORTO descartada - tendencia mensual ALCISTA")
+            return None
+        
         # Marcar como enviada
         self._sent_signals[signal_key] = True
         

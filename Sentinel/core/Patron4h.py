@@ -123,6 +123,7 @@ class Patron4HBot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[List[Signal]]:
         symbol = symbolInfo['symbol']
+        logger.info(f"[{symbol}] Analizando...")
         master = preloadedData.get(symbol) if preloadedData else None
         
         if isinstance(master, dict):
@@ -188,6 +189,17 @@ class Patron4HBot:
         
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
         mom_bonus, _ = momentum.getMomentumBonus(mom_state, direction)
+        
+        # ── FILTRO: Tendencia mensual ──
+        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+        logger.debug(f"[{symbol}] Patron4h: ctx_trend={ctx['tendencia']}, direction={direction}, monthly_trend={monthly_trend}")
+        
+        if monthly_trend == "BAJISTA" and direction == "LARGO":
+            logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
+            return None
+        elif monthly_trend == "ALCISTA" and direction == "CORTO":
+            logger.info(f"[{symbol}] Señal CORTO descartada - tendencia mensual ALCISTA")
+            return None
         
         candleTime = candle_time
         
