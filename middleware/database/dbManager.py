@@ -16,19 +16,7 @@ def init_alerts_table():
     try:
         dbConn = dbConnection.getConnection()
         dbCursor = dbConn.cursor()
-        
-        # Tabla de Alertas
-        sql_alerts = """
-            CREATE TABLE IF NOT EXISTS sentinel_alerts_sent (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                symbol VARCHAR(20),
-                strategy VARCHAR(50),
-                candle_time DATETIME,
-                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY unique_alert (symbol, strategy, candle_time)
-            )
-        """
-        dbCursor.execute(sql_alerts)
+      
         
         # Tabla de Configuración de Estrategias (Asegurar columnas)
         dbCursor.execute("SHOW TABLES LIKE 'strategyConfig'")
@@ -36,7 +24,7 @@ def init_alerts_table():
             sql_config = """
                 CREATE TABLE strategyConfig (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    nombre VARCHAR(50) NOT NULL UNIQUE,
+                    strategy VARCHAR(10) NOT NULL UNIQUE,
                     enabled BOOLEAN DEFAULT TRUE,
                     max_minutos_fvg INT DEFAULT 40,
                     max_minutos_signal INT DEFAULT 40,
@@ -56,7 +44,7 @@ def init_alerts_table():
             ]
             for name, rr, conf in strategies:
                 dbCursor.execute(
-                    "INSERT IGNORE INTO strategyConfig (nombre, min_rr, min_confidence) VALUES (%s, %s, %s)",
+                    "INSERT IGNORE INTO strategyConfig (strategy, min_rr, min_confidence) VALUES (%s, %s, %s)",
                     (name, rr, conf)
                 )
         else:
@@ -191,10 +179,6 @@ def is_trade_duplicate(symbol, strategy, intervalo, direction, size, id_cuenta=N
 def mark_alert_sent(symbol, strategy, candle_time):
     """Registra que se ha enviado una alerta (ya se hace al insertar en trades)."""
     pass
-
-# Inicializar tabla al cargar módulo
-init_alerts_table()
-
 
 
 try:
@@ -410,11 +394,11 @@ def getSymbolTypeConfig(tipo: str):
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return None
 
-def getStrategyConfig(nombre: str):
+def getStrategyConfig(nombreEstrategia: str):
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM strategyConfig WHERE nombre = %s AND enabled = TRUE", (nombre,))
+        cursor.execute("SELECT * FROM strategyConfig WHERE strategy = %s AND enabled = TRUE", (nombreEstrategia,))
         
         result = cursor.fetchone()
         

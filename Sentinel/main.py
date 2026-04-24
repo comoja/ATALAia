@@ -68,6 +68,15 @@ _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
 diasTendencia = 7
 
+
+def isMarketOpen() -> bool:
+    now = datetime.now(TIMEZONE_LOCAL)
+    # 1. Descanso obligatorio de madrugada (00:00 a 06:00 AM)
+    if 0 <= now.hour < 6:
+        return False
+    # 2. Otros periodos de descanso definidos en middleware
+    return not isRestTime(now)
+
 # --- Funciones de Tendencia ---
 def _linear_regression_slope(series):
     """Calcula la pendiente de regresión lineal"""
@@ -431,7 +440,7 @@ async def main():
     
     while True:
         try:
-            if not isRestTime():
+            if  isMarketOpen():
                 logger.info("Iniciando ciclo de análisis...")
                 apiKey, _, _, nVelas, _ = getParametros()
                 symbolsToScan = dbManager.getSymbols()
@@ -447,8 +456,11 @@ async def main():
                 
                 await getTiempoEspera(5)
             else:
-                logger.info("Mercado cerrado. Durmiendo.")
-                await asyncio.sleep(600)
+                now_local = datetime.now(TIMEZONE_LOCAL)
+                # Si estamos entre 00:00 y 06:00, dormimos 15 min. Si es otro descanso, 5 min.
+                sleep_min = 15 if (0 <= now_local.hour < 6) else 5
+                logger.info(f"💤 Periodo de descanso detectado. dormirá {sleep_min} minutos...", extra={"color": "blue"})
+                await asyncio.sleep(60 * sleep_min)
         except Exception as e:
             logger.critical(f"Error en bucle: {e}", exc_info=True)
             await asyncio.sleep(60)
