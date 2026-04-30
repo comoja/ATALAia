@@ -470,8 +470,8 @@ async def main():
                 await getTiempoEspera(5)
             else:
                 now_local = datetime.now(TIMEZONE_LOCAL)
-                # Si estamos entre 00:00 y 06:00, dormimos 15 min. Si es otro descanso, 5 min.
-                sleep_min = 15 if (0 <= now_local.hour < 6) else 5
+                # Si estamos entre 00:00 y 05:00, dormimos 15 min. Si es otro descanso, 5 min.
+                sleep_min = 15 if (0 <= now_local.hour < 5) else 5
                 logger.info(f"💤 Periodo de descanso detectado. dormirá {sleep_min} minutos...", extra={"color": "blue"})
                 await asyncio.sleep(60 * sleep_min)
         except Exception as e:

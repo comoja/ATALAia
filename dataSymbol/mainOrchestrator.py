@@ -184,7 +184,7 @@ async def main():
             # 1. Verificar periodos de descanso global (evita llenar logs)
             if not isMarketOpen():
                 # Si estamos entre 00:00 y 06:00, dormimos 15 min. Si es otro descanso, 5 min.
-                sleep_min = 15 if (0 <= now_local.hour < 6) else 5
+                sleep_min = 15 if (0 <= now_local.hour < 5) else 5
                 logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {sleep_min} minutos...")
                 await asyncio.sleep(60 * sleep_min)
                 continue
