@@ -28,12 +28,12 @@ RETRAIN_HOUR = 1  # Hora de reentrenamiento (1am)
 MIN_DATA_POINTS = 10000  # Mínimo de datos requeridos
 
 
-async def should_retrain():
+async def should_retrain(force: bool = False):
     """Verifica si debe ejecutarse el reentrenamiento hoy."""
     now = datetime.now()
     
-    # Forzar reentrenamiento si hay argumentos
-    if len(sys.argv) > 1 and sys.argv[1] == '--force':
+    # Forzar reentrenamiento si se pide explícitamente
+    if force or len(sys.argv) > 1 and sys.argv[1] == '--force':
         return True
     
     # Verificar si es el día configurado (si está configurado)
@@ -41,7 +41,7 @@ async def should_retrain():
         print(f"Hoy es {now.strftime('%A')} - No es día de reentrenamiento (día {RETRAIN_DAY_OF_WEEK})")
         return False
     
-    # Verificar si es la hora configurada
+    # Verificar si es la hora configurada (0 = medianoche/00:00)
     if now.hour != RETRAIN_HOUR:
         print(f"Ahora son las {now.hour}h - No es la hora de reentrenamiento ({RETRAIN_HOUR}h)")
         return False

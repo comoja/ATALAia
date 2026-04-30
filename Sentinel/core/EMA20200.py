@@ -41,8 +41,9 @@ class EMA20200Bot:
 
     def detectCross(self, emaFast, emaSlow):
         diff = emaFast - emaSlow
-        if (diff.iloc[-1] > 0) and (diff.shift(1).iloc[-1] <= 0): return "LARGO"
-        if (diff.iloc[-1] < 0) and (diff.shift(1).iloc[-1] >= 0): return "CORTO"
+        if len(diff) < 2: return None
+        if (diff.iloc[-1] > 0) and (diff.iloc[-2] <= 0): return "LARGO"
+        if (diff.iloc[-1] < 0) and (diff.iloc[-2] >= 0): return "CORTO"
         return None
 
     def evaluateML(self, df: pd.DataFrame) -> float:
@@ -92,7 +93,7 @@ class EMA20200Bot:
         
         if abs(price - ema20_last) / ema20_last >= self.pullbackTolerance: return None
         
-        from middleware.database import dbManager
+
         strat_config = dbManager.getStrategyConfig("EMA20200") or {}
         min_conf_val = float(strat_config.get('min_confidence', 70)) / 100.0
         

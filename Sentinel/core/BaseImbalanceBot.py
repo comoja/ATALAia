@@ -19,11 +19,12 @@ from Sentinel.core.models import Signal
 
 logger = logging.getLogger("sentinel")
 
-def getAssetConfig(symbol: str) -> dict:
-    symbolData = dbManager.getSymbol(symbol)
+async def getAssetConfig(symbol: str) -> dict:
+    import asyncio
+    symbolData = await asyncio.to_thread(dbManager.getSymbol, symbol)
     assetType = symbolData.get('tipo', 'MONEDA') if symbolData else 'MONEDA'
     
-    typeConfig = dbManager.getSymbolTypeConfig(assetType)
+    typeConfig = await asyncio.to_thread(dbManager.getSymbolTypeConfig, assetType)
     
     if typeConfig:
         return {
@@ -205,7 +206,7 @@ class BaseImbalanceBot:
             if pd.isna(atr) or pd.isna(entryPrice):
                 continue
             
-            assetConfig = getAssetConfig(symbol)
+            assetConfig = await getAssetConfig(symbol)
             slMultiplier = assetConfig["sl"]
             
             padding_pips = atr * slMultiplier
@@ -249,8 +250,28 @@ class BaseImbalanceBot:
             momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS')
             momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, signalDirection)
             
+            # --- FILTRO HTF: Solo operar a favor de la tendencia mensual/semanal ---
+            monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+            if monthly_trend == "BAJISTA" and signalDirection == "LARGO":
+                logger.info(f"[{symbol}] {self.strategy_name}: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
+                continue
+            elif monthly_trend == "ALCISTA" and signalDirection == "CORTO":
+                logger.info(f"[{symbol}] {self.strategy_name}: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
+                continue
+
             base_confidence = 75 + momentum_bonus
-            min_confidence = float(dbManager.getStrategyConfig(self.strategy_name).get('min_confidence', 70)) if dbManager.getStrategyConfig(self.strategy_name) else 70
+            
+            # --- FILTRO: Ganancia Mínima Estimada ---
+            strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
+            min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+            rr_ratio = round(calculateRR(entryPrice, stopLoss, tp_final), 2)
+            expected_profit = (distancia_sl * multiplier * size) * rr_ratio # Cálculo real basado en size
+            
+            if expected_profit < min_usd_profit:
+                logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+                continue
+
+            min_confidence = float(strat_config.get('min_confidence', 70))
             if base_confidence < min_confidence:
                 logger.info(f"[{symbol}] {self.strategy_name}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
                 continue
@@ -274,7 +295,8 @@ class BaseImbalanceBot:
                     "fvg": fvg['type'],
                     "fvgNum": idx + 1,
                     "dentroRango": fvg.get('dentroRango', True),
-                    "momentum": momentum_estado
+                    "momentum": momentum_estado,
+                    "fvgTime": fvg_time.strftime("%Y-%m-%d %H:%M:%S")
                 }
             ))
         

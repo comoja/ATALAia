@@ -66,7 +66,7 @@ INTERVALmax = settings.INTERVALmax
 _resumen_momentum_enviado = False
 _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
-diasTendencia = 7
+diasTendencia = 21
 
 
 def isMarketOpen() -> bool:
@@ -402,21 +402,16 @@ logger = logging.getLogger("sentinel")
 async def main():
     logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
     
-    # Auto-reentrenamiento diario a la 1am
+    # Auto-reentrenamiento al iniciar la app (siempre reentrena al inicio)
     from Sentinel.ml.auto_retrain import should_retrain
-    if asyncio.iscoroutinefunction(should_retrain) or callable(should_retrain):
-        try:
-            should_run = should_retrain()
-            if asyncio.iscoroutine(should_run):
-                should_run = await should_run
-            if should_run:
-                logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML...")
-                from Sentinel.ml import retrain_ml, train_reg_model
-                await retrain_ml.retrain()
-                await train_reg_model.train_reg()
-                logger.info("✅ Auto-reentrenamiento completado")
-        except Exception as e:
-            logger.error(f"Error en auto-reentrenamiento: {e}")
+    from Sentinel.ml import retrain_ml, train_reg_model
+    try:
+        logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML al inicio...")
+        await retrain_ml.retrain()
+        await train_reg_model.train_reg()
+        logger.info("✅ Auto-reentrenamiento completado")
+    except Exception as e:
+        logger.error(f"Error en auto-reentrenamiento: {e}")
     
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
     if model is None:
@@ -437,6 +432,7 @@ async def main():
     fvg_diario_bot = FVGDiarioBot()
     
     _weekly_trends_loaded_today = None  # Track fecha de última carga
+    _ml_retrained_today = None  # Track fecha de último retraining
     
     while True:
         try:
@@ -451,6 +447,23 @@ async def main():
                     logger.info("🆕 Nuevo día detectado - Cargando tendencias mensuales...")
                     await _load_monthly_trends(symbolsToScan, apiKey)
                     _weekly_trends_loaded_today = today_str
+                
+                # Auto-reentrenamiento ML a las 00:10 (o cualquier inicio de día)
+                if _ml_retrained_today != today_str:
+                    from Sentinel.ml.auto_retrain import should_retrain
+                    try:
+                        should_run = should_retrain()
+                        if asyncio.iscoroutine(should_run):
+                            should_run = await should_run
+                        if should_run:
+                            logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML...")
+                            from Sentinel.ml import retrain_ml, train_reg_model
+                            await retrain_ml.retrain()
+                            await train_reg_model.train_reg()
+                            logger.info("✅ Auto-reentrenamiento completado")
+                        _ml_retrained_today = today_str
+                    except Exception as e:
+                        logger.error(f"Error en auto-reentrenamiento: {e}")
                 
                 await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 

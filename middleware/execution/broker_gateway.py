@@ -58,9 +58,21 @@ class BrokerGateway:
             # Convertir candle_time a objeto datetime
             tz = pytz.timezone(TIMEZONE)
             if isinstance(candle_time_str, str):
-                candle_dt = datetime.strptime(candle_time_str, "%Y-%m-%d %H:%M:%S")
-                # Localizar a la zona horaria configurada
-                candle_dt = tz.localize(candle_dt)
+                try:
+                    # Limpiar timezone offset si existe (ej: "2026-04-28 10:30:00-06:00")
+                    if '+' in candle_time_str or (candle_time_str.count('-') > 2 and '-' in candle_time_str[-6:]):
+                        candle_time_str = candle_time_str.split('-')[0].rstrip()
+                    
+                    # Verificar que tenga el formato correcto
+                    if ' ' not in candle_time_str or len(candle_time_str) < 10:
+                        logger.warning(f"Format de tiempo inválido: {candle_time_str}")
+                        return False
+                        
+                    candle_dt = datetime.strptime(candle_time_str, "%Y-%m-%d %H:%M:%S")
+                    candle_dt = tz.localize(candle_dt)
+                except Exception as e:
+                    logger.error(f"Error parsing tiempo '{candle_time_str}': {e}")
+                    return False
             else:
                 # Ya es un datetime (algunas estrategias lo pasan así)
                 candle_dt = candle_time_str
@@ -137,17 +149,17 @@ class BrokerGateway:
         acc_latest = dbManager.getAccount(account['idCuenta'])
         if not acc_latest:
             logger.warning(f"⚠️ Orden RECHAZADA: La cuenta {account['idCuenta']} está INACTIVA o no existe.")
-            return False, None
+            return False, "cuenta_inactiva"
             
         logger.info(f" Iniciando ejecución para {trade_data.get('symbol')} | Estrategia: {strategy_name}")
         
         # 0. Filtro de Seguridad: Staleness (Antigüedad de la señal)
         if self._is_signal_stale(trade_data, signal):
-            return False, None
+            return False, "senal_obseleta"
 
         # 0.1 Filtro de Seguridad: Precio entrada vigente - COMENTADO PARA PRUEBAS
         # if not self._is_entry_price_valid(signal, df):
-        #     return False, None
+        #     return False, "drawdown_superado"
 
         # 0.2 Filtro de Seguridad: Drawdown Diario
         from Sentinel.analysis import risk
@@ -155,14 +167,14 @@ class BrokerGateway:
         max_dd_percent = float(strategy_config.get('max_drawdown_percent', 5.0)) if strategy_config else 5.0
         if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=max_dd_percent):
             logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario >= {max_dd_percent}% en cuenta {account['idCuenta']}")
-            return False, None
+            return False, "drawdown_superado"
             
         # 0.3 Filtro de Seguridad: Spread
         if df is not None:
             from Sentinel.analysis import technical
             if not technical.is_spread_safe(df, max_spread_atr_percent=25.0):
                 logger.warning(f"❌ Orden RECHAZADA por Seguridad: Spread muy alto para {trade_data['symbol']}")
-                return False, None
+                return False, "drawdown_superado"
 
         # -- NUEVO FLUJO OPTIMIZADO (07/04/2026) --
         
@@ -180,7 +192,7 @@ class BrokerGateway:
             exec_success = await self._execute_live(trade_data)
             if not exec_success:
                 logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
-                return False, None
+                return False, "drawdown_superado"
 
         # 3. Verificar TRADE DUPLICADO antes de Telegram (mismo symbol, strategy, intervalo, direction, size)
         is_dup = dbManager.is_trade_duplicate(

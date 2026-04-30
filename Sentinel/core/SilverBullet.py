@@ -49,7 +49,9 @@ class SilverBulletBot:
             adx_s = ta.ADX(df["high"], df["low"], df["close"], timeperiod=14)
             val = float(adx_s.dropna().iloc[-1])
             return val if not np.isnan(val) else 25.0
-        except: return 25.0
+        except Exception as e:
+            logger.warning(f"Error al calcular ADX en SilverBullet: {e}")
+            return 25.0
 
     def _get_reference_range(self, df: pd.DataFrame, window_start_ny: datetime, ref_min: int = 15) -> Optional[Dict]:
         ref_end = window_start_ny + timedelta(minutes=ref_min)
@@ -143,6 +145,16 @@ class SilverBulletBot:
         if not technical.check_signal_health(entry, tp, sl, "LARGO" if sweep["type"] == "LARGO" else "CORTO", current_price, threshold=0.65, candle_time=fvg_time_str)[0]:
             return None
         
+        # --- FILTRO HTF: Alinear con tendencia macro ---
+        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+        direction = "LARGO" if sweep["type"] == "LARGO" else "CORTO"
+        if monthly_trend == "BAJISTA" and direction == "LARGO":
+            logger.info(f"[{symbol}] SilverBullet: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
+            return None
+        elif monthly_trend == "ALCISTA" and direction == "CORTO":
+            logger.info(f"[{symbol}] SilverBullet: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
+            return None
+
         base_confidence = 80
         if base_confidence < min_confidence:
             logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
@@ -164,5 +176,5 @@ class SilverBulletBot:
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp - entry) / sl_dist, 2),
-            metadata={"window": window_name, "fvg": fvg["type"], "adx": adx}
+            metadata={"window": window_name, "fvg": fvg["type"], "adx": adx, "vela_origen": fvg.get("candle_time", "")}
         )

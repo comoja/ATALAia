@@ -248,7 +248,8 @@ class SesgoBiasHTFBot:
         return biases
 
     def get_consensus_bias(self, biases: Dict[str, str]) -> Tuple[str, float]:
-        weights = {'H4': 0.35, 'D': 0.35, 'W': 0.20, 'M': 0.10}
+        strat_config = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
+        weights = strat_config.get('weights', {'H4': 0.35, 'D': 0.35, 'W': 0.20, 'M': 0.10})
         bullish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'LARGO')
         bearish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'CORTO')
         if bullish_score > bearish_score: return 'LARGO', bullish_score
@@ -301,7 +302,7 @@ class SesgoBiasHTFBot:
         ob_analysis = self.get_ob_analysis(df_15m, consensus_direction, price, atr)
         ote_analysis = self.check_ote(df_15m, consensus_direction)
         
-        from middleware.database import dbManager
+
         strat_config = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
         
         confidence = int(consensus_score * 100)

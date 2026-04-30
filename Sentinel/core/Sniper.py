@@ -4,7 +4,7 @@ Core Trading Bot Class
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple, List
 import pandas as pd
 import numpy as np
 import asyncio
@@ -28,7 +28,6 @@ from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.momentum import calcularAngulos, obtenerEstado
 from Sentinel.analysis.orderblocks import detect_order_blocks, ob_confluence_score
-from middleware.database import dbManager
 
 from Sentinel.core.models import Signal
 
@@ -40,8 +39,7 @@ class SniperBot:
         self.estadosPorSimbolo = {}
         self.lastMessageIds = {}  # {symbol: message_id}
         self._signals_sent = {}   # {"SYMBOL_candleTime": True} — dedup intra-ciclo
-
-
+        self.latestFullData = None
 
     async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, raw_df: pd.DataFrame = None) -> pd.DataFrame | None:
         """Fetches, prepares, and enriches data with technical features."""
@@ -60,7 +58,6 @@ class SniperBot:
                 "timezone":TIMEZONE
                 }
             df = await twelvedata.getTimeSeries(params)
-            #df = await twelvedata.getTimeSeries({"symbol": symbol, "interval": interval, "apikey": apiKey, "outputSize": nVelas})
             if df is None or len(df) < 100:
                 logger.warning(f"[{symbol}] Datos insuficientes para análisis ({len(df) if df is not None else 0} velas).")
                 return None
@@ -79,48 +76,36 @@ class SniperBot:
             
         return dfFinal
 
-    async def _get_signal(self, df: pd.DataFrame, symbol: str, symbolInfo: Dict = None) -> Optional[Signal]:
-        """Analyzes the data to generate a Signal object."""
-        
-        X, _ = mlModel.cleanDataForModel(df)
-        if len(X) < 100:
-            logger.warning(f"[{symbol}] Datos insuficientes tras limpieza ({len(X)} filas).")
-            return None
+    def _calculate_dynamic_adx(self, df: pd.DataFrame) -> float:
+        try:
+            high = df['high'].values.astype(float)
+            low = df['low'].values.astype(float)
+            cls = df['close'].values.astype(float)
+            tr = np.maximum(high[1:] - low[1:], np.maximum(np.abs(high[1:] - cls[:-1]), np.abs(low[1:] - cls[:-1])))
+            n = 14
+            if len(tr) >= n * 2:
+                dm_plus = np.where((high[1:] - high[:-1]) > (low[:-1] - low[1:]), np.maximum(high[1:] - high[:-1], 0), 0)
+                dm_minus = np.where((low[:-1] - low[1:]) > (high[1:] - high[:-1]), np.maximum(low[:-1] - low[1:], 0), 0)
+                atr_smooth = pd.Series(tr).rolling(n).mean().values
+                di_plus = 100 * pd.Series(dm_plus).rolling(n).mean().values / np.where(atr_smooth > 0, atr_smooth, 1)
+                di_minus = 100 * pd.Series(dm_minus).rolling(n).mean().values / np.where(atr_smooth > 0, atr_smooth, 1)
+                dx = 100 * np.abs(di_plus - di_minus) / np.where((di_plus + di_minus) > 0, di_plus + di_minus, 1)
+                return float(pd.Series(dx).rolling(n).mean().iloc[-1])
+            return 25.0
+        except Exception as e:
+            logger.warning(f"Error calculando ADX dinámico: {e}")
+            return 25.0
 
-        # --- Get Current Values ---
-        latest = X.iloc[-1]
-        self.latestFullData = df  # Guardar DataFrame completo para acceso histórico
-        
-        close = self.latestFullData["close"].iloc[-1]
-        currentAtr = latest["atr"]
-        avgAtr = df["atr"].iloc[-20:].mean()
-        
-        # --- FILTERS (VETO) ---
-        if currentAtr < avgAtr * 0.5:
-            logger.info(f"[{symbol}] Volatilidad baja (ATR: {currentAtr:.4f} < 50% avg: {avgAtr:.4f}). Señal descartada.")
-            return None
-        
-        # --- PREDICTION ---
-        proba = mlModel.predictProba(self.model, X)
-        if proba is None:
-            logger.info(f"[{symbol}] Rechazada: ML no pudo calcular probabilidad")
-            return None
-
-        # --- INDICADORES TÉCNICOS ---
+    def _evaluate_technical_confirmations(self, df: pd.DataFrame, direction: str, symbol: str) -> Tuple[int, List[str], Dict[str, float]]:
         histVal = self.latestFullData["macdHist"].iloc[-1]
         prevHistVal = df["macdHist"].iloc[-2]
-        
         macdLine = self.latestFullData["macd"].iloc[-1]
         macdSignal = self.latestFullData["macdSig"].iloc[-1]
-        
-        rsi = latest["rsi"]
+        rsi = self.latestFullData["rsi"].iloc[-1]
         prevRsi = df["rsi"].iloc[-2]
-        
         ema20 = self.latestFullData["ema20"].iloc[-1]
         ema50 = self.latestFullData["ema50"].iloc[-1]
         
-        # --- SEÑALES INDIVIDUALES ---
-        # MACD
         macdCrossLong = (macdLine > macdSignal) and (df["macd"].iloc[-2] <= df["macdSig"].iloc[-2])
         macdCrossShort = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
         histImprovingLong = histVal > prevHistVal
@@ -128,99 +113,20 @@ class SniperBot:
         macdZeroCrossLong = (prevHistVal <= 0 and histVal > 0)
         macdZeroCrossShort = (prevHistVal >= 0 and histVal < 0)
         
-        # EMA Trend
         emaTrendLong = ema20 > ema50
         emaTrendShort = ema20 < ema50
         
-        # RSI
         rsiImprovingLong = rsi > prevRsi
         rsiImprovingShort = rsi < prevRsi
         
-        # Divergencia MACD (últimas 5 velas)
         prices = df["close"].iloc[-5:].values
         hists = df["macdHist"].iloc[-5:].values
         bearishDivergence = (prices[-1] > np.max(prices[:-1])) and (hists[-1] < np.max(hists[:-1]))
         bullishDivergence = (prices[-1] < np.min(prices[:-1])) and (hists[-1] > np.min(hists[:-1]))
         
-        # CCI + RSI pendientes
         techConfLong = (self.latestFullData["pendienteCci"].iloc[-1] > 0.5 and self.latestFullData["pendienteRsi"].iloc[-1] > 0.1)
         techConfShort = (self.latestFullData["pendienteCci"].iloc[-1] < -0.5 and self.latestFullData["pendienteRsi"].iloc[-1] < -0.1)
         
-        # Preparar métricas para la alerta
-        latest_metrics = {
-            "rsi": float(rsi),
-            "atr": float(currentAtr),
-            "macdHist": float(histVal),
-            "macd": float(macdLine),
-            "macdSig": float(macdSignal),
-            "pendienteRsi": float(self.latestFullData["pendienteRsi"].iloc[-1]),
-            "pendienteCci": float(self.latestFullData["pendienteCci"].iloc[-1])
-        }
-        
-        # --- MOMENTUM FILTER (usar pre-calculado desde main.py) ---
-        momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
-        if momentumEstado == '☁️ SIN DATOS':
-            dfWithAngles = calcularAngulos(df.copy())
-            lastAngle = dfWithAngles.iloc[-1]
-            momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
-        
-        momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
-        momentumBearish = momentumEstado in ["📉 BAJISTA"]
-        momentumNeutral = momentumEstado in ["☁️ NEUTRAL"]
-        momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN"]
-        
-        if momentumVeto:
-            logger.info(f"[{symbol}] Filtrado MOMENTUM: Estado crítico ({momentumEstado}). Señal vetada.")
-            return None
-        
-        # --- Determinar dirección por ML ---
-        
-        strat_config = dbManager.getStrategyConfig("Sniper") or {}
-        
-        # Usar umbral dinámico desde BD si existe, de lo contrario usar constante
-        min_conf_db = float(strat_config.get('min_confidence', 55)) / 100.0
-        thresh_long = 0.5
-        thresh_short = 0.5
-        
-        if proba > thresh_long:
-            direction = "CORTO"
-            logger.info(f"[{symbol}] ML proba={proba:.2f} -> CORTO (modelo predice precio BAJA)")
-            confianza = (1 - proba) * 100
-        elif proba < thresh_short:
-            direction = "LARGO"
-            logger.info(f"[{symbol}] ML proba={proba:.2f} -> LARGO (modelo predice precio SUBE)")
-            confianza = proba * 100
-        else:
-            logger.info(f"[{symbol}] Rechazada: ML indeciso (proba={proba:.2f} == 0.5)")
-            return None
-        
-        # --- Filtro de contradicción ML vs MACD ---
-        macdLine = self.latestFullData["macd"].iloc[-1]
-        macdSignal = self.latestFullData["macdSig"].iloc[-1]
-        macd_alcista = macdLine > macdSignal
-        
-        if direction == "LARGO" and not macd_alcista:
-            logger.info(f"[{symbol}] Filtrado CONTRADICCIÓN: ML dice LARGO pero MACD bajista")
-            return None
-        elif direction == "CORTO" and macd_alcista:
-            logger.info(f"[{symbol}] Filtrado CONTRADICCIÓN: ML dice CORTO pero MACD alcista")
-            return None
-        else:
-            logger.info(f"[{symbol}] Confirmado por MACD: {'ALCISTA' if macd_alcista else 'BAJISTA'}")
-        
-        
-        # --- NEW: Verificar tendencia cuando momentum es Neutral ---
-        if momentumNeutral and len(self.latestFullData) >= 8:
-            close = self.latestFullData["close"].iloc[-1]
-            price_4h_ago = self.latestFullData["close"].iloc[-8]
-            if direction == "LARGO" and close <= price_4h_ago:
-                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + precio lateral/bajista (no comprar aún)")
-                return None
-            elif direction == "CORTO" and close >= price_4h_ago:
-                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + precio lateral/alcista (no vender aún)")
-                return None
-        
-        # --- Contar confirmaciones técnicas ---
         confirmaciones = 0
         detalles = []
         
@@ -243,7 +149,7 @@ class SniperBot:
             if bearishDivergence:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_BAJISTA")
-        else:  # CORTO
+        else:
             if histImprovingShort or macdZeroCrossShort or macdCrossShort:
                 confirmaciones += 1
                 detalles.append("MACD")
@@ -262,119 +168,218 @@ class SniperBot:
             if bullishDivergence:
                 confirmaciones -= 1
                 detalles.append("⚠️DIV_ALCISTA")
+                
+        metrics = {
+            "rsi": float(rsi),
+            "macdHist": float(histVal),
+            "macd": float(macdLine),
+            "macdSig": float(macdSignal),
+            "pendienteRsi": float(self.latestFullData["pendienteRsi"].iloc[-1]),
+            "pendienteCci": float(self.latestFullData["pendienteCci"].iloc[-1]),
+            "macdZeroCrossLong": macdZeroCrossLong,
+            "macdCrossLong": macdCrossLong,
+            "emaTrendLong": emaTrendLong,
+            "bullishDivergence": bullishDivergence,
+            "macdZeroCrossShort": macdZeroCrossShort,
+            "macdCrossShort": macdCrossShort,
+            "emaTrendShort": emaTrendShort,
+            "bearishDivergence": bearishDivergence,
+            "macd_alcista": macdLine > macdSignal
+        }
         
-        # --- ADX Dinámico ---
-        try:
-            high = df['high'].values.astype(float)
-            low = df['low'].values.astype(float)
-            cls = df['close'].values.astype(float)
-            tr = np.maximum(high[1:] - low[1:], np.maximum(np.abs(high[1:] - cls[:-1]), np.abs(low[1:] - cls[:-1])))
-            n = 14
-            if len(tr) >= n * 2:
-                dm_plus = np.where((high[1:] - high[:-1]) > (low[:-1] - low[1:]), np.maximum(high[1:] - high[:-1], 0), 0)
-                dm_minus = np.where((low[:-1] - low[1:]) > (high[1:] - high[:-1]), np.maximum(low[:-1] - low[1:], 0), 0)
-                atr_smooth = pd.Series(tr).rolling(n).mean().values
-                di_plus = 100 * pd.Series(dm_plus).rolling(n).mean().values / np.where(atr_smooth > 0, atr_smooth, 1)
-                di_minus = 100 * pd.Series(dm_minus).rolling(n).mean().values / np.where(atr_smooth > 0, atr_smooth, 1)
-                dx = 100 * np.abs(di_plus - di_minus) / np.where((di_plus + di_minus) > 0, di_plus + di_minus, 1)
-                adx_val = float(pd.Series(dx).rolling(n).mean().iloc[-1])
-            else:
-                adx_val = 25
-        except:
-            adx_val = 25
+        return confirmaciones, detalles, metrics
+
+    async def _get_signal(self, df: pd.DataFrame, symbol: str, symbolInfo: Dict = None) -> Optional[Signal]:
+        """Analyzes the data to generate a Signal object using granular validations."""
         
+        X, _ = mlModel.cleanDataForModel(df)
+        if len(X) < 100:
+            logger.warning(f"[{symbol}] Datos insuficientes tras limpieza ({len(X)} filas).")
+            return None
+
+        # --- Get Current Values ---
+        latest = X.iloc[-1]
+        self.latestFullData = df
+        
+        close = self.latestFullData["close"].iloc[-1]
+        currentAtr = latest["atr"]
+        avgAtr = df["atr"].iloc[-20:].mean()
+        
+        # --- 1. Volatility Veto ---
+        if currentAtr < avgAtr * 0.5:
+            logger.info(f"[{symbol}] Volatilidad baja (ATR: {currentAtr:.4f} < 50% avg: {avgAtr:.4f}). Señal descartada.")
+            return None
+        
+        # --- 2. ML Prediction ---
+        proba = mlModel.predictProba(self.model, X)
+        if proba is None:
+            logger.info(f"[{symbol}] Rechazada: ML no pudo calcular probabilidad")
+            return None
+
+        strat_config = dbManager.getStrategyConfig("Sniper") or {}
+        thresh_long, thresh_short = 0.5, 0.5
+        
+        if proba > thresh_long:
+            direction = "CORTO"
+            confianza = (1 - proba) * 100
+        elif proba < thresh_short:
+            direction = "LARGO"
+            confianza = proba * 100
+        else:
+            return None
+            
+        logger.info(f"[{symbol}] ML proba={proba:.2f} -> {direction}")
+
+        # --- 3. Momentum Check ---
+        momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
+        if momentumEstado == '☁️ SIN DATOS':
+            dfWithAngles = calcularAngulos(df.copy())
+            lastAngle = dfWithAngles.iloc[-1]
+            momentumEstado, _ = obtenerEstado(lastAngle.get('ang_rsi'), lastAngle.get('ang_close'))
+            
+        momentumVeto = momentumEstado in ["💸 LIQUIDACIÓN"]
+        if momentumVeto:
+            logger.info(f"[{symbol}] Filtrado MOMENTUM crítico ({momentumEstado}). Señal vetada.")
+            return None
+            
+        momentumNeutral = momentumEstado in ["☁️ NEUTRAL"]
+        if momentumNeutral and len(self.latestFullData) >= 8:
+            price_4h_ago = self.latestFullData["close"].iloc[-8]
+            if direction == "LARGO" and close <= price_4h_ago:
+                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + lateral/bajista")
+                return None
+            elif direction == "CORTO" and close >= price_4h_ago:
+                logger.info(f"[{symbol}] Filtrado MOMENTUM: Neutral + lateral/alcista")
+                return None
+
+        # --- 4. Technical Confirmations ---
+        confirmaciones, detalles, metrics = self._evaluate_technical_confirmations(df, direction, symbol)
+        
+        if direction == "LARGO" and not metrics["macd_alcista"]:
+            logger.info(f"[{symbol}] CONTRADICCIÓN: ML dice LARGO pero MACD bajista")
+            return None
+        elif direction == "CORTO" and metrics["macd_alcista"]:
+            logger.info(f"[{symbol}] CONTRADICCIÓN: ML dice CORTO pero MACD alcista")
+            return None
+
+        logger.info(f"[{symbol}] Confirmaciones: {confirmaciones} - {detalles}")
+
+        # --- 5. ADX Filter ---
+        adx_val = self._calculate_dynamic_adx(df)
         mercado_erratico = adx_val < 20
         min_confirmaciones = 3 if mercado_erratico else 2
         
         if mercado_erratico:
             logger.info(f"[{symbol}] Rechazada: Mercado lateral (ADX={adx_val:.1f} < 20)")
             return None
-        
+            
         if confirmaciones < min_confirmaciones:
             logger.info(f"[{symbol}] Rechazada: Solo {confirmaciones} confirmaciones (mín={min_confirmaciones})")
             return None
-        
-        # --- Confidence Bonus ---
+
+        # --- 6. Confidence Bonus ---
         if direction == "LARGO":
-            if macdZeroCrossLong: confianza += 15
-            elif macdCrossLong: confianza += 10
-            if emaTrendLong: confianza += 8
-            if bullishDivergence: confianza += 12
+            if metrics["macdZeroCrossLong"]: confianza += 15
+            elif metrics["macdCrossLong"]: confianza += 10
+            if metrics["emaTrendLong"]: confianza += 8
+            if metrics["bullishDivergence"]: confianza += 12
         else:
-            if macdZeroCrossShort: confianza += 15
-            elif macdCrossShort: confianza += 10
-            if emaTrendShort: confianza += 8
-            if bearishDivergence: confianza += 12
-        
+            if metrics["macdZeroCrossShort"]: confianza += 15
+            elif metrics["macdCrossShort"]: confianza += 10
+            if metrics["emaTrendShort"]: confianza += 8
+            if metrics["bearishDivergence"]: confianza += 12
+            
         if confirmaciones >= 4: confianza += 10
         elif confirmaciones >= 3: confianza += 5
         
+        momentumBullish = momentumEstado in ["🚀 ALCISTA", "💎 GIRO"]
+        momentumBearish = momentumEstado in ["📉 BAJISTA"]
         if direction == "LARGO" and momentumBullish: confianza += 10
         elif direction == "LARGO" and momentumBearish: confianza -= 15
         elif direction == "CORTO" and momentumBearish: confianza += 10
         elif direction == "CORTO" and momentumBullish: confianza -= 15
             
-        cdlEngulfing = self.latestFullData["cdlEngulfing"].iloc[-1] if "cdlEngulfing" in self.latestFullData.columns else 0
-        cdlHammer = self.latestFullData["cdlHammer"].iloc[-1] if "cdlHammer" in self.latestFullData.columns else 0
-        cdlShootingStar = self.latestFullData["cdlShootingStar"].iloc[-1] if "cdlShootingStar" in self.latestFullData.columns else 0
+        cdlEngulfing = self.latestFullData.get("cdlEngulfing", pd.Series([0])).iloc[-1]
+        cdlHammer = self.latestFullData.get("cdlHammer", pd.Series([0])).iloc[-1]
+        cdlShootingStar = self.latestFullData.get("cdlShootingStar", pd.Series([0])).iloc[-1]
 
         if (direction == "LARGO" and (cdlEngulfing > 0 or cdlHammer > 0)) or (direction == "CORTO" and (cdlEngulfing < 0 or cdlShootingStar < 0)):
             confianza *= 1.10
 
-        # Order Block
+        # --- 7. Order Blocks ---
         ob_dir = 'LARGO' if direction == 'LARGO' else 'CORTO'
         obs_sniper = detect_order_blocks(df, ob_dir, lookback=60)
         ob_conf_data = ob_confluence_score(close, obs_sniper, ob_dir, atr=currentAtr)
         ob_score = ob_conf_data['score']
 
-        if ob_conf_data['in_ob_zone']:
-            confianza += 10
-        elif ob_score >= 10:
-            confianza += 5
+        if ob_conf_data['in_ob_zone']: confianza += 10
+        elif ob_score >= 10: confianza += 5
 
-        if confianza < config.MIN_CONFIDENCE_THRESHOLD:
-            logger.info(f"[{symbol}] Filtrado: Confianza muy baja ({confianza:.1f}%).")
+        # --- 8. Generación de Señal (Entry, SL, TP) ---
+        entry_price = close
+        sl_distance = currentAtr * 1.5  # SL a 1.5x ATR
+        
+        if direction == "LARGO":
+            stop_loss = entry_price - sl_distance
+            take_profit = entry_price + (sl_distance * 2)  # RR 1:2
+        else:
+            stop_loss = entry_price + sl_distance
+            take_profit = entry_price - (sl_distance * 2)  # RR 1:2
+        
+        multiplier = getPipMultiplier(symbol)
+        risk_usd = float(strat_config.get('risk_usd', 100.0))
+        size = (risk_usd / (sl_distance * multiplier)) if (sl_distance > 0 and multiplier > 0) else 0
+
+        # --- FILTRO: Ganancia Mínima Estimada ---
+        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        rr_ratio = round(abs(take_profit - entry_price) / sl_distance, 2)
+        expected_profit = (sl_distance * multiplier * size) * rr_ratio
+        
+        if expected_profit < min_usd_profit:
+            logger.info(f"[{symbol}] Sniper: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
             return None
 
-        # Structural Levels
+        # Filtrar por confianza mínima
+        min_confidence = float(strat_config.get('min_confidence', 70))
+        if confianza < min_confidence:
+            logger.info(f"[{symbol}] Filtrado: Confianza {confianza:.1f}% < min_confidence={min_confidence}")
+            return None
+
+        # --- 8. Structural Levels ---
         levels = technical.get_structural_levels(self.latestFullData, lookback=40)
-        atr_val = latest["atr"]
-        atr_padding = atr_val * 0.2
+        atr_padding = currentAtr * 0.2
         
         if direction == "LARGO":
             sl_price = levels['swing_low'] - atr_padding
-            sl_dist = max(atr_val * 1.2, min(close - sl_price, atr_val * 3.0))
+            sl_dist = max(currentAtr * 1.2, min(close - sl_price, currentAtr * 3.0))
             tp_structural = levels['high_zone']
         else:
             sl_price = levels['swing_high'] + atr_padding
-            sl_dist = max(atr_val * 1.2, min(sl_price - close, atr_val * 3.0))
+            sl_dist = max(currentAtr * 1.2, min(sl_price - close, currentAtr * 3.0))
             tp_structural = levels['low_zone']
 
-# Exhaustion Filter
+        # --- 9. Exhaustion ---
         vela_origen_idx = len(df) - 5
         is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, close, tp_structural, sl_price, direction, threshold=0.60, timeframe="15M")
         if not is_valid:
             logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
             return None
 
-        # Prepare final SL/TP (logic moved from _execute_trades to here)
+        # --- 10. SL / TP Final ---
         slPrice = close - sl_dist if direction == "LARGO" else close + sl_dist
         ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if confianza > 85 else config.BASE_RISK_REWARD_RATIO
-        
         tp_initial = tp_structural if tp_structural else (close + (sl_dist * ratioBase) if direction == "LARGO" else close - (sl_dist * ratioBase))
-        strat_config = dbManager.getStrategyConfig("sniper") or {}
+        
         min_rr_val = float(strat_config.get('min_rr', 1.5))
         tpPrice = adjustTPForMinRR(close, slPrice, tp_initial, direction, minRR=min_rr_val)
         
-        current_price = float(df['close'].iloc[-1])
-        is_valid, _, mensaje = check_signal_health(close, tpPrice, slPrice, direction, current_price, threshold=0.65)
+        is_valid, _, mensaje = check_signal_health(close, tpPrice, slPrice, direction, close, threshold=0.65)
         if not is_valid:
             logger.info(f"[{symbol}] Señal descartada: Health - {mensaje}")
             return None
         
-        multiplier = getPipMultiplier(symbol)
-        
         confianza = min(100, max(0, confianza))
+        metrics.update({"atr": float(currentAtr)})
         
         return Signal(
             strategy="Sniper",
@@ -387,16 +392,16 @@ class SniperBot:
             confidence=confianza,
             setup=f"ML SNIPER {symbolInfo.get('intervalo', '15min').upper()}",
             status="EN ZONA ✅",
-            candleTime="", # Will be set in runAnalysisCycle
+            candleTime="", 
             intervalo=symbolInfo.get('intervalo', '15min'),
-            riesgo_pips=round(sl_dist * multiplier, 1),
+            riesgo_pips=round(sl_dist * getPipMultiplier(symbol), 1),
             rr_ratio=round(calculateRR(close, slPrice, tpPrice), 2),
             metadata={
                 "ob_score": ob_score,
                 "in_ob_zone": ob_conf_data['in_ob_zone'],
                 "confirmaciones": confirmaciones,
                 "detalles_conf": detalles,
-                "latestMetrics": latest_metrics
+                "latestMetrics": metrics
             }
         )
 
@@ -433,6 +438,3 @@ class SniperBot:
             return signal
         
         return None
-
-
-

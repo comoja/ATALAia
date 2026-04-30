@@ -72,3 +72,22 @@ def isRestTime(dt=None):
     Es la función central utilizada por Sentinel y DataSymbol para decidir si operar.
     """
     return is_market_closed(dt)
+
+def get_last_closed_candle(dt, interval_minutes):
+    """
+    Devuelve la hora de la última vela cerrada para un intervalo dado.
+    Ej: si ahora es 10:07 y el intervalo es 5, devuelve 10:05.
+    """
+    if dt.tzinfo is None:
+        local_tz = pytz.timezone(TIMEZONE)
+        dt = local_tz.localize(dt)
+    
+    # Calcular el inicio de la vela actual
+    minute = (dt.minute // interval_minutes) * interval_minutes
+    last_candle = dt.replace(minute=minute, second=0, microsecond=0)
+    
+    # Si la vela calculada es la actual (aún no cierra), retroceder un intervalo
+    if last_candle >= dt:
+        last_candle = last_candle - timedelta(minutes=interval_minutes)
+    
+    return last_candle

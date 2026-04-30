@@ -6,9 +6,22 @@ import pandas as pd
 import numpy as np
 import talib as ta
 from typing import Optional
+from datetime import datetime
+import pytz
+
 from middleware.database import dbManager
 
 logger = logging.getLogger("sentinel")
+
+def _format_timestamp(ts) -> str:
+    """Formatea timestamp a string estándar para logging."""
+    if ts is None:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(ts, str):
+        return ts[:19] if len(ts) >= 19 else ts
+    if hasattr(ts, 'strftime'):
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
+    return str(ts)[:19]
 
 def _calculate_dynamic_periods(df: pd.DataFrame) -> dict:
     """
@@ -329,16 +342,20 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
         if v2_body_pct < 0.50:
             continue
         
-        if v1_high < v3_low:
+        if v1_high < v3_low and v2_close > v2_open:
             gap_size = v3_low - v1_high
             if gap_size / closes[i] >= min_gap_pct:
                 fvg = {
                     'type': 'Bullish_FVG',
                     'top': float(v3_low),
                     'bottom': float(v1_high),
+                    'gap_low': float(v1_high),
+                    'gap_high': float(v3_low),
                     'mid': float((v1_high + v3_low) / 2),
                     'size': float(gap_size),
-                    'timestamp': str(times[i]),
+                    'v1_low': float(v1_low),
+                    'v1_high': float(v1_high),
+                    'timestamp': _format_timestamp(times[i]),
                     'idx': i
                 }
                 if validate_mitigation and _is_fvg_mitigated(df, i, fvg):
@@ -346,16 +363,20 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
                     continue
                 fvgs.append(fvg)
         
-        elif v1_low > v3_high:
+        elif v1_low > v3_high and v2_close < v2_open:
             gap_size = v1_low - v3_high
             if gap_size / closes[i] >= min_gap_pct:
                 fvg = {
                     'type': 'Bearish_FVG',
                     'top': float(v1_low),
                     'bottom': float(v3_high),
+                    'gap_low': float(v3_high),
+                    'gap_high': float(v1_low),
                     'mid': float((v1_low + v3_high) / 2),
                     'size': float(gap_size),
-                    'timestamp': str(times[i]),
+                    'v1_low': float(v1_low),
+                    'v1_high': float(v1_high),
+                    'timestamp': _format_timestamp(times[i]),
                     'idx': i
                 }
                 if validate_mitigation and _is_fvg_mitigated(df, i, fvg):
@@ -667,7 +688,7 @@ def check_signal_health(entry: float, tp: float, sl: float, direction: str, curr
                 progress_pct = 0
         
         if progress_pct > threshold:
-            logger.info(f"[Health] {time_prefix}🚫 Progreso {progress_pct*100:.1f}% > {threshold*100:.0f}% hacia TP - discardando")
+            logger.info(f"[Health] {time_prefix}🚫 Progreso {progress_pct*100:.1f}% > {threshold*100:.0f}% hacia TP - descartando")
             return (False, progress_pct, f"Agotado: {progress_pct*100:.1f}%")
         
         return (True, progress_pct, "Válido")

@@ -24,7 +24,8 @@ class Patron4HBot:
     MEXICO_TZ = pytz.timezone(TIMEZONE)
     
     def __init__(self):
-        strategyConfig = dbManager.getStrategyConfig("Patron4h")
+        self.strategy_name = "Patron4h"
+        strategyConfig = dbManager.getStrategyConfig(self.strategy_name)
         self.fvg_min_pct         = strategyConfig.get('fvg_min_pct',        0.00005) if strategyConfig else 0.00005
         self.displacement_pct     = strategyConfig.get('displacement_pct',   0.0005)  if strategyConfig else 0.0005
         self.rr_ratio_min         = strategyConfig.get('rr_ratio_min',       1.5)     if strategyConfig else 1.5
@@ -162,8 +163,14 @@ class Patron4HBot:
         entry = float(fvg['mid'])
         
         from Sentinel.analysis import technical
-        levels = technical.get_structural_levels(df_15m, lookback=50)
-        atr = ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).iloc[-1]
+        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
+        lookback_val = int(strat_config.get('lookback', 50))
+        levels = technical.get_structural_levels(df_15m, lookback=lookback_val)
+        atr_series = ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).dropna()
+        if atr_series.empty:
+            logger.info(f"[{symbol}] ATR calculation failed or returned empty series")
+            return None
+        atr = atr_series.iloc[-1]
         sl = (entry + atr*1.5) if direction == 'CORTO' else (entry - atr*1.5)
         sl_dist = abs(entry - sl)
         
@@ -203,6 +210,21 @@ class Patron4HBot:
         
         candleTime = candle_time
         
+        base_confidence = 70 + mom_bonus
+        # --- FILTRO: Ganancia Mínima Est. ---
+        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        rr_ratio = round(abs(tp_final_val - entry) / sl_dist, 2)
+        # El riesgo total se divide entre los 3 TPs
+        expected_profit = (sl_dist * multiplier * (size/3)) * rr_ratio
+        if expected_profit < min_usd_profit:
+            logger.info(f"[{symbol}] Patron4h: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+            return None
+
+        min_confidence = float(strat_config.get('min_confidence', 70))
+        if base_confidence < min_confidence:
+            logger.info(f"[{symbol}] Patron4h: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
+            return None
+        
         signals = []
         tp_configs = [
             ("TP1", tp1_val, "TP1 [1.25 RR]"),
@@ -220,7 +242,7 @@ class Patron4HBot:
                 take_profit=tp_val,
                 sl_distance=sl_dist,
                 risk_factor=0.33, 
-                confidence=70 + mom_bonus,
+                confidence=base_confidence,
                 setup=setup_label,
                 status="EN ZONA ✅",
                 candleTime=candleTime,

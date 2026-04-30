@@ -86,8 +86,8 @@ class FVGDiarioBot:
                 df_intraday = master.get('15min')
                 df_daily = master.get('1d')
             else:
-                df_intraday = df_input
-                df_daily = technical.resample_to_interval(df_input, '1D') if (df_input is not None and len(df_input) > 100) else None
+                df_intraday = master
+                df_daily = technical.resample_to_interval(master, '1D') if (master is not None and len(master) > 100) else None
 
             if df_intraday is None or len(df_intraday) < 20:
                 logger.info(f"[{symbol}] Datos 15m insuficientes")
@@ -297,7 +297,7 @@ class FVGDiarioBot:
             return None
         
         # ── FILTRO: Tendencia mensual ──
-        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+        monthly_trend = symbolData.get('weekly_trend', 'NEUTRAL')
         if monthly_trend == "BAJISTA" and direction == "LARGO":
             logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
             return None
@@ -328,7 +328,8 @@ class FVGDiarioBot:
                 "pdh": pdh,
                 "pdl": pdl,
                 "manipulation_type": manipulation['type'],
-                "fvg_type": fvg['type']
+                "fvg_type": fvg['type'],
+                "vela_origen": fvg['timestamp']
             }
         )
 

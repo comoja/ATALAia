@@ -138,11 +138,11 @@ class ExecutionEngine:
                 )
                 
                 if success:
-                    logger.info(f"✅ [ExecutionEngine] Señal {strategy_name} ejecutada para {symbol} en cuenta {account_id} (Msg: {msg_id})")
+                    logger.info(f"✅ Ejecución {strategy_name} para {symbol} en cuenta {account_id} (Msg: {msg_id})")
                     executed_any = True
                 else:
-                    logger.error(f"❌ [ExecutionEngine] Falló ejecución para {symbol} en cuenta {account_id}: {msg_id}")
+                    logger.warning(f"⚠️ Ejecución {strategy_name} para {symbol} en cuenta {account_id}: {msg_id}")
             except Exception as e:
-                logger.error(f"[ExecutionEngine] Error crítico en ejecución para cuenta {account_id}: {e}")
+                logger.error(f"Error crítico en ejecución {strategy_name} para {symbol} en cuenta {account_id}: {e}")
 
         return executed_any

@@ -126,8 +126,10 @@ def buildImbalanceNYAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': signal.get('fvgTime', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
+        'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Sesión': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}"
     }
     
@@ -151,8 +153,10 @@ def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': signal.get('fvgTime', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
+        'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Sesión': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}"
     }
     
@@ -171,6 +175,7 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'SMA20': f"{signal.get('sma20', 0):,.4f}",
         'SMA200': f"{signal.get('sma200', 0):,.4f}",
         'Tendencia': signal.get('tendencia', 'N/A'),
@@ -188,18 +193,19 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
 def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
     
-    tp1 = signal.get('tp1')
-    tp2 = signal.get('tp2')
-    tp_final = signal.get('tp_final')
+    tp1 = signal.get('tp1', signal.get('takeProfit'))
+    tp2 = signal.get('tp2', signal.get('takeProfit2'))
+    tp_final = signal.get('tp_final', signal.get('takeProfit3'))
     
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0) or 0,
         'RR Ratio': signal.get('rr_ratio', 0) or 0,
         'Riesgo Máx:': f"${(signal.get('profit') or 0):.2f} USD",
+        'Beneficio Est:': f"${((signal.get('profit') or 0) * (signal.get('rr_ratio') or 0)):.2f} USD",
         'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
         'TF Señal': signal.get('timeframe_entrada', '15M'),
-        'Vela Origen': signal.get('vela_origen', 'N/A'),
+        'Vela Origen': signal.metadata.get('vela_origen', signal.metadata.get('candleTime', 'N/A')),
         'Momentum': momentum,
         'TP1': round(tp1, 5) if tp1 and tp1 > 0 else 0.0,
         'TP2': round(tp2, 5) if tp2 and tp2 > 0 else 0.0,
@@ -221,6 +227,7 @@ def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'Slope': f"{signal.get('slope', 0):.2f}",
         'Separation': f"{signal.get('separation', 0):.4f}",
         'Prob ML': f"{signal.get('confidence', 0):.2f}%",
@@ -247,6 +254,7 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'RSI': f"{latest.get('rsi', 0):.2f} ({'🟢' if latest.get('pendienteRsi', 0) > 0 else '🔴'})",
         'MACD': 'ALCISTA 🟢' if latest.get('macdHist', 0) > 0 else 'BAJISTA 🔴',
         'Volatilidad': f"{vol_porcentaje:.3f}%",
@@ -272,6 +280,7 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'Bias HTF': bias_str,
         'Zona': f"{zone.get('type', 'N/A')} ({zone.get('fib_50', 0):.5f})",
         'Modelo': signal.get('tipo_entrada', 'N/A'),
@@ -297,8 +306,10 @@ def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'Ventana': signal.get('window_label', 'N/A'),
         'FVG': signal.get('fvg', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'OTE': ote_text,
         'Sweep': signal.get('sweep_type', 'N/A'),
         'ADX': signal.get('adx', 0),
@@ -320,7 +331,8 @@ def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': signal.get('fvgTime', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
+        'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Sesión PM': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}",
         'Momentum': momentum
     }
@@ -340,6 +352,7 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Confirmación': 'Price Action',
         'TF Señal': trade.get('intervalo', 'N/A'),
         'Momentum': momentum
@@ -360,11 +373,13 @@ def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'Daily Bias': signal.get('daily_bias', 'N/A'),
         'PDH': f"{signal.get('pdh', 0):,.5f}",
         'PDL': f"{signal.get('pdl', 0):,.5f}",
         'Manipulación': signal.get('manipulation_type', 'N/A'),
         'FVG': signal.get('fvg_type', 'N/A'),
+        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Liq. Opuesta': f"{signal.get('opposite_liquidity', 0):,.5f}",
         'TF Entrada': trade.get('intervalo', '15min'),
         'Momentum': momentum

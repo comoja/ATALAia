@@ -155,33 +155,34 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
 
             valuePerPip = 10
             lots = riskInCurrency / (pipsDistance * valuePerPip)
-            thousandsOfUnits = lots * 100
-            thousandsOfUnits = float(max(1000, int(round(thousandsOfUnits))))
+            # 1 Standard Lot = 100,000 units
+            units = lots * 100000
+            units = float(max(min_units.get("MONEDA", 1000), int(round(units))))
             
-            def adjustForex(size, margin_mult, capital_avail, risk_curr):
-                required = (size / 100) * margin_mult
+            def adjustForex(size_units, margin_mult, capital_avail, risk_curr):
+                required = (size_units / 100000) * 1000 * margin_mult # Aprox margin
                 if required <= capital_avail:
-                    return size, risk_curr
-                max_size = (capital_avail / margin_mult) * 100
+                    return size_units, risk_curr
+                max_size_units = (capital_avail / (1000 * margin_mult)) * 100000
                 min_forex = min_units.get("MONEDA", 1000)
-                if max_size < min_forex:
+                if max_size_units < min_forex:
                     return None, 0
-                adjusted_risk = (max_size / size) * risk_curr if size > 0 else risk_curr
+                adjusted_risk = (max_size_units / size_units) * risk_curr if size_units > 0 else risk_curr
                 
                 if adjusted_risk > capital_avail:
                     logger.warning(f"[{symbolName}] Riesgo real {adjusted_risk:.2f} > capital {capital_avail:.2f} - ajustar ganancia en BD")
                     return None, 0
                 
-                logger.info(f"[{symbolName}] Auto-ajustado FOREX: size {size:.0f}→{max_size:.0f}, riesgo {risk_curr:.2f}→{adjusted_risk:.2f}")
-                return max_size, adjusted_risk
+                logger.info(f"[{symbolName}] Auto-ajustado FOREX: size {size_units:.0f}→{max_size_units:.0f}, riesgo {risk_curr:.2f}→{adjusted_risk:.2f}")
+                return max_size_units, adjusted_risk
             
-            thousandsOfUnits, riskInCurrency = adjustForex(thousandsOfUnits, margin_multiplier, capital, riskInCurrency)
-            if thousandsOfUnits is None:
+            units, riskInCurrency = adjustForex(units, margin_multiplier, capital, riskInCurrency)
+            if units is None:
                 return None, None, 0
             
-            margin_used = margin_multiplier * min_units["MONEDA"] * entryPrice * (thousandsOfUnits / 1000)
+            margin_used = margin_multiplier * min_units["MONEDA"] * entryPrice * (units / 1000)
             
-            return int(thousandsOfUnits), riskInCurrency, margin_used
+            return int(units), riskInCurrency, margin_used
 
     except Exception as e:
         logger.error(f"Error en calculatePositionSize: {e}", exc_info=True)

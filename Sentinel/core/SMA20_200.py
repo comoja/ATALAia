@@ -215,7 +215,8 @@ class SMABot:
         pendienteSma20 = (self.getPendiente(df["sma20"].tail(10), 10) / sma20) * 100
         
         # Umbral mucho más realista (0.005% de inclinación por vela)
-        threshold = 0.005
+        strat_config = dbManager.getStrategyConfig("SMA20_200") or {}
+        threshold = float(strat_config.get('slope_threshold', 0.005))
         
         if precioActual > sma20 and pendienteSma20 > threshold:
             return "ALCISTA"
@@ -434,10 +435,27 @@ class SMABot:
         else:
             take_profit = max(tp_initial, tp_ml) if tp_initial < tp_ml else tp_initial
 
-        from middleware.database import dbManager
+
         strat_config = dbManager.getStrategyConfig("SMA20_200") or {}
         min_rr_val = float(strat_config.get('min_rr', 1.5))
+        # --- FILTRO: Ganancia Mínima Est. ---
+        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        rr_ratio = round(abs(take_profit - close) / abs(close - stop_loss), 2)
+        expected_profit = (abs(close - stop_loss) * multiplier * size) * rr_ratio
+        if expected_profit < min_usd_profit:
+            logger.info(f"[{symbol}] SMA20_200: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+            return None
+
+        min_confidence = float(strat_config.get('min_confidence', 70))
         take_profit = adjustTPForMinRR(close, stop_loss, take_profit, direction, minRR=min_rr_val)
+        
+        # Calcular confianza
+        confianza = int(prob * 100) + bb_bonus + momentum_bonus
+        
+        # Filtrar por confianza mínima
+        if confianza < min_confidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={confianza} < min_confidence={min_confidence}")
+            return None
 
         
         rr_actual = abs(take_profit - close) / sl_dist
@@ -464,7 +482,7 @@ class SMABot:
             stop_loss=stop_loss,
             take_profit=take_profit,
             sl_distance=sl_dist,
-            confidence=int(prob * 100) + bb_bonus + momentum_bonus,
+            confidence=confianza,
             setup="Consolidacion" if consolidacion else "Doble Toque",
             status="EN ZONA ✅",
             candleTime=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
