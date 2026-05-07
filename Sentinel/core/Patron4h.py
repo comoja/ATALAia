@@ -12,9 +12,9 @@ from middleware.database import dbManager
 from middleware.utils import momentum
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
-from Sentinel.analysis import technical as tech_module
+from Sentinel.analysis import technical
 from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval, check_tp_exhaustion, check_signal_health
-from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR
+from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateBEPrice
 
 from Sentinel.core.models import Signal
 
@@ -48,17 +48,39 @@ class Patron4HBot:
         if direction == 'LARGO':
             low_n = df['low'].iloc[idx]
             high_n2 = df['high'].iloc[idx - 2]
+            low_n2 = df['low'].iloc[idx - 2]
             if low_n > high_n2:
                 gap = low_n - high_n2
                 if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    return {'type': 'Bullish_FVG', 'start': high_n2, 'end': low_n, 'mid': (high_n2 + low_n) / 2, 'size': gap, 'idx': idx, 'idx_start': idx - 2, 'vela_idx': idx}
+                    return {
+                        'type': 'Bullish_FVG', 
+                        'top': float(low_n), 
+                        'bottom': float(high_n2), 
+                        'mid': float((high_n2 + low_n) / 2), 
+                        'size': float(gap), 
+                        'v1_low': float(low_n2),
+                        'v1_high': float(high_n2),
+                        'idx': idx, 
+                        'timestamp': str(df.index[idx])
+                    }
         else:
             high_n = df['high'].iloc[idx]
             low_n2 = df['low'].iloc[idx - 2]
+            high_n2 = df['high'].iloc[idx - 2]
             if high_n < low_n2:
                 gap = low_n2 - high_n
                 if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    return {'type': 'Bearish_FVG', 'start': low_n2, 'end': high_n, 'mid': (low_n2 + high_n) / 2, 'size': gap, 'idx': idx, 'idx_start': idx - 2, 'vela_idx': idx}
+                    return {
+                        'type': 'Bearish_FVG', 
+                        'top': float(low_n2), 
+                        'bottom': float(high_n), 
+                        'mid': float((low_n2 + high_n) / 2), 
+                        'size': float(gap), 
+                        'v1_low': float(low_n2),
+                        'v1_high': float(high_n2),
+                        'idx': idx, 
+                        'timestamp': str(df.index[idx])
+                    }
         return None
 
     def detectar_displacement(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[dict]:
@@ -76,10 +98,8 @@ class Patron4HBot:
         return None
 
     def detectar_mss(self, df: pd.DataFrame, direction: str) -> bool:
-        if len(df) < 5: return False
-        closes, highs, lows = df['close'].values, df['high'].values, df['low'].values
-        if direction == 'CORTO': return closes[-1] < max(highs[-5:-1])
-        else: return closes[-1] > min(lows[-5:-1])
+        # Delegamos a la función centralizada en technical.py con un lookback mayor
+        return technical.detect_mss(df, direction, lookback=15)
 
     def obtener_contexto_diario(self, df_1d: pd.DataFrame) -> dict:
         if len(df_1d) < 3: return {'tendencia': 'LATERAL', 'max_dia_anterior': None, 'min_dia_anterior': None, 'fvgs_diarios': []}
@@ -160,18 +180,30 @@ class Patron4HBot:
         v_origen_idx = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
         v_origen_time = str(df_15m.index[v_origen_idx]) if v_origen_idx < len(df_15m) else "N/A"
         
-        entry = float(fvg['mid'])
+        # --- Cálculo de Niveles Centralizado (Maura SMC) ---
+        current_price = float(df_15m['close'].iloc[-1])
+        atr_series = ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).dropna()
+        atr = atr_series.iloc[-1] if not atr_series.empty else 0
         
-        from Sentinel.analysis import technical
+        setup = technical.calculate_fvg_setup(fvg, current_price, atr)
+        entry = setup['entry']
+        sl = setup['sl']
+        direction = setup['direction']
+        
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
         lookback_val = int(strat_config.get('lookback', 50))
         levels = technical.get_structural_levels(df_15m, lookback=lookback_val)
         atr_series = ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).dropna()
-        if atr_series.empty:
-            logger.info(f"[{symbol}] ATR calculation failed or returned empty series")
-            return None
-        atr = atr_series.iloc[-1]
-        sl = (entry + atr*1.5) if direction == 'CORTO' else (entry - atr*1.5)
+        atr = atr_series.iloc[-1] if not atr_series.empty else 0
+        
+        # SL Estructural (Toni Maura style): Por debajo/encima del Swing previo
+        if direction == 'CORTO':
+            structural_sl = max(levels['swing_high'], entry * 1.001)
+            sl = max(structural_sl, entry + atr*1.0) if atr > 0 else structural_sl
+        else:
+            structural_sl = min(levels['swing_low'], entry * 0.999)
+            sl = min(structural_sl, entry - atr*1.0) if atr > 0 else structural_sl
+            
         sl_dist = abs(entry - sl)
         
         tp_final_val = levels['low_zone'] if direction == 'CORTO' else levels['high_zone']
@@ -186,12 +218,12 @@ class Patron4HBot:
 
         multiplier = getPipMultiplier(symbol)
         
-        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=0.60, timeframe="15min")
+        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=3.5, timeframe="15min")
         if not is_valid: return None
         
         current_price = float(df_15m['close'].iloc[-1])
         candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S")
-        is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=0.65, candle_time=candle_time)
+        is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=3.5, candle_time=candle_time)
         if not is_valid: return None
         
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
@@ -212,6 +244,9 @@ class Patron4HBot:
         
         base_confidence = 70 + mom_bonus
         # --- FILTRO: Ganancia Mínima Est. ---
+        risk_usd = float(strat_config.get('risk_usd', 100.0))
+        size = (risk_usd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
+        
         min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
         rr_ratio = round(abs(tp_final_val - entry) / sl_dist, 2)
         # El riesgo total se divide entre los 3 TPs
@@ -225,6 +260,9 @@ class Patron4HBot:
             logger.info(f"[{symbol}] Patron4h: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
             return None
         
+        # Calcular Break Even inteligente
+        be_trigger = calculateBEPrice(entry, sl, tp_final_val, direction)
+
         signals = []
         tp_configs = [
             ("TP1", tp1_val, "TP1 [1.25 RR]"),
@@ -249,6 +287,7 @@ class Patron4HBot:
                 intervalo="15min",
                 riesgo_pips=round(sl_dist * multiplier, 1),
                 rr_ratio=round(abs(tp_val - entry) / sl_dist, 2),
+                break_even=be_trigger,
                 metadata={
                     "trend": trend, 
                     "timeframe_confirmacion": catalizador['timeframe'], 

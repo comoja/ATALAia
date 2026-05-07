@@ -178,6 +178,31 @@ def get_structural_levels(df: pd.DataFrame, lookback: int = 40, lookback_macro: 
         "macro_low": float(macro['low'].min())
     }
 
+def detect_mss(df: pd.DataFrame, direction: str, lookback: int = 15) -> bool:
+    """
+    Detecta un Market Structure Shift (MSS).
+    Un MSS ocurre cuando el precio rompe el último máximo/mínimo estructural.
+    
+    Args:
+        df: DataFrame con OHLC.
+        direction: 'LARGO' (buscamos ruptura de máximo) o 'CORTO' (buscamos ruptura de mínimo).
+        lookback: Cuántas velas mirar atrás para encontrar el swing relevante.
+    """
+    if len(df) < lookback + 2:
+        return False
+        
+    recent_df = df.iloc[-(lookback+1):-1] # No incluir la vela actual
+    current_close = float(df['close'].iloc[-1])
+    
+    if direction.upper() == "LARGO":
+        # Ruptura de máximo previo (Bearish to Bullish shift)
+        last_high = float(recent_df['high'].max())
+        return current_close > last_high
+    else:
+        # Ruptura de mínimo previo (Bullish to Bearish shift)
+        last_low = float(recent_df['low'].min())
+        return current_close < last_low
+
 def calculate_ote_zone(
     swing_start: float,
     swing_end: float,
@@ -322,7 +347,7 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
     opens = df['open'].values
     times = df.index
     
-    for i in range(2, len(df) - 1):
+    for i in range(2, len(df)):  # Incluye la última vela (seguro: DB solo guarda velas cerradas)
         v1_high = highs[i-2]
         v1_low = lows[i-2]
         v2_high = highs[i-1]
@@ -416,6 +441,65 @@ def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
                 return True
     
     return False
+
+# Setup FVG Centralizado v1.1
+def calculate_fvg_setup(fvg: dict, current_price: float, atr: float = 0) -> dict:
+    """
+    Calcula los niveles de entrada y SL para un setup de FVG centralizado.
+    Aplica la lógica de 'Entrada Oportunista': si el precio actual es mejor 
+    que el punto medio (50%), se usa el precio actual.
+    
+    Args:
+        fvg: Diccionario del FVG (detectado por detect_fvgs)
+        current_price: Precio actual del mercado
+        atr: Valor ATR para el buffer del SL (opcional)
+        
+    Returns:
+        dict: {entry, sl, sl_dist, direction, is_opportunistic}
+    """
+    direction = "LARGO" if "Bullish" in fvg['type'] else "CORTO"
+    # target_entry: Ahora es más agresivo (primer 25% del gap en lugar del 50%)
+    # Para Largo: top - 25% del gap. Para Corto: bottom + 25% del gap.
+    gap_size = fvg['top'] - fvg['bottom']
+    if direction == "LARGO":
+        target_entry = fvg['top'] - (gap_size * 0.25)
+    else:
+        target_entry = fvg['bottom'] + (gap_size * 0.25)
+    
+    # 1. Definir SL estructural (Vela 1 Low/High + buffer)
+    buffer = atr * 0.1 if atr > 0 else 0
+    if direction == "LARGO":
+        # Usar v1_low si existe, si no, usar el bottom del FVG
+        sl_base = fvg.get('v1_low', fvg.get('bottom', target_entry * 0.99))
+        sl = sl_base - buffer
+    else:
+        # Usar v1_high si existe, si no, usar el top del FVG
+        sl_base = fvg.get('v1_high', fvg.get('top', target_entry * 1.01))
+        sl = sl_base + buffer
+        
+    # 2. Lógica de Entrada Oportunista
+    # Si el precio actual es MEJOR que el 50% y NO ha cruzado el SL
+    is_opportunistic = False
+    if direction == "LARGO":
+        if sl < current_price < target_entry:
+            entry = current_price
+            is_opportunistic = True
+        else:
+            entry = target_entry
+    else: # CORTO
+        if target_entry < current_price < sl:
+            entry = current_price
+            is_opportunistic = True
+        else:
+            entry = target_entry
+            
+    return {
+        "entry": float(entry),
+        "sl": float(sl),
+        "sl_dist": abs(entry - sl),
+        "direction": direction,
+        "is_opportunistic": is_opportunistic
+    }
 
 
 def get_pip_multiplier(symbol: str) -> float:
@@ -688,8 +772,9 @@ def check_signal_health(entry: float, tp: float, sl: float, direction: str, curr
                 progress_pct = 0
         
         if progress_pct > threshold:
-            logger.info(f"[Health] {time_prefix}🚫 Progreso {progress_pct*100:.1f}% > {threshold*100:.0f}% hacia TP - descartando")
-            return (False, progress_pct, f"Agotado: {progress_pct*100:.1f}%")
+            status_msg = "TP ya alcanzado" if progress_pct >= 1.0 else "Agotado"
+            logger.info(f"[Health] {time_prefix}🚫 {status_msg}: Progreso {progress_pct*100:.1f}% > {threshold*100:.0f}% hacia TP - descartando")
+            return (False, progress_pct, f"{status_msg}: {progress_pct*100:.1f}%")
         
         return (True, progress_pct, "Válido")
     

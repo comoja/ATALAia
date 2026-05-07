@@ -9,7 +9,7 @@ import pytz
 
 from middleware.database import dbManager
 from Sentinel.analysis import technical
-from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, calculateRR
+from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, calculateRR, calculateBEPrice
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.core.models import Signal
@@ -125,10 +125,59 @@ class SilverBulletBot:
         fvg = self._detect_fvg(df, sweep["type"])
         if not fvg: return None
         
-        entry = fvg["mid"]
-        atr = ta.ATR(df["high"], df["low"], df["close"], 14).iloc[-1]
-        sl = (sweep.get("sweep_low", sweep["swept_level"]) - atr*0.15) if sweep["type"] == "LARGO" else (sweep.get("sweep_high", sweep["swept_level"]) + atr*0.15)
+        # --- Normalizar FVG al formato estándar esperado por calculate_fvg_setup ---
+        # _detect_fvg retorna {type, mid, idx, candle_time} pero calculate_fvg_setup
+        # necesita {top, bottom, gap_low, gap_high, v1_low, v1_high, type}
+        fvg_idx = fvg["idx"]
+        if fvg_idx < 2 or fvg_idx >= len(df):
+            return None
         
+        v1_high = float(df['high'].iloc[fvg_idx - 2])
+        v1_low  = float(df['low'].iloc[fvg_idx - 2])
+        v3_high = float(df['high'].iloc[fvg_idx])
+        v3_low  = float(df['low'].iloc[fvg_idx])
+        
+        if fvg["type"] == "LARGO_FVG":
+            # Bullish FVG: gap entre v1_high y v3_low
+            fvg_normalized = {
+                "type":     "Bullish_FVG",
+                "top":      v3_low,
+                "bottom":   v1_high,
+                "gap_low":  v1_high,
+                "gap_high": v3_low,
+                "mid":      fvg["mid"],
+                "v1_low":   v1_low,
+                "v1_high":  v1_high,
+                "idx":      fvg_idx,
+                "candle_time": fvg.get("candle_time"),
+                "timestamp":   str(fvg.get("candle_time", "")),
+            }
+        else:
+            # Bearish FVG: gap entre v3_high y v1_low
+            fvg_normalized = {
+                "type":     "Bearish_FVG",
+                "top":      v1_low,
+                "bottom":   v3_high,
+                "gap_low":  v3_high,
+                "gap_high": v1_low,
+                "mid":      fvg["mid"],
+                "v1_low":   v1_low,
+                "v1_high":  v1_high,
+                "idx":      fvg_idx,
+                "candle_time": fvg.get("candle_time"),
+                "timestamp":   str(fvg.get("candle_time", "")),
+            }
+        fvg = fvg_normalized
+        
+        # --- Cálculo de Niveles Centralizado (Maura SMC) ---
+        current_price = float(df['close'].iloc[-1])
+        atr = ta.ATR(df["high"], df["low"], df["close"], 14).iloc[-1]
+        setup = technical.calculate_fvg_setup(fvg, current_price, atr)
+
+        
+        entry = setup['entry']
+        sl = setup['sl']
+        direction = setup['direction']
         levels = technical.get_structural_levels(df, lookback=50)
         tp_ref = levels["high_zone"] if sweep["type"] == "LARGO" else levels["low_zone"]
         tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "LARGO" else "CORTO", minRR=min_rr_val)
@@ -160,6 +209,9 @@ class SilverBulletBot:
             logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
             return None
         
+        # Calcular Break Even inteligente
+        be_trigger = calculateBEPrice(entry, sl, tp, direction)
+
         self._signals_sent[sig_key] = True
         return Signal(
             strategy="SilverBullet",
@@ -176,5 +228,6 @@ class SilverBulletBot:
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp - entry) / sl_dist, 2),
+            break_even=be_trigger,
             metadata={"window": window_name, "fvg": fvg["type"], "adx": adx, "vela_origen": fvg.get("candle_time", "")}
         )

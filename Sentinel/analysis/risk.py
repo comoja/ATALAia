@@ -45,10 +45,9 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             logger.warning(f"[{symbolName}] Riesgo {riskInCurrency:.2f} < ${MIN_RISK_USD} USD mínimo - omitir señal")
             return None, None, 0
         
-        symbolMargin = symbolInfo.get('margen')
+        # Priorizar 'margen' de la BD (tabla SentinelSymbol), si no usar el genérico
+        margin_percent = float(symbolInfo.get('margen')) / 100.0 if symbolInfo.get('margen') is not None else 0.02
         symbolMinLots = symbolInfo.get('min_lots')
-        
-        margin_multiplier = float(symbolMargin) if symbolMargin else 0.025
         
         min_units = {
             "METALES": 1,
@@ -60,129 +59,101 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         
         if symbolMinLots is not None:
             min_lots_val = int(symbolMinLots)
-            min_units = {
-                "METALES": min_lots_val,
-                "INDICE": min_lots_val,
-                "CRYPTO": min_lots_val,
-                "MONEDA": min_lots_val,
-                "EXOTIC": min_lots_val
-            }
+            min_units = {k: min_lots_val for k in min_units.keys()}
         
-        min_margin_required = {
-            "METALES": min_units["METALES"] * margin_multiplier,
-            "INDICE": min_units["INDICE"] * margin_multiplier,
-            "CRYPTO": min_units["CRYPTO"] * margin_multiplier,
-            "MONEDA": min_units["MONEDA"] * margin_multiplier / 100,
-            "EXOTIC": min_units["EXOTIC"] * margin_multiplier / 100
-        }
-        
-        min_margin = min_margin_required.get(symbolType, margin_multiplier)
-        
-        if min_margin > capital:
-            logger.debug(f"[{symbolName}] Capital insuficiente para margen mínimo: {min_margin:.2f} > {capital}")
-            return None, None, 0
-        
-        def adjustForMargin(size, margin_mult, capital_available, risk_curr):
-            required = size * margin_mult
+        def adjustForMargin(size, m_percent, capital_available, risk_curr, min_lots, price=1.0):
+            # El margen se calcula sobre el valor nominal en la moneda de la cuenta: Unidades * Precio * Margen%
+            # En Forex USD/XXX, el precio es 1.0 si la cuenta es USD.
+            # En Oro XAU/USD, el precio es el precio del Oro.
+            required = size * price * m_percent
+                
             if required <= capital_available:
                 return size, risk_curr
             
-            max_size = capital_available / margin_mult
-            min_size = min_units.get(symbolType, 1.0)
-            
-            if max_size < min_size:
+            # Recalcular tamaño máximo basado en margen
+            max_size = math.floor(capital_available / (price * m_percent) / min_lots) * min_lots
+                
+            if max_size < min_lots:
                 return None, 0
             
             adjusted_risk = (max_size / size) * risk_curr if size > 0 else risk_curr
-            
-            if adjusted_risk > capital_available:
-                logger.warning(f"[{symbolName}] Riesgo real {adjusted_risk:.2f} > capital {capital_available:.2f} - ajustar ganancia en BD")
-                return None, 0
-            
-            logger.info(f"[{symbolName}] Auto-ajustado: size {size:.2f}→{max_size:.2f}, riesgo {risk_curr:.2f}→{adjusted_risk:.2f} (margen: {required:.2f} > {capital_available:.2f})")
             return max_size, adjusted_risk
-        
+
         # --- METALS (e.g., XAU/USD) ---
         if symbolType == "METALES":
-            pips = slDistance / 0.10
-            if pips <= 0:
-                return None, None, 0
-            units = riskInCurrency / (pips * 10)
-            units = max(min_units["METALES"], round(units, 2))
+            units = riskInCurrency / slDistance
+            min_lots = min_units.get("METALES", 1)
+            if min_lots > 0:
+                units = math.floor(units / min_lots) * min_lots
             
-            units, adjusted_risk = adjustForMargin(units, margin_multiplier, capital, riskInCurrency)
-            if units is None:
-                return None, None, 0
+            units, riskInCurrency = adjustForMargin(units, margin_percent, capital, riskInCurrency, min_lots, price=entryPrice)
+            if units is None: return None, None, 0
             
-            margin_used = margin_multiplier * min_units["METALES"] * entryPrice * units
-            return units, adjusted_risk, margin_used
+            margin_used = units * entryPrice * margin_percent
+            return units, riskInCurrency, margin_used
 
         # --- INDICE (e.g., US30, SP500) ---
         elif symbolType == "INDICE":
             contracts = riskInCurrency / slDistance
-            contracts = max(1.0, round(contracts, 1))
+            min_lots = min_units.get("INDICE", 1)
+            if min_lots > 0:
+                contracts = math.floor(contracts / min_lots) * min_lots
             
-            contracts, riskInCurrency = adjustForMargin(contracts, margin_multiplier, capital, riskInCurrency)
-            if contracts is None:
-                return None, None, 0
+            contracts, riskInCurrency = adjustForMargin(contracts, margin_percent, capital, riskInCurrency, min_lots, price=entryPrice)
+            if contracts is None: return None, None, 0
             
-            margin_used = margin_multiplier * min_units["INDICE"] * entryPrice * contracts
+            margin_used = contracts * entryPrice * margin_percent
             return contracts, riskInCurrency, margin_used
 
         # --- CRYPTO (e.g., BTC/USD) ---
         elif symbolType == "CRYPTO":
             units = riskInCurrency / slDistance
-            units = max(0.01, round(units, 4))
+            min_lots = min_units.get("CRYPTO", 0.01)
+            if min_lots > 0:
+                units = math.floor(units / min_lots) * min_lots
             
-            units, riskInCurrency = adjustForMargin(units, margin_multiplier, capital, riskInCurrency)
-            if units is None:
-                return None, None, 0
+            units, riskInCurrency = adjustForMargin(units, margin_percent, capital, riskInCurrency, min_lots, price=entryPrice)
+            if units is None: return None, None, 0
             
-            margin_used = margin_multiplier * min_units["CRYPTO"] * entryPrice * units
+            margin_used = units * entryPrice * margin_percent
             return units, riskInCurrency, margin_used
 
-        # --- FOREX (e.g., EUR/USD) ---
+        # --- FOREX (e.g., EUR/USD, USD/MXN) ---
         else:
-            symbolData = dbManager.getSymbol(symbolInfo.get('symbol', ''))
-            if symbolData and 'pip' in symbolData and symbolData['pip'] is not None:
-                pipValue = float(symbolData['pip'])
-            else:
-                pipValue = 0.01 if "JPY" in symbolName else 0.0001
+            symbolData = dbManager.getSymbol(symbolName)
+            pipValue = float(symbolData['pip']) if symbolData and symbolData.get('pip') else (0.01 if "JPY" in symbolName else 0.0001)
             pipsDistance = slDistance / pipValue
             
-            if pipsDistance == 0:
-                return None, None, 0
+            if pipsDistance == 0: return None, None, 0
 
-            valuePerPip = 10
+            quote_curr = symbolInfo.get('quote_currency', 'USD')
+            base_pip_value = 1000.0 if quote_curr == 'JPY' else 10.0 # Valor por 1 lote (100k)
+            
+            if quote_curr == 'USD':
+                valuePerPip = base_pip_value
+            elif symbolName.startswith("USD/"):
+                valuePerPip = base_pip_value / entryPrice
+            else:
+                valuePerPip = base_pip_value
+
             lots = riskInCurrency / (pipsDistance * valuePerPip)
-            # 1 Standard Lot = 100,000 units
             units = lots * 100000
-            units = float(max(min_units.get("MONEDA", 1000), int(round(units))))
             
-            def adjustForex(size_units, margin_mult, capital_avail, risk_curr):
-                required = (size_units / 100000) * 1000 * margin_mult # Aprox margin
-                if required <= capital_avail:
-                    return size_units, risk_curr
-                max_size_units = (capital_avail / (1000 * margin_mult)) * 100000
-                min_forex = min_units.get("MONEDA", 1000)
-                if max_size_units < min_forex:
-                    return None, 0
-                adjusted_risk = (max_size_units / size_units) * risk_curr if size_units > 0 else risk_curr
-                
-                if adjusted_risk > capital_avail:
-                    logger.warning(f"[{symbolName}] Riesgo real {adjusted_risk:.2f} > capital {capital_avail:.2f} - ajustar ganancia en BD")
-                    return None, 0
-                
-                logger.info(f"[{symbolName}] Auto-ajustado FOREX: size {size_units:.0f}→{max_size_units:.0f}, riesgo {risk_curr:.2f}→{adjusted_risk:.2f}")
-                return max_size_units, adjusted_risk
+            min_lots = min_units.get("MONEDA", 1000)
+            units = math.floor(units / min_lots) * min_lots
             
-            units, riskInCurrency = adjustForex(units, margin_multiplier, capital, riskInCurrency)
-            if units is None:
-                return None, None, 0
+            # Ajuste de Margen para Forex
+            is_usd_base = symbolName.startswith("USD/")
+            units, riskInCurrency = adjustForMargin(
+                units, margin_percent, capital, riskInCurrency, min_lots, 
+                price=entryPrice if not is_usd_base else 1.0
+            )
+            if units is None: return None, None, 0
             
-            margin_used = margin_multiplier * min_units["MONEDA"] * entryPrice * (units / 1000)
+            margin_used = units * (entryPrice if not is_usd_base else 1.0) * margin_percent
             
             return int(units), riskInCurrency, margin_used
+
 
     except Exception as e:
         logger.error(f"Error en calculatePositionSize: {e}", exc_info=True)

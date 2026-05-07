@@ -30,6 +30,7 @@ from Sentinel.core.SilverBullet import SilverBulletBot
 from Sentinel.core.ImbalancePMNY import ImbalancePMNYBot
 from Sentinel.core.GenericFVG import GenericFVGBot
 from Sentinel.core.FVGDiario import FVGDiarioBot
+from Sentinel.core.SpeedBot import SpeedBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
@@ -165,7 +166,7 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
     global _weekly_trend_cache
     _weekly_trend_cache = {}
     
-    logger.info("Cargando tendencias mensuales (últimos {} dias)...".format(diasTendencia))
+    logger.info("✅ Cargando tendencias mensuales (últimos {} dias)...".format(diasTendencia))
     
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
@@ -217,7 +218,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, interval, nVelas):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, interval, nVelas):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
@@ -349,6 +350,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        tasks.append(speed_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
 
 
@@ -428,8 +430,9 @@ async def main():
     sesgo_bias_htf_bot = SesgoBiasHTFBot()
     silver_bullet_bot = SilverBulletBot()
     imbalance_pm_bot  = ImbalancePMNYBot()
-    generic_fvg_bot = GenericFVGBot()
+    generic_fvg_bot = GenericFVGBot(intervals=['5min', '15min', '1h', '4h'])
     fvg_diario_bot = FVGDiarioBot()
+    speed_bot = SpeedBot(intervals=['5min', '15min'])
     
     _weekly_trends_loaded_today = None  # Track fecha de última carga
     _ml_retrained_today = None  # Track fecha de último retraining
@@ -465,7 +468,7 @@ async def main():
                     except Exception as e:
                         logger.error(f"Error en auto-reentrenamiento: {e}")
                 
-                await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
+                await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
                 
                 await getTiempoEspera(5)
             else:

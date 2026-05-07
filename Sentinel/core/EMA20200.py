@@ -10,7 +10,7 @@ import pytz
 from middleware.database import dbManager
 from Sentinel.analysis import technical
 from Sentinel.analysis.technical import resample_to_interval, check_tp_exhaustion, check_signal_health
-from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateRR
+from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateRR, calculateBEPrice
 
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
@@ -117,6 +117,9 @@ class EMA20200Bot:
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
         mom_bonus, _ = momentum.getMomentumBonus(mom_state, direction)
         
+        # Calcular Break Even inteligente
+        be_trigger = calculateBEPrice(price, sl_price, tp_price, direction)
+
         return Signal(
             strategy="EMA20200",
             symbol=symbol,
@@ -132,5 +135,6 @@ class EMA20200Bot:
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp_price - price)/sl_dist, 2),
+            break_even=be_trigger,
             metadata={"prob": prob, "momentum": mom_state}
         )

@@ -25,7 +25,7 @@ from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.utils import momentum
-from middleware.utils.alertBuilder import buildSMAAlertMessage, adjustTPForMinRR, getPipMultiplier
+from middleware.utils.alertBuilder import buildSMAAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateBEPrice
 from middleware.database import dbManager
 from Sentinel.data.dataLoader import getParametros
 from middleware.config.constants import TIMEZONE
@@ -438,16 +438,24 @@ class SMABot:
 
         strat_config = dbManager.getStrategyConfig("SMA20_200") or {}
         min_rr_val = float(strat_config.get('min_rr', 1.5))
+
+        multiplier = getPipMultiplier(symbol)
+        risk_usd = float(strat_config.get('risk_usd', 100.0))
+        size = (risk_usd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
+
         # --- FILTRO: Ganancia Mínima Est. ---
         min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
-        rr_ratio = round(abs(take_profit - close) / abs(close - stop_loss), 2)
-        expected_profit = (abs(close - stop_loss) * multiplier * size) * rr_ratio
+        rr_ratio = round(abs(take_profit - close) / sl_dist, 2)
+        expected_profit = (sl_dist * multiplier * size) * rr_ratio
         if expected_profit < min_usd_profit:
             logger.info(f"[{symbol}] SMA20_200: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
             return None
 
         min_confidence = float(strat_config.get('min_confidence', 70))
         take_profit = adjustTPForMinRR(close, stop_loss, take_profit, direction, minRR=min_rr_val)
+        
+        # Calcular Break Even inteligente
+        be_trigger = calculateBEPrice(close, stop_loss, take_profit, direction)
         
         # Calcular confianza
         confianza = int(prob * 100) + bb_bonus + momentum_bonus
@@ -489,6 +497,7 @@ class SMABot:
             intervalo=intervalo,
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(rr_actual, 2),
+            break_even=be_trigger,
             metadata={
                 "tendencia": tendencia,
                 "volumenAnormal": vol_anormal,

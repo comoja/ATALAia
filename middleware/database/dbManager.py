@@ -607,6 +607,21 @@ def getOpenTradesBySymbol(symbol: str) -> list:
         logger.error(f"❌ Error en getOpenTradesBySymbol: {e}")
         return []
 
+def updateTradeLevels(id_trade: int, stop_loss: float, take_profit: float):
+    """Actualiza los niveles de SL y TP de un trade abierto."""
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor()
+        sql = "UPDATE trades SET stopLoss = %s, takeProfit = %s WHERE idTrade = %s"
+        cursor.execute(sql, (stop_loss, take_profit, id_trade))
+        conn.commit()
+        conn.close()
+        logger.info(f"✅ Trade {id_trade} actualizado: SL={stop_loss}, TP={take_profit}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error al actualizar niveles del trade {id_trade}: {e}")
+        return False
+
 def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
     try:
         conn = dbConnection.getConnection()

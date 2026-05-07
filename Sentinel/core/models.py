@@ -21,6 +21,8 @@ class Signal:
     take_profit2: Optional[float] = None
     take_profit3: Optional[float] = None
     risk_factor: float = 1.0
+    is_adjustment: bool = False
+    break_even: Optional[float] = None
     
     # Metrics for building alerts and logging
     riesgo_pips: Optional[float] = None
@@ -55,5 +57,7 @@ class Signal:
             "candleTime": self.candleTime,
             "intervalo": self.intervalo,
             "profit": self.profit,
+            "is_adjustment": self.is_adjustment,
+            "break_even": self.break_even,
             **self.metadata
         }

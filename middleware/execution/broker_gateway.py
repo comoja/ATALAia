@@ -195,22 +195,26 @@ class BrokerGateway:
                 return False, "drawdown_superado"
 
         # 3. Verificar TRADE DUPLICADO antes de Telegram (mismo symbol, strategy, intervalo, direction, size)
-        is_dup = dbManager.is_trade_duplicate(
-            trade_data['symbol'],
-            strategy_name,
-            trade_data.get('intervalo', '15min'),
-            trade_data['direction'],
-            trade_data['size'],
-            trade_data.get('idCuenta')
-        )
-        if is_dup:
-            logger.warning(f"⏭️ Trade duplicado detectado: {trade_data['symbol']} | {strategy_name} | {trade_data['direction']} | size={trade_data['size']} - Omitiendo Telegram y DB")
-            return exec_success, "DUPLICATE_TRADE"
+        is_adjustment = signal.get('is_adjustment', False)
+        
+        if not is_adjustment:
+            is_dup = dbManager.is_trade_duplicate(
+                trade_data['symbol'],
+                strategy_name,
+                trade_data.get('intervalo', '15min'),
+                trade_data['direction'],
+                trade_data['size'],
+                trade_data.get('idCuenta')
+            )
+            if is_dup:
+                logger.warning(f"⏭️ Trade duplicado detectado: {trade_data['symbol']} | {strategy_name} | {trade_data['direction']} | size={trade_data['size']} - Omitiendo Telegram y DB")
+                return exec_success, "DUPLICATE_TRADE"
 
         # 3.1 Verificar si la alerta ya fue enviada ANTES de guardar en DB (por símbolo + estrategia + vela + cuenta)
+        # Para AJUSTES permitimos re-enviar la alerta aunque la vela sea la misma
         candle_time = trade_data.get('candleTime')
         id_cuenta = trade_data.get('idCuenta')
-        if candle_time and dbManager.is_alert_sent(trade_data['symbol'], strategy_name, candle_time, id_cuenta):
+        if not is_adjustment and candle_time and dbManager.is_alert_sent(trade_data['symbol'], strategy_name, candle_time, id_cuenta):
             logger.info(f"⏭️ Alerta ya enviada para {trade_data['symbol']} | {strategy_name} | cuenta {id_cuenta} | {candle_time} - Omitiendo.")
             return exec_success, "ALREADY_SEND"
 
@@ -232,9 +236,16 @@ class BrokerGateway:
         # 5. Registro en Base de Datos (solo si se envió Telegram exitosamente)
         if msg_id:
             try:
-                dbManager.buscaTrade(trade_data)
+                if is_adjustment and trade_data.get('idTrade'):
+                    dbManager.updateTradeLevels(
+                        trade_data['idTrade'], 
+                        trade_data['stopLoss'], 
+                        trade_data['takeProfit']
+                    )
+                else:
+                    dbManager.buscaTrade(trade_data)
             except Exception as e:
-                logger.error(f"⚠️ Error al registrar trade en DB: {e} (Continuando con alerta...)")
+                logger.error(f"⚠️ Error al registrar/actualizar trade en DB: {e} (Continuando con alerta...)")
 
         return exec_success, msg_id
 

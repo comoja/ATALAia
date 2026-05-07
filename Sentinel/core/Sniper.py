@@ -20,7 +20,7 @@ from Sentinel.analysis import technical, risk
 from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
-from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR
+from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR, calculateBEPrice
 from middleware.database import dbManager
 from middleware.scheduler.autoScheduler import getTiempoEspera, isRestTime
 from Sentinel.data.dataLoader import getParametros
@@ -322,9 +322,11 @@ class SniperBot:
         if direction == "LARGO":
             stop_loss = entry_price - sl_distance
             take_profit = entry_price + (sl_distance * 2)  # RR 1:2
+            break_even = entry_price + sl_distance
         else:
             stop_loss = entry_price + sl_distance
             take_profit = entry_price - (sl_distance * 2)  # RR 1:2
+            break_even = entry_price - sl_distance
         
         multiplier = getPipMultiplier(symbol)
         risk_usd = float(strat_config.get('risk_usd', 100.0))
@@ -381,6 +383,8 @@ class SniperBot:
         confianza = min(100, max(0, confianza))
         metrics.update({"atr": float(currentAtr)})
         
+        break_even = calculateBEPrice(close, slPrice, tpPrice, direction)
+        
         return Signal(
             strategy="Sniper",
             symbol=symbol,
@@ -396,6 +400,7 @@ class SniperBot:
             intervalo=symbolInfo.get('intervalo', '15min'),
             riesgo_pips=round(sl_dist * getPipMultiplier(symbol), 1),
             rr_ratio=round(calculateRR(close, slPrice, tpPrice), 2),
+            break_even=break_even,
             metadata={
                 "ob_score": ob_score,
                 "in_ob_zone": ob_conf_data['in_ob_zone'],

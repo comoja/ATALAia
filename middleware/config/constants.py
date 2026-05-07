@@ -11,7 +11,7 @@ import numpy as np
 
 SYMBOLS = np.array(["USD/MXN", "XAU/USD"])
 timeframes = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-FESTIVOS = ["2026-01-01", "2026-12-25", "2026-05-01"]
+FESTIVOS = ["2026-01-01", "2026-12-25"]
 
 API_KEYS = [
     "98c13fd2d0714dc984ca2791e9e3d521",
@@ -97,3 +97,4 @@ PRODUCTION_MODE = False # Cambiar a True para ejecución real en Broker
 
 # --- Risk & Safety ---
 MAX_SIGNAL_AGE_MINUTES = 45 # Tiempo máximo permitido desde la vela origen hasta la ejecución
+MAX_RISK_PER_TRADE = 10.0 # Riesgo máximo permitido por operación (% del capital)

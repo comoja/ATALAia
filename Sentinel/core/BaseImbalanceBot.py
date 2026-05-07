@@ -12,7 +12,7 @@ from middleware.database import dbManager
 from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
 from middleware.utils import momentum
 
-from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, calculateRR
+from middleware.utils.alertBuilder import adjustTPForMinRR, getPipMultiplier, calculateRR, calculateBEPrice
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.core.models import Signal
@@ -263,6 +263,9 @@ class BaseImbalanceBot:
             
             # --- FILTRO: Ganancia Mínima Estimada ---
             strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
+            risk_usd = float(strat_config.get('risk_usd', 100.0))
+            size = (risk_usd / (distancia_sl * multiplier)) if (distancia_sl > 0 and multiplier > 0) else 0
+
             min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
             rr_ratio = round(calculateRR(entryPrice, stopLoss, tp_final), 2)
             expected_profit = (distancia_sl * multiplier * size) * rr_ratio # Cálculo real basado en size
@@ -275,6 +278,9 @@ class BaseImbalanceBot:
             if base_confidence < min_confidence:
                 logger.info(f"[{symbol}] {self.strategy_name}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
                 continue
+            
+            # Calcular Break Even inteligente
+            be_trigger = calculateBEPrice(entryPrice, stopLoss, tp_final, signalDirection)
             
             signals.append(Signal(
                 strategy=self.strategy_name,
@@ -291,6 +297,7 @@ class BaseImbalanceBot:
                 intervalo="5min",
                 riesgo_pips=round(distancia_sl * multiplier, 1),
                 rr_ratio=round(calculateRR(entryPrice, stopLoss, tp_final), 2),
+                break_even=be_trigger,
                 metadata={
                     "fvg": fvg['type'],
                     "fvgNum": idx + 1,

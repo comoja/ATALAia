@@ -20,7 +20,7 @@ from middleware.execution.broker_gateway import gateway
 from middleware.utils import momentum
 from Sentinel.analysis import technical, risk
 from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
-from middleware.utils.alertBuilder import getPipMultiplier
+from middleware.utils.alertBuilder import getPipMultiplier, calculateBEPrice
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -256,21 +256,23 @@ class FVGDiarioBot:
                 logger.info(f"[{symbol}] Señal descartada: ADX={adx_value:.1f} (< 20)")
                 return None
         
-        # Calcular niveles
-        entry_price = float(fvg['mid'])
-        
-        strat_config = dbManager.getStrategyConfig("FVGDiario") or {}
+        # Calcular niveles usando la función centralizada
+        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
         min_rr_val = float(strat_config.get('min_rr', 2.0))
         min_confidence = float(strat_config.get('min_confidence', 70))
         
-        if daily_bias == "LARGO":
-            stop_loss = float(fvg['bottom'])
-            take_profit = entry_price + (entry_price - stop_loss) * min_rr_val
-            direction = "LARGO"
-        else:
-            stop_loss = float(fvg['top'])
-            take_profit = entry_price - (stop_loss - entry_price) * min_rr_val
-            direction = "CORTO"
+        atr = 0
+        if df is not None:
+            atr_series = ta.ATR(df['high'], df['low'], df['close'], 14).dropna()
+            atr = atr_series.iloc[-1] if not atr_series.empty else 0
+            
+        current_price = float(df['close'].iloc[-1]) if df is not None else float(fvg['mid'])
+        setup_fvg = technical.calculate_fvg_setup(fvg, current_price, atr)
+        
+        entry_price = setup_fvg['entry']
+        stop_loss = setup_fvg['sl']
+        direction = setup_fvg['direction']
+        take_profit = entry_price + (entry_price - stop_loss) * min_rr_val if direction == "LARGO" else entry_price - (stop_loss - entry_price) * min_rr_val
         
         sl_distance = abs(entry_price - stop_loss)
         
@@ -305,6 +307,22 @@ class FVGDiarioBot:
             logger.info(f"[{symbol}] Señal CORTO descartada - tendencia mensual ALCISTA")
             return None
         
+        # ── FILTRO: Ganancia Mínima Estimada ──
+        multiplier = getPipMultiplier(symbol)
+        risk_usd = float(strat_config.get('risk_usd', 100.0))
+        size = (risk_usd / (sl_distance * multiplier)) if (sl_distance > 0 and multiplier > 0) else 0
+
+        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        rr_ratio = round(abs(take_profit - entry_price) / sl_distance, 2)
+        expected_profit = (sl_distance * multiplier * size) * rr_ratio
+        
+        if expected_profit < min_usd_profit:
+            logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+            return None
+
+        # Calcular Break Even inteligente
+        be_trigger = calculateBEPrice(entry_price, stop_loss, take_profit, direction)
+
         # Marcar como enviada
         self._sent_signals[signal_key] = True
         
@@ -321,8 +339,9 @@ class FVGDiarioBot:
             status="EN ZONA ✅",
             candleTime=fvg['timestamp'],
             intervalo="15min",
-            riesgo_pips=round(sl_distance * getPipMultiplier(symbol), 1),
-            rr_ratio=round(abs(take_profit - entry_price) / sl_distance, 2),
+            riesgo_pips=round(sl_distance * multiplier, 1),
+            rr_ratio=rr_ratio,
+            break_even=be_trigger,
             metadata={
                 "daily_bias": daily_bias,
                 "pdh": pdh,

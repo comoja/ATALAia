@@ -25,12 +25,13 @@ from middleware.database.dbManager import DatabaseManager, get_api_usage, update
 
 logger = logging.getLogger("dataSymbol")
 
-# Límites por cuenta (Twelvedata Free/Basic Standard)
-RATE_LIMIT_PER_MINUTE = 7
-RATE_LIMIT_PER_DAY = 750
-# Tiempo de espera dinámico: si hay 4 cuentas, podemos disparar cada 60/(7*4) segundos
+# Límites por cuenta (Twelvedata Basic - 4 cuentas)
+# Real: 8 llamadas/min, 800/día por cuenta → 32/min y 3,200/día en total
+RATE_LIMIT_PER_MINUTE = 8   # Límite real por cuenta
+RATE_LIMIT_PER_DAY = 800    # Límite real por cuenta
 TOTAL_ACCOUNTS = len(API_KEYS)
-SLEEP_BETWEEN_CALLS = max(1.0, 60 / (RATE_LIMIT_PER_MINUTE * TOTAL_ACCOUNTS)) 
+# Delay mínimo entre llamadas para no exceder el límite por minuto combinado
+SLEEP_BETWEEN_CALLS = max(1.0, 60 / (RATE_LIMIT_PER_MINUTE * TOTAL_ACCOUNTS))
 
 DAYS_PER_CALL = 30
 ACCOUNT_NAMES = ["Jaime", "Raul", "Sebastian", "Ana"]
@@ -155,7 +156,7 @@ class MultiAccountRateLimiter:
         for key, name in zip(self.apiKeys, self.accountNames):
             rem_day = RATE_LIMIT_PER_DAY - self.callsToday[key]
             min_now = len([t for t in self.callsThisMinute[key] if time.time() - t < 60])
-            status_lines.append(f"{name}: {self.callsToday[key]}/750 (Min: {min_now}/7)")
+            status_lines.append(f"{name}: {self.callsToday[key]}/{RATE_LIMIT_PER_DAY} (Min: {min_now}/{RATE_LIMIT_PER_MINUTE})")
         return " | ".join(status_lines)
 
     def allExhausted(self) -> bool:

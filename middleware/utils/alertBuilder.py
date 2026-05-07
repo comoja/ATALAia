@@ -41,6 +41,29 @@ def adjustTPForMinRR(entry: float, sl: float, tp: float, direction: str, minRR: 
             return entry - (riesgo * minRR)
     return tp
 
+def calculateBEPrice(entry: float, sl: float, tp: float, direction: str) -> float:
+    """
+    Calcula el precio de activación de Break Even.
+    - Por defecto intenta un Ratio 1:1.
+    - Si el TP está más cerca que el 1:1 (RR < 1), pone el BE al 50% del camino al TP.
+    """
+    riesgo = abs(entry - sl)
+    recompensa = abs(tp - entry)
+    
+    if riesgo == 0: return entry
+
+    # Si la recompensa es menor al riesgo (RR < 1), usamos la mitad de la recompensa
+    if recompensa < riesgo:
+        trigger_dist = recompensa * 0.5
+    else:
+        # Estándar: 1:1 RR
+        trigger_dist = riesgo
+        
+    if direction.upper() == "LARGO":
+        return entry + trigger_dist
+    else:
+        return entry - trigger_dist
+
 def buildAlertMessage(
     signal: dict,
     trade: dict,
@@ -53,50 +76,59 @@ def buildAlertMessage(
     
     # Mapeo estricto: LARGO = COMPRA, CORTO = VENTA
     directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
+    is_adjustment = signal.get('is_adjustment', False)
+    
+    if is_adjustment:
+        title_base = "SEÑAL DE AJUSTE"
+    else:
+        title_base = f"SEÑAL DE {directionStr}"
+
     colorHeader = "🟩" if direction == "LARGO" else "🟥"
     
     close = signal.get('entryPrice', signal.get('entrada', 0))
     tp = trade.get('takeProfit', signal.get('take_profit', 0))
     sl = trade.get('stopLoss', signal.get('stop_loss', 0))
+    be = signal.get('break_even', trade.get('break_even'))
+    
     confianza = signal.get('confidence', signal.get('confianza', 0))
     setup = signal.get('setup', signal.get('tipo_entrada', 'N/A'))
 
+    header = f"{colorHeader}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeader}"
+
+    text = (
+        f"{header}\n"
+        f"<i><b><center>{strategyName}</center></b></i>\n"
+        f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
+        f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"<center>Setup: <b>{setup}</b></center>\n"
+        f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
+        f"━━━━━━━━━━━━━━━\n"
+    )
+
     if direction == "LARGO":
-        text = (
-            f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>SEÑAL DE {directionStr}</b> "
-            f"{colorHeader}{colorHeader}{colorHeader}\n"
-            f"<i><b><center>{strategyName}</center></b></i>\n"
-            f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
-            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"<center>Setup: <b>{setup}</b></center>\n"
-            f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"            
+        text += (
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+        )
+        if be:
+            text += f"🟠 BREAK EVEN:  <b>{be:,.5f}</b>\n"
+        text += (
             f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
             f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
-            f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
         )
     else:
-        text = (
-            f"{colorHeader}{colorHeader}{colorHeader} "
-            f"<b>SEÑAL DE {directionStr}</b> "
-            f"{colorHeader}{colorHeader}{colorHeader}\n"
-            f"<i><b><center>{strategyName}</center></b></i>\n"
-            f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
-            f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"<center>Setup: <b>{setup}</b></center>\n"
-            f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
-            f"━━━━━━━━━━━━━━━\n"
+        text += (
             f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
             f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
-            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
-            f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
-            f"━━━━━━━━━━━━━━━\n"
         )
+        if be:
+            text += f"🟠 BREAK EVEN:  <b>{be:,.5f}</b>\n"
+        text += (
+            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
+        )
+
+    text += f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
+    text += f"━━━━━━━━━━━━━━━\n"
     
     if extraFields:
         for key, value in extraFields.items():
@@ -351,6 +383,7 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
         'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Confirmación': 'Price Action',
