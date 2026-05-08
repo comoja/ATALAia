@@ -204,6 +204,26 @@ class SilverBulletBot:
             logger.info(f"[{symbol}] SilverBullet: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
             return None
 
+        # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
+        from Sentinel.analysis import risk
+        refCapital = symbolInfo.get('refCapital', 10000.0)
+        refRiskPct = symbolInfo.get('refRiskPct', 1.0)
+        
+        # Usar precio actual como entrada real
+        realEntry = current_price
+        realRiskDist = abs(realEntry - sl)
+        
+        size, riskUsdActual, marginUsed = risk.calculatePositionSize(
+            refCapital, refRiskPct, realRiskDist, symbolInfo, entryPrice=realEntry
+        )
+        
+        if size is None or size <= 0:
+            logger.info(f"[{symbol}] SilverBullet: Tamaño de posición inválido o margen insuficiente - descartando")
+            return None
+            
+        rrRatio = round(abs(tp - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+        expectedProfit = riskUsdActual * rrRatio
+        
         base_confidence = 80
         if base_confidence < min_confidence:
             logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
@@ -216,18 +236,26 @@ class SilverBulletBot:
         return Signal(
             strategy="SilverBullet",
             symbol=symbol,
-            direction="LARGO" if sweep["type"] == "LARGO" else "CORTO",
-            entry_price=entry,
+            direction=direction,
+            entry_price=realEntry,
             stop_loss=sl,
             take_profit=tp,
-            sl_distance=sl_dist,
+            sl_distance=realRiskDist,
             confidence=base_confidence,
             setup=f"Silver Bullet {window['emoji']} {window['label']}",
             status="EN ZONA ✅",
-            candleTime=get_last_closed_candle(self._now_mx(), 5).strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=(lambda x: x.name if hasattr(x, 'name') else x)(get_last_closed_candle(self._now_mx(), 5, df=df)).strftime("%Y-%m-%d %H:%M:%S"),
             intervalo="5min",
-            riesgo_pips=round(sl_dist * multiplier, 1),
-            rr_ratio=round(abs(tp - entry) / sl_dist, 2),
-            break_even=be_trigger,
-            metadata={"window": window_name, "fvg": fvg["type"], "adx": adx, "vela_origen": fvg.get("candle_time", "")}
+            riesgo_pips=round(realRiskDist * multiplier, 1),
+            rr_ratio=rrRatio,
+            break_even=calculateBEPrice(realEntry, sl, tp, direction),
+            size=size,
+            metadata={
+                "riskUsd": round(riskUsdActual, 2),
+                "expectedProfit": round(expectedProfit, 2),
+                "marginUsed": round(marginUsed, 2),
+                "adx": adx,
+                "vela_origen": fvg.get("candle_time", "")
+            }
         )
+

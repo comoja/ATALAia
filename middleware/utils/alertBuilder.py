@@ -128,7 +128,10 @@ def buildAlertMessage(
         )
 
     text += f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
+    if trade.get('margin_used'):
+        text += f"     MARGEN EST: <b>${trade['margin_used']:,.2f} USD</b>\n"
     text += f"━━━━━━━━━━━━━━━\n"
+
     
     if extraFields:
         for key, value in extraFields.items():
@@ -224,7 +227,6 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
-    
     tp1 = signal.get('tp1', signal.get('takeProfit'))
     tp2 = signal.get('tp2', signal.get('takeProfit2'))
     tp_final = signal.get('tp_final', signal.get('takeProfit3'))
@@ -233,16 +235,15 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0) or 0,
         'RR Ratio': signal.get('rr_ratio', 0) or 0,
-        'Riesgo Máx:': f"${(signal.get('profit') or 0):.2f} USD",
-        'Beneficio Est:': f"${((signal.get('profit') or 0) * (signal.get('rr_ratio') or 0)):.2f} USD",
-        'Confirmación': signal.get('timeframe_confirmacion', 'N/A'),
-        'TF Señal': signal.get('timeframe_entrada', '15M'),
-        'Vela Origen': signal.metadata.get('vela_origen', signal.metadata.get('candleTime', 'N/A')),
-        'Momentum': momentum,
-        'TP1': round(tp1, 5) if tp1 and tp1 > 0 else 0.0,
-        'TP2': round(tp2, 5) if tp2 and tp2 > 0 else 0.0,
-        'TP3': round(tp_final, 5) if tp_final and tp_final > 0 else 0.0
+        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
+        'Beneficio Est:': f"${signal.get('expectedProfit', (signal.get('profit') or 0) * (signal.get('rr_ratio') or 0)):.2f} USD",
+        'Vela Origen': signal.get('velaOrigen', signal.get('candleTime', 'N/A')),
+        'Momentum': momentum
     }
+    
+    if tp1: extraFields['TP1'] = round(tp1, 5)
+    if tp2: extraFields['TP2'] = round(tp2, 5)
+    if tp_final: extraFields['TP3'] = round(tp_final, 5)
     
     return buildAlertMessage(
         signal=signal,
@@ -250,6 +251,7 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="PATTERN 4H HTF",
         extraFields=extraFields
     )
+
 
 
 def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
@@ -330,20 +332,16 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
     )
 
 def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
-    ote_text = "✅ CONFIRMADA" if signal.get('ote_ok') else "⚠️ FUERA DE ZONA"
     momentum = signal.get('momentum', '☁️ NEUTRAL')
-    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
-        'Ventana': signal.get('window_label', 'N/A'),
+        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
+        'Beneficio Est:': f"${signal.get('expectedProfit', signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Ventana': signal.get('window', 'N/A'),
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
-        'OTE': ote_text,
-        'Sweep': signal.get('sweep_type', 'N/A'),
         'ADX': signal.get('adx', 0),
         'Momentum': momentum
     }
@@ -354,6 +352,7 @@ def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="SILVER BULLET ICT",
         extraFields=extraFields
     )
+
 
 def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
@@ -382,10 +381,10 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
         'Estado': signal.get('status', 'ACTIVA ✅'),
         'Riesgo Pips': signal.get('riesgo_pips', 0),
         'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
+        'Beneficio Est:': f"${signal.get('expectedProfit', signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
+        'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Confirmación': 'Price Action',
         'TF Señal': trade.get('intervalo', 'N/A'),
         'Momentum': momentum
@@ -397,6 +396,7 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="FVG GENERICO",
         extraFields=extraFields
     )
+
 
 def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
     """Mensaje para estrategia FVGDiario - Manipulación + Daily Bias"""

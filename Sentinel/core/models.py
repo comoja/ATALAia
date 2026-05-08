@@ -29,6 +29,8 @@ class Signal:
     rr_ratio: Optional[float] = None
     profit: Optional[float] = None # Risk in USD (will be calculated by engine)
     
+    size: Optional[float] = None
+    
     # Additional strategy-specific metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
     
@@ -57,7 +59,9 @@ class Signal:
             "candleTime": self.candleTime,
             "intervalo": self.intervalo,
             "profit": self.profit,
+            "size": self.size,
             "is_adjustment": self.is_adjustment,
             "break_even": self.break_even,
             **self.metadata
         }
+

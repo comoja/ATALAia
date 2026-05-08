@@ -222,7 +222,9 @@ class Patron4HBot:
         if not is_valid: return None
         
         current_price = float(df_15m['close'].iloc[-1])
-        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15).strftime("%Y-%m-%d %H:%M:%S")
+        last_v = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15, df=df_15m)
+        candle_time = (last_v.name if hasattr(last_v, 'name') else last_v).strftime("%Y-%m-%d %H:%M:%S")
+
         is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=3.5, candle_time=candle_time)
         if not is_valid: return None
         
@@ -243,16 +245,29 @@ class Patron4HBot:
         candleTime = candle_time
         
         base_confidence = 70 + mom_bonus
-        # --- FILTRO: Ganancia Mínima Est. ---
-        risk_usd = float(strat_config.get('risk_usd', 100.0))
-        size = (risk_usd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
+        # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
+        from Sentinel.analysis import risk
+        refCapital = symbolInfo.get('refCapital', 10000.0)
+        refRiskPct = symbolInfo.get('refRiskPct', 1.0)
         
-        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
-        rr_ratio = round(abs(tp_final_val - entry) / sl_dist, 2)
-        # El riesgo total se divide entre los 3 TPs
-        expected_profit = (sl_dist * multiplier * (size/3)) * rr_ratio
-        if expected_profit < min_usd_profit:
-            logger.info(f"[{symbol}] Patron4h: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+        # Usar precio actual como entrada real
+        realEntry = current_price
+        realRiskDist = abs(realEntry - sl)
+        
+        totalSize, riskUsdActual, marginUsed = risk.calculatePositionSize(
+            refCapital, refRiskPct, realRiskDist, symbolInfo, entryPrice=realEntry
+        )
+        
+        if totalSize is None or totalSize <= 0:
+            logger.info(f"[{symbol}] Patron4h: Tamaño de posición inválido o margen insuficiente - descartando")
+            return None
+            
+        rrRatio = round(abs(tp_final_val - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+        expectedProfit = riskUsdActual * rrRatio
+        
+        minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+        if expectedProfit < minUsdProfit:
+            logger.info(f"[{symbol}] Patron4h: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando")
             return None
 
         min_confidence = float(strat_config.get('min_confidence', 70))
@@ -260,8 +275,10 @@ class Patron4HBot:
             logger.info(f"[{symbol}] Patron4h: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
             return None
         
-        # Calcular Break Even inteligente
-        be_trigger = calculateBEPrice(entry, sl, tp_final_val, direction)
+        import math
+        sizePerTp = math.floor((totalSize / 3) / 1000) * 1000 if "JPY" not in symbol else math.floor(totalSize / 3)
+        if sizePerTp < 1000 and "JPY" not in symbol: sizePerTp = 1000
+
 
         signals = []
         tp_configs = [
@@ -272,32 +289,30 @@ class Patron4HBot:
         
         for suffix, tp_val, setup_label in tp_configs:
             signals.append(Signal(
-                strategy=f"Patron4h_{suffix}", # Nombre único por TP para independencia total
+                strategy=f"Patron4h_{suffix}",
                 symbol=symbol,
                 direction=direction,
-                entry_price=entry,
+                entry_price=realEntry,
                 stop_loss=sl,
                 take_profit=tp_val,
-                sl_distance=sl_dist,
-                risk_factor=0.33, 
+                sl_distance=realRiskDist,
+                risk_factor=0.33,
                 confidence=base_confidence,
                 setup=setup_label,
                 status="EN ZONA ✅",
                 candleTime=candleTime,
                 intervalo="15min",
-                riesgo_pips=round(sl_dist * multiplier, 1),
-                rr_ratio=round(abs(tp_val - entry) / sl_dist, 2),
-                break_even=be_trigger,
+                riesgo_pips=round(realRiskDist * multiplier, 1),
+                rr_ratio=round(abs(tp_val - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0,
+                break_even=calculateBEPrice(realEntry, sl, tp_val, direction),
+                size=sizePerTp,
                 metadata={
-                    "trend": trend, 
-                    "timeframe_confirmacion": catalizador['timeframe'], 
-                    "timeframe_entrada": "15M",
-                    "momentum": mom_state,
-                    "vela_origen": v_origen_time,
-                    "tp1": tp1_val,
-                    "tp2": tp2_val,
-                    "tp_final": tp_final_val
+                    "riskUsd": round(riskUsdActual / 3, 2),
+                    "expectedProfit": round(expectedProfit / 3, 2),
+                    "marginUsed": round(marginUsed / 3, 2),
+                    "velaOrigen": v_origen_time
                 }
             ))
             
         return signals
+

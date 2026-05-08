@@ -329,8 +329,10 @@ class SesgoBiasHTFBot:
         
         current_price = float(df_15m['close'].iloc[-1])
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-        last_closed = get_last_closed_candle(now_cdmx, interval=15)
-        candle_time = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        last_v = get_last_closed_candle(now_cdmx, interval=15, df=df_15m)
+        last_closed_ts = last_v.name if hasattr(last_v, 'name') else last_v
+        candle_time = last_closed_ts.strftime("%Y-%m-%d %H:%M:%S")
+
         is_valid, _, mensaje = check_signal_health(entry_price, tp_price, sl_price, consensus_direction, current_price, threshold=0.65, candle_time=candle_time)
         if not is_valid: return None
         

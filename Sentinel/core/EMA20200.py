@@ -109,7 +109,8 @@ class EMA20200Bot:
         if not check_tp_exhaustion(df, len(df)-5, price, tp_price, sl_price, direction, threshold=0.60, timeframe="5min")[0]: return None
         
         current_price = float(df['close'].iloc[-1])
-        candle_time = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 5).strftime("%Y-%m-%d %H:%M:%S")
+        last_v = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 60, df=df)
+        candle_time = (last_v.name if hasattr(last_v, 'name') else last_v).strftime("%Y-%m-%d %H:%M:%S")
         if not check_signal_health(price, tp_price, sl_price, direction, current_price, threshold=0.65, candle_time=candle_time)[0]: return None
         
         self.waitingPullback.pop(symbol, None)
@@ -131,7 +132,8 @@ class EMA20200Bot:
             confidence=int(prob*100) + mom_bonus,
             setup="EMA Pullback",
             status="EN ZONA ✅",
-            candleTime=get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 5).strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=candle_time,
+
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp_price - price)/sl_dist, 2),

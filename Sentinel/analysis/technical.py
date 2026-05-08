@@ -593,14 +593,8 @@ def detect_fvg_closed(
 
 def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
     """
-    Resamplea un DataFrame OHLCV al intervalo deseado.
-    
-    Args:
-        df: DataFrame con columnas OHLCV.
-        interval: Intervalo objetivo ('5min', '15min', '1h', '4h', '1d')
-    
-    Returns:
-        DataFrame resampleado con las mismas columnas.
+    Resamplea un DataFrame OHLCV al intervalo deseado, asegurando que solo se
+    incluyan velas que ya han cerrado completamente.
     """
     if df is None or len(df) < 1:
         return df
@@ -617,21 +611,48 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
     }
     rule = rule_map.get(interval, interval)
     
-    if rule == '5min' or interval == '5min':
-        return df
-    
-    agg_dict = {
-        'open': 'first',
-        'high': 'max',
-        'low': 'min',
-        'close': 'last'
-    }
-    if 'volume' in df.columns:
-        agg_dict['volume'] = 'sum'
-    
-    df_resampled = df.resample(rule, label='right', closed='right').agg(agg_dict).dropna()
+    # Usamos label='left' y closed='left' para seguir el estándar de la industria
+    # (La vela de las 07:00 representa el periodo de 07:00 a 08:00)
+    if rule != '5min' and interval != '5min':
+        agg_dict = {
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        }
+        if 'volume' in df.columns:
+            agg_dict['volume'] = 'sum'
+        
+        df_resampled = df.resample(rule, label='left', closed='left').agg(agg_dict).dropna()
+    else:
+        df_resampled = df.copy()
+
+    # --- FILTRO: Velas Terminadas ---
+    # Usamos la utilidad centralizada para asegurar que solo retornamos velas cerradas
+    if df_resampled is not None and not df_resampled.empty:
+        try:
+            from middleware.utils.time_utils import get_last_closed_candle
+            from middleware.config.constants import TIMEZONE
+            import pytz
+            
+            # Obtener el intervalo en minutos
+            deltaMap = {'5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '1d': 1440}
+            minutes = deltaMap.get(interval, 5)
+            
+            nowMx = datetime.now(pytz.timezone(TIMEZONE))
+            lastClosedTs = get_last_closed_candle(nowMx, minutes)
+            
+            # Filtrar el DataFrame para incluir solo velas cuya estampa sea <= la última cerrada
+            df_resampled = df_resampled[df_resampled.index <= lastClosedTs]
+
+            
+        except Exception as e:
+            logger.error(f"Error filtrando velas terminadas en resample: {e}")
+            # Fallback seguro
+            df_resampled = df_resampled.iloc[:-1]
     
     return df_resampled
+
 
 
 def calculate_adx(df: pd.DataFrame, period: int = 14) -> float:

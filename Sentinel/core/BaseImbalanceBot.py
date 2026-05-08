@@ -191,8 +191,10 @@ class BaseImbalanceBot:
         signals = []
         ahora = self.getMexicoTime().replace(tzinfo=None)
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-        last_closed = get_last_closed_candle(now_cdmx, interval=5)
-        last_closed_str = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        last_v = get_last_closed_candle(now_cdmx, interval=5, df=datos5min)
+        last_closed_ts = last_v.name if hasattr(last_v, 'name') else last_v
+        last_closed_str = last_closed_ts.strftime("%Y-%m-%d %H:%M:%S")
+
         
         for idx, fvg in enumerate(fvgs):
             fvg_time = pd.Timestamp(datos5min.index[fvg['idx']]).tz_localize(None)
@@ -261,17 +263,30 @@ class BaseImbalanceBot:
 
             base_confidence = 75 + momentum_bonus
             
-            # --- FILTRO: Ganancia Mínima Estimada ---
-            strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
-            risk_usd = float(strat_config.get('risk_usd', 100.0))
-            size = (risk_usd / (distancia_sl * multiplier)) if (distancia_sl > 0 and multiplier > 0) else 0
-
-            min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
-            rr_ratio = round(calculateRR(entryPrice, stopLoss, tp_final), 2)
-            expected_profit = (distancia_sl * multiplier * size) * rr_ratio # Cálculo real basado en size
+            # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
+            from Sentinel.analysis import risk
+            refCapital = symbolInfo.get('refCapital', 10000.0)
+            refRiskPct = symbolInfo.get('refRiskPct', 1.0)
             
-            if expected_profit < min_usd_profit:
-                logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+            # Usar precio actual como entrada real para el cálculo de riesgo
+            currentPrice = float(df['close'].iloc[-1])
+            realEntry = currentPrice
+            realRiskDist = abs(realEntry - stopLoss)
+            
+            size, riskUsdActual, marginUsed = risk.calculatePositionSize(
+                refCapital, refRiskPct, realRiskDist, symbolInfo, entryPrice=realEntry
+            )
+            
+            if size is None or size <= 0:
+                logger.info(f"[{symbol}] {self.strategy_name}: Tamaño de posición inválido o margen insuficiente - descartando")
+                continue
+                
+            minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+            rrRatio = round(abs(tp_final - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+            expectedProfit = riskUsdActual * rrRatio
+            
+            if expectedProfit < minUsdProfit:
+                logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando")
                 continue
 
             min_confidence = float(strat_config.get('min_confidence', 70))
@@ -286,26 +301,27 @@ class BaseImbalanceBot:
                 strategy=self.strategy_name,
                 symbol=symbol,
                 direction=signalDirection,
-                entry_price=entryPrice,
+                entry_price=realEntry,
                 stop_loss=stopLoss,
                 take_profit=tp_final,
-                sl_distance=distancia_sl,
+                sl_distance=realRiskDist,
                 confidence=base_confidence,
                 setup=setupType,
                 status="EN ZONA ✅",
                 candleTime=last_closed_str,
                 intervalo="5min",
-                riesgo_pips=round(distancia_sl * multiplier, 1),
-                rr_ratio=round(calculateRR(entryPrice, stopLoss, tp_final), 2),
-                break_even=be_trigger,
+                riesgo_pips=round(realRiskDist * multiplier, 1),
+                rr_ratio=rrRatio,
+                break_even=calculateBEPrice(realEntry, stopLoss, tp_final, signalDirection),
+                size=size,
                 metadata={
-                    "fvg": fvg['type'],
-                    "fvgNum": idx + 1,
-                    "dentroRango": fvg.get('dentroRango', True),
-                    "momentum": momentum_estado,
+                    "riskUsd": round(riskUsdActual, 2),
+                    "expectedProfit": round(expectedProfit, 2),
+                    "marginUsed": round(marginUsed, 2),
                     "fvgTime": fvg_time.strftime("%Y-%m-%d %H:%M:%S")
                 }
             ))
+
         
         self.signalGenerada = True
         return signals

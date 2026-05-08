@@ -87,9 +87,13 @@ def get_safe_last_candle(now, interval=5):
     minute = (safe_now.minute // interval) * interval
     return safe_now.replace(minute=minute, second=0, microsecond=0)
 
-def get_last_closed_candle(now, interval=5):
-    """Alias for get_safe_last_candle to support legacy bot imports."""
-    return get_safe_last_candle(now, interval)
+from middleware.utils.time_utils import get_last_closed_candle as _get_last_closed_candle
+
+def get_last_closed_candle(now, interval=5, df=None):
+    """Alias for middleware version to support legacy bot imports."""
+    return _get_last_closed_candle(now, interval, df=df)
+
+
 
 def normalize_datetime(dt, tz):
     if isinstance(dt, pd.Timestamp):

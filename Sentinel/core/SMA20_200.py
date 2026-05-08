@@ -476,8 +476,13 @@ class SMABot:
         
         current_price = float(df['close'].iloc[-1])
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-        last_closed = get_last_closed_candle(now_cdmx, interval=5)
-        last_closed_str = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+        interval_min = 5 # default
+        if 'min' in intervalo: interval_min = int(intervalo.replace('min', ''))
+        
+        last_v = get_last_closed_candle(now_cdmx, interval=interval_min, df=df)
+        last_closed_ts = last_v.name if hasattr(last_v, 'name') else last_v
+        last_closed_str = last_closed_ts.strftime("%Y-%m-%d %H:%M:%S")
+
         is_valid, _, mensaje = check_signal_health(close, take_profit, stop_loss, direction, current_price, threshold=0.65, candle_time=last_closed_str)
         if not is_valid:
             return None

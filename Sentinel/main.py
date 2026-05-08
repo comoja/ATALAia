@@ -93,7 +93,7 @@ def _classify_trend(df_daily: pd.DataFrame, symbol: str = None) -> dict:
     - ATR (volatilidad)
     - Regresión lineal (pendiente normalizada por ATR)
     """
-    if df_daily is None or len(df_daily) < 20:
+    if df_daily is None or len(df_daily) < diasTendencia:
         return {"trend": "NEUTRAL", "strength": 0, "slope": 0, "price": 0, "ema20": 0, "atr": 0}
     
     # Normalizar columnas a minúsculas
@@ -109,6 +109,7 @@ def _classify_trend(df_daily: pd.DataFrame, symbol: str = None) -> dict:
     
     if len(df) < diasTendencia:
         return {"trend": "NEUTRAL", "strength": 0, "slope": 0, "price": 0, "ema20": 0, "atr": 0}
+
     
     # Calcular EMA 20 y ATR
     df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -167,7 +168,7 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
     _weekly_trend_cache = {}
     
     logger.info("✅ Cargando tendencias mensuales (últimos {} dias)...".format(diasTendencia))
-    
+    msg = ""
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
         try:
@@ -186,6 +187,7 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
                     trend = _calculate_monthly_trend(df_1d, symbol)
                     _weekly_trend_cache[symbol] = trend
                     logger.info(f"  [{symbol}] Tendencia de los {diasTendencia} ultimos dias: {trend}")
+                    msg += f"\n  [{symbol}]: {trend}"
                 else:
                     _weekly_trend_cache[symbol] = "NEUTRAL"
                     logger.warning(f"  [{symbol}] Sin datos 1D suficientes tras resampleo")
@@ -195,7 +197,7 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
         except Exception as e:
             logger.error(f"  [{symbol}] Error calculando tendencia: {e}")
             _weekly_trend_cache[symbol] = "NEUTRAL"
-    
+    await alertaInmediata(1,f"<b>Tendencia de {diasTendencia} dias</b> {msg}", False)
     logger.info(f"✅ Tendencias mensuales cargadas para {len(_weekly_trend_cache)} símbolos")
 
 def get_weekly_trend(symbol: str) -> str:
@@ -224,8 +226,17 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
     from middleware.utils.communications import alertaInmediata as _alertaInmediata
-    
     all_signals = []
+
+    # Cargar cuenta de referencia para sizing de señales
+    from middleware.database import dbManager
+    refAccount = dbManager.getAccountById(2)
+    if not refAccount:
+        cuentas = dbManager.getAccount()
+        refAccount = next((a for a in cuentas if a['idCuenta'] != 1), None)
+    
+    refCapital = float(refAccount['Capital']) if refAccount and refAccount.get('Capital') else 10000.0
+    refRiskPct = float(refAccount['riesgoPorOperacion']) if refAccount and refAccount.get('riesgoPorOperacion') else 1.0
 
     for idx, symbolInfo in enumerate(symbolsToScan):
         symbol = symbolInfo['symbol']
@@ -276,14 +287,26 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         except Exception as e:
             logger.error(f"Error revisando trades abiertos para {symbol}: {e}")
         
+        # Enriquecer con info de riesgo para sizing de señales
+        symbolInfo['refCapital'] = refCapital
+        symbolInfo['refRiskPct'] = refRiskPct
+
         # Asegurar consistencia de zona horaria (tz-aware)
-        cdmx_tz = pytz.timezone(TIMEZONE)
+        cdmxTz = pytz.timezone(TIMEZONE)
+
         if df_5m.index.tzinfo is None:
-            df_5m.index = df_5m.index.tz_localize(cdmx_tz)
+            df_5m.index = df_5m.index.tz_localize(cdmxTz)
         else:
-            df_5m.index = df_5m.index.tz_convert(cdmx_tz)
+            df_5m.index = df_5m.index.tz_convert(cdmxTz)
+
+        # --- FILTRO: Velas Terminadas 5min ---
+        from middleware.utils.time_utils import get_last_closed_candle
+        lastClosed5m = get_last_closed_candle(datetime.now(cdmxTz), 5)
+        df_5m = df_5m[df_5m.index <= lastClosed5m]
+
 
         df_5m = calculateFeatures(df_5m)
+
         
         df_15m = calculateFeatures(resample_to_interval(df_5m, "15min"))
         df_1h  = calculateFeatures(resample_to_interval(df_5m, "1h"))
@@ -396,7 +419,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
                 else:
                     logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
         logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
-        await engine.process_signals(unique_signals)
+        await engine.processSignals(unique_signals)
 
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
@@ -440,11 +463,14 @@ async def main():
     while True:
         try:
             if  isMarketOpen():
+
+
                 logger.info("Iniciando ciclo de análisis...")
                 apiKey, _, _, nVelas, _ = getParametros()
                 symbolsToScan = dbManager.getSymbols()
                 
                 # Cargar tendencias mensuales UNA SOLA VEZ por día/inicio
+
                 today_str = datetime.now(TIMEZONE_LOCAL).strftime("%Y-%m-%d")
                 if _weekly_trends_loaded_today != today_str:
                     logger.info("🆕 Nuevo día detectado - Cargando tendencias mensuales...")

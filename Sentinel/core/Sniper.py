@@ -430,8 +430,14 @@ class SniperBot:
         signal = await self._get_signal(data, symbol, symbolInfo)
         if signal:
             now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
-            last_closed = get_last_closed_candle(now_cdmx, interval=15)
-            signal.candleTime = last_closed.strftime("%Y-%m-%d %H:%M:%S")
+            interval_val = 15 # default
+            if 'min' in interval: interval_val = int(interval.replace('min', ''))
+            elif '15M' in interval.upper(): interval_val = 15
+            
+            last_v = get_last_closed_candle(now_cdmx, interval=interval_val, df=data)
+            last_closed_ts = last_v.name if hasattr(last_v, 'name') else last_v
+            signal.candleTime = last_closed_ts.strftime("%Y-%m-%d %H:%M:%S")
+
             
             sig_key = f"{symbol}_{signal.candleTime}"
             if sig_key in self._signals_sent:

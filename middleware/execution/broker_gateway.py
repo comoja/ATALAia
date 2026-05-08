@@ -165,7 +165,7 @@ class BrokerGateway:
         from Sentinel.analysis import risk
         strategy_config = dbManager.getStrategyConfig(strategy_name)
         max_dd_percent = float(strategy_config.get('max_drawdown_percent', 5.0)) if strategy_config else 5.0
-        if risk.is_daily_drawdown_limit_reached(account['idCuenta'], maxDrawdownPercent=max_dd_percent):
+        if risk.isDailyDrawdownLimitReached(account['idCuenta'], maxDrawdownPercent=max_dd_percent):
             logger.warning(f"❌ Orden RECHAZADA por Riesgo: Drawdown Diario >= {max_dd_percent}% en cuenta {account['idCuenta']}")
             return False, "drawdown_superado"
             

@@ -138,16 +138,31 @@ class GenericFVGBot:
             
             # --- FILTRO: Ganancia Mínima Est. ---
             multiplier = getPipMultiplier(symbol)
-            risk_usd = float(strat_config.get('risk_usd', 100.0))
-            # Calcular size localmente para validación
-            size = (risk_usd / (risk_dist * multiplier)) if (risk_dist > 0 and multiplier > 0) else 0
+            # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
+            from Sentinel.analysis import risk
+            refCapital = symbolInfo.get('refCapital', 10000.0)
+            refRiskPct = symbolInfo.get('refRiskPct', 1.0)
             
-            min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
-            rr_val = round(abs(tp1 - entry_price) / risk_dist, 2)
-            expected_profit = (risk_dist * multiplier * size) * rr_val
+            # Usar precio actual como entrada real para el cálculo de riesgo
+            realEntry = current_price
+            realRiskDist = abs(realEntry - sl)
             
-            if expected_profit < min_usd_profit:
-                logger.info(f"[{symbol}] {interval}: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+            size, riskUsdActual, marginUsed = risk.calculatePositionSize(
+                refCapital, refRiskPct, realRiskDist, symbolInfo, entryPrice=realEntry
+            )
+            
+            if size is None or size <= 0:
+                logger.info(f"[{symbol}] {interval}: Tamaño de posición inválido o margen insuficiente - descartando")
+                continue
+                
+            minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+            rrVal = round(abs(tp1 - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+            expectedProfit = (abs(tp1 - realEntry) * multiplier * (size / 100000.0 if "JPY" not in symbol else size / 100.0)) # Simplificado
+            # Mejor usar el riskUsdActual * rrVal
+            expectedProfit = riskUsdActual * rrVal
+            
+            if expectedProfit < minUsdProfit:
+                logger.info(f"[{symbol}] {interval}: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando")
                 continue
 
             # 4. Filtrar por confianza mínima
@@ -172,7 +187,16 @@ class GenericFVGBot:
             
             # Crear objeto Signal
             # Usar la hora de la vela origen para trazabilidad
-            origin_candle_time = latest_fvg.get('candle_time', get_last_closed_candle(self._now_mx(), 5))
+            minutes = 5
+            if 'min' in interval: minutes = int(interval.replace('min', ''))
+            elif 'h' in interval: minutes = int(interval.replace('h', '')) * 60
+            elif '4h' in interval: minutes = 240
+            elif '1d' in interval: minutes = 1440
+            
+            last_v = get_last_closed_candle(self._now_mx(), minutes, df=df)
+            candle_time_obj = last_v.name if hasattr(last_v, 'name') else last_v
+            
+            origin_candle_time = latest_fvg.get('candle_time', candle_time_obj)
             
             # Calcular Break Even inteligente
             be_trigger = calculateBEPrice(entry_price, sl, tp1, signal_direction)
@@ -181,21 +205,24 @@ class GenericFVGBot:
                 strategy=self.strategy_name,
                 symbol=symbol,
                 direction=signal_direction,
-                entry_price=entry_price,
+                entry_price=realEntry,
                 stop_loss=sl,
                 take_profit=tp1,
-                sl_distance=risk_dist,
+                sl_distance=realRiskDist,
                 confidence=base_confidence,
                 setup=f"FVG {interval}",
                 status="EN ZONA ✅",
-                candleTime=origin_candle_time.strftime("%Y-%m-%d %H:%M:%S"),
+                candleTime=candle_time_obj.strftime("%Y-%m-%d %H:%M:%S"),
                 intervalo=interval,
-                riesgo_pips=round(risk_dist * multiplier, 1),
-                rr_ratio=rr_val,
-                break_even=be_trigger,
+                riesgo_pips=round(realRiskDist * multiplier, 1),
+                rr_ratio=rrVal,
+                break_even=calculateBEPrice(realEntry, sl, tp1, signal_direction),
+                size=size,
                 metadata={
-                    "fvg": latest_fvg.get('type'),
-                    "vela_origen": latest_fvg.get('timestamp')
+                    "risk_usd": round(riskUsdActual, 2),
+                    "expected_profit": round(expectedProfit, 2),
+                    "margin_used": round(marginUsed, 2),
+                    "fvg_origin_time": latest_fvg.get('timestamp')
                 }
             )
             signals.append(sig)

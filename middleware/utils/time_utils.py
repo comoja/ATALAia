@@ -73,21 +73,38 @@ def isRestTime(dt=None):
     """
     return is_market_closed(dt)
 
-def get_last_closed_candle(dt, interval_minutes):
+def get_last_closed_candle(dt, interval, df=None):
+
     """
-    Devuelve la hora de la última vela cerrada para un intervalo dado.
-    Ej: si ahora es 10:07 y el intervalo es 5, devuelve 10:05.
+    Devuelve la última vela cerrada para un intervalo dado.
+    Si se proporciona un DataFrame (df), devuelve la fila completa (Series).
+    De lo contrario, devuelve el timestamp (datetime).
     """
     if dt.tzinfo is None:
-        local_tz = pytz.timezone(TIMEZONE)
-        dt = local_tz.localize(dt)
+        localTz = pytz.timezone(TIMEZONE)
+        dt = localTz.localize(dt)
     
     # Calcular el inicio de la vela actual
-    minute = (dt.minute // interval_minutes) * interval_minutes
-    last_candle = dt.replace(minute=minute, second=0, microsecond=0)
+    minute = (dt.minute // interval) * interval
+    lastCandle = dt.replace(minute=minute, second=0, microsecond=0)
     
     # Si la vela calculada es la actual (aún no cierra), retroceder un intervalo
-    if last_candle >= dt:
-        last_candle = last_candle - timedelta(minutes=interval_minutes)
+    if lastCandle >= dt:
+        lastCandle = lastCandle - timedelta(minutes=interval)
     
-    return last_candle
+    if df is not None:
+        try:
+            # Buscar la vela exacta en el DataFrame
+            if lastCandle in df.index:
+                return df.loc[lastCandle]
+            else:
+                # Si no está la exacta, devolver la última disponible que sea <= lastCandle
+                availableCandles = df[df.index <= lastCandle]
+                if not availableCandles.empty:
+                    return availableCandles.iloc[-1]
+        except Exception as e:
+            logger.error(f"Error buscando vela en DF: {e}")
+            
+    return lastCandle
+
+
