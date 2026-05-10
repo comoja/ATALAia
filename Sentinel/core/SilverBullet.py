@@ -255,6 +255,7 @@ class SilverBulletBot:
                 "expectedProfit": round(expectedProfit, 2),
                 "marginUsed": round(marginUsed, 2),
                 "adx": adx,
+                "fvg": fvg.get("type", "N/A"),
                 "vela_origen": fvg.get("candle_time", "")
             }
         )

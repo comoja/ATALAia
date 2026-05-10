@@ -337,6 +337,25 @@ def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bo
     except Exception as e:
         logger.error(f"Error en isEstrategiaHabilitadaParaCuenta: {e}", exc_info=True)
         return True
+
+def isTipoHabilitadoParaCuenta(idCuenta: int, tipoSymbol: str) -> bool:
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT tipo FROM cuentaOpera WHERE idCuenta = %s", (idCuenta,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        if not results:
+            # Si no hay registros en cuentaOpera para esta cuenta, no hay restricción por tipo.
+            return True
+        
+        tiposHabilitados = [r['tipo'].upper() for r in results]
+        return tipoSymbol.upper() in tiposHabilitados
+    except Exception as e:
+        logger.error(f"Error en isTipoHabilitadoParaCuenta: {e}", exc_info=True)
+        return True
     
 def getSymbols():
     try:

@@ -75,9 +75,14 @@ class ExecutionEngine:
             if accountId == 1:
                 continue
 
-            # Check if this strategy is enabled for this specific account
             if not dbManager.isEstrategiaHabilitadaParaCuenta(accountId, strategyName):
                 logger.debug(f"[ExecutionEngine] Estrategia {strategyName} no habilitada para cuenta {accountId}")
+                continue
+
+            # Check if this symbol type is allowed for this account
+            symbolTipo = symbolInfo.get('tipo', 'FOREX')
+            if not dbManager.isTipoHabilitadoParaCuenta(accountId, symbolTipo):
+                logger.debug(f"[ExecutionEngine] Tipo {symbolTipo} no habilitado para cuenta {accountId}")
                 continue
 
             # --- NUEVA LÓGICA DE AJUSTE ---

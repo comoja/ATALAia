@@ -318,6 +318,7 @@ class BaseImbalanceBot:
                     "riskUsd": round(riskUsdActual, 2),
                     "expectedProfit": round(expectedProfit, 2),
                     "marginUsed": round(marginUsed, 2),
+                    "fvg": fvg['type'],
                     "fvgTime": fvg_time.strftime("%Y-%m-%d %H:%M:%S")
                 }
             ))

@@ -222,7 +222,8 @@ class GenericFVGBot:
                     "risk_usd": round(riskUsdActual, 2),
                     "expected_profit": round(expectedProfit, 2),
                     "margin_used": round(marginUsed, 2),
-                    "fvg_origin_time": latest_fvg.get('timestamp')
+                    "fvg": latest_fvg.get('type', 'N/A'),
+                    "fvgTime": latest_fvg.get('timestamp', 'N/A')
                 }
             )
             signals.append(sig)
