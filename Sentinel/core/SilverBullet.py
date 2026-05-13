@@ -61,17 +61,29 @@ class SilverBulletBot:
         return {"high": float(df_ref["high"].max()), "low": float(df_ref["low"].min()), "open": float(df_ref["open"].iloc[0]), "n_candles": len(df_ref)}
 
     def _detect_sweep(self, df: pd.DataFrame, ref: Dict, window_start_ny: datetime) -> Optional[Dict]:
-        sweep_start = window_start_ny + timedelta(minutes=15)
-        idx_ny = df.index.tz_localize(MX_TZ).tz_convert(NY_TZ) if df.index.tzinfo is None else df.index.tz_convert(NY_TZ)
-        df_post = df.loc[(idx_ny >= sweep_start) & (idx_ny < window_start_ny + timedelta(hours=1))]
-        if df_post.empty: return None
-        for i in range(len(df_post)):
-            v = df_post.iloc[i]
+        """
+        Detecta un barrido de liquidez local en la ventana de la sesión.
+
+        Regla SMC/ICT (alineada con el video - MTF Alignment):
+        Un sweep real exige que el precio:
+          1. SUPERE el high/low del rango de referencia (mecha cruza el nivel)
+          2. CIERRE de vuelta DENTRO del rango (close > ref["low"] ó close < ref["high"])
+        Cumple exactamente la definición del video: "precio supera máx/mín y cierra dentro".
+        """
+        sweepStart = window_start_ny + timedelta(minutes=15)
+        idxNy = df.index.tz_localize(MX_TZ).tz_convert(NY_TZ) if df.index.tzinfo is None else df.index.tz_convert(NY_TZ)
+        dfPost = df.loc[(idxNy >= sweepStart) & (idxNy < window_start_ny + timedelta(hours=1))]
+        if dfPost.empty: return None
+        for i in range(len(dfPost)):
+            v = dfPost.iloc[i]
+            # Sweep de mínimos → bias LARGO
             if v["low"] < ref["low"] and v["close"] > ref["low"]:
-                return {"type": "LARGO", "swept_level": ref["low"], "sweep_low": v["low"], "candle_idx": df_post.index[i]}
+                return {"type": "LARGO", "swept_level": ref["low"], "sweep_low": v["low"], "candle_idx": dfPost.index[i]}
+            # Sweep de máximos → bias CORTO
             if v["high"] > ref["high"] and v["close"] < ref["high"]:
-                return {"type": "CORTO", "swept_level": ref["high"], "sweep_high": v["high"], "candle_idx": df_post.index[i]}
+                return {"type": "CORTO", "swept_level": ref["high"], "sweep_high": v["high"], "candle_idx": dfPost.index[i]}
         return None
+
 
     def _detect_mss(self, df: pd.DataFrame, sweep: Dict) -> bool:
         if len(df) < 7: return False
@@ -84,9 +96,25 @@ class SilverBulletBot:
             if i > len(df)-2: continue
             h2, l2, h, l, c = df["high"].iloc[i-2], df["low"].iloc[i-2], df["high"].iloc[i], df["low"].iloc[i], df["close"].iloc[i]
             if direction == "LARGO" and l > h2 and (l-h2)/c >= self.fvg_min_pct:
-                return {"type": "LARGO_FVG", "mid": (h2+l)/2, "idx": i, "candle_time": df.index[i]}
+                fvg_candidate = {"type": "LARGO_FVG", "mid": (h2+l)/2, "idx": i, "candle_time": df.index[i]}
+                # Regla ICT 50%: verificar que el gap no haya sido mitigado
+                fvg_for_check = {
+                    "type": "Bullish_FVG",
+                    "top": float(l), "bottom": float(h2),
+                    "mid": float((h2 + l) / 2)
+                }
+                if not technical._is_fvg_mitigated(df, i, fvg_for_check):
+                    return fvg_candidate
             if direction == "CORTO" and h < l2 and (l2-h)/c >= self.fvg_min_pct:
-                return {"type": "CORTO_FVG", "mid": (h+l2)/2, "idx": i, "candle_time": df.index[i]}
+                fvg_candidate = {"type": "CORTO_FVG", "mid": (h+l2)/2, "idx": i, "candle_time": df.index[i]}
+                # Regla ICT 50%: verificar que el gap no haya sido mitigado
+                fvg_for_check = {
+                    "type": "Bearish_FVG",
+                    "top": float(l2), "bottom": float(h),
+                    "mid": float((h + l2) / 2)
+                }
+                if not technical._is_fvg_mitigated(df, i, fvg_for_check):
+                    return fvg_candidate
         return None
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:

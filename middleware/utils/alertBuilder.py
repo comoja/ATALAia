@@ -98,13 +98,26 @@ def buildAlertMessage(
     text = (
         f"{header}\n"
         f"<i><b><center>{strategyName}</center></b></i>\n"
+        f"<center>👤  <b>{trade.get('accountName', 'N/A')}</b></center>\n"
         f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
         f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
         f"━━━━━━━━━━━━━━━\n"
         f"<center>Setup: <b>{setup}</b></center>\n"
         f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
-        f"━━━━━━━━━━━━━━━\n"
     )
+    
+    sentiment = signal.get('marketSentiment', 0.0)
+    sentiment_emoji = "⚪️"
+    if sentiment > 0.2: sentiment_emoji = "🟢"
+    elif sentiment < -0.2: sentiment_emoji = "🔴"
+    
+    text += f"<center>🤖 AI Sent: <b>{sentiment_emoji} {sentiment:.2f}</b></center>\n"
+    
+    imminent = signal.get('imminentNews')
+    if imminent:
+        text += f"<center><b>{imminent}</b></center>\n"
+        
+    text += f"━━━━━━━━━━━━━━━\n"
 
     if direction == "LARGO":
         text += (
@@ -422,5 +435,28 @@ def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
         signal=signal,
         trade=trade,
         strategyName="FVG DIARIO + MANIPULACIÓN",
+        extraFields=extraFields
+    )
+
+def buildSpeedBotAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para estrategia SpeedBot - Impulso Institucional"""
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
+    metadata = signal.get('metadata', {})
+    
+    extraFields = {
+        'Estado': signal.get('status', 'IMPULSO ⚡️'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'ATR Mult.': f"{metadata.get('atr_multiplier', 0):.2f}x",
+        'Setup': signal.get('setup', 'N/A'),
+        'Momentum': momentum
+    }
+    
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="SPEED / DISPLACEMENT BOT",
         extraFields=extraFields
     )

@@ -35,6 +35,8 @@ from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
 from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resumen_inicial
+from middleware.api.finnhub_client import getLatestMarketNews, getHighImpactEvents
+from middleware.utils.aiManager import getMarketSentiment
 
 try:
     from middleware.config.constants import DATA_SOURCE
@@ -58,7 +60,7 @@ from middleware.execution.broker_gateway import gateway
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 MAX_CANDLES_PER_CALL = 5000
 
-from middleware.utils.time_utils import get_localized_session_times
+from middleware.utils.time_utils import get_localized_session_times, isRestTime, get_sleep_minutes, get_seconds_to_next_sync
 from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
@@ -69,14 +71,6 @@ _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
 diasTendencia = 21
 
-
-def isMarketOpen() -> bool:
-    now = datetime.now(TIMEZONE_LOCAL)
-    # 1. Descanso obligatorio de madrugada (00:00 a 06:00 AM)
-    if 0 <= now.hour < 6:
-        return False
-    # 2. Otros periodos de descanso definidos en middleware
-    return not isRestTime(now)
 
 # --- Funciones de Tendencia ---
 def _linear_regression_slope(series):
@@ -220,7 +214,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, interval, nVelas):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
@@ -229,7 +223,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
     all_signals = []
 
     # Cargar cuenta de referencia para sizing de señales
-    from middleware.database import dbManager
+    
     refAccount = dbManager.getAccountById(2)
     if not refAccount:
         cuentas = dbManager.getAccount()
@@ -261,7 +255,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         
         # --- Revisar trades abiertos para este símbolo ---
         try:
-            from middleware.database import dbManager
+            
             open_trades = dbManager.getOpenTradesBySymbol(symbol)
             for trade in open_trades:
                 # Filtrar velas desde la hora de apertura del trade
@@ -287,9 +281,11 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         except Exception as e:
             logger.error(f"Error revisando trades abiertos para {symbol}: {e}")
         
-        # Enriquecer con info de riesgo para sizing de señales
+        # Enriquecer con info de riesgo y sentimiento para sizing de señales
         symbolInfo['refCapital'] = refCapital
         symbolInfo['refRiskPct'] = refRiskPct
+        symbolInfo['marketSentiment'] = marketSentiment
+        symbolInfo['imminentNews'] = imminentNews
 
         # Asegurar consistencia de zona horaria (tz-aware)
         cdmxTz = pytz.timezone(TIMEZONE)
@@ -403,7 +399,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             
             # Verificar si ya existe trade en DB (mismo symbol, strategy, direction, status=OPEN)
             try:
-                from middleware.database import dbManager
+               
                 existing = dbManager.is_trade_duplicate(
                     sig.symbol, sig.strategy, sig.intervalo, sig.direction, None, None
                 )
@@ -419,7 +415,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
                 else:
                     logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
         logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
-        await engine.processSignals(unique_signals)
+        await engine.processSignals(unique_signals, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews)
 
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
@@ -462,21 +458,43 @@ async def main():
     
     while True:
         try:
-            if  isMarketOpen():
-
-
+            if not isRestTime():
                 logger.info("Iniciando ciclo de análisis...")
-                apiKey, _, _, nVelas, _ = getParametros()
-                symbolsToScan = dbManager.getSymbols()
                 
-                # Cargar tendencias mensuales UNA SOLA VEZ por día/inicio
-
+                # --- Tareas de Nuevo Día (Solo al abrir el ciclo) ---
                 today_str = datetime.now(TIMEZONE_LOCAL).strftime("%Y-%m-%d")
                 if _weekly_trends_loaded_today != today_str:
                     logger.info("🆕 Nuevo día detectado - Cargando tendencias mensuales...")
+                    apiKey, _, _, nVelas, _ = getParametros()
+                    symbolsToScan = dbManager.getSymbols()
                     await _load_monthly_trends(symbolsToScan, apiKey)
                     _weekly_trends_loaded_today = today_str
+                else:
+                    apiKey, _, _, nVelas, _ = getParametros()
+                    symbolsToScan = dbManager.getSymbols()
+
+                # --- Análisis de Sentimiento y Calendario (Sentinel 'Bien Hacha') ---
+                # Solo se ejecuta si el mercado está abierto
+                headlines_gen = await getLatestMarketNews("general")
+                marketSentiment = await getMarketSentiment(headlines_gen)
                 
+                headlines_cry = await getLatestMarketNews("crypto")
+                marketSentiment_crypto = await getMarketSentiment(headlines_cry)
+                
+                highEvents = await getHighImpactEvents()
+                imminentNews = None
+                ahora_utc = datetime.now(pytz.UTC)
+                for event in highEvents:
+                    try:
+                        event_time = pd.to_datetime(event.get('time')).tz_convert(pytz.UTC)
+                        diff_min = (event_time - ahora_utc).total_seconds() / 60
+                        if 0 <= diff_min <= 45:
+                            imminentNews = f"⚠️ {event.get('event')} ({event.get('country')}) en {int(diff_min)} min"
+                            break
+                    except: continue
+                
+                logger.info(f"AI Sentiment: Gen={marketSentiment:.2f}, Cry={marketSentiment_crypto:.2f} | News: {imminentNews or 'Limpio'}", extra={"color": "cyan"})
+                # await alertaInmediata(1,f"<b>Sentimiento AI:</b> {marketSentiment:.2f} <b>Noticias:</b> {imminentNews or 'Limpio'}", False)
                 # Auto-reentrenamiento ML a las 00:10 (o cualquier inicio de día)
                 if _ml_retrained_today != today_str:
                     from Sentinel.ml.auto_retrain import should_retrain
@@ -494,15 +512,20 @@ async def main():
                     except Exception as e:
                         logger.error(f"Error en auto-reentrenamiento: {e}")
                 
-                await run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, INTERVAL, nVelas)
+                # 2. Ejecutar análisis (Centralizado)
+                await run_sequential_analysis(
+                    engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
+                    ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
+                    generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, 
+                    apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
+                )
                 
                 await getTiempoEspera(5)
             else:
-                now_local = datetime.now(TIMEZONE_LOCAL)
-                # Si estamos entre 00:00 y 05:00, dormimos 15 min. Si es otro descanso, 5 min.
-                sleep_min = 15 if (0 <= now_local.hour < 5) else 5
-                logger.info(f"💤 Periodo de descanso detectado. dormirá {sleep_min} minutos...", extra={"color": "blue"})
-                await asyncio.sleep(60 * sleep_min)
+                sleep_min = get_sleep_minutes()
+                segundos_sueño = get_seconds_to_next_sync(sleep_min)
+                logger.info(f"💤 Periodo de descanso detectado. Dormirá {int(segundos_sueño // 60)}m {int(segundos_sueño % 60)}s para sincronizar a los {sleep_min} min...", extra={"color": "blue"})
+                await asyncio.sleep(segundos_sueño)
         except Exception as e:
             logger.critical(f"Error en bucle: {e}", exc_info=True)
             await asyncio.sleep(60)

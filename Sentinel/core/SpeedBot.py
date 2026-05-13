@@ -63,7 +63,7 @@ class SpeedBot:
             is_accumulated = same_dir and (body_last + body_prev) > (atr * 3.0)
             
             # Condición de "Cuerpo Sólido" (vela con pocas mechas)
-            is_solid = (body_last / range_last) > 0.75 if range_last > 0 else False
+            is_solid = (body_last / range_last) > 0.65 if range_last > 0 else False
             
             if not ((is_explosive or is_accumulated) and is_solid):
                 continue

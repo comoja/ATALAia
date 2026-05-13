@@ -19,6 +19,7 @@ setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__
 
 from middleware.database import dbManager as middlewareDb
 from middleware.scheduler.autoScheduler import isRestTime
+from middleware.utils.time_utils import get_sleep_minutes, get_seconds_to_next_sync
 from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
 from middleware.api.twelvedata import _callTimeSeriesApi
 from middleware.database.dbManager import DatabaseManager, get_api_usage, update_api_usage
@@ -54,14 +55,7 @@ def seconds_until_next_5min(now, buffer_seconds=120):
     sleep_seconds = int((next_time - now).total_seconds())
     return max(0, sleep_seconds), next_time
 
-def isMarketOpen() -> bool:
-    now = datetime.now(TIMEZONE_LOCAL)
-    # 1. Descanso obligatorio de madrugada (00:00 a 06:00 AM)
-    if 0 <= now.hour < 6:
-        return False
-    # 2. Otros periodos de descanso definidos en middleware
-    return not isRestTime(now)
-
+# --- Funciones Auxiliares ---
 def round5min(timestamp):
     if isinstance(timestamp, str):
         dt = datetime.strptime(timestamp, "%Y/%m/%d %H:%M:%S")
@@ -187,11 +181,12 @@ async def main():
             today_api = now_api.date()
 
             # 1. Verificar periodos de descanso global (evita llenar logs)
-            if not isMarketOpen():
-                # Si estamos entre 00:00 y 06:00, dormimos 15 min. Si es otro descanso, 5 min.
-                sleep_min = 15 if (0 <= now_local.hour < 5) else 5
-                logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {sleep_min} minutos...")
-                await asyncio.sleep(60 * sleep_min)
+            if isRestTime():
+                # Si estamos en descanso, usamos la lógica centralizada de sueño sincronizado
+                sleep_min = get_sleep_minutes()
+                segundos_sueño = get_seconds_to_next_sync(sleep_min)
+                logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {int(segundos_sueño // 60)}m {int(segundos_sueño % 60)}s para sincronizar...")
+                await asyncio.sleep(segundos_sueño)
                 continue
             
             # Reset diario basado en el reloj de TwelveData (UTC)

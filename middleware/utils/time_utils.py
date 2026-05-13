@@ -70,8 +70,68 @@ def isRestTime(dt=None):
     """
     Determina si el mercado está en periodo de descanso o cierre (Weekend/Rollover).
     Es la función central utilizada por Sentinel y DataSymbol para decidir si operar.
+    Incluye el descanso obligatorio de madrugada (00:00 - 06:00 MX).
     """
+    local_tz = pytz.timezone(TIMEZONE)
+    if dt is None:
+        now_local = datetime.now(local_tz)
+    else:
+        # Asegurar que dt sea aware en el huso local para la comparación de horas
+        if dt.tzinfo is None:
+            now_local = local_tz.localize(dt)
+        else:
+            now_local = dt.astimezone(local_tz)
+            
+    # 1. Descanso obligatorio de madrugada (00:20 a 05:00 AM Mexico City)
+    if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
+        return True
+        
     return is_market_closed(dt)
+
+def get_sleep_minutes(dt=None):
+    """
+    Calcula cuántos minutos debe dormir el bot si está en periodo de descanso.
+    Basado en la lógica: 15 min en madrugada, 5 min en otros descansos.
+    """
+    local_tz = pytz.timezone(TIMEZONE)
+    if dt is None:
+        now_local = datetime.now(local_tz)
+    else:
+        if dt.tzinfo is None:
+            now_local = local_tz.localize(dt)
+        else:
+            now_local = dt.astimezone(local_tz)
+            
+    # Si estamos en la ventana de madrugada (00:20 - 05:00), dormir más tiempo
+    if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
+        return 15
+    return 5
+
+def get_seconds_to_next_sync(intervaloMinutos: int) -> float:
+    """
+    Calcula cuántos segundos faltan para llegar al próximo múltiplo exacto de minutos.
+    Ejemplo: Si son las 19:48:20 e intervalo=5, devuelve los segundos hasta las 19:50:00.
+    """
+    local_tz = pytz.timezone(TIMEZONE)
+    now = datetime.now(local_tz)
+    
+    # Calcular cuántos minutos han pasado desde el inicio de la hora
+    minutes_now = now.minute
+    minutes_to_next = intervaloMinutos - (minutes_now % intervaloMinutos)
+    
+    # Crear el objeto datetime del próximo objetivo
+    next_sync = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes_to_next)
+    
+    # Diferencia en segundos
+    diff = (next_sync - now).total_seconds()
+    
+    # Margen de seguridad: Si faltan menos de 15 segundos, saltar al siguiente ciclo 
+    # para evitar despertar justo antes de que cambie el minuto
+    if diff < 15:
+        next_sync += timedelta(minutes=intervaloMinutos)
+        diff = (next_sync - now).total_seconds()
+        
+    return max(0.0, diff)
 
 def get_last_closed_candle(dt, interval, df=None):
 

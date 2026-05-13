@@ -58,7 +58,11 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             # Para pares XXX/USD, 1 pip de 100k = $10
             # Para pares USD/XXX, 1 pip de 100k = $10 / currentPrice
             baseLotSize = 100000.0
-            valuePerPipPerLot = 10.0 if quoteCurr == 'USD' else (10.0 / entryPrice if entryPrice and entryPrice > 0 else 10.0)
+            # Dinámico: valor de 1 pip para 1 lote (100k unidades)
+            # Para pares XXX/USD, 1 pip de 100k = baseLotSize * pipValue
+            # Para pares USD/XXX, 1 pip de 100k = (baseLotSize * pipValue) / currentPrice
+            pipBaseValue = baseLotSize * pipValue
+            valuePerPipPerLot = pipBaseValue if quoteCurr == 'USD' else (pipBaseValue / entryPrice if entryPrice and entryPrice > 0 else pipBaseValue)
             
             # Unidades = Riesgo / (Pips * ValorPipUnidad)
             # ValorPipUnidad = valuePerPipPerLot / baseLotSize

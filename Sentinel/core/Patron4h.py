@@ -52,17 +52,21 @@ class Patron4HBot:
             if low_n > high_n2:
                 gap = low_n - high_n2
                 if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    return {
-                        'type': 'Bullish_FVG', 
-                        'top': float(low_n), 
-                        'bottom': float(high_n2), 
-                        'mid': float((high_n2 + low_n) / 2), 
-                        'size': float(gap), 
+                    fvg = {
+                        'type': 'Bullish_FVG',
+                        'top': float(low_n),
+                        'bottom': float(high_n2),
+                        'mid': float((high_n2 + low_n) / 2),
+                        'size': float(gap),
                         'v1_low': float(low_n2),
                         'v1_high': float(high_n2),
-                        'idx': idx, 
+                        'idx': idx,
                         'timestamp': str(df.index[idx])
                     }
+                    # Regla ICT 50%: descartar si el gap ya fue mitigado
+                    if technical._is_fvg_mitigated(df, idx, fvg):
+                        return None
+                    return fvg
         else:
             high_n = df['high'].iloc[idx]
             low_n2 = df['low'].iloc[idx - 2]
@@ -70,17 +74,21 @@ class Patron4HBot:
             if high_n < low_n2:
                 gap = low_n2 - high_n
                 if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    return {
-                        'type': 'Bearish_FVG', 
-                        'top': float(low_n2), 
-                        'bottom': float(high_n), 
-                        'mid': float((low_n2 + high_n) / 2), 
-                        'size': float(gap), 
+                    fvg = {
+                        'type': 'Bearish_FVG',
+                        'top': float(low_n2),
+                        'bottom': float(high_n),
+                        'mid': float((low_n2 + high_n) / 2),
+                        'size': float(gap),
                         'v1_low': float(low_n2),
                         'v1_high': float(high_n2),
-                        'idx': idx, 
+                        'idx': idx,
                         'timestamp': str(df.index[idx])
                     }
+                    # Regla ICT 50%: descartar si el gap ya fue mitigado
+                    if technical._is_fvg_mitigated(df, idx, fvg):
+                        return None
+                    return fvg
         return None
 
     def detectar_displacement(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[dict]:
@@ -117,10 +125,13 @@ class Patron4HBot:
             if f_c: fvgs.append(f_c)
         return {'tendencia': tendencia, 'max_dia_anterior': max_prev, 'min_dia_anterior': min_prev, 'fvgs_diarios': fvgs}
 
-    def detectar_liquidity_raid(self, precio: float, max_prev: float, min_prev: float, trend: str) -> Optional[dict]:
-        if trend == 'BAJISTA' and precio < min_prev: return {'tipo': 'RAID_MINIMO', 'nivel': min_prev}
-        elif trend == 'ALCISTA' and precio > max_prev: return {'tipo': 'RAID_MAXIMO', 'nivel': max_prev}
-        return None
+    def detectarLiquidityRaid(self, df_ltf: pd.DataFrame, maxPrev: float, minPrev: float) -> Optional[dict]:
+        """
+        Detecta un barrido de liquidez HTF usando la función centralizada.
+        Requiere que el precio SUPERE el nivel Y CIERRE de vuelta dentro del rango
+        (sweep real, no simple ruptura). Usa technical.detectLiquiditySweep.
+        """
+        return technical.detectLiquiditySweep(df_ltf, htfHigh=maxPrev, htfLow=minPrev, lookback=10)
 
     def analizar_catalizador(self, df_tf: pd.DataFrame, contexto: dict, raid: Optional[dict], name: str) -> dict:
         res = {'timeframe': name, 'hay_displacement': False, 'fvgs': [], 'hay_mss': False, 'confirmado': False, 'vela_origen_idx': None}
@@ -165,10 +176,10 @@ class Patron4HBot:
         ctx = self.obtener_contexto_diario(df_1d)
         if ctx['tendencia'] == 'LATERAL': return None
 
-        price = float(df_15m['close'].iloc[-1])
-        raid = self.detectar_liquidity_raid(price, ctx['max_dia_anterior'], ctx['min_dia_anterior'], ctx['tendencia'])
+        # Detectar sweep HTF en LTF (15m): precio superó PDH/PDL y cerró de vuelta al rango
+        htfSweep = self.detectarLiquidityRaid(df_15m, ctx['max_dia_anterior'], ctx['min_dia_anterior'])
         
-        c4h, c1h = self.analizar_catalizador(df_4h, ctx, raid, '4H'), self.analizar_catalizador(df_1h, ctx, raid, '1h')
+        c4h, c1h = self.analizar_catalizador(df_4h, ctx, htfSweep, '4H'), self.analizar_catalizador(df_1h, ctx, htfSweep, '1h')
         catalizador = c4h if c4h['confirmado'] else c1h if c1h['confirmado'] else None
         if not catalizador: return None
         

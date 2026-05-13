@@ -22,11 +22,16 @@ class DBConnectionPool:
 
     def _init_pool(self):
         try:
+            # Inyectar timeouts de seguridad
+            pool_config = dbConfig.copy()
+            if 'connect_timeout' not in pool_config:
+                pool_config['connect_timeout'] = 10
+            
             self._pool = pooling.MySQLConnectionPool(
                 pool_name="atalaia_pool",
                 pool_size=10,
                 pool_reset_session=True,
-                **dbConfig
+                **pool_config
             )
             logger.info("Pool de conexiones MySQL inicializado (size=10)")
         except MySQLError as e:

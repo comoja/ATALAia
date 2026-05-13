@@ -55,8 +55,32 @@ class GenericFVGBot:
                 continue
             
             # Tomar el más reciente
-            latest_fvg = fvgs[-1]
-            signal_direction = "LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO"
+            latestFvg = fvgs[-1]
+            fvgDirection = "LARGO" if latestFvg['type'] == 'Bullish_FVG' else "CORTO"
+
+            # --- FILTRO MTF: Verificar HTF Liquidity Sweep (regla video) ---
+            # Solo operar el FVG si hay un sweep de liquidez real en el HTF
+            # (precio superó PDH/PDL y cerró de vuelta dentro del rango)
+            htfLevels = technical.get_prev_day_high_low(df)
+            htfHigh   = htfLevels.get('pdh')
+            htfLow    = htfLevels.get('pdl')
+            if htfHigh and htfLow:
+                htfSweep = technical.detectLiquiditySweep(df, htfHigh=htfHigh, htfLow=htfLow, lookback=20)
+                if not htfSweep:
+                    # Sin sweep HTF confirmado no hay 'intención real' detrás de la entrada
+                    logger.debug(f"[{symbol}] {interval}: Sin HTF liquidity sweep confirmado - saltando")
+                    continue
+                # Validar alineación: el FVG debe ser en dirección opuesta al sweep
+                sweepType = htfSweep.get('type', '')
+                if sweepType == 'MANIPULATION_UP' and fvgDirection != 'CORTO':
+                    logger.debug(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep UP → solo CORTO)")
+                    continue
+                if sweepType == 'MANIPULATION_DOWN' and fvgDirection != 'LARGO':
+                    logger.debug(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep DOWN → solo LARGO)")
+                    continue
+
+            latest_fvg = latestFvg
+            signal_direction = fvgDirection
             
             # --- FILTRO MAURA 1: MSS (Market Structure Shift) ---
             if not technical.detect_mss(df, signal_direction, lookback=15):

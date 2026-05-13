@@ -29,14 +29,14 @@ class ExecutionEngine:
         except Exception as e:
             logger.error(f"[ExecutionEngine] Error al obtener cuentas: {e}")
 
-    async def processSignals(self, signals: List[Signal]):
+    async def processSignals(self, signals: List[Signal], marketSentiment: float = 0.0, marketSentiment_crypto: float = 0.0, imminentNews: str = None):
         """
         Processes a list of signals sequentially.
         """
         for signal in signals:
-            await self.processSignal(signal)
+            await self.processSignal(signal, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews)
 
-    async def processSignal(self, signal: Signal, symbolInfo: Optional[Dict[str, Any]] = None, dfContext: Optional[Any] = None) -> bool:
+    async def processSignal(self, signal: Signal, symbolInfo: Optional[Dict[str, Any]] = None, dfContext: Optional[Any] = None, marketSentiment: float = 0.0, marketSentiment_crypto: float = 0.0, imminentNews: str = None) -> bool:
         """
         Processes a signal: validates, calculates risk per account, and executes.
         """
@@ -53,7 +53,18 @@ class ExecutionEngine:
                 logger.error(f"[ExecutionEngine] No se encontró información para el símbolo {symbol}. Omitiendo señal.")
                 return False
 
-        # 2. Refresh accounts to ensure we have latest balances/status
+        # 2. Filtro de Sentimiento Inteligente (Bien Hacha)
+        # Decidir qué sentimiento usar según el símbolo
+        current_sentiment = marketSentiment
+        symbol_tipo = symbolInfo.get('tipo', 'FOREX').upper()
+        if symbol_tipo == "CRYPTO":
+            current_sentiment = marketSentiment_crypto
+
+        if self._is_sentiment_conflicting(signal, current_sentiment):
+            logger.info(f"🚫 [ExecutionEngine] [{symbol}] Señal BLOQUEADA por sentimiento {symbol_tipo} contrario ({current_sentiment:.2f})")
+            return False
+
+        # 3. Refresh accounts to ensure we have latest balances/status
         self.refreshAccounts()
         if not self.accounts:
             return False
@@ -176,7 +187,9 @@ class ExecutionEngine:
                     )
 
             # 5. Prepare Trade Data
-            # Update signal with calculated profit for this account
+            # Update signal with calculated profit and context
+            signal.metadata['marketSentiment'] = marketSentiment
+            signal.metadata['imminentNews'] = imminentNews
             signalDict = signal.to_dict()
             signalDict['profit'] = riskUsd
             signalDict['is_adjustment'] = isAdjustment
@@ -184,6 +197,7 @@ class ExecutionEngine:
             tradeData = {
                 "idTrade": idTradeToUpdate,
                 "idCuenta": accountId,
+                "accountName": account.get('Nombre', 'Desconocido'),
                 "symbol": symbol,
                 "direction": signal.direction,
                 "entryPrice": signal.entry_price,
@@ -221,3 +235,28 @@ class ExecutionEngine:
                 logger.error(f"Error crítico en ejecución {strategyName} para {symbol} en cuenta {accountId}: {e}")
 
         return executedAny
+
+    def _is_sentiment_conflicting(self, signal: Signal, sentiment: float) -> bool:
+        """
+        Verifica si el sentimiento de mercado contradice la dirección de la señal.
+        """
+        # Umbral de conflicto (configurable en el futuro)
+        THRESHOLD = 0.30
+        symbol = signal.symbol.upper()
+        
+        # Caso Especial: Oro (XAU/USD) - Activo Refugio
+        # Si el sentimiento es muy negativo (miedo), el Oro suele subir. No bloqueamos compras.
+        if "XAU" in symbol or "GOLD" in symbol:
+            if signal.direction == "LARGO" and sentiment < -0.4:
+                return False # Permitir compra en pánico (Safe Haven)
+            if signal.direction == "CORTO" and sentiment > 0.4:
+                return True # Bloquear venta si todo está muy optimista y el oro debería bajar
+
+        # Regla General para el resto de activos
+        if signal.direction == "LARGO" and sentiment < -THRESHOLD:
+            return True # No comprar si hay mucho miedo/noticias negativas
+            
+        if signal.direction == "CORTO" and sentiment > THRESHOLD:
+            return True # No vender si hay mucho optimismo/noticias positivas
+            
+        return False

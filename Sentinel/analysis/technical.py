@@ -203,6 +203,74 @@ def detect_mss(df: pd.DataFrame, direction: str, lookback: int = 15) -> bool:
         last_low = float(recent_df['low'].min())
         return current_close < last_low
 
+def detectLiquiditySweep(
+    df: pd.DataFrame,
+    htfHigh: float,
+    htfLow: float,
+    lookback: int = 10
+) -> Optional[dict]:
+    """
+    Detecta un barrido de liquidez (Liquidity Sweep) en el timeframe dado.
+
+    Regla SMC/ICT (Multi-Timeframe Alignment):
+    Un sweep REAL ocurre cuando el precio:
+      1. SUPERA un máximo/mínimo previo del HTF (la mecha o el cuerpo cruza el nivel)
+      2. CIERRA de vuelta DENTRO del rango anterior (el cierre queda bajo el HTF High o
+         sobre el HTF Low barrido)
+
+    Un simple toque (wick) sin cierre de vuelta es una "trampa" válida solo si el cierre
+    regresa al rango. Esto define el sesgo (bias) del mercado:
+      - Sweep de máximo (MANIPULATION_UP) → bias CORTO (liquidez superior barrida,
+        objetivo = liquidez inferior)
+      - Sweep de mínimo (MANIPULATION_DOWN) → bias LARGO (liquidez inferior barrida,
+        objetivo = liquidez superior)
+
+    Args:
+        df: DataFrame OHLC del timeframe a analizar (LTF o HTF según contexto).
+        htfHigh: Máximo de referencia HTF (ej. PDH - Previous Day High).
+        htfLow: Mínimo de referencia HTF (ej. PDL - Previous Day Low).
+        lookback: Número de velas recientes a revisar (default 10).
+
+    Returns:
+        dict con {type, level, idx, timestamp, sweepPrice} o None si no hay sweep.
+    """
+    if df is None or len(df) < 3 or htfHigh is None or htfLow is None:
+        return None
+
+    recentDf = df.tail(lookback)
+
+    # Recorrer de más reciente a más antiguo
+    for i in range(len(recentDf) - 1, -1, -1):
+        vela = recentDf.iloc[i]
+        velaHigh  = float(vela.get('high', 0))
+        velaLow   = float(vela.get('low', 0))
+        velaClose = float(vela.get('close', 0))
+
+        # --- Sweep de máximo (Bearish sweep) ---
+        # La mecha supera el HTF High pero el CIERRE queda por debajo (de vuelta al rango)
+        if velaHigh > htfHigh and velaClose < htfHigh:
+            return {
+                "type":       "MANIPULATION_UP",
+                "level":      htfHigh,
+                "idx":        i,
+                "timestamp":  str(recentDf.index[i]),
+                "sweepPrice": velaHigh
+            }
+
+        # --- Sweep de mínimo (Bullish sweep) ---
+        # La mecha baja del HTF Low pero el CIERRE queda por encima (de vuelta al rango)
+        if velaLow < htfLow and velaClose > htfLow:
+            return {
+                "type":       "MANIPULATION_DOWN",
+                "level":      htfLow,
+                "idx":        i,
+                "timestamp":  str(recentDf.index[i]),
+                "sweepPrice": velaLow
+            }
+
+    return None
+
+
 def calculate_ote_zone(
     swing_start: float,
     swing_end: float,
@@ -414,32 +482,34 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
 
 def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
     """
-    Valida si un FVG ha sido llenado (mitigado) por alguna vela posterior.
-    
-    El gap se considera invalidado desde que cualquier vela posterior entra
-    a negociar dentro del espacio del FVG:
-    - FVG Alcista: Se invalida si el Low de una vela posterior es <= Top del FVG
-    - FVG Bajista: Se invalida si el High de una vela posterior es >= Bottom del FVG
-    
+    Valida si un FVG ha sido mitigado (llenado) por alguna vela posterior.
+
+    Regla ICT/SMC estándar (50% Rule):
+    El gap se considera INVÁLIDO solo cuando una vela CIERRA dentro del espacio del FVG
+    superando el punto medio (50% del gap). Las mechas que rozan el borde NO invalidan el gap.
+
+    - FVG Alcista: Se invalida si el CIERRE de una vela posterior es <= mid (50% del gap)
+    - FVG Bajista: Se invalida si el CIERRE de una vela posterior es >= mid (50% del gap)
+
     Args:
         df: DataFrame con OHLC.
         fvg_start_idx: Índice de Vela 3 (confirmación del FVG).
-        fvg: Diccionario con información del FVG.
+        fvg: Diccionario con información del FVG (debe incluir 'mid').
     """
-    gap_bottom = fvg['bottom']
-    gap_top = fvg['top']
-    
+    gap_mid = fvg.get('mid', (fvg['bottom'] + fvg['top']) / 2)
+
     for i in range(fvg_start_idx + 1, len(df)):
-        candle_high = float(df['high'].iloc[i])
-        candle_low = float(df['low'].iloc[i])
-        
+        candle_close = float(df['close'].iloc[i])
+
         if fvg['type'] == 'Bullish_FVG':
-            if candle_low <= gap_top:
+            # Bullish FVG inválido si el cierre cae hasta o por debajo del punto medio
+            if candle_close <= gap_mid:
                 return True
         else:
-            if candle_high >= gap_bottom:
+            # Bearish FVG inválido si el cierre sube hasta o por encima del punto medio
+            if candle_close >= gap_mid:
                 return True
-    
+
     return False
 
 # Setup FVG Centralizado v1.1

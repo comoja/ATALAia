@@ -12,6 +12,7 @@ Autor: Sentinel Trading System
 import logging
 import pandas as pd
 import numpy as np
+import talib as ta
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
@@ -107,8 +108,7 @@ class FVGDiarioBot:
             # Obtener nivel de liquidez opuesto (para TP)
             opposite_liquidity = pdl if daily_bias == "LARGO" else pdh
             
-            # Buscar manipulación
-            manipulation = self._detect_manipulation(
+            manipulation = self._detectManipulation(
                 df_intraday, pdh, pdl, daily_bias
             )
             
@@ -116,11 +116,11 @@ class FVGDiarioBot:
                 return None
             
             # Verificar cambio de estructura tras manipulación
-            if not self._check_market_structure_shift( df_intraday, manipulation, daily_bias):
+            if not self._checkMarketStructureShift(df_intraday, manipulation, daily_bias):
                 return None
             
-            # Buscar FVG tras manipulación
-            fvg = self._find_fvg_after_manipulation(df_intraday, manipulation, daily_bias)
+            # Buscar FVG tras el sweep de liquidez (MTF Alignment)
+            fvg = self._findFvgAfterManipulation(df_intraday, manipulation, daily_bias)
             
             if not fvg:
                 return None
@@ -167,78 +167,67 @@ class FVGDiarioBot:
         
         return pdh, pdl
     
-    def _detect_manipulation(self, df: pd.DataFrame, pdh: float, pdl: float, daily_bias: str) -> Optional[Dict]:
-        """Detecta manipulación del nivel diario."""
-        if df is None or len(df) < 10:
-            return None
-        
-        recent = df.tail(10)
-        
-        if daily_bias == "CORTO":
-            for i in range(len(recent) - 1, -1, -1):
-                row_high = recent.iloc[i].get('high', recent.iloc[i].get('High', 0))
-                if row_high >= pdh:
-                    return {"type": "MANIPULATION_UP", "level": pdh, "index": i, "timestamp": str(recent.index[i]), "price": float(row_high)}
-        
-        elif daily_bias == "LARGO":
-            for i in range(len(recent) - 1, -1, -1):
-                row_low = recent.iloc[i].get('low', recent.iloc[i].get('Low', 0))
-                if row_low <= pdl:
-                    return {"type": "MANIPULATION_DOWN", "level": pdl, "index": i, "timestamp": str(recent.index[i]), "price": float(row_low)}
-        
-        return None
+    def _detectManipulation(self, df: pd.DataFrame, pdh: float, pdl: float, dailyBias: str) -> Optional[Dict]:
+        """
+        Detecta manipulación del nivel diario usando la función centralizada.
+
+        Regla SMC/ICT (video - MTF Alignment):
+        Un sweep real exige que el precio SUPERE el nivel PDH/PDL Y CIERRE de vuelta
+        dentro del rango anterior. Un simple toque no es manipulación válida.
+        """
+        return technical.detectLiquiditySweep(df, htfHigh=pdh, htfLow=pdl, lookback=10)
     
-    def _check_market_structure_shift(self, df: pd.DataFrame, manipulation: Dict, daily_bias: str) -> bool:
-        """Verifica si hay un Market Structure Shift (MSS) tras la manipulación."""
+    def _checkMarketStructureShift(self, df: pd.DataFrame, manipulation: Dict, dailyBias: str) -> bool:
+        """Verifica si hay un Market Structure Shift (MSS) tras el sweep de liquidez."""
         if df is None or manipulation is None:
             return False
-        
-        manip_idx = manipulation['index']
-        if manip_idx + 2 >= len(df):
+
+        # detectLiquiditySweep retorna 'idx'; compatibilidad con formato anterior
+        manipIdx = manipulation.get('idx', manipulation.get('index', None))
+        if manipIdx is None or manipIdx + 2 >= len(df):
             return False
-        
-        post_manip = df.iloc[manip_idx + 1:]
-        if len(post_manip) < 2:
+
+        postManip = df.iloc[manipIdx + 1:]
+        if len(postManip) < 2:
             return False
-        
-        if daily_bias == "CORTO":
-            recent_lows = post_manip['low'].values
-            for low in recent_lows:
+
+        # Inferir dirección del MSS esperado según el tipo de sweep
+        sweepType = manipulation.get('type', '')
+        if dailyBias == "CORTO" or sweepType == "MANIPULATION_UP":
+            # Tras sweep de máximos, esperar ruptura de mínimo (MSS bajista)
+            for low in postManip['low'].values:
                 if low < manipulation['level']:
                     return True
-        elif daily_bias == "LARGO":
-            col_high = 'high' if 'high' in post_manip.columns else 'High'
-            recent_highs = post_manip[col_high].values if col_high in post_manip.columns else []
-            for high in recent_highs:
+        elif dailyBias == "LARGO" or sweepType == "MANIPULATION_DOWN":
+            # Tras sweep de mínimos, esperar ruptura de máximo (MSS alcista)
+            colHigh = 'high' if 'high' in postManip.columns else 'High'
+            for high in (postManip[colHigh].values if colHigh in postManip.columns else []):
                 if high > manipulation['level']:
                     return True
-        
+
         return False
     
-    def _find_fvg_after_manipulation(self, df: pd.DataFrame, manipulation: Dict, daily_bias: str) -> Optional[Dict]:
-        """Busca un Fair Value Gap Formación después de la manipulación."""
+    def _findFvgAfterManipulation(self, df: pd.DataFrame, manipulation: Dict, dailyBias: str) -> Optional[Dict]:
+        """Busca un Fair Value Gap formado después del sweep de liquidez."""
         if df is None or manipulation is None:
             return None
-        
-        manip_idx = manipulation['index']
-        start_idx = max(0, manip_idx + 2)
-        end_idx = min(len(df), start_idx + 5)
-        
-        if end_idx - start_idx < 3:
+
+        # Compatibilidad con ambas versiones del dict (idx o index)
+        manipIdx = manipulation.get('idx', manipulation.get('index', None))
+        if manipIdx is None:
             return None
-        
-        df_after = df.iloc[start_idx:end_idx]
-        latest_fvg = technical.detect_fvg_closed(df_source=df_after, interval='15min', min_gap_pct=0.0001, min_adx=15, lookback=10)
-        
-        if not latest_fvg:
+
+        startIdx = max(0, manipIdx + 2)
+        endIdx   = min(len(df), startIdx + 5)
+
+        if endIdx - startIdx < 3:
             return None
-        
-        if daily_bias == "LARGO":
-            return latest_fvg
-        elif daily_bias == "CORTO":
-            return latest_fvg
-        
-        return None
+
+        dfAfter = df.iloc[startIdx:endIdx]
+        latestFvg = technical.detect_fvg_closed(
+            df_source=dfAfter, interval='15min', min_gap_pct=0.0001, min_adx=15, lookback=10
+        )
+        return latestFvg  # None si no hay FVG válido
     
     async def _generate_signal(self, symbolData: Dict, daily_bias: str, pdh: float, pdl: float, manipulation: Dict, fvg: Dict, opposite_liquidity: float, df: pd.DataFrame = None) -> Optional[Signal]:
         """Genera y devuelve una señal."""

@@ -52,7 +52,8 @@ dbConfig = {
     "host": "localhost",
     "user": "root",
     "password": "M1x&J34ny",
-    "database": "ATALAia"
+    "database": "ATALAia",
+    "connect_timeout": 10
 }
 
 MODEL_PARAMS = {

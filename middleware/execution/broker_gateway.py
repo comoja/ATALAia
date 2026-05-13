@@ -4,6 +4,9 @@ from typing import Any
 from middleware.database import dbManager
 from middleware.utils.loggerConfig import setupLogging
 from middleware.utils.communications import sendTelegramAlert
+from datetime import datetime
+import pytz
+from middleware.config.constants import TIMEZONE, MAX_SIGNAL_AGE_MINUTES
 from middleware.utils.alertBuilder import (
     buildEMAAlertMessage, 
     buildSniperAlertMessage, 
@@ -15,9 +18,11 @@ from middleware.utils.alertBuilder import (
     buildSilverBulletAlertMessage,
     buildImbalancePMNYAlertMessage,
     buildGenericFVGAlertMessage,
-    buildFVGDiarioAlertMessage
+    buildFVGDiarioAlertMessage,
+    buildSpeedBotAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
+from middleware.database import dbManager as _db
 
 setupLogging("execution")
 logger = logging.getLogger("execution")
@@ -39,62 +44,95 @@ class BrokerGateway:
         
         logger.info(f"🚀 BrokerGateway iniciado en modo: {self.mode}")
 
-    def _is_signal_stale(self, trade_data: dict, signal: dict) -> bool:
+    # Mapa de intervalo a minutos (centralizado para toda la clase)
+    INTERVAL_MINUTES_MAP = {
+        '1min': 1, '5min': 5, '15min': 15, '30min': 30,
+        '1h': 60, '2h': 120, '4h': 240, '1d': 1440
+    }
+
+    def _isSignalStale(self, trade_data: dict, signal: dict) -> bool:
         """
-        Verifica si la señal es obsoleta basándose en el tiempo transcurrido 
+        Verifica si la señal es obsoleta basándose en el número de velas transcurridas
         desde la vela que la generó hasta ahora.
-        IGNORA el precio (según requerimiento del usuario: 'rechazar por horario y no por precio').
+
+        Criterio: antigüedad > max_age_candles × duración_del_intervalo_en_minutos
+        Esto evita que un FVG de 4H sea rechazado con el mismo umbral que uno de 5min.
+
+        - max_age_candles: configurable por estrategia en DB (default 3 velas)
+        - El intervalo se toma de signal['intervalo'] o trade_data['intervalo']
+        - Fallback a MAX_SIGNAL_AGE_MINUTES si no hay intervalo disponible
         """
         try:
-            from datetime import datetime
-            import pytz
-            from middleware.config.constants import TIMEZONE, MAX_SIGNAL_AGE_MINUTES
             
-            candle_time_str = signal.get('candleTime')
-            if not candle_time_str:
-                logger.warning("No se encontró 'candle_time' en la señal. Saltando validación de tiempo.")
+
+            candleTimeStr = signal.get('candleTime')
+            if not candleTimeStr:
+                logger.warning("No se encontró 'candleTime' en la señal. Saltando validación de tiempo.")
                 return False
+
+            # --- Calcular umbral dinámico en función del intervalo ---
+            strategyName = trade_data.get('strategy', signal.get('strategy', ''))
+            stratConfig  = {}
+            try:
                 
-            # Convertir candle_time a objeto datetime
+                stratConfig = _db.getStrategyConfig(strategyName) or {}
+            except Exception:
+                pass
+
+            maxAgeCandles   = int(stratConfig.get('max_age_candles', 5))
+            intervalo       = signal.get('intervalo') or trade_data.get('intervalo', '')
+            intervalMinutes = self.INTERVAL_MINUTES_MAP.get(intervalo, 0)
+
+            if intervalMinutes > 0:
+                maxAgeMinutes = maxAgeCandles * intervalMinutes
+            else:
+                # Fallback a constante global si no se puede determinar el intervalo
+                maxAgeMinutes = MAX_SIGNAL_AGE_MINUTES
+                logger.debug(f"Intervalo '{intervalo}' no reconocido, usando fallback {maxAgeMinutes} min")
+
+            # --- Parsear candleTime ---
             tz = pytz.timezone(TIMEZONE)
-            if isinstance(candle_time_str, str):
+            if isinstance(candleTimeStr, str):
                 try:
-                    # Limpiar timezone offset si existe (ej: "2026-04-28 10:30:00-06:00")
-                    if '+' in candle_time_str or (candle_time_str.count('-') > 2 and '-' in candle_time_str[-6:]):
-                        candle_time_str = candle_time_str.split('-')[0].rstrip()
-                    
-                    # Verificar que tenga el formato correcto
-                    if ' ' not in candle_time_str or len(candle_time_str) < 10:
-                        logger.warning(f"Format de tiempo inválido: {candle_time_str}")
+                    if '+' in candleTimeStr or (candleTimeStr.count('-') > 2 and '-' in candleTimeStr[-6:]):
+                        candleTimeStr = candleTimeStr.split('-')[0].rstrip()
+                    if ' ' not in candleTimeStr or len(candleTimeStr) < 10:
+                        logger.warning(f"Formato de tiempo inválido: {candleTimeStr}")
                         return False
-                        
-                    candle_dt = datetime.strptime(candle_time_str, "%Y-%m-%d %H:%M:%S")
-                    candle_dt = tz.localize(candle_dt)
+                    candleDt = datetime.strptime(candleTimeStr, "%Y-%m-%d %H:%M:%S")
+                    candleDt = tz.localize(candleDt)
                 except Exception as e:
-                    logger.error(f"Error parsing tiempo '{candle_time_str}': {e}")
+                    logger.error(f"Error parsing tiempo '{candleTimeStr}': {e}")
                     return False
             else:
-                # Ya es un datetime (algunas estrategias lo pasan así)
-                candle_dt = candle_time_str
-                if candle_dt.tzinfo is None:
-                    candle_dt = tz.localize(candle_dt)
-            
-            now = datetime.now(tz)
-            
-            # Calcular antigüedad
-            diff = now - candle_dt
-            age_minutes = diff.total_seconds() / 60
-            
-            if age_minutes > MAX_SIGNAL_AGE_MINUTES:
-                logger.warning(f"⚠️ Orden RECHAZADA: Señal Obsoleta (Antigüedad: {age_minutes:.1f} min > {MAX_SIGNAL_AGE_MINUTES} min)")
+                candleDt = candleTimeStr
+                if candleDt.tzinfo is None:
+                    candleDt = tz.localize(candleDt)
+
+            # --- Verificar antigüedad ---
+            ageMinutes = (datetime.now(tz) - candleDt).total_seconds() / 60
+            ageCandles = ageMinutes / intervalMinutes if intervalMinutes > 0 else None
+
+            if ageMinutes > maxAgeMinutes:
+                candlesStr = f"{ageCandles:.1f} velas" if ageCandles else f"{ageMinutes:.1f} min"
+                logger.warning(
+                    f"⚠️ Orden RECHAZADA: Señal Obsoleta "
+                    f"(Antigüedad: {ageMinutes:.1f} min [{candlesStr}] "
+                    f"> máx {maxAgeMinutes} min [{maxAgeCandles} velas de {intervalo}])"
+                )
                 return True
-            
-            logger.info(f"✅ Señal válida por horario (Antigüedad: {age_minutes:.1f} min)")
+
+            logger.info(
+                f"✅ Señal válida por horario "
+                f"(Antigüedad: {ageMinutes:.1f} min | "
+                f"Máx: {maxAgeMinutes} min [{maxAgeCandles} velas de {intervalo or 'N/A'}])"
+            )
             return False
-            
+
         except Exception as e:
             logger.error(f"Error en validación de tiempo de señal: {e}")
             return False
+
 
     def _is_entry_price_valid(self, signal: dict, df: pd.DataFrame) -> bool:
         """
@@ -153,8 +191,8 @@ class BrokerGateway:
             
         logger.info(f" Iniciando ejecución para {trade_data.get('symbol')} | Estrategia: {strategy_name}")
         
-        # 0. Filtro de Seguridad: Staleness (Antigüedad de la señal)
-        if self._is_signal_stale(trade_data, signal):
+        # 0. Filtro de Seguridad: Staleness (Antigüedad dinámica por velas del intervalo)
+        if self._isSignalStale(trade_data, signal):
             return False, "senal_obseleta"
 
         # 0.1 Filtro de Seguridad: Precio entrada vigente - COMENTADO PARA PRUEBAS
@@ -276,6 +314,8 @@ class BrokerGateway:
             return buildGenericFVGAlertMessage(signal, trade_data)
         elif strategy_name == "FVGDiario":
             return buildFVGDiarioAlertMessage(signal, trade_data)
+        elif strategy_name == "SpeedBot":
+            return buildSpeedBotAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

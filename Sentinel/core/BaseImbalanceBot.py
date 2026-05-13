@@ -163,6 +163,8 @@ class BaseImbalanceBot:
         if precioMaximo is None or precioMinimo is None:
             return []
         
+        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
+        
         adx = ta.ADX(datos5min['high'], datos5min['low'], datos5min['close'], timeperiod=14)
         adx_val = float(adx.dropna().iloc[-1]) if len(adx.dropna()) > 0 else 25.0
         if adx_val < 20:
@@ -200,6 +202,13 @@ class BaseImbalanceBot:
             fvg_time = pd.Timestamp(datos5min.index[fvg['idx']]).tz_localize(None)
             minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
             if minutos_desde_fvg > self.maxMinutosFvg:
+                continue
+            
+            # Validar mitigación ICT (50% rule): descartar si el precio ya cerró
+            # dentro del gap superando el punto medio
+            from Sentinel.analysis import technical as _technical
+            if _technical._is_fvg_mitigated(datos5min, fvg['idx'], fvg):
+                logger.debug(f"[{symbol}] {self.strategy_name}: FVG mitigado (50% rule) - descartando")
                 continue
             
             entryPrice = fvg['mid']
@@ -269,7 +278,7 @@ class BaseImbalanceBot:
             refRiskPct = symbolInfo.get('refRiskPct', 1.0)
             
             # Usar precio actual como entrada real para el cálculo de riesgo
-            currentPrice = float(df['close'].iloc[-1])
+            currentPrice = float(datos5min['close'].iloc[-1])
             realEntry = currentPrice
             realRiskDist = abs(realEntry - stopLoss)
             

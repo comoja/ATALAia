@@ -7,7 +7,9 @@ import logging
 import finnhub
 import pandas as pd
 import pytz
-from datetime import datetime
+import httpx
+import asyncio
+from datetime import datetime, timedelta
 
 from middleware.config.constants import FINNHUB_API_KEY
 
@@ -86,4 +88,45 @@ def getFinnhubClient():
     """Get a Finnhub client instance."""
     if FINNHUB_API_KEY is None or FINNHUB_API_KEY == "":
         return None
-    return finnhub.Client(FINNHUB_API_KEY)
+    return finnhub.Client(api_key=FINNHUB_API_KEY)
+
+async def getLatestMarketNews(category: str = "general") -> list:
+    """
+    Obtiene los titulares de las últimas noticias del mercado usando httpx con timeout.
+    """
+    if not FINNHUB_API_KEY:
+        return []
+    
+    url = f"https://finnhub.io/api/v1/news?category={category}&token={FINNHUB_API_KEY}"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
+            news = response.json()
+            return [item.get('headline') for item in news[:10]]
+    except Exception as e:
+        logger.error(f"Error obteniendo noticias de Finnhub (httpx): {e}")
+        return []
+
+async def getHighImpactEvents() -> list:
+    """
+    Obtiene eventos económicos de alto impacto usando httpx con timeout.
+    """
+    if not FINNHUB_API_KEY:
+        return []
+    
+    now = datetime.now()
+    start_date = now.strftime('%Y-%m-%d')
+    end_date = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    url = f"https://finnhub.io/api/v1/calendar/economic?from={start_date}&to={end_date}&token={FINNHUB_API_KEY}"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            events = data.get('economicCalendar', [])
+            return [e for e in events if e.get('impact') == 'high']
+    except Exception as e:
+        logger.error(f"Error obteniendo calendario de Finnhub (httpx): {e}")
+        return []
