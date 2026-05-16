@@ -24,7 +24,7 @@ from Sentinel.ml.train_reg_model import train_reg as retrain_regression
 
 # Configuración
 RETRAIN_DAY_OF_WEEK = None  # None = diario, 0=Lunes, 6=Domingo
-RETRAIN_HOUR = 1  # Hora de reentrenamiento (1am)
+RETRAIN_HOUR = 0  # 0 = medianoche (se reentrena al iniciar el día)
 MIN_DATA_POINTS = 10000  # Mínimo de datos requeridos
 
 
@@ -39,11 +39,6 @@ async def should_retrain(force: bool = False):
     # Verificar si es el día configurado (si está configurado)
     if RETRAIN_DAY_OF_WEEK is not None and now.weekday() != RETRAIN_DAY_OF_WEEK:
         print(f"Hoy es {now.strftime('%A')} - No es día de reentrenamiento (día {RETRAIN_DAY_OF_WEEK})")
-        return False
-    
-    # Verificar si es la hora configurada (0 = medianoche/00:00)
-    if now.hour != RETRAIN_HOUR:
-        print(f"Ahora son las {now.hour}h - No es la hora de reentrenamiento ({RETRAIN_HOUR}h)")
         return False
     
     return True

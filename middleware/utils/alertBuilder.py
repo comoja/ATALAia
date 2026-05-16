@@ -30,12 +30,15 @@ def calculateRR(entry: float, sl: float, tp: float) -> float:
     return round(abs(tp - entry) / riesgo, 2)
 
 def adjustTPForMinRR(entry: float, sl: float, tp: float, direction: str, minRR: float = 1.5) -> float:
-    """Ensures TP meets a minimum RR ratio."""
+    """Ensures TP meets a minimum RR ratio and is in the correct direction."""
     riesgo = abs(entry - sl)
     if riesgo == 0: return tp
     rr = abs(tp - entry) / riesgo
-    if rr < minRR:
-        if direction.upper() in [ "LARGO"]:
+    is_largo = direction.upper() in ["LARGO"]
+    # Validar que el TP esté en la dirección correcta
+    tp_wrong = (is_largo and tp <= entry) or (not is_largo and tp >= entry)
+    if rr < minRR or tp_wrong:
+        if is_largo:
             return entry + (riesgo * minRR)
         else:
             return entry - (riesgo * minRR)

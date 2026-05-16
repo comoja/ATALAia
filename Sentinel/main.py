@@ -420,6 +420,26 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
 
+async def _auto_retrain_ml():
+    """Reentrena modelos ML en background (si el modelo tiene >24h)."""
+    try:
+        import os
+        from middleware.config.constants import MODEL_FILE_PATH
+        if os.path.exists(MODEL_FILE_PATH):
+            mtime = os.path.getmtime(MODEL_FILE_PATH)
+            age_hours = (datetime.now().timestamp() - mtime) / 3600
+            if age_hours < 24:
+                logger.info(f"⏭️ Modelo ML tiene {age_hours:.0f}h - menor a 24h, omitiendo retraining")
+                return
+        
+        from Sentinel.ml import retrain_ml, train_reg_model
+        logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML...")
+        await retrain_ml.retrain()
+        await train_reg_model.train_reg()
+        logger.info("✅ Auto-reentrenamiento completado")
+    except Exception as e:
+        logger.error(f"Error en auto-reentrenamiento: {e}")
+
 async def main():
     logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
     
@@ -495,22 +515,10 @@ async def main():
                 
                 logger.info(f"AI Sentiment: Gen={marketSentiment:.2f}, Cry={marketSentiment_crypto:.2f} | News: {imminentNews or 'Limpio'}", extra={"color": "cyan"})
                 # await alertaInmediata(1,f"<b>Sentimiento AI:</b> {marketSentiment:.2f} <b>Noticias:</b> {imminentNews or 'Limpio'}", False)
-                # Auto-reentrenamiento ML a las 00:10 (o cualquier inicio de día)
+                # Auto-reentrenamiento ML (una vez al día, en background)
                 if _ml_retrained_today != today_str:
-                    from Sentinel.ml.auto_retrain import should_retrain
-                    try:
-                        should_run = should_retrain()
-                        if asyncio.iscoroutine(should_run):
-                            should_run = await should_run
-                        if should_run:
-                            logger.info("🚀 Iniciando auto-reentrenamiento de modelos ML...")
-                            from Sentinel.ml import retrain_ml, train_reg_model
-                            await retrain_ml.retrain()
-                            await train_reg_model.train_reg()
-                            logger.info("✅ Auto-reentrenamiento completado")
-                        _ml_retrained_today = today_str
-                    except Exception as e:
-                        logger.error(f"Error en auto-reentrenamiento: {e}")
+                    _ml_retrained_today = today_str
+                    asyncio.create_task(_auto_retrain_ml())
                 
                 # 2. Ejecutar análisis (Centralizado)
                 await run_sequential_analysis(

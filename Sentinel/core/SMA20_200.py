@@ -498,7 +498,7 @@ class SMABot:
             confidence=confianza,
             setup="Consolidacion" if consolidacion else "Doble Toque",
             status="EN ZONA ✅",
-            candleTime=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=last_closed_str,
             intervalo=intervalo,
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(rr_actual, 2),

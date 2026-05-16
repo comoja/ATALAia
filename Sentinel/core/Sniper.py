@@ -220,11 +220,11 @@ class SniperBot:
         thresh_long, thresh_short = 0.5, 0.5
         
         if proba > thresh_long:
-            direction = "CORTO"
-            confianza = (1 - proba) * 100
-        elif proba < thresh_short:
             direction = "LARGO"
             confianza = proba * 100
+        elif proba < thresh_short:
+            direction = "CORTO"
+            confianza = (1 - proba) * 100
         else:
             return None
             

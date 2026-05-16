@@ -358,7 +358,7 @@ class SesgoBiasHTFBot:
             confidence=confidence,
             setup="PO3 + MSS + FVG",
             status="EN ZONA ✅",
-            candleTime=last_closed.strftime("%Y-%m-%d %H:%M:%S"),
+            candleTime=candle_time,
             intervalo="15min",
             riesgo_pips=round(sl_dist * multiplier, 1),
             rr_ratio=round(abs(tp_price - entry_price) / sl_dist, 2),

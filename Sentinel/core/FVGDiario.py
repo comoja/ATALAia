@@ -73,9 +73,9 @@ class FVGDiarioBot:
         
         logger.info(f"🤖 {self.strategy_name} iniciado")
     
-    async def runAnalysisCycleForSymbol(self, symbolData: Dict, preloadedData: Dict = None) -> Optional[Signal]:
+    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None) -> Optional[Signal]:
         """Analiza un símbolo en busca de señales y devuelve un objeto Signal si existe."""
-        symbol = symbolData['symbol']
+        symbol = symbolInfo['symbol']
         logger.info(f"▶ Iniciando análisis para {symbol}")
         
         try:
@@ -126,7 +126,7 @@ class FVGDiarioBot:
                 return None
             
             # Generar señal
-            return await self._generate_signal(symbolData, daily_bias, pdh, pdl, manipulation, fvg, opposite_liquidity, df_intraday)
+            return await self._generate_signal(symbolInfo, daily_bias, pdh, pdl, manipulation, fvg, opposite_liquidity, df_intraday)
             
         except Exception as e:
             logger.error(f" Error análisis {symbol}: {e}")
@@ -229,9 +229,9 @@ class FVGDiarioBot:
         )
         return latestFvg  # None si no hay FVG válido
     
-    async def _generate_signal(self, symbolData: Dict, daily_bias: str, pdh: float, pdl: float, manipulation: Dict, fvg: Dict, opposite_liquidity: float, df: pd.DataFrame = None) -> Optional[Signal]:
+    async def _generate_signal(self, symbolInfo: Dict, daily_bias: str, pdh: float, pdl: float, manipulation: Dict, fvg: Dict, opposite_liquidity: float, df: pd.DataFrame = None) -> Optional[Signal]:
         """Genera y devuelve una señal."""
-        symbol = symbolData['symbol']
+        symbol = symbolInfo['symbol']
         
         # Verificar si la señal ya fue enviada en RAM
         signal_key = f"{symbol}_{fvg['timestamp']}"
@@ -288,7 +288,7 @@ class FVGDiarioBot:
             return None
         
         # ── FILTRO: Tendencia mensual ──
-        monthly_trend = symbolData.get('weekly_trend', 'NEUTRAL')
+        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
         if monthly_trend == "BAJISTA" and direction == "LARGO":
             logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
             return None

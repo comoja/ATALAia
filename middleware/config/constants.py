@@ -57,8 +57,8 @@ dbConfig = {
 }
 
 MODEL_PARAMS = {
-    "n_estimators": 150,
-    "max_depth": 7,
+    "n_estimators": 300,
+    "max_depth": 15,
     "random_state": 42,
     "n_jobs": -1
 }
