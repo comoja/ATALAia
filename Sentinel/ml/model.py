@@ -135,7 +135,10 @@ def predictProba(model: RandomForestClassifier, X: pd.DataFrame) -> float | None
     try:
         # Predict probability for the last row (latest data)
         # The result is an array of probabilities for [class_0, class_1]
-        probaForClass1 = model.predict_proba(X.iloc[-1:])[0][1]
+        probabilities = model.predict_proba(X.iloc[-1:])[0]
+        classes = list(getattr(model, "classes_", []))
+        class_1_index = classes.index(1) if 1 in classes else 1
+        probaForClass1 = probabilities[class_1_index]
         return float(probaForClass1)
     except Exception as e:
         logger.error(f"Error durante la predicción de probabilidad: {e}", exc_info=True)

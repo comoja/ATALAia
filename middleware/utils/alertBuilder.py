@@ -463,3 +463,24 @@ def buildSpeedBotAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="SPEED / DISPLACEMENT BOT",
         extraFields=extraFields
     )
+
+def buildBreakoutNYAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para estrategia BreakoutNY - rango apertura NY."""
+    extraFields = {
+        'Estado': signal.get('status', 'RUPTURA CONFIRMADA'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Rango Alto': f"{signal.get('range_high', 0):,.5f}",
+        'Rango Bajo': f"{signal.get('range_low', 0):,.5f}",
+        'Hora Rango': str(signal.get('range_time', 'N/A')),
+        'Cierre Ruptura': f"{signal.get('breakout_close', 0):,.5f}",
+    }
+
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="BREAKOUT NY OPENING RANGE",
+        extraFields=extraFields
+    )

@@ -5,13 +5,69 @@ import logging
 import pandas as pd
 import numpy as np
 import talib as ta
-from typing import Optional
+from typing import Dict, Optional
 from datetime import datetime
 import pytz
 
 from middleware.database import dbManager
 
 logger = logging.getLogger("sentinel")
+
+def _infer_interval_minutes(df: pd.DataFrame) -> Optional[int]:
+    """Infiere el timeframe en minutos a partir del índice del DataFrame."""
+    if df is None or len(df) < 2 or not isinstance(df.index, pd.DatetimeIndex):
+        return None
+
+    deltas = df.index.to_series().diff().dropna().dt.total_seconds() / 60
+    deltas = deltas[deltas > 0]
+    if deltas.empty:
+        return None
+
+    interval = int(round(float(deltas.median())))
+    return interval if interval > 0 else None
+
+def filter_to_closed_candles(
+    df: pd.DataFrame,
+    interval_minutes: Optional[int] = None,
+    now: Optional[datetime] = None,
+) -> pd.DataFrame:
+    """
+    Retorna solo velas completamente cerradas.
+
+    Si el dataframe es histórico, no recorta nada. Si contiene la vela actual
+    en formación, la elimina usando el timeframe inferido desde el índice.
+    """
+    if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return df
+
+    interval = interval_minutes or _infer_interval_minutes(df)
+    if not interval:
+        return df
+
+    try:
+        from middleware.utils.time_utils import get_last_closed_candle
+        from middleware.config.constants import TIMEZONE
+
+        if now is None:
+            if df.index.tz is not None:
+                now = datetime.now(df.index.tz)
+            else:
+                now = datetime.now(pytz.timezone(TIMEZONE)).replace(tzinfo=None)
+
+        last_closed = pd.Timestamp(get_last_closed_candle(now, interval))
+        if df.index.tz is None:
+            if last_closed.tzinfo is not None:
+                last_closed = last_closed.tz_localize(None)
+        else:
+            if last_closed.tzinfo is None:
+                last_closed = last_closed.tz_localize(df.index.tz)
+            else:
+                last_closed = last_closed.tz_convert(df.index.tz)
+
+        return df[df.index <= last_closed]
+    except Exception as e:
+        logger.error(f"Error filtrando velas cerradas: {e}")
+        return df.iloc[:-1] if len(df) > 1 else df
 
 def _format_timestamp(ts) -> str:
     """Formatea timestamp a string estándar para logging."""
@@ -396,6 +452,7 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
         Lista de diccionarios con la información de cada FVG.
     """
     fvgs = []
+    df = filter_to_closed_candles(df)
     
     if min_adx > 0 and len(df) >= 14:
         try:
@@ -415,7 +472,7 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
     opens = df['open'].values
     times = df.index
     
-    for i in range(2, len(df)):  # Incluye la última vela (seguro: DB solo guarda velas cerradas)
+    for i in range(2, len(df)):
         v1_high = highs[i-2]
         v1_low = lows[i-2]
         v2_high = highs[i-1]

@@ -19,39 +19,57 @@ def init_alerts_table():
       
         
         # Tabla de Configuración de Estrategias (Asegurar columnas)
+        strategies = [
+            ('EMA20200', 1.5, 70), ('Sniper', 2.0, 80), ('SMA20_200', 1.5, 70),
+            ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
+            ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60),
+            ('FVGDiario', 2.0, 70), ('SpeedBot', 1.5, 70), ('ImbalancePMNY', 1.5, 75),
+            ('BreakoutNY', 1.0, 75)
+        ]
+
         dbCursor.execute("SHOW TABLES LIKE 'strategyConfig'")
         if not dbCursor.fetchone():
             sql_config = """
                 CREATE TABLE strategyConfig (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    strategy VARCHAR(10) NOT NULL UNIQUE,
+                    strategy VARCHAR(50) NOT NULL UNIQUE,
                     enabled BOOLEAN DEFAULT TRUE,
                     max_minutos_fvg INT DEFAULT 40,
                     max_minutos_signal INT DEFAULT 40,
                     min_rr DOUBLE DEFAULT 1.5,
+                    max_rr DOUBLE DEFAULT 1.5,
                     min_confidence INT DEFAULT 70,
+                    start_hour INT DEFAULT 16,
+                    start_minute INT DEFAULT 30,
+                    proba_threshold_long DOUBLE DEFAULT 0.55,
+                    proba_threshold_short DOUBLE DEFAULT 0.45,
+                    jpy_threshold_adjust_pct DOUBLE DEFAULT 20.0,
+                    jpy_min_confidence_adjust_pct DOUBLE DEFAULT 10.0,
+                    jpy_extra_confirmations INT DEFAULT 1,
                     max_drawdown_percent DOUBLE DEFAULT 5.0,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )
             """
             dbCursor.execute(sql_config)
-            
-            # Insertar defaults
-            strategies = [
-                ('EMA20200', 1.5, 70), ('Sniper', 2.0, 80), ('SMA20_200', 1.5, 70),
-                ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
-                ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60)
-            ]
-            for name, rr, conf in strategies:
-                dbCursor.execute(
-                    "INSERT IGNORE INTO strategyConfig (strategy, min_rr, min_confidence) VALUES (%s, %s, %s)",
-                    (name, rr, conf)
-                )
         else:
+            try:
+                dbCursor.execute("ALTER TABLE strategyConfig MODIFY COLUMN strategy VARCHAR(50) NOT NULL")
+            except:
+                pass
+
             # Asegurar que existan las columnas nuevas (alter table if not exists pattern)
             cols = {
+                "enabled": "BOOLEAN DEFAULT TRUE",
                 "min_rr": "DOUBLE DEFAULT 1.5",
+                "max_rr": "DOUBLE DEFAULT 1.5",
                 "min_confidence": "INT DEFAULT 70",
+                "start_hour": "INT DEFAULT 16",
+                "start_minute": "INT DEFAULT 30",
+                "proba_threshold_long": "DOUBLE DEFAULT 0.55",
+                "proba_threshold_short": "DOUBLE DEFAULT 0.45",
+                "jpy_threshold_adjust_pct": "DOUBLE DEFAULT 20.0",
+                "jpy_min_confidence_adjust_pct": "DOUBLE DEFAULT 10.0",
+                "jpy_extra_confirmations": "INT DEFAULT 1",
                 "max_drawdown_percent": "DOUBLE DEFAULT 5.0"
             }
             for col, definition in cols.items():
@@ -59,6 +77,34 @@ def init_alerts_table():
                     dbCursor.execute(f"ALTER TABLE strategyConfig ADD COLUMN {col} {definition}")
                 except:
                     pass # Ya existe
+
+        for name, rr, conf in strategies:
+            dbCursor.execute(
+                "INSERT IGNORE INTO strategyConfig (strategy, min_rr, min_confidence) VALUES (%s, %s, %s)",
+                (name, rr, conf)
+            )
+
+        dbCursor.execute("""
+            UPDATE CUENTA
+            SET estrategias = CASE
+                WHEN estrategias IS NULL OR estrategias = '' THEN 'BreakoutNY'
+                WHEN FIND_IN_SET('BreakoutNY', estrategias) = 0 THEN CONCAT(estrategias, ',BreakoutNY')
+                ELSE estrategias
+            END
+            WHERE Activo = 1
+        """)
+
+        symbol_cols = {
+            "sniper_threshold_adjust_pct": "DOUBLE NULL",
+            "sniper_min_confidence_adjust_pct": "DOUBLE NULL",
+            "sniper_extra_confirmations": "INT NULL",
+            "sniper_max_rr": "DOUBLE NULL"
+        }
+        for col, definition in symbol_cols.items():
+            try:
+                dbCursor.execute(f"ALTER TABLE SentinelSymbol ADD COLUMN {col} {definition}")
+            except:
+                pass
         
         # Tabla de Uso de API
         sql_api = """
@@ -886,5 +932,3 @@ def get_min_wait_time() -> int:
     if DATA_SOURCE == "db":
         return 1
     return 3
-
-

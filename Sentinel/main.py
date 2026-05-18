@@ -31,6 +31,7 @@ from Sentinel.core.ImbalancePMNY import ImbalancePMNYBot
 from Sentinel.core.GenericFVG import GenericFVGBot
 from Sentinel.core.FVGDiario import FVGDiarioBot
 from Sentinel.core.SpeedBot import SpeedBot
+from Sentinel.core.BreakoutNY import BreakoutNYBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
@@ -69,7 +70,7 @@ INTERVALmax = settings.INTERVALmax
 _resumen_momentum_enviado = False
 _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
-diasTendencia = 21
+diasTendencia = 14
 
 
 # --- Funciones de Tendencia ---
@@ -198,6 +199,23 @@ def get_weekly_trend(symbol: str) -> str:
     """Obtiene la tendencia mensual cacheada para un símbolo."""
     return _weekly_trend_cache.get(symbol, "NEUTRAL")
 
+def _load_enabled_strategy_configs(strategy_names):
+    """
+    Carga la configuración habilitada de estrategias usando la rutina existente.
+    getStrategyConfig retorna None si la estrategia está disabled o no existe.
+    """
+    enabled_configs = {}
+    for strategy_name in strategy_names:
+        config_row = dbManager.getStrategyConfig(strategy_name)
+        if config_row:
+            enabled_configs[strategy_name] = config_row
+        else:
+            logger.info(f"[StrategyConfig] {strategy_name} deshabilitada o sin configuración; se omite.")
+    return enabled_configs
+
+def _is_strategy_enabled(enabled_configs, strategy_name: str) -> bool:
+    return strategy_name in enabled_configs
+
 async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     """
     Obtiene los datos de time series una sola vez para todos los símbolos.
@@ -214,13 +232,28 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
     MIN_WAIT_SECONDS = get_min_wait_time()
     from middleware.utils.communications import alertaInmediata as _alertaInmediata
     all_signals = []
+    strategy_configs = _load_enabled_strategy_configs([
+        "Sniper",
+        "SMA20_200",
+        "ImbalanceNY",
+        "ImbalanceLDN",
+        "ImbalancePMNY",
+        "EMA20200",
+        "Patron4h",
+        "SesgoBiasHTF",
+        "SilverBullet",
+        "GenericFVG",
+        "FVGDiario",
+        "SpeedBot",
+        "BreakoutNY",
+    ])
 
     # Cargar cuenta de referencia para sizing de señales
     
@@ -345,36 +378,53 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         tasks = []
         
         # 1. Sniper & SMA (15min)
-        tasks.append(sniper_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
-        tasks.append(sma_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
+        if _is_strategy_enabled(strategy_configs, "Sniper"):
+            tasks.append(sniper_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
+        if _is_strategy_enabled(strategy_configs, "SMA20_200"):
+            tasks.append(sma_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
 
         # 2. Imbalances (Pre-cálculo de niveles para seguridad en paralelo)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         iNY, fNY, cNY = get_localized_session_times('America/New_York', 8, 0, 9, 0, 14, 0)
-        if ahoraMX > fNY:
+        if ahoraMX > fNY and _is_strategy_enabled(strategy_configs, "ImbalanceNY"):
             symbolInfo_NY = symbolInfo.copy()
             symbolInfo_NY['precioMaximo'], symbolInfo_NY['precioMinimo'] = df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['high'].max(), df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['low'].min()
             tasks.append(imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo_NY, {symbol: preloaded_master}, symbolApiKey))
             
         iLDN, fLDN, cLDN = get_localized_session_times('Europe/London', 8, 0, 9, 0, 14, 0)
-        if ahoraMX > fLDN:
+        if ahoraMX > fLDN and _is_strategy_enabled(strategy_configs, "ImbalanceLDN"):
             symbolInfo_LDN = symbolInfo.copy()
             symbolInfo_LDN['precioMaximo'], symbolInfo_LDN['precioMinimo'] = df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['high'].max(), df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['low'].min()
             tasks.append(imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo_LDN, {symbol: preloaded_master}, symbolApiKey))
 
+        iPMNY, fPMNY, cPMNY = get_localized_session_times('America/New_York', 14, 0, 15, 0, 17, 0)
+        if ahoraMX > fPMNY and _is_strategy_enabled(strategy_configs, "ImbalancePMNY"):
+            symbolInfo_PMNY = symbolInfo.copy()
+            symbolInfo_PMNY['precioMaximo'], symbolInfo_PMNY['precioMinimo'] = df_5m.loc[(df_5m.index >= iPMNY) & (df_5m.index < fPMNY)]['high'].max(), df_5m.loc[(df_5m.index >= iPMNY) & (df_5m.index < fPMNY)]['low'].min()
+            tasks.append(imbalance_pm_bot.runAnalysisCycleForSymbol(symbolInfo_PMNY, {symbol: preloaded_master}, symbolApiKey))
+
         # 3. EMA, Patron4H, Sesgo, SB, FVGs
-        tasks.append(ema20200_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        tasks.append(speed_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "EMA20200"):
+            tasks.append(ema20200_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "Patron4h"):
+            tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "SesgoBiasHTF"):
+            tasks.append(sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "SilverBullet"):
+            tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "GenericFVG"):
+            tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "FVGDiario"):
+            tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "SpeedBot"):
+            tasks.append(speed_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "BreakoutNY"):
+            tasks.append(breakout_ny_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
 
 
         # Ejecutar todas las estrategias en paralelo
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks) if tasks else []
 
         # Recolectar señales
         for res in results:
@@ -442,6 +492,7 @@ async def _auto_retrain_ml():
 
 async def main():
     logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
+    dbManager.init_alerts_table()
     
     # Auto-reentrenamiento al iniciar la app (siempre reentrena al inicio)
     from Sentinel.ml.auto_retrain import should_retrain
@@ -472,6 +523,7 @@ async def main():
     generic_fvg_bot = GenericFVGBot(intervals=['5min', '15min', '1h', '4h'])
     fvg_diario_bot = FVGDiarioBot()
     speed_bot = SpeedBot(intervals=['5min', '15min'])
+    breakout_ny_bot = BreakoutNYBot()
     
     _weekly_trends_loaded_today = None  # Track fecha de última carga
     _ml_retrained_today = None  # Track fecha de último retraining
@@ -524,7 +576,7 @@ async def main():
                 await run_sequential_analysis(
                     engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
                     ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
-                    generic_fvg_bot, fvg_diario_bot, speed_bot, symbolsToScan, 
+                    generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, symbolsToScan, 
                     apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
                 )
                 
@@ -547,4 +599,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Ocurrió un error fatal fuera del bucle principal: {e}", exc_info=True)
         sys.exit(1)
-

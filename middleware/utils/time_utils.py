@@ -143,14 +143,18 @@ def get_last_closed_candle(dt, interval, df=None):
     if dt.tzinfo is None:
         localTz = pytz.timezone(TIMEZONE)
         dt = localTz.localize(dt)
-    
-    # Calcular el inicio de la vela actual
-    minute = (dt.minute // interval) * interval
-    lastCandle = dt.replace(minute=minute, second=0, microsecond=0)
-    
-    # Si la vela calculada es la actual (aún no cierra), retroceder un intervalo
-    if lastCandle >= dt:
-        lastCandle = lastCandle - timedelta(minutes=interval)
+
+    interval = int(interval)
+    if interval <= 0:
+        raise ValueError("interval debe ser mayor a 0 minutos")
+
+    # Calcular el inicio de la vela actual usando minutos desde medianoche.
+    # Esto funciona para 5m/15m/1h/4h/1d; la vela actual siempre sigue abierta.
+    day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    minutes_since_midnight = dt.hour * 60 + dt.minute
+    current_candle_minutes = (minutes_since_midnight // interval) * interval
+    current_candle = day_start + timedelta(minutes=current_candle_minutes)
+    lastCandle = current_candle - timedelta(minutes=interval)
     
     if df is not None:
         try:
@@ -166,5 +170,4 @@ def get_last_closed_candle(dt, interval, df=None):
             logger.error(f"Error buscando vela en DF: {e}")
             
     return lastCandle
-
 
