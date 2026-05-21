@@ -208,6 +208,11 @@ class SilverBulletBot:
         direction = setup['direction']
         levels = technical.get_structural_levels(df, lookback=50)
         tp_ref = levels["high_zone"] if sweep["type"] == "LARGO" else levels["low_zone"]
+        
+        # Cap de TP por ATR: máximo 3.0 ATR desde la entrada (ventana Silver Bullet = 1h)
+        from Sentinel.analysis.technical import capTpByAtr
+        tp_ref = capTpByAtr(tp_ref, entry, float(atr), "LARGO" if sweep["type"] == "LARGO" else "CORTO", maxAtrMult=3.0)
+        
         tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "LARGO" else "CORTO", minRR=min_rr_val)
         
         sl_dist = abs(entry - sl)

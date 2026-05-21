@@ -88,6 +88,14 @@ class BreakoutNYBot:
         close_price = float(last_m5["close"])
         candle_time = df_5m.index[-1].strftime("%Y-%m-%d %H:%M:%S")
 
+        df_5m_range = df_5m[(df_5m.index >= target_ts) & (df_5m.index < target_ts + timedelta(minutes=15))]
+        if not df_5m_range.empty:
+            max_time = df_5m_range['high'].idxmax().strftime("%Y-%m-%d %H:%M:%S")
+            min_time = df_5m_range['low'].idxmin().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            max_time = target_ts.strftime("%Y-%m-%d %H:%M:%S")
+            min_time = target_ts.strftime("%Y-%m-%d %H:%M:%S")
+
         if close_price > range_high:
             direction = "LARGO"
             entry = close_price
@@ -126,7 +134,7 @@ class BreakoutNYBot:
                 take_profit=take_profit,
                 sl_distance=risk_dist,
                 confidence=confidence,
-                setup="NY OPENING RANGE BREAKOUT",
+                setup="NY APERTURA 15MIN",
                 status="RUPTURA CONFIRMADA",
                 candleTime=candle_time,
                 intervalo="5min",
@@ -137,6 +145,8 @@ class BreakoutNYBot:
                     "range_high": range_high,
                     "range_low": range_low,
                     "range_time": target_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "high_time": max_time,
+                    "low_time": min_time,
                     "breakout_close": close_price,
                 },
             )

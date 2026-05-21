@@ -568,6 +568,196 @@ def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
                 return True
 
     return False
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CLASIFICACIÓN DE TIPOS DE FVG — ICT/SMC
+# "No todas las ineficiencias se operan igual" (video PVGHWI0jqvE)
+#
+# Tipos:
+#   CONTINUATION  — FVG clásico (BISI/SIBI) con desplazamiento institucional.
+#                   Se opera el retest del gap en dirección de la tendencia HTF.
+#   DISPLACEMENT  — FVG creado por un impulso tan fuerte (>2x ATR promedio) que
+#                   el precio probablemente NO regresará. Descartar como entrada
+#                   directa; buscar mecanismos frente al gap (iFVG, breaker).
+#   INVERSION     — FVG que fue completamente traspasado por el precio (el cierre
+#                   salió del otro lado del gap completo). Ahora actúa como S/R
+#                   inverso: el retest se opera en dirección opuesta al original.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def is_fvg_fully_broken(df: pd.DataFrame, fvg: dict, fvg_start_idx: int) -> bool:
+    """
+    Determina si un FVG fue completamente traspasado (precio cerró más allá del
+    borde opuesto del gap), convirtiéndose en candidato a Inversion FVG.
+
+    A diferencia de _is_fvg_mitigated (que usa el 50%), aquí se exige que el
+    precio CIERRE más allá del borde completo del gap:
+    - Bullish FVG roto: cierre < bottom (por debajo del gap completo)
+    - Bearish FVG roto: cierre > top   (por encima del gap completo)
+
+    Args:
+        df: DataFrame con OHLC.
+        fvg: Diccionario del FVG (debe incluir 'top', 'bottom', 'type').
+        fvg_start_idx: Índice de Vela 3 (confirmación del FVG).
+
+    Returns:
+        True si el FVG fue completamente traspasado (candidato a iFVG).
+    """
+    for i in range(fvg_start_idx + 1, len(df)):
+        candle_close = float(df['close'].iloc[i])
+        if fvg['type'] == 'Bullish_FVG':
+            if candle_close < float(fvg['bottom']):
+                return True
+        else:
+            if candle_close > float(fvg['top']):
+                return True
+    return False
+
+
+def classify_fvg_type(df: pd.DataFrame, fvg: dict, atr_avg: float = 0.0) -> str:
+    """
+    Clasifica un FVG detectado en su tipo operacional ICT.
+
+    Prioridad de evaluación:
+    1. INVERSION  — si el precio ya cerró completamente fuera del gap (el FVG
+                    fue traspasado), ahora actúa como S/R inverso.
+    2. DISPLACEMENT — si la vela 2 (impulso) tenía un ATR ≥ 2x el ATR promedio,
+                    indica un desplazamiento institucional muy fuerte donde el
+                    precio probablemente no regresará al gap.
+    3. CONTINUATION — el FVG clásico (BISI/SIBI): retest esperado para continuar.
+
+    Args:
+        df: DataFrame con OHLC (debe incluir al menos hasta el idx del FVG).
+        fvg: Diccionario del FVG con campo 'idx' y datos OHLC necesarios.
+        atr_avg: ATR promedio de las últimas 20 velas. Si 0, se calcula internamente.
+
+    Returns:
+        str: 'CONTINUATION', 'DISPLACEMENT', o 'INVERSION'
+    """
+    fvg_idx = fvg.get('idx', len(df) - 1)
+
+    # 1. Verificar Inversion FVG primero (FVG completamente traspasado)
+    if is_fvg_fully_broken(df, fvg, fvg_idx):
+        return 'INVERSION'
+
+    # 2. Verificar Displacement FVG
+    # La vela 2 (impulso) es la que genera el gap (idx - 1)
+    impulse_idx = fvg_idx - 1
+    if impulse_idx >= 0:
+        try:
+            impulse_high = float(df['high'].iloc[impulse_idx])
+            impulse_low  = float(df['low'].iloc[impulse_idx])
+            impulse_range = impulse_high - impulse_low
+
+            if atr_avg <= 0 and len(df) >= 20:
+                # Calcular ATR promedio de las últimas 20 velas (sin usar talib aquí)
+                highs  = df['high'].iloc[-20:].values.astype(float)
+                lows   = df['low'].iloc[-20:].values.astype(float)
+                closes = df['close'].iloc[-20:].values.astype(float)
+                trs = []
+                for k in range(1, len(highs)):
+                    tr = max(highs[k] - lows[k],
+                             abs(highs[k] - closes[k-1]),
+                             abs(lows[k]  - closes[k-1]))
+                    trs.append(tr)
+                atr_avg = float(np.mean(trs)) if trs else 0.0
+
+            # Threshold: vela de impulso ≥ 2x el ATR promedio → Displacement
+            if atr_avg > 0 and impulse_range >= atr_avg * 2.0:
+                return 'DISPLACEMENT'
+        except Exception as e:
+            logger.debug(f"[classify_fvg_type] Error calculando displacement: {e}")
+
+    # 3. FVG clásico de Continuación (BISI/SIBI)
+    return 'CONTINUATION'
+
+
+def detect_inversion_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001) -> list:
+    """
+    Detecta Inversion FVGs (iFVG) en el DataFrame.
+
+    Un iFVG es un FVG que fue completamente traspasado por el precio, invirtiendo
+    su polaridad. Actúa como nueva zona institucional de S/R:
+    - Bullish FVG roto → Bearish iFVG (resistencia): entrada CORTO en el retest
+    - Bearish FVG roto → Bullish iFVG (soporte): entrada LARGO en el retest
+
+    Solo se reportan iFVGs cuyo retest aún no se ha producido (el precio no ha
+    regresado a tocar la zona después de la ruptura).
+
+    Args:
+        df: DataFrame con OHLC (velas cerradas).
+        min_gap_pct: Tamaño mínimo del gap para filtrar ruido.
+
+    Returns:
+        Lista de dicts con información del iFVG: {type, top, bottom, mid,
+        original_type, idx, inversion_idx, timestamp}
+    """
+    df = filter_to_closed_candles(df)
+    if len(df) < 5:
+        return []
+
+    # Detectar FVGs sin validación de mitigación (necesitamos los rotos también)
+    raw_fvgs = detect_fvgs(df, min_gap_pct=min_gap_pct, validate_mitigation=False)
+
+    inversions = []
+    for fvg in raw_fvgs:
+        fvg_idx = fvg.get('idx', 0)
+        if not is_fvg_fully_broken(df, fvg, fvg_idx):
+            continue
+
+        # Encontrar en qué vela se produjo la ruptura completa
+        inversion_idx = None
+        for i in range(fvg_idx + 1, len(df)):
+            candle_close = float(df['close'].iloc[i])
+            if fvg['type'] == 'Bullish_FVG' and candle_close < float(fvg['bottom']):
+                inversion_idx = i
+                break
+            elif fvg['type'] == 'Bearish_FVG' and candle_close > float(fvg['top']):
+                inversion_idx = i
+                break
+
+        if inversion_idx is None:
+            continue
+
+        # Verificar que el precio aún no ha hecho el retest de la zona invertida
+        # (para no generar señales de una inversión ya visitada)
+        post_inversion = df.iloc[inversion_idx + 1:] if inversion_idx + 1 < len(df) else pd.DataFrame()
+        retested = False
+        if not post_inversion.empty:
+            if fvg['type'] == 'Bullish_FVG':
+                # Zona invertida = el rango original del FVG (ahora es resistencia)
+                # Retest = cualquier high que toca el bottom del FVG original
+                retested = any(float(h) >= float(fvg['bottom']) for h in post_inversion['high'].values)
+            else:
+                # Zona invertida = el rango original del FVG (ahora es soporte)
+                retested = any(float(l) <= float(fvg['top']) for l in post_inversion['low'].values)
+
+        if retested:
+            continue  # El iFVG ya fue visitado, no es operativo
+
+        # Crear entrada del iFVG con tipo invertido
+        ifvg_type = 'Bearish_iFVG' if fvg['type'] == 'Bullish_FVG' else 'Bullish_iFVG'
+        inversions.append({
+            'type':          ifvg_type,
+            'original_type': fvg['type'],
+            # La zona del iFVG es el rango original del FVG (ahora actúa invertida)
+            'top':           fvg['top'],
+            'bottom':        fvg['bottom'],
+            'gap_high':      fvg['gap_high'],
+            'gap_low':       fvg['gap_low'],
+            'mid':           fvg['mid'],
+            'size':          fvg['size'],
+            'v1_low':        fvg.get('v1_low'),
+            'v1_high':       fvg.get('v1_high'),
+            'idx':           fvg_idx,
+            'inversion_idx': inversion_idx,
+            'fvg_class':     'INVERSION',
+            'timestamp':     fvg['timestamp'],
+        })
+
+    return inversions
+
 
 # Setup FVG Centralizado v1.1
 def calculate_fvg_setup(fvg: dict, current_price: float, atr: float = 0) -> dict:
@@ -811,6 +1001,37 @@ def is_market_trending(df: pd.DataFrame, min_adx: float = 20, period: int = 14) 
     """
     adx = calculate_adx(df, period)
     return (adx >= min_adx, adx)
+
+
+def capTpByAtr(tp: float, entry: float, atr: float, direction: str, maxAtrMult: float = 3.0) -> float:
+    """
+    Limita el Take Profit a una distancia máxima expresada en múltiplos de ATR.
+
+    Si el TP calculado está más lejos que `maxAtrMult * atr`, lo recorta al nivel máximo.
+    Esto previene TPs irracionales que nunca se alcanzan en el timeframe operado.
+
+    Args:
+        tp: Take Profit calculado (puede venir de nivel estructural o RR fijo).
+        entry: Precio de entrada.
+        atr: ATR actual del activo en el timeframe operado.
+        direction: 'LARGO' o 'CORTO'.
+        maxAtrMult: Máximo de ATRs permitidos para el TP (default 3.0).
+
+    Returns:
+        float: TP ajustado, nunca más lejos que maxAtrMult * atr desde entry.
+    """
+    if atr <= 0:
+        return tp
+
+    maxDist = atr * maxAtrMult
+    dirUpper = direction.upper()
+
+    if dirUpper == "LARGO":
+        cappedTp = entry + maxDist
+        return min(tp, cappedTp)
+    else:
+        cappedTp = entry - maxDist
+        return max(tp, cappedTp)
 
 
 def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp: float, sl: float, direction: str, threshold: float = 0.60, timeframe: str = "15M") -> tuple:

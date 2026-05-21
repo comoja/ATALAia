@@ -112,10 +112,16 @@ class GenericFVGBot:
             signal_direction = setup_fvg['direction']
             sl_dist = setup_fvg['sl_dist']
             levels = technical.get_structural_levels(df, lookback=60)
+            # Usar high_zone/low_zone (percentil 90/10) en lugar de swing_high/low absoluto
+            # para evitar TPs que apuntan al máximo histórico de las últimas 15h
             if signal_direction == "LARGO":
-                tp_ref = max(levels['swing_high'], latest_fvg['gap_high'] * 1.001)
+                tp_ref = levels['high_zone']
             else:
-                tp_ref = min(levels['swing_low'], latest_fvg['gap_low'] * 0.999)
+                tp_ref = levels['low_zone']
+
+            # Cap de TP por ATR: máximo 3.0 ATR desde el precio actual (estrategia multi-TF)
+            from Sentinel.analysis.technical import capTpByAtr
+            tp_ref = capTpByAtr(tp_ref, current_price, float(atr), signal_direction, maxAtrMult=3.0)
             
             tp1 = adjustTPForMinRR(entry_price, sl, tp_ref, signal_direction, minRR=min_rr_val)
             

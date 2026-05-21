@@ -220,6 +220,10 @@ class Patron4HBot:
         tp_final_val = levels['low_zone'] if direction == 'CORTO' else levels['high_zone']
         tp_final_val = adjustTPForMinRR(entry, sl, tp_final_val, direction, minRR=1.5)
         
+        # Cap de TP: máximo 4.0 ATR desde la entrada (Patron4h maneja TF 4H, permite más espacio)
+        from Sentinel.analysis.technical import capTpByAtr
+        tp_final_val = capTpByAtr(tp_final_val, entry, float(atr), direction, maxAtrMult=4.0)
+        
         if direction == "LARGO":
             tp1_val = entry + (sl_dist * 1.25)
             tp2_val = (tp1_val + tp_final_val) / 2
@@ -229,14 +233,14 @@ class Patron4HBot:
 
         multiplier = getPipMultiplier(symbol)
         
-        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=3.5, timeframe="15min")
+        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=0.60, timeframe="15min")
         if not is_valid: return None
         
         current_price = float(df_15m['close'].iloc[-1])
         last_v = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 15, df=df_15m)
         candle_time = (last_v.name if hasattr(last_v, 'name') else last_v).strftime("%Y-%m-%d %H:%M:%S")
 
-        is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=3.5, candle_time=candle_time)
+        is_valid, _, _ = check_signal_health(entry, tp_final_val, sl, direction, current_price, threshold=0.65, candle_time=candle_time)
         if not is_valid: return None
         
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')

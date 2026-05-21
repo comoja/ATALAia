@@ -603,8 +603,8 @@ def insertarTrade(data):
         candle_time = data.get('candleTime')
         
         sqlInsert = """
-            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit, intervalo, strategy, margin_used, candleTime, sentAt)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit, intervalo, strategy, setup, margin_used, candleTime, sentAt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         valores = (
             data['idCuenta'], data['symbol'], data['direction'], 
@@ -612,6 +612,7 @@ def insertarTrade(data):
             data.get('stopLoss'), data.get('takeProfit'),
             data.get('intervalo', '15min'),
             data.get('strategy', ''),
+            data.get('setup'),  # Requerido para detección de señales de ajuste
             margin_used,
             candle_time
         )

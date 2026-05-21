@@ -97,8 +97,15 @@ class ExecutionEngine:
                 continue
 
             # --- NUEVA LÓGICA DE AJUSTE ---
-            # Buscar si ESTA cuenta tiene un trade abierto (sin cerrar) para este setup
-            existingTrade = next((t for t in allOpenTrades if t['idCuenta'] == accountId and t['strategy'] == strategyName and t.get('setup') == signal.setup and t.get('closeTime') is None), None)
+            # Buscar si ESTA cuenta tiene un trade abierto (sin cerrar) para este setup.
+            existingTrade = next(
+                (t for t in allOpenTrades
+                 if t['idCuenta'] == accountId
+                 and t['strategy'] == strategyName
+                 and self._setupsMatch(t.get('setup'), signal.setup)
+                 and t.get('closeTime') is None),
+                None
+            )
             
             isAdjustment = False
             idTradeToUpdate = None
@@ -109,7 +116,9 @@ class ExecutionEngine:
                 if diffTp or diffSl:
                     isAdjustment = True
                     idTradeToUpdate = existingTrade['idTrade']
-                    logger.info(f"[ExecutionEngine] [{symbol}] AJUSTE detectado para cuenta {accountId}")
+                    logger.info(f"[ExecutionEngine] [{symbol}] AJUSTE detectado para cuenta {accountId}: "
+                                f"SL {existingTrade['stopLoss']} -> {signal.stop_loss} | "
+                                f"TP {existingTrade['takeProfit']} -> {signal.take_profit}")
                 else:
                     logger.debug(f"[ExecutionEngine] [{symbol}] Setup ya abierto en cuenta {accountId} - omitiendo.")
                     continue
@@ -260,3 +269,14 @@ class ExecutionEngine:
             return True # No vender si hay mucho optimismo/noticias positivas
             
         return False
+
+    @staticmethod
+    def _setupsMatch(tradeSetup, signalSetup) -> bool:
+        """
+        Compara dos setups de forma robusta.
+        Dos setups coinciden si son iguales, o si ambos son None/vacíos.
+        Esto evita que None != None rompa la detección de trades existentes.
+        """
+        ts = tradeSetup or None
+        ss = signalSetup or None
+        return ts == ss

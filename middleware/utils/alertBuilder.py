@@ -83,10 +83,10 @@ def buildAlertMessage(
     
     if is_adjustment:
         title_base = "SEÑAL DE AJUSTE"
+        colorHeader = "🟧"  # Naranja para ajustes, diferente de compra/venta
     else:
         title_base = f"SEÑAL DE {directionStr}"
-
-    colorHeader = "🟩" if direction == "LARGO" else "🟥"
+        colorHeader = "🟩" if direction == "LARGO" else "🟥"
     
     close = signal.get('entryPrice', signal.get('entrada', 0))
     tp = trade.get('takeProfit', signal.get('take_profit', 0))
@@ -105,6 +105,14 @@ def buildAlertMessage(
         f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
         f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
         f"━━━━━━━━━━━━━━━\n"
+    )
+    
+    if is_adjustment:
+        text += f"<center>⚠️ <b>Revisar operación abierta</b> ⚠️</center>\n"
+        text += f"<center><i>Nuevos niveles detectados — ajustar TP/SL o cerrar</i></center>\n"
+        text += f"━━━━━━━━━━━━━━━\n"
+    
+    text += (
         f"<center>Setup: <b>{setup}</b></center>\n"
         f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
     )
@@ -481,6 +489,29 @@ def buildBreakoutNYAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="BREAKOUT NY OPENING RANGE",
+        strategyName="BREAKOUT NY",
+        extraFields=extraFields
+    )
+
+def buildIchimokuAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para estrategia Ichimoku + Bollinger Bands."""
+    momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    extraFields = {
+        'Estado': signal.get('status', 'ACTIVA ✅'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Tenkan-sen': f"{signal.get('tenkan', 0):.5f}",
+        'Kijun-sen': f"{signal.get('kijun', 0):.5f}",
+        'BB Middle': f"{signal.get('bb_middle', 0):.5f}",
+        'Momentum': momentum
+    }
+
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="ICHIMOKU CLOUD + BB",
         extraFields=extraFields
     )

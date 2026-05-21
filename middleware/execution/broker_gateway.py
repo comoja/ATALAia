@@ -20,7 +20,8 @@ from middleware.utils.alertBuilder import (
     buildGenericFVGAlertMessage,
     buildFVGDiarioAlertMessage,
     buildSpeedBotAlertMessage,
-    buildBreakoutNYAlertMessage
+    buildBreakoutNYAlertMessage,
+    buildIchimokuAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
 from middleware.database import dbManager as _db
@@ -319,6 +320,8 @@ class BrokerGateway:
             return buildSpeedBotAlertMessage(signal, trade_data)
         elif strategy_name == "BreakoutNY":
             return buildBreakoutNYAlertMessage(signal, trade_data)
+        elif strategy_name == "Ichimoku":
+            return buildIchimokuAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

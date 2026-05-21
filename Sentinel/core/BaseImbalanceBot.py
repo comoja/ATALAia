@@ -230,6 +230,9 @@ class BaseImbalanceBot:
                 stop_ref = max(zona_high_fvg, levels['swing_high'])
                 stopLoss = stop_ref + padding_pips
                 tp_structural = levels['low_zone']
+                # Cap de TP: máximo 3.0 ATR desde la entrada (estrategia 5min)
+                from Sentinel.analysis.technical import capTpByAtr
+                tp_structural = capTpByAtr(tp_structural, entryPrice, float(atr), "CORTO", maxAtrMult=3.0)
                 min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
                 tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "CORTO", minRR=min_rr_val)
                 signalDirection = "CORTO"
@@ -239,6 +242,9 @@ class BaseImbalanceBot:
                 stop_ref = min(zona_low_fvg, levels['swing_low'])
                 stopLoss = stop_ref - padding_pips
                 tp_structural = levels['high_zone']
+                # Cap de TP: máximo 3.0 ATR desde la entrada (estrategia 5min)
+                from Sentinel.analysis.technical import capTpByAtr
+                tp_structural = capTpByAtr(tp_structural, entryPrice, float(atr), "LARGO", maxAtrMult=3.0)
                 min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
                 tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LARGO", minRR=min_rr_val)
                 signalDirection = "LARGO"

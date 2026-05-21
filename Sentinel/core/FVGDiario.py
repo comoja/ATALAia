@@ -263,6 +263,10 @@ class FVGDiarioBot:
         direction = setup_fvg['direction']
         take_profit = entry_price + (entry_price - stop_loss) * min_rr_val if direction == "LARGO" else entry_price - (stop_loss - entry_price) * min_rr_val
         
+        # Cap de TP por ATR: máximo 4.0 ATR (FVGDiario trabaja con bias diario, permite más espacio)
+        from Sentinel.analysis.technical import capTpByAtr
+        take_profit = capTpByAtr(take_profit, entry_price, float(atr) if atr else 0, direction, maxAtrMult=4.0)
+        
         sl_distance = abs(entry_price - stop_loss)
         
         # ── FILTRO: Exhaustion ──

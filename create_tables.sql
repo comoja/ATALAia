@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS Cuenta (
     riesgoPorOperacion DOUBLE DEFAULT 0.01,
     apiKey VARCHAR(255) DEFAULT NULL,
     apiSecret VARCHAR(255) DEFAULT NULL,
-    estrategias VARCHAR(500) DEFAULT 'ImbalanceNY,ImbalanceLDN,SMA20_200,DEMA20_200,Sniper,SCLPNG,SesgoBiasHTF,SilverBullet,Patron4h,GenericFVG,EMA20200,FVGDiario,ImbalancePMNY',
+    estrategias VARCHAR(500) DEFAULT 'ImbalanceNY,ImbalanceLDN,SMA20_200,DEMA20_200,Sniper,SCLPNG,SesgoBiasHTF,SilverBullet,Patron4h,GenericFVG,EMA20200,FVGDiario,ImbalancePMNY,Ichimoku',
     PRIMARY KEY (idCuenta)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -176,5 +176,6 @@ INSERT INTO strategyConfig (nombre, enabled, min_rr, min_confidence) VALUES
     ('SesgoBiasHTF', 1, 1.5, 70),
     ('SilverBullet', 1, 1.5, 75),
     ('GenericFVG', 1, 0.5, 60),
-    ('FVGDiario', 1, 1.5, 70)
+    ('FVGDiario', 1, 1.5, 70),
+    ('Ichimoku', 1, 1.5, 75)
 ON DUPLICATE KEY UPDATE enabled = 1;

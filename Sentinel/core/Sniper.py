@@ -17,7 +17,7 @@ if rutaRaiz not in sys.path:
 from middleware.api import twelvedata
 from middleware.config import constants as config
 from Sentinel.analysis import technical, risk
-from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health
+from Sentinel.analysis.technical import check_tp_exhaustion, check_signal_health, capTpByAtr
 from Sentinel.ml import model as mlModel
 from middleware.utils.communications import sendTelegramAlert, alertaInmediata, deleteTelegramMessage
 from middleware.utils.alertBuilder import buildSniperAlertMessage, adjustTPForMinRR, getPipMultiplier, calculateRR, calculateBEPrice
@@ -403,16 +403,19 @@ class SniperBot:
             return None
 
         # --- 8. Structural Levels ---
-        levels = technical.get_structural_levels(self.latestFullData, lookback=40)
+        # lookback=20 (20 velas de 15min = 5h) para obtener niveles más cercanos y alcanzables
+        levels = technical.get_structural_levels(self.latestFullData, lookback=20)
         atr_padding = currentAtr * 0.2
         
         if direction == "LARGO":
             sl_price = levels['swing_low'] - atr_padding
-            sl_dist = max(currentAtr * 1.2, min(close - sl_price, currentAtr * 3.0))
+            # Cap de SL: max 2.0 ATR para evitar que el TP se dispare (antes era 3.0)
+            sl_dist = max(currentAtr * 0.8, min(close - sl_price, currentAtr * 2.0))
             tp_structural = levels['high_zone']
         else:
             sl_price = levels['swing_high'] + atr_padding
-            sl_dist = max(currentAtr * 1.2, min(sl_price - close, currentAtr * 3.0))
+            # Cap de SL: max 2.0 ATR para evitar que el TP se dispare (antes era 3.0)
+            sl_dist = max(currentAtr * 0.8, min(sl_price - close, currentAtr * 2.0))
             tp_structural = levels['low_zone']
 
         # --- 9. Exhaustion ---
@@ -439,6 +442,10 @@ class SniperBot:
             tpPrice = min(tp_structural, tp_by_rr) if direction == "LARGO" else max(tp_structural, tp_by_rr)
         else:
             tpPrice = tp_by_rr
+
+        # --- Cap TP por ATR: máximo 2.5 ATR desde la entrada (Sniper es 15min) ---
+        # Esto evita TPs irracionales tipo 6 ATR que nunca se alcanzan
+        tpPrice = capTpByAtr(tpPrice, close, currentAtr, direction, maxAtrMult=2.5)
 
         rr_final = calculateRR(close, slPrice, tpPrice)
         if rr_final < min_rr_val:
