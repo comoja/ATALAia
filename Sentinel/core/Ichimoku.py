@@ -82,22 +82,27 @@ class IchimokuBot:
         symbol = symbolInfo["symbol"]
         logger.info(f"[{symbol}] Analizando...")
         # Búsqueda de timeframe adecuado
-        interval_used = "1h"
+        
+        intervalos= ["5min", "15min","30min", "1h", "4h"]
+            
+        interval_used = "30min"
+        logger.info(f"[{symbol}] Buscando en timeframe {interval_used} ...")
         master = preloadedData.get(symbol) if preloadedData else None
         if isinstance(master, dict):
-            df = master.get('1h')
+            df = master.get(interval_used)
+            if df is None:
+                df = master.get('1h')
+                interval_used = "1h"
             if df is None:
                 df = master.get('15min')
-                interval_used = "15min"
-            if df is None:
-                df = master.get('5min')
-                interval_used = "5min"
+                interval_used = "15min"          
         else:
             df = master
-            
+        intervaloAnterior = intervalos[intervalos.index(interval_used)-1]    
         if df is None or len(df) < 80: # Requerimos al menos 52 + 26 = 78 velas para el Kumo
+            logger.info(f"[{symbol}] No hay suficientes datos para el timeframe {interval_used}")
             return None
-
+            
         # Calcular todos los indicadores
         df = self._calc_indicators(df)
         
@@ -113,23 +118,56 @@ class IchimokuBot:
         
         # 1. Filtro de Tiempo
         if not self._check_time_filter(last_closed_ts):
+            logger.info(f"[{symbol}] Tiempo fuera de horario")
             return None
             
+        # EXTRAE AQUÍ LOS VALORES DE LA VELA ACTUAL
+        velaGuia = preloadedData.get(symbol, {}).get(intervaloAnterior)
+        if velaGuia is None or len(velaGuia) == 0:
+            logger.info(f"[{symbol}] No hay datos para el timeframe {intervaloAnterior}")
+            return None
+
+        velaGuia = velaGuia.iloc[-1]
+        closeGuia = float(velaGuia['close'])
+        openGuia = float(velaGuia['open'])
+        highGuia = float(velaGuia['high'])
+        lowGuia = float(velaGuia['low'])
+        # IDENTIFICA EL COLOR DE LA VELA GUIA
+        if closeGuia > openGuia:
+            color_velaGuia = "Verde"
+        elif closeGuia < openGuia:
+            color_velaGuia = "Roja"
+        else:
+            color_vela = "Doji / Neutra" # Abrió y cerró al mismo precio
+            
         close = float(row['close'])
-        tenkan = float(row['tenkan_sen'])
-        kijun = float(row['kijun_sen'])
-        span_a = float(row['senkou_span_a'])
-        span_b = float(row['senkou_span_b'])
+        open_price = float(row['open']) # <--- Añade esto para obtener la apertura
         
-        bb_upper = float(row['bb_upper'])
-        bb_middle = float(row['bb_middle'])
-        bb_lower = float(row['bb_lower'])
+        # IDENTIFICA EL COLOR DE LA VELA ACTUAL
+        if close > open_price:
+            color_vela = "Verde"
+        elif close < open_price:
+            color_vela = "Roja"
+        else:
+            color_vela = "Doji / Neutra" # Abrió y cerró al mismo precio
+            
+        logger.info(f"[{symbol}] Vela actual es de color: {color_vela}")
+
+        tenkan = float(row['tenkan_sen']) # linea azul
+        kijun = float(row['kijun_sen']) # linea cafe
+        span_a = float(row['senkou_span_a']) # linea verde de nube
+        span_b = float(row['senkou_span_b']) # linea roja de nube
+        
+        bb_upper = float(row['bb_upper']) # linea superior de Bollinger
+        bb_middle = float(row['bb_middle']) # linea media de Bollinger
+        bb_lower = float(row['bb_lower']) # linea inferior de Bollinger
         
         prev_bb_upper = float(prev_row['bb_upper'])
         prev_bb_lower = float(prev_row['bb_lower'])
         
         # Evitar cálculos con NaN
-        if any(pd.isna([span_a, span_b, bb_upper, tenkan, kijun])):
+        if any(pd.isna([span_a, span_b, bb_upper, tenkan, kijun])):                
+            logger.info(f"[{symbol}] No hay suficientes datos para el timeframe {interval_used}")
             return None
             
         kumo_max = max(span_a, span_b)
@@ -139,24 +177,58 @@ class IchimokuBot:
         bb_width_prev = prev_bb_upper - prev_bb_lower
         
         direction = None
-        logger.info(f"[{symbol}] close={close}, tenkan={tenkan}, kijun={kijun}, span_a={span_a}, span_b={span_b}, bb_upper={bb_upper}, bb_middle={bb_middle}, bb_lower={bb_lower}, bb_width_current={bb_width_current}, bb_width_prev={bb_width_prev}")
+        macd, macd_signal, macdHist = ta.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+        macd = macd.iloc[-1]
+        macd_signal = macd_signal.iloc[-1]
+        macdHist_val = macdHist.iloc[-1] if not pd.isna(macdHist.iloc[-1]) else 0
+        macdhist_anterior = macdHist.iloc[-2] if not pd.isna(macdHist.iloc[-2]) else 0
+
+        # Lógica de colores e impulso
+        if macdHist_val > 0:
+            if macdHist_val > macdhist_anterior:
+                color = "Verde Oscuro"
+                impulso = "Alcista Ganando Fuerza (Fuerte)"
+            else:
+                color = "Verde Claro"
+                impulso = "Alcista Perdiendo Fuerza (Debilidad)"
+
+        elif macdHist_val < 0:
+            if macdHist_val < macdhist_anterior:
+                color = "Rojo Oscuro"
+                impulso = "Bajista Ganando Fuerza (Fuerte)"
+            else:
+                color = "Rojo Claro"
+                impulso = "Bajista Perdiendo Fuerza (Debilidad)"
+        else:
+            color = "Gris"
+            impulso = "Cruce / Neutro"
+        
+        logger.info(f"[{symbol}] vela[{interval_used}]={color_vela}, velaGuia[{intervaloAnterior}]={color_velaGuia},MACD color={color}, impulso={impulso}")
+        #  logger.info(f"[{symbol}] close={close}, tenkan={tenkan}, kijun={kijun}, span_a={span_a}, span_b={span_b}, bb_upper={bb_upper}, bb_middle={bb_middle}, bb_lower={bb_lower}, bb_width_current={bb_width_current}, bb_width_prev={bb_width_prev}")
         # 2. Reglas de Entrada en Largo (Compra)
         if (close > kumo_max and 
             tenkan > kijun and 
             close > bb_middle and 
             span_a > span_b and # nube verde
-            bb_width_current > bb_width_prev):
+            span_a == kumo_max and # linea verde de la nube se encuentra encima  de span_b (linea roja de la nube)
+            bb_width_current > bb_width_prev and
+            macdHist_val > 0 and  # MACD histograma sea verde
+            color_velaGuia == "Verde"):
             direction = "LARGO"
             
         # 3. Reglas de Entrada en Corto (Venta)
         elif (close < kumo_min and 
-              tenkan < kijun and 
-              close < bb_middle and 
-              span_a < span_b and  # nube roja
-              bb_width_current > bb_width_prev):
+            tenkan < kijun and 
+            close < bb_middle and 
+            span_a < span_b and  # nube roja
+            span_b == kumo_min and #  linea roja de la nube se encuentra debajo de span_a (linea verde de la nube)
+            bb_width_current > bb_width_prev and
+            macdHist_val < 0 and # MACD histograma sea rojo
+            color_velaGuia == "Roja"):
             direction = "CORTO"
             
         if not direction:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - sin direccion")
             return None
             
         # 4. Salidas y Gestión de Riesgo
@@ -165,21 +237,24 @@ class IchimokuBot:
         
         # Validar distancia de SL
         if direction == "LARGO" and sl >= close:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - sl >= close")
             return None
         if direction == "CORTO" and sl <= close:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - sl <= close")
             return None
             
         risk_dist = abs(close - sl)
         if risk_dist <= 0:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - risk_dist <= 0")
             return None
         
         # Take Profit: Relación Riesgo:Beneficio de 1:1.5
         if direction == "LARGO":
-           # tp = close + (risk_dist * 1.5)
-           tp = bb_upper + (risk_dist * 0.25)
+            # tp = close + (risk_dist * 1.5)
+            tp = bb_upper + (risk_dist * (0.75 if color == "Verde Oscuro" else 0.25))
         else:
-           # tp = close - (risk_dist * 1.5)
-           tp = bb_lower - (risk_dist * 0.25)
+            # tp = close - (risk_dist * 1.5)
+            tp = bb_lower - (risk_dist * (0.75 if color == "Rojo Oscuro" else 0.25))
             
         # Tamaño de la Posición
         refCapital = float(symbolInfo.get('refCapital', 10000.0))
@@ -197,14 +272,17 @@ class IchimokuBot:
         expectedProfit = riskUsdActual * 2
         
         # Deduplication
+        
         sig_key = f"{symbol}_{candle_time_str}_{direction}"
         if sig_key in self._signals_sent:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - sig_key in self._signals_sent")
             return None
         
         # Validación de salud de la señal para no entrar en niveles sobreextendidos
         if not technical.check_signal_health(close, tp, sl, direction, close, threshold=0.65, candle_time=candle_time_str)[0]:
+            logger.info(f"[{symbol}] No hay señal para {interval_used} - check_signal_health")
             return None
-
+        
         # Break Even al 1:1
         be_trigger = calculateBEPrice(close, sl, tp, direction)
         
@@ -222,7 +300,7 @@ class IchimokuBot:
             take_profit=tp,
             sl_distance=risk_dist,
             confidence=self.min_confidence,
-            setup="Ichimoku Trend + BB Expansion",
+            setup="Ichimoku + BB + MACD",
             status="EN ZONA ✅",
             candleTime=candle_time_str,
             intervalo=interval_used,

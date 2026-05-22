@@ -109,7 +109,7 @@ def buildAlertMessage(
     
     if is_adjustment:
         text += f"<center>⚠️ <b>Revisar operación abierta</b> ⚠️</center>\n"
-        text += f"<center><i>Nuevos niveles detectados — ajustar TP/SL o cerrar</i></center>\n"
+        text += f"<center><i>Nuevos niveles detectados</i></center>\n<center><i>ajustar TP/SL o cerrar</i></center>\n"
         text += f"━━━━━━━━━━━━━━━\n"
     
     text += (
@@ -512,6 +512,6 @@ def buildIchimokuAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="ICHIMOKU CLOUD + BB",
+        strategyName="ICHIMOKU + BB + MACD",
         extraFields=extraFields
     )

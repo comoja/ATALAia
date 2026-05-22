@@ -59,7 +59,7 @@ class BreakoutNYBot:
             return []
 
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
-        start_hour = int(strat_config.get("start_hour", 7))
+        start_hour = int(strat_config.get("start_hour", 9))
         start_minute = int(strat_config.get("start_minute", 30))
         rr = float(strat_config.get("min_rr", 1.0))
         confidence = float(strat_config.get("min_confidence", 75))

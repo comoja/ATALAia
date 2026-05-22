@@ -340,6 +340,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
 
         
         df_15m = calculateFeatures(resample_to_interval(df_5m, "15min"))
+        df_30m = calculateFeatures(resample_to_interval(df_5m, "30min"))
         df_1h  = calculateFeatures(resample_to_interval(df_5m, "1h"))
         df_4h  = calculateFeatures(resample_to_interval(df_5m, "4h"))
         df_1d  = calculateFeatures(resample_to_interval(df_5m, "1d"))
@@ -347,6 +348,7 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         preloaded_master = {
             '5min':  df_5m,
             '15min': df_15m,
+            '30min': df_30m,
             '1h':    df_1h,
             '4h':    df_4h,
             '1d':    df_1d
