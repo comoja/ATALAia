@@ -83,6 +83,7 @@ def buildAlertMessage(
     
     if is_adjustment:
         title_base = "SEÑAL DE AJUSTE"
+        colorHeaderIni = "🟩" if direction == "LARGO" else "🟥"
         colorHeader = "🟧"  # Naranja para ajustes, diferente de compra/venta
     else:
         title_base = f"SEÑAL DE {directionStr}"
@@ -96,7 +97,7 @@ def buildAlertMessage(
     confianza = signal.get('confidence', signal.get('confianza', 0))
     setup = signal.get('setup', signal.get('tipo_entrada', 'N/A'))
 
-    header = f"{colorHeader}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeader}"
+    header = f"{colorHeader}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeader}" if not is_adjustment else f"{colorHeaderIni}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeaderIni}"
 
     text = (
         f"{header}\n"
