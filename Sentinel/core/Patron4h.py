@@ -13,7 +13,7 @@ from middleware.utils import momentum
 from middleware.config.constants import TIMEZONE
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.analysis import technical
-from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval, check_tp_exhaustion, check_signal_health
+from Sentinel.analysis.technical import is_in_ote_zone, calculate_ote_zone, resample_to_interval, check_tp_exhaustion, check_signal_health, detect_fvgs
 from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateBEPrice
 
 from Sentinel.core.models import Signal
@@ -44,50 +44,14 @@ class Patron4HBot:
         return resample_to_interval(df, timeframe)
 
     def detectar_fvg(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[dict]:
-        if idx < 2 or idx >= len(df) - 1: return None
-        if direction == 'LARGO':
-            low_n = df['low'].iloc[idx]
-            high_n2 = df['high'].iloc[idx - 2]
-            low_n2 = df['low'].iloc[idx - 2]
-            if low_n > high_n2:
-                gap = low_n - high_n2
-                if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    fvg = {
-                        'type': 'Bullish_FVG',
-                        'top': float(low_n),
-                        'bottom': float(high_n2),
-                        'mid': float((high_n2 + low_n) / 2),
-                        'size': float(gap),
-                        'v1_low': float(low_n2),
-                        'v1_high': float(high_n2),
-                        'idx': idx,
-                        'timestamp': str(df.index[idx])
-                    }
-                    # Regla ICT 50%: descartar si el gap ya fue mitigado
-                    if technical._is_fvg_mitigated(df, idx, fvg):
-                        return None
-                    return fvg
-        else:
-            high_n = df['high'].iloc[idx]
-            low_n2 = df['low'].iloc[idx - 2]
-            high_n2 = df['high'].iloc[idx - 2]
-            if high_n < low_n2:
-                gap = low_n2 - high_n
-                if gap / df['close'].iloc[idx] >= self.fvg_min_pct:
-                    fvg = {
-                        'type': 'Bearish_FVG',
-                        'top': float(low_n2),
-                        'bottom': float(high_n),
-                        'mid': float((low_n2 + high_n) / 2),
-                        'size': float(gap),
-                        'v1_low': float(low_n2),
-                        'v1_high': float(high_n2),
-                        'idx': idx,
-                        'timestamp': str(df.index[idx])
-                    }
-                    # Regla ICT 50%: descartar si el gap ya fue mitigado
-                    if technical._is_fvg_mitigated(df, idx, fvg):
-                        return None
+        """
+        Detecta un Fair Value Gap aislado de alta probabilidad delegando en la función centralizada de technical.py.
+        """
+        fvgs = detect_fvgs(df, min_gap_pct=self.fvg_min_pct, validate_mitigation=True, apply_high_prob_filters=True)
+        target_type = 'Bullish_FVG' if direction == 'LARGO' else 'Bearish_FVG'
+        for fvg in fvgs:
+            if fvg['idx'] == idx and fvg['type'] == target_type:
+                if not fvg.get('rejectionLowProbability', False):
                     return fvg
         return None
 
@@ -117,12 +81,11 @@ class Patron4HBot:
         if cambio > 0.005: tendencia = 'ALCISTA'
         elif cambio < -0.005: tendencia = 'BAJISTA'
         else: tendencia = 'ALCISTA' if closes[-1] > closes[0] else 'BAJISTA' if self.modo_flexible else 'LATERAL'
-        fvgs = []
-        for i in range(2, len(df_1d)):
-            f_l = self.detectar_fvg(df_1d, i, 'LARGO')
-            if f_l: fvgs.append(f_l)
-            f_c = self.detectar_fvg(df_1d, i, 'CORTO')
-            if f_c: fvgs.append(f_c)
+        
+        # Para el diario no aplicamos EMA200 rígida inicial para no sesgar de más, pero sí la lógica de alta probabilidad
+        fvgs_detectados = detect_fvgs(df_1d, min_gap_pct=self.fvg_min_pct, validate_mitigation=True, apply_high_prob_filters=False)
+        fvgs = [f for f in fvgs_detectados if not f.get('rejectionLowProbability', False)]
+        
         return {'tendencia': tendencia, 'max_dia_anterior': max_prev, 'min_dia_anterior': min_prev, 'fvgs_diarios': fvgs}
 
     def detectarLiquidityRaid(self, df_ltf: pd.DataFrame, maxPrev: float, minPrev: float) -> Optional[dict]:
@@ -139,6 +102,8 @@ class Patron4HBot:
         trend = contexto['tendencia']
         direction = 'CORTO' if trend == 'BAJISTA' else 'LARGO'
         ahora = self.getMexicoTime().replace(tzinfo=None)
+        
+        # 1. Desplazamientos en las últimas 10 velas
         for i in range(len(df_tf)-1, max(len(df_tf)-10, 0), -1):
             disp = self.detectar_displacement(df_tf, i, direction)
             if disp:
@@ -146,9 +111,17 @@ class Patron4HBot:
                 if (ahora - v_t).total_seconds() / 60 <= 120:
                     res.update({'hay_displacement': True, 'displacement_info': disp, 'vela_origen_idx': i})
                     break
-        for i in range(max(1, len(df_tf)-30), len(df_tf)-1):
-            fvg = self.detectar_fvg(df_tf, i, direction)
-            if fvg: res['fvgs'].append(fvg)
+                    
+        # 2. Detección centralizada de FVG en catalizador una sola vez (Alto Rendimiento)
+        fvgs_detectados = detect_fvgs(df_tf, min_gap_pct=self.fvg_min_pct, validate_mitigation=True, apply_high_prob_filters=True)
+        start_idx = max(1, len(df_tf) - 30)
+        target_type = 'Bullish_FVG' if direction == 'LARGO' else 'Bearish_FVG'
+        
+        for fvg in fvgs_detectados:
+            if fvg['idx'] >= start_idx and fvg['idx'] < len(df_tf) - 1:
+                if fvg['type'] == target_type and not fvg.get('rejectionLowProbability', False):
+                    res['fvgs'].append(fvg)
+                    
         res['hay_mss'] = self.detectar_mss(df_tf, direction)
         res['confirmado'] = (res['hay_displacement'] or (len(res['fvgs'])>0 and res['hay_mss'])) if self.modo_flexible else (res['hay_displacement'] and len(res['fvgs'])>0)
         return res

@@ -64,6 +64,14 @@ class ExecutionEngine:
             logger.info(f"🚫 [ExecutionEngine] [{symbol}] Señal BLOQUEADA por sentimiento {symbol_tipo} contrario ({current_sentiment:.2f})")
             return False
 
+        # 2.1. Filtro Automático de Noticias de Alto Impacto (Evitar drawdowns violentos)
+        # Si hay noticias de alto impacto inminentes y la estrategia es FVG o de desequilibrio, bloqueamos en divisas y metales.
+        if imminentNews and symbol_tipo in ('FOREX', 'METALES'):
+            fvgStrategies = ('GenericFVG', 'FVGDiario', 'ImbalanceNY', 'ImbalanceLDN', 'ImbalancePMNY', 'SesgoBiasHTF')
+            if strategyName in fvgStrategies:
+                logger.info(f"🚫 [ExecutionEngine] [{symbol}] Señal {strategyName} BLOQUEADA automáticamente por Noticia de Alto Impacto Inminente: {imminentNews}")
+                return False
+
         # 3. Refresh accounts to ensure we have latest balances/status
         self.refreshAccounts()
         if not self.accounts:

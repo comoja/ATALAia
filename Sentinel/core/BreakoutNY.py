@@ -77,6 +77,11 @@ class BreakoutNYBot:
         if now_ts < target_ts + timedelta(minutes=15):
             return []
 
+        # Hora límite: 12:00 PM (mediodía) hora local para evitar alertas tardías en la tarde o noche
+        end_time_ts = target_ts + timedelta(hours=2, minutes=30)
+        if now_ts > end_time_ts:
+            return []
+
         trade_day = target_ts.date()
         day_key = f"{symbol}_{trade_day.isoformat()}"
         if day_key in self._triggered_days:

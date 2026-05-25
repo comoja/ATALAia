@@ -414,16 +414,25 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         if _is_strategy_enabled(strategy_configs, "SesgoBiasHTF"):
             tasks.append(sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "SilverBullet"):
+
+        # Filtro de Horas Muertas (11:00 AM a 12:00 PM CDMX) - Pausa de bots de ruptura rápida
+        ahoraMX = datetime.now(cdmxTz)
+        is_dead_hour = (11 <= ahoraMX.hour < 12)
+
+        if is_dead_hour:
+            logger.info(f"[{symbol}] [Filtro Horas Muertas] Pausando temporalmente bots de ruptura rápida (11:00-12:00 CDMX)")
+
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SilverBullet"):
             tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "GenericFVG"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "GenericFVG"):
             tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         if _is_strategy_enabled(strategy_configs, "FVGDiario"):
             tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "SpeedBot"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SpeedBot"):
             tasks.append(speed_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "BreakoutNY"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "BreakoutNY"):
             tasks.append(breakout_ny_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+            
         if _is_strategy_enabled(strategy_configs, "Ichimoku"):
             tasks.append(ichimoku_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
@@ -528,7 +537,7 @@ async def main():
     imbalance_pm_bot  = ImbalancePMNYBot()
     generic_fvg_bot = GenericFVGBot(intervals=['5min', '15min', '1h', '4h'])
     fvg_diario_bot = FVGDiarioBot()
-    speed_bot = SpeedBot(intervals=['5min', '15min'])
+    speed_bot = SpeedBot(intervals=['5min'])
     breakout_ny_bot = BreakoutNYBot()
     ichimoku_bot = IchimokuBot()
     

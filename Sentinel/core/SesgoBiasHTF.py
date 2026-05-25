@@ -138,23 +138,6 @@ class SesgoBiasHTFBot:
             return float(prev_day['high']), float(prev_day['low'])
         return None, None
 
-    def detect_fvg(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[Dict]:
-        if idx < 2 or idx >= len(df) - 1: return None
-        if direction == 'LARGO':
-            low_n = float(df['low'].iloc[idx])
-            high_n2 = float(df['high'].iloc[idx - 2])
-            if low_n > high_n2:
-                gap = low_n - high_n2
-                if gap / float(df['close'].iloc[idx]) >= self.fvg_min_pct:
-                    return {'type': 'Bullish_FVG', 'top': low_n, 'bottom': high_n2, 'mid': (high_n2 + low_n) / 2, 'size': gap, 'idx': idx, 'vela_idx': idx}
-        else:
-            high_n = float(df['high'].iloc[idx])
-            low_n2 = float(df['low'].iloc[idx - 2])
-            if high_n < low_n2:
-                gap = low_n2 - high_n
-                if gap / float(df['close'].iloc[idx]) >= self.fvg_min_pct:
-                    return {'type': 'Bearish_FVG', 'top': low_n2, 'bottom': high_n, 'mid': (low_n2 + high_n) / 2, 'size': gap, 'idx': idx, 'vela_idx': idx}
-        return None
 
     def detect_mss(self, df: pd.DataFrame, direction: str) -> bool:
         if len(df) < self.mss_lookback + 1: return False
@@ -238,22 +221,22 @@ class SesgoBiasHTFBot:
                 elif direction == 'LARGO' and low < level: return {'idx': i, 'type': 'LIQUIDITY_SWEEP_LOW', 'level': level, 'swept_price': low}
         return None
 
-    def get_htf_bias(self, df_h4: pd.DataFrame, df_1d: pd.DataFrame, df_1w: pd.DataFrame, df_1M: pd.DataFrame) -> Dict[str, str]:
+    def get_htf_bias(self, dfH1: pd.DataFrame, df1d: pd.DataFrame, df1w: pd.DataFrame, df1M: pd.DataFrame) -> Dict[str, str]:
         biases = {}
-        for name, df_tf in [('H4', df_h4), ('D', df_1d), ('W', df_1w), ('M', df_1M)]:
-            if df_tf is not None and len(df_tf) >= 20:
-                bias, _ = self.detect_bias(df_tf, lookback=20)
+        for name, dfTf in [('H1', dfH1), ('D', df1d), ('W', df1w), ('M', df1M)]:
+            if dfTf is not None and len(dfTf) >= 20:
+                bias, _ = self.detect_bias(dfTf, lookback=20)
                 biases[name] = bias
             else: biases[name] = 'INDETERMINADO'
         return biases
 
     def get_consensus_bias(self, biases: Dict[str, str]) -> Tuple[str, float]:
-        strat_config = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
-        weights = strat_config.get('weights', {'H4': 0.35, 'D': 0.35, 'W': 0.20, 'M': 0.10})
-        bullish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'LARGO')
-        bearish_score = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'CORTO')
-        if bullish_score > bearish_score: return 'LARGO', bullish_score
-        elif bearish_score > bullish_score: return 'CORTO', bearish_score
+        stratConfig = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
+        weights = stratConfig.get('weights', {'H1': 0.35, 'D': 0.35, 'W': 0.20, 'M': 0.10})
+        bullishScore = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'LARGO')
+        bearishScore = sum(weights.get(tf, 0) for tf, bias in biases.items() if bias == 'CORTO')
+        if bullishScore > bearishScore: return 'LARGO', bullishScore
+        elif bearishScore > bullishScore: return 'CORTO', bearishScore
         return 'NO_TRADE', 0.0
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
@@ -265,24 +248,24 @@ class SesgoBiasHTFBot:
         # Punto 3: Master Dictionary integration
         if isinstance(master, dict):
             df_15m = master.get('15min')
-            df_h4 = master.get('4h')
-            df_1d = master.get('1d')
-            df_1w = master.get('1w')
-            df_1M = master.get('1m')
+            dfH1 = master.get('1h')
+            df1d = master.get('1d')
+            df1w = master.get('1w')
+            df1M = master.get('1m')
         else:
             df_15m = master
-            df_h4, df_1d, df_1w, df_1M = None, None, None, None
+            dfH1, df1d, df1w, df1M = None, None, None, None
 
         if df_15m is None or len(df_15m) < 100: return None
         
         # Fallback de resampleo si no vienen en el master (Punto 3)
-        if df_h4 is None: df_h4 = self.resample_ohlcv(df_15m, '4h')
-        if df_1d is None: df_1d = self.resample_ohlcv(df_15m, '1d')
-        if df_1w is None: df_1w = self.resample_ohlcv(df_15m, '1w')
-        if df_1M is None: df_1M = self.resample_ohlcv(df_15m, '1M')
+        if dfH1 is None: dfH1 = self.resample_ohlcv(df_15m, '1h')
+        if df1d is None: df1d = self.resample_ohlcv(df_15m, '1d')
+        if df1w is None: df1w = self.resample_ohlcv(df_15m, '1w')
+        if df1M is None: df1M = self.resample_ohlcv(df_15m, '1M')
 
         
-        biases = self.get_htf_bias(df_h4, df_1d, df_1w, df_1M)
+        biases = self.get_htf_bias(dfH1, df1d, df1w, df1M)
         consensus_direction, consensus_score = self.get_consensus_bias(biases)
         
         if consensus_direction == 'NO_TRADE' or consensus_score < 0.6: return None

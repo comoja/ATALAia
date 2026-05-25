@@ -18,7 +18,7 @@ class SpeedBot:
     sin esperar retrocesos, ideal para capturar 'corridas' de liquidez.
     """
     
-    def __init__(self, intervals=['5min', '15min']):
+    def __init__(self, intervals=['5min']):
         self.strategy_name = "SpeedBot"
         self.intervals = intervals
         self._sent_signals = {} # {symbol_timestamp: True}
@@ -57,18 +57,25 @@ class SpeedBot:
             # Dirección coincidente
             same_dir = (last_candle['close'] > last_candle['open']) == (prev_candle['close'] > prev_candle['open'])
             
-            # Condición 1: Vela única explosiva (> 2.0x ATR)
-            is_explosive = body_last > (atr * 2.0)
-            # Condición 2: Impulso acumulado (2 velas > 3.0x ATR juntas)
-            is_accumulated = same_dir and (body_last + body_prev) > (atr * 3.0)
+            # Condición 1: Vela única explosiva (> 1.4x ATR para captura más temprana)
+            is_explosive = body_last > (atr * 1.4)
             
-            # Condición de "Cuerpo Sólido" (vela con pocas mechas)
-            is_solid = (body_last / range_last) > 0.65 if range_last > 0 else False
+            # Condición de "Cuerpo Sólido" (vela con pocas mechas - exigencia 78%)
+            is_solid = (body_last / range_last) > 0.78 if range_last > 0 else False
             
-            if not ((is_explosive or is_accumulated) and is_solid):
+            if not (is_explosive and is_solid):
                 continue
                 
             direction = "LARGO" if last_candle['close'] > last_candle['open'] else "CORTO"
+            
+            # Filtro de agotamiento de RSI (para no comprar techos ni vender suelos)
+            rsi_val = last_candle['rsi'] if 'rsi' in last_candle else 50.0
+            if direction == "LARGO" and rsi_val >= 70.0:
+                logger.info(f"[{symbol}] {interval}: Impulso LARGO descartado por sobrecompra extrema (RSI={rsi_val:.1f})")
+                continue
+            if direction == "CORTO" and rsi_val <= 30.0:
+                logger.info(f"[{symbol}] {interval}: Impulso CORTO descartado por sobreventa extrema (RSI={rsi_val:.1f})")
+                continue
             
             # 2. Filtro de Momentum (No entrar contra tendencia)
             momentum_state = symbolInfo.get('momentum', 'NEUTRAL')
