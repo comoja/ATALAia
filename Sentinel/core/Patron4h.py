@@ -140,26 +140,34 @@ class Patron4HBot:
             df_15m = master
             df_1h, df_4h, df_1d = None, None, None
 
-        if df_15m is None or len(df_15m) < 100: return None
+        if df_15m is None or len(df_15m) < 100: 
+            logger.info(f"[{symbol}] Datos insuficientes en {self.strategy_name}")
+            return None
         
         if df_1h is None: df_1h = resample_to_interval(df_15m, '1h')
         if df_4h is None: df_4h = resample_to_interval(df_15m, '4h')
         if df_1d is None: df_1d = resample_to_interval(df_15m, '1d')
         
         ctx = self.obtener_contexto_diario(df_1d)
-        if ctx['tendencia'] == 'LATERAL': return None
+        if ctx['tendencia'] == 'LATERAL': 
+            logger.info(f"[{symbol}] No se detecto tendencia") 
+            return None
 
         # Detectar sweep HTF en LTF (15m): precio superó PDH/PDL y cerró de vuelta al rango
         htfSweep = self.detectarLiquidityRaid(df_15m, ctx['max_dia_anterior'], ctx['min_dia_anterior'])
         
         c4h, c1h = self.analizar_catalizador(df_4h, ctx, htfSweep, '4H'), self.analizar_catalizador(df_1h, ctx, htfSweep, '1h')
         catalizador = c4h if c4h['confirmado'] else c1h if c1h['confirmado'] else None
-        if not catalizador: return None
+        if not catalizador: 
+            logger.info(f"[{symbol}] No se detecto catalizador") 
+            return None
         
         trend = ctx['tendencia']
         direction = 'CORTO' if trend == 'BAJISTA' else 'LARGO'
         fvg = next((f for f in catalizador['fvgs'] if (trend == 'BAJISTA' and f['type'] == 'Bearish_FVG') or (trend == 'ALCISTA' and f['type'] == 'Bullish_FVG')), catalizador['fvgs'][0] if catalizador['fvgs'] else None)
-        if not fvg: return None
+        if not fvg:
+            logger.info(f"[{symbol}] No se detecto FVG") 
+            return None
         
         v_origen_idx = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
         v_origen_time = str(df_15m.index[v_origen_idx]) if v_origen_idx < len(df_15m) else "N/A"

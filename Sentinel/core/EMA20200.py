@@ -64,6 +64,7 @@ class EMA20200Bot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
         symbol = symbolInfo['symbol']
+        logger.info(f"[{symbol}] Analizando...")
         master = preloadedData.get(symbol) if preloadedData else None
         
         # Punto 3: Master Dictionary integration

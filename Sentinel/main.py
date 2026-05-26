@@ -418,9 +418,10 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         # Filtro de Horas Muertas (11:00 AM a 12:00 PM CDMX) - Pausa de bots de ruptura rápida
         ahoraMX = datetime.now(cdmxTz)
         is_dead_hour = (11 <= ahoraMX.hour < 12)
+      
 
         if is_dead_hour:
-            logger.info(f"[{symbol}] [Filtro Horas Muertas] Pausando temporalmente bots de ruptura rápida (11:00-12:00 CDMX)")
+            logger.info(f"[{symbol}] [Filtro Horas Muertas] Pausando temporalmente bots de ruptura rápida (11:00-12:00 CDMX)", extra={"color": "yellow"})
 
         if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SilverBullet"):
             tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))

@@ -76,7 +76,7 @@ class FVGDiarioBot:
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None) -> Optional[Signal]:
         """Analiza un símbolo en busca de señales y devuelve un objeto Signal si existe."""
         symbol = symbolInfo['symbol']
-        logger.info(f"▶ Iniciando análisis para {symbol}")
+        logger.info(f"Iniciando análisis para {symbol}")
         
         try:
             # Punto 3: Master Dictionary integration
@@ -113,16 +113,19 @@ class FVGDiarioBot:
             )
             
             if not manipulation:
+                logger.info(f"[{symbol}] No se detecto manipulation")
                 return None
             
             # Verificar cambio de estructura tras manipulación
             if not self._checkMarketStructureShift(df_intraday, manipulation, daily_bias):
+                logger.info(f"[{symbol}] No se detecto cambio de estructura")
                 return None
             
             # Buscar FVG tras el sweep de liquidez (MTF Alignment)
             fvg = self._findFvgAfterManipulation(df_intraday, manipulation, daily_bias)
             
             if not fvg:
+                logger.info(f"[{symbol}] No se detecto FVG")
                 return None
             
             # Generar señal

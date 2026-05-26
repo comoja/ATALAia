@@ -44,18 +44,22 @@ class BreakoutNYBot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloaded_data: Dict = None, apiKey: str = None) -> List[Signal]:
         symbol = symbolInfo["symbol"]
+        logger.info(f"[{symbol}] Analizando...")
         master = preloaded_data.get(symbol) if preloaded_data else None
         if not isinstance(master, dict):
+            logger.info(f"[{symbol}] No se encontraron datos en master")
             return []
 
         df_5m = master.get("5min")
         df_15m = master.get("15min")
         if df_5m is None or df_15m is None or len(df_5m) < 10 or len(df_15m) < 2:
+            logger.info(f"[{symbol}] Datos insuficientes")
             return []
 
         df_5m = technical.filter_to_closed_candles(df_5m)
         df_15m = technical.filter_to_closed_candles(df_15m)
         if df_5m.empty or df_15m.empty:
+            logger.info(f"[{symbol}] Datos insuficientes")
             return []
 
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
@@ -66,6 +70,7 @@ class BreakoutNYBot:
 
         range_candle, target_ts = self._get_range_candle(df_15m, start_hour, start_minute)
         if range_candle is None:
+            logger.info(f"[{symbol}] No se encontro vela de rango")
             return []
 
         now_ts = pd.Timestamp(self._now_local())
@@ -75,16 +80,19 @@ class BreakoutNYBot:
             now_ts = now_ts.tz_localize(None)
 
         if now_ts < target_ts + timedelta(minutes=15):
+            logger.info(f"[{symbol}] No se encontro vela de rango")
             return []
 
         # Hora límite: 12:00 PM (mediodía) hora local para evitar alertas tardías en la tarde o noche
         end_time_ts = target_ts + timedelta(hours=2, minutes=30)
         if now_ts > end_time_ts:
+            logger.info(f"[{symbol}] No se encontro vela de rango")
             return []
 
         trade_day = target_ts.date()
         day_key = f"{symbol}_{trade_day.isoformat()}"
         if day_key in self._triggered_days:
+            logger.info(f"[{symbol}] Ya se encontro vela de rango")
             return []
 
         range_high = float(range_candle["high"])
@@ -92,6 +100,28 @@ class BreakoutNYBot:
         last_m5 = df_5m.iloc[-1]
         close_price = float(last_m5["close"])
         candle_time = df_5m.index[-1].strftime("%Y-%m-%d %H:%M:%S")
+
+        # --- FILTRO SEGURIDAD 1: Evitar re-entradas tardías en velas subsiguientes ---
+        # Solo operar si la vela anterior (iloc[-2]) cerró DENTRO del rango.
+        if len(df_5m) >= 2:
+            prevClose = float(df_5m.iloc[-2]["close"])
+            if close_price > range_high and prevClose > range_high:
+                logger.info(f"[{symbol}] BreakoutNY descartada: la vela anterior ya había roto por encima del rango (re-entrada)")
+                return []
+            if close_price < range_low and prevClose < range_low:
+                logger.info(f"[{symbol}] BreakoutNY descartada: la vela anterior ya había roto por debajo del rango (re-entrada)")
+                return []
+
+        # --- FILTRO SEGURIDAD 2: Evitar desfase temporal por lag de API o ejecución tardía ---
+        # Si la vela cerró hace más de 90 segundos del tiempo actual, se descarta.
+        candleEnd = df_5m.index[-1] + timedelta(minutes=5)
+        nowNaive = now_ts.tz_localize(None) if now_ts.tzinfo is not None else now_ts
+        candleEndNaive = candleEnd.tz_localize(None) if candleEnd.tzinfo is not None else candleEnd
+        delaySeconds = (nowNaive - candleEndNaive).total_seconds()
+        
+        if delaySeconds > 90:
+            logger.info(f"[{symbol}] BreakoutNY descartada: señal tardía (delay de {delaySeconds:.1f}s > 90s)")
+            return []
 
         df_5m_range = df_5m[(df_5m.index >= target_ts) & (df_5m.index < target_ts + timedelta(minutes=15))]
         if not df_5m_range.empty:

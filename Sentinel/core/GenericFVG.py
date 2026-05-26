@@ -41,17 +41,20 @@ class GenericFVGBot:
         multiplier = getPipMultiplier(symbol)
         preloaded_master = preloaded_data.get(symbol)
         if preloaded_master is None:
+            logger.info(f"[{symbol}] Datos insuficientes")
             return []
             
         logger.info(f"Analizando {symbol} (Toni Maura SMC) en {self.intervals}")
         for interval in self.intervals:
             df = preloaded_master.get(interval)
             if df is None or len(df) < 200:
+                logger.info(f"[{symbol}] Datos insuficientes en {interval}")
                 continue
             
             # 1. Detectar FVGs
             fvgs = technical.detect_fvgs(df)
             if not fvgs:
+                logger.info(f"[{symbol}] No se detecto FVG en {interval}")
                 continue
             
             # Tomar el más reciente
@@ -68,15 +71,15 @@ class GenericFVGBot:
                 htfSweep = technical.detectLiquiditySweep(df, htfHigh=htfHigh, htfLow=htfLow, lookback=20)
                 if not htfSweep:
                     # Sin sweep HTF confirmado no hay 'intención real' detrás de la entrada
-                    logger.debug(f"[{symbol}] {interval}: Sin HTF liquidity sweep confirmado - saltando")
+                    logger.info(f"[{symbol}] {interval}: Sin HTF liquidity sweep confirmado - saltando")
                     continue
                 # Validar alineación: el FVG debe ser en dirección opuesta al sweep
                 sweepType = htfSweep.get('type', '')
                 if sweepType == 'MANIPULATION_UP' and fvgDirection != 'CORTO':
-                    logger.debug(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep UP → solo CORTO)")
+                    logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep UP → solo CORTO)")
                     continue
                 if sweepType == 'MANIPULATION_DOWN' and fvgDirection != 'LARGO':
-                    logger.debug(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep DOWN → solo LARGO)")
+                    logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep DOWN → solo LARGO)")
                     continue
 
             latest_fvg = latestFvg
@@ -84,11 +87,13 @@ class GenericFVGBot:
             
             # --- FILTRO MAURA 1: MSS (Market Structure Shift) ---
             if not technical.detect_mss(df, signal_direction, lookback=15):
+                logger.info(f"[{symbol}] {interval}: No se detecto MSS")
                 continue
 
             # Evitar señales duplicadas
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
             if signal_key in self._sent_signals:
+                logger.info(f"[{symbol}] {interval}: Señal duplicada")
                 continue
             
             # 2. Calcular niveles SMC
@@ -187,7 +192,15 @@ class GenericFVGBot:
                 
             minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
             rrVal = round(abs(tp1 - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
-            expectedProfit = (abs(tp1 - realEntry) * multiplier * (size / 100000.0 if "JPY" not in symbol else size / 100.0)) # Simplificado
+            
+            # --- FILTRO SEGURIDAD: Evitar entradas tardías con RR real pésimo ---
+            # Si el precio actual ya avanzó tanto que el RR real (basado en precio de mercado)
+            # es menor al 70% del RR mínimo exigido, se descarta.
+            minRealRr = min_rr_val * 0.70
+            if rrVal < minRealRr:
+                logger.info(f"[{symbol}] {interval}: Descartando señal por RR real insuficiente ({rrVal:.2f} < {minRealRr:.2f}) debido a entrada tardía")
+                continue
+                
             # Mejor usar el riskUsdActual * rrVal
             expectedProfit = riskUsdActual * rrVal
             

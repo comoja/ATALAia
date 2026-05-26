@@ -53,14 +53,16 @@ class SilverBulletBot:
             logger.warning(f"Error al calcular ADX en SilverBullet: {e}")
             return 25.0
 
-    def _get_reference_range(self, df: pd.DataFrame, window_start_ny: datetime, ref_min: int = 15) -> Optional[Dict]:
+    def _get_reference_range(self, symbol: str, df: pd.DataFrame, window_start_ny: datetime, ref_min: int = 15) -> Optional[Dict]:
         ref_end = window_start_ny + timedelta(minutes=ref_min)
         idx_ny = df.index.tz_localize(MX_TZ).tz_convert(NY_TZ) if df.index.tzinfo is None else df.index.tz_convert(NY_TZ)
         df_ref = df.loc[(idx_ny >= window_start_ny) & (idx_ny < ref_end)]
-        if df_ref.empty: return None
+        if df_ref.empty: 
+            logger.info(f"[{symbol}] No hay rango de referencia")
+            return None
         return {"high": float(df_ref["high"].max()), "low": float(df_ref["low"].min()), "open": float(df_ref["open"].iloc[0]), "n_candles": len(df_ref)}
 
-    def _detect_sweep(self, df: pd.DataFrame, ref: Dict, window_start_ny: datetime) -> Optional[Dict]:
+    def _detect_sweep(self, symbol: str, df: pd.DataFrame, ref: Dict, window_start_ny: datetime) -> Optional[Dict]:
         """
         Detecta un barrido de liquidez local en la ventana de la sesión.
 
@@ -73,7 +75,9 @@ class SilverBulletBot:
         sweepStart = window_start_ny + timedelta(minutes=15)
         idxNy = df.index.tz_localize(MX_TZ).tz_convert(NY_TZ) if df.index.tzinfo is None else df.index.tz_convert(NY_TZ)
         dfPost = df.loc[(idxNy >= sweepStart) & (idxNy < window_start_ny + timedelta(hours=1))]
-        if dfPost.empty: return None
+        if dfPost.empty: 
+            logger.info(f"[{symbol}] No hay velas posteriores al rango de referencia")
+            return None
         for i in range(len(dfPost)):
             v = dfPost.iloc[i]
             # Sweep de mínimos → bias LARGO
@@ -82,6 +86,7 @@ class SilverBulletBot:
             # Sweep de máximos → bias CORTO
             if v["high"] > ref["high"] and v["close"] < ref["high"]:
                 return {"type": "CORTO", "swept_level": ref["high"], "sweep_high": v["high"], "candle_idx": dfPost.index[i]}
+        logger.info(f"[{symbol}] No se detectó sweep")
         return None
 
 
@@ -119,9 +124,12 @@ class SilverBulletBot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
         symbol = symbolInfo["symbol"]
+        logger.info(f"Iniciando análisis para {symbol}")
         window_name, window = "ALL_DAY", {"label": "All Day 🕐", "emoji": "🕐", "start": None, "end": None}
         sig_key = self._signal_key(symbol, window_name)
-        if self._signals_sent.get(sig_key, False): return None
+        if self._signals_sent.get(sig_key, False): 
+            logger.info(f"[{symbol}] Señal ya enviada para {window_name}")
+            return None
         
         master = preloadedData.get(symbol) if preloadedData else None
         
@@ -137,27 +145,38 @@ class SilverBulletBot:
         else:
             df = master
 
-        if df is None or len(df) < 50: return None
+        if df is None or len(df) < 50:
+            logger.info(f"[{symbol}] No hay suficientes velas para análisis")
+            return None
 
         
         adx = self._calc_adx(df)
-        if adx < self.min_adx: return None
+        if adx < self.min_adx: 
+            logger.info(f"[{symbol}] ADX bajo: {adx:.2f} (se requiere mínimo {self.min_adx:.2f})")
+            return None
         
         w_start = self._now_ny().replace(hour=8, minute=30, second=0, microsecond=0) # Example start
-        ref = self._get_reference_range(df, w_start)
-        if not ref: return None
+        ref = self._get_reference_range(symbol, df, w_start)
+        if not ref: 
+            logger.info(f"[{symbol}] No hay rango de referencia")
+            return None
         
-        sweep = self._detect_sweep(df, ref, w_start)
-        if not sweep or not self._detect_mss(df, sweep): return None
+        sweep = self._detect_sweep(symbol, df, ref, w_start)
+        if not sweep or not self._detect_mss(df, sweep): 
+            logger.info(f"[{symbol}] No hay sweep detectado")
+            return None
         
         fvg = self._detect_fvg(df, sweep["type"])
-        if not fvg: return None
+        if not fvg: 
+            logger.info(f"[{symbol}] No hay FVG detectado")
+            return None
         
         # --- Normalizar FVG al formato estándar esperado por calculate_fvg_setup ---
         # _detect_fvg retorna {type, mid, idx, candle_time} pero calculate_fvg_setup
         # necesita {top, bottom, gap_low, gap_high, v1_low, v1_high, type}
         fvg_idx = fvg["idx"]
         if fvg_idx < 2 or fvg_idx >= len(df):
+            logger.info(f"[{symbol}] FVG fuera de rango de velas válidas")
             return None
         
         v1_high = float(df['high'].iloc[fvg_idx - 2])
@@ -219,12 +238,14 @@ class SilverBulletBot:
         multiplier = getPipMultiplier(symbol)
         
         if not technical.check_tp_exhaustion(df, fvg["idx"], entry, tp, sl, "LARGO" if sweep["type"] == "LARGO" else "CORTO", threshold=0.60, timeframe="5min")[0]:
+            logger.info(f"[{symbol}] No hay patrón MSS detectado")
             return None
         
         current_price = float(df['close'].iloc[-1])
         fvg_time = fvg.get("candle_time", "")
         fvg_time_str = fvg_time.strftime("%Y-%m-%d %H:%M:%S") if fvg_time else ""
         if not technical.check_signal_health(entry, tp, sl, "LARGO" if sweep["type"] == "LARGO" else "CORTO", current_price, threshold=0.65, candle_time=fvg_time_str)[0]:
+            logger.info(f"[{symbol}] No hay patrón MSS detectado")
             return None
         
         # --- FILTRO HTF: Alinear con tendencia macro ---
@@ -255,6 +276,13 @@ class SilverBulletBot:
             return None
             
         rrRatio = round(abs(tp - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+        
+        # --- FILTRO SEGURIDAD: Evitar entradas tardías con RR real pésimo ---
+        minRealRr = min_rr_val * 0.70
+        if rrRatio < minRealRr:
+            logger.info(f"[{symbol}] SilverBullet: Descartando señal por RR real insuficiente ({rrRatio:.2f} < {minRealRr:.2f}) debido a entrada tardía")
+            return None
+            
         expectedProfit = riskUsdActual * rrRatio
         
         base_confidence = 80

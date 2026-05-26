@@ -345,7 +345,7 @@ class BaseImbalanceBot:
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> list[Signal]:
         symbol = symbolInfo['symbol']
         master = preloadedData.get(symbol) if preloadedData else None
-        
+        logger.info(f"[{symbol}] {self.strategy_name} ")
         # Punto 3: Master Dictionary integration
         if isinstance(master, dict):
             datos5min = master.get('5min')
@@ -353,6 +353,7 @@ class BaseImbalanceBot:
             datos5min = master
         
         if datos5min is None or len(datos5min) < 1:
+            logger.info(f"[{symbol}] Datos insuficientes en {self.strategy_name}")
             return []
 
         

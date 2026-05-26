@@ -152,7 +152,61 @@ def buildAlertMessage(
             f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
         )
 
-    text += f"     CANTIDAD:  <b>{trade['size']:,.2f}</b>\n"
+    # Calcular multiplo y formatear cantidad para evitar exceder el margen de 0.25%
+    sizeVal = float(trade['size'])
+    qtyStr = f"{sizeVal:,.2f}"
+    
+    try:
+        symbolInfo = dbManager.getSymbol(trade['symbol'])
+        if symbolInfo:
+            symbolTipo = symbolInfo.get('tipo', 'FOREX').upper()
+            symbolName = symbolInfo.get('symbol', '').upper()
+            
+            dbMultiplo = symbolInfo.get('multiplo')
+            multiploVal = None
+            if dbMultiplo is not None:
+                try:
+                    multiploVal = int(dbMultiplo)
+                except (ValueError, TypeError):
+                    pass
+            
+            if multiploVal is None:
+                if symbolTipo == "MONEDA" or symbolTipo == "EXOTIC":
+                    multiploVal = 10000
+                elif symbolTipo == "METALES" or "XAU" in symbolName or "GOLD" in symbolName:
+                    multiploVal = 450
+                elif symbolTipo == "CRYPTO" or "BTC" in symbolName:
+                    multiploVal = 2
+            
+            if multiploVal and sizeVal > multiploVal:
+                import math
+                nOrders = math.ceil(sizeVal / multiploVal)
+                if nOrders > 1:
+                    symbolMinLots = symbolInfo.get('min_lots')
+                    minLots = 1000.0
+                    if symbolMinLots is not None:
+                        minLots = float(symbolMinLots)
+                    else:
+                        minUnitsDict = {
+                            "METALES": 1.0,
+                            "INDICE": 1.0,
+                            "CRYPTO": 0.01,
+                            "MONEDA": 1000.0,
+                            "EXOTIC": 1000.0
+                        }
+                        minLots = float(minUnitsDict.get(symbolTipo, 1000.0))
+                    
+                    eachSize = math.floor((sizeVal / nOrders) / minLots) * minLots
+                    if eachSize < minLots:
+                        eachSize = minLots
+                    
+                    if eachSize > 0:
+                        qtyStr = f"{sizeVal:,.2f} ({nOrders} x {eachSize:,.2f})"
+    except Exception as e:
+        import logging
+        logging.getLogger("execution").error(f"Error calculando multiplos en buildAlertMessage: {e}")
+        
+    text += f"     CANTIDAD:  <b>{qtyStr}</b>\n"
     if trade.get('margin_used'):
         text += f"     MARGEN EST: <b>${trade['margin_used']:,.2f} USD</b>\n"
     text += f"━━━━━━━━━━━━━━━\n"

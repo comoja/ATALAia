@@ -186,12 +186,16 @@ class SesgoBiasHTFBot:
         relevant_data = df.iloc[-lookback:]
         if direction == 'CORTO':
             swing_low, swing_high = float(relevant_data['low'].min()), float(relevant_data['high'].max())
-            if swing_high <= swing_low: return None
+            if swing_high <= swing_low: 
+                logger.info(f"[{symbol}] Swing high <= swing low en fibonacci_zone")
+                return None
             fib_50 = swing_low + (swing_high - swing_low) * self.fibonacci_level
             return {'type': 'PREMIUM', 'swing_low': swing_low, 'swing_high': swing_high, 'fib_50': fib_50}
         else:
             swing_high, swing_low = float(relevant_data['high'].max()), float(relevant_data['low'].min())
-            if swing_high <= swing_low: return None
+            if swing_high <= swing_low: 
+                logger.info(f"[{symbol}] Swing high <= swing low en fibonacci_zone") 
+            return None
             fib_50 = swing_low + (swing_high - swing_low) * self.fibonacci_level
             return {'type': 'DISCOUNT', 'swing_low': swing_low, 'swing_high': swing_high, 'fib_50': fib_50}
 
@@ -203,11 +207,15 @@ class SesgoBiasHTFBot:
         prev_body_top, prev_body_bottom = max(prev_open, prev_close), min(prev_open, prev_close)
         curr_body_top, curr_body_bottom = max(curr_open, curr_close), min(curr_open, curr_close)
         if direction == 'CORTO':
-            if prev_close > prev_open or curr_close >= curr_open: return None
+            if prev_close > prev_open or curr_close >= curr_open: 
+                logger.info(f"[{symbol}] Vela alcista en patron engulfing corto")
+                return None
             if curr_high > prev_high and curr_body_top > prev_body_top and curr_body_bottom < prev_body_bottom:
                 return {'type': 'BEARISH_ENGULFING', 'idx': idx, 'swept': 'HIGH', 'sweep_level': prev_high, 'candle_high': curr_high, 'candle_low': curr_low, 'body_top': curr_body_top, 'body_bottom': curr_body_bottom, 'candle_range': curr_high - curr_low}
         else:
-            if prev_close < prev_open or curr_close <= curr_open: return None
+            if prev_close < prev_open or curr_close <= curr_open: 
+                logger.info(f"[{symbol}] Vela bajista en patron engulfing largo")
+                return None
             if curr_low < prev_low and curr_body_top > prev_body_top and curr_body_bottom < prev_body_bottom:
                 return {'type': 'BULLISH_ENGULFING', 'idx': idx, 'swept': 'LOW', 'sweep_level': prev_low, 'candle_high': curr_high, 'candle_low': curr_low, 'body_top': curr_body_top, 'body_bottom': curr_body_bottom, 'candle_range': curr_high - curr_low}
         return None
@@ -241,7 +249,7 @@ class SesgoBiasHTFBot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
         symbol = symbolInfo['symbol']
-        logger.info(f"▶ SesgoBiasHTF: Iniciando análisis para {symbol}")
+        logger.info(f"Iniciando análisis para {symbol}")
         
         master = preloadedData.get(symbol) if preloadedData else None
         
@@ -256,7 +264,9 @@ class SesgoBiasHTFBot:
             df_15m = master
             dfH1, df1d, df1w, df1M = None, None, None, None
 
-        if df_15m is None or len(df_15m) < 100: return None
+        if df_15m is None or len(df_15m) < 100: 
+            logger.info(f"[{symbol}] No hay suficientes velas para análisis")
+            return None
         
         # Fallback de resampleo si no vienen en el master (Punto 3)
         if dfH1 is None: dfH1 = self.resample_ohlcv(df_15m, '1h')
@@ -268,7 +278,9 @@ class SesgoBiasHTFBot:
         biases = self.get_htf_bias(dfH1, df1d, df1w, df1M)
         consensus_direction, consensus_score = self.get_consensus_bias(biases)
         
-        if consensus_direction == 'NO_TRADE' or consensus_score < 0.6: return None
+        if consensus_direction == 'NO_TRADE' or consensus_score < 0.6: 
+            logger.info(f"[{symbol}] No hay consenso de tendencia")
+            return None
         
         fib_zone = self.calculate_fibonacci_zone(df_15m, consensus_direction)
         if not fib_zone: return None
@@ -277,7 +289,9 @@ class SesgoBiasHTFBot:
         prev_day = self.get_prev_day_high_low(df_15m)
         
         po3_data = self.analyze_po3_cycle(df_15m, consensus_direction, fib_zone, liquidity)
-        if not po3_data or not po3_data.get('mss'): return None
+        if not po3_data or not po3_data.get('mss'): 
+            logger.info(f"[{symbol}] No hay patrón MSS detectado")
+            return None
         
         price = float(df_15m['close'].iloc[-1])
         atr = float(ta.ATR(df_15m['high'], df_15m['low'], df_15m['close'], 14).iloc[-1])
@@ -308,7 +322,9 @@ class SesgoBiasHTFBot:
         sl_dist = abs(entry_price - sl_price)
         
         is_valid, _, mensaje = check_tp_exhaustion(df_15m, len(df_15m)-5, entry_price, tp_price, sl_price, consensus_direction, threshold=0.60, timeframe="15M")
-        if not is_valid: return None
+        if not is_valid:
+            logger.info(f"[{symbol}] No hay patrón MSS detectado")
+            return None
         
         current_price = float(df_15m['close'].iloc[-1])
         now_cdmx = datetime.now(ZoneInfo(TIMEZONE))
@@ -317,7 +333,9 @@ class SesgoBiasHTFBot:
         candle_time = last_closed_ts.strftime("%Y-%m-%d %H:%M:%S")
 
         is_valid, _, mensaje = check_signal_health(entry_price, tp_price, sl_price, consensus_direction, current_price, threshold=0.65, candle_time=candle_time)
-        if not is_valid: return None
+        if not is_valid: 
+            logger.info(f"[{symbol}] No hay patrón MSS detectado")
+            return None
         
         # ── FILTRO: Tendencia mensual ──
         monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
@@ -354,6 +372,7 @@ class SesgoBiasHTFBot:
         )
 
     def analyze_po3_cycle(self, df: pd.DataFrame, direction: str, zone: Dict, liquidity: Dict) -> Optional[Dict]:
+        logger.info(f"Iniciando análisis para PO3_cycle")
         if df is None or len(df) < 30: return None
         price = float(df['close'].iloc[-1])
         if direction == 'LARGO' and price > zone['fib_50']: return None

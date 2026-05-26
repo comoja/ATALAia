@@ -512,7 +512,7 @@ class SniperBot:
         
         symbol = symbolInfo['symbol']
         interval = symbolInfo.get('intervalo', '15min')
-        logger.info(f"▶ ENTRANDO análisis para {symbol} ({interval})")
+        logger.info(f"ENTRANDO análisis para {symbol} ({interval})")
         
         if apiKey is None:
             apiKey, _, _, nVelas, _ = getParametros()

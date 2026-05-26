@@ -521,7 +521,7 @@ class SMABot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
         symbol = symbolInfo['symbol']
-        logger.info(f"▶ ENTRANDO análisis para {symbol}")
+        logger.info(f"ENTRANDO análisis para {symbol}")
         master = preloadedData.get(symbol) if preloadedData else None
         
         # Punto 3: Master Dictionary integration
@@ -533,19 +533,24 @@ class SMABot:
         else:
             df = master
 
-        if df is None: return None
+        if df is None: 
+            logger.info(f"[{symbol}] No hay datos para {interval}")
+            return None
         
         df = self._filtrar_velas_completas(df, ahora_cdmx, interval)
-        if len(df) < 50: return None
+        if len(df) < 50: 
+            logger.info(f"[{symbol}] No hay suficientes velas para análisis")
+            return None
         
         _, _, _, nVelas, _ = getParametros()
         data = await self._getAndPrepareData(symbolInfo, apiKey, nVelas, interval, df)
-        if data is None: return None
+        if data is None: 
+            logger.info(f"[{symbol}] No se pudieron obtener los datos necesarios")
+            return None
 
         signal = await self._get_signal(data, symbol, interval, apiKey, symbolInfo)
         if signal and not self.esSenalDuplicada(symbol, signal.direction, signal.candleTime):
             self.lastSignals[symbol] = {"direction": signal.direction, "candleTime": signal.candleTime}
             return signal
-
+        logger.info(f"[{symbol}] No hay señal para {interval}")
         return None
-

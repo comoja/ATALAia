@@ -29,6 +29,7 @@ class SpeedBot:
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloaded_data: Dict = None) -> List[Signal]:
         symbol = symbolInfo['symbol']
+        logger.info(f" Analizando {symbol}...")
         preloaded_master = preloaded_data.get(symbol) if preloaded_data else None
         if preloaded_master is None: return []
 
