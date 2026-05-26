@@ -47,7 +47,10 @@ class GenericFVGBot:
         logger.info(f"Analizando {symbol} (Toni Maura SMC) en {self.intervals}")
         for interval in self.intervals:
             df = preloaded_master.get(interval)
-            if df is None or len(df) < 200:
+            
+            # Adaptar el requerimiento mínimo de velas según el intervalo para optimizar datos
+            requiredCandles = 80 if interval == '4h' else 40 if interval == '1d' else 200
+            if df is None or len(df) < requiredCandles:
                 logger.info(f"[{symbol}] Datos insuficientes en {interval}")
                 continue
             

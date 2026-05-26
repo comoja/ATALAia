@@ -71,7 +71,7 @@ INTERVALmax = settings.INTERVALmax
 _resumen_momentum_enviado = False
 _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
-diasTendencia = 14
+diasTendencia = 30
 
 
 # --- Funciones de Tendencia ---
@@ -158,7 +158,6 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
     """
     Calcula la tendencia mensual para cada símbolo UNA SOLA VEZ al inicio.
     Resamplea velas 5min a 1D y evalúa los últimos 30 días.
-    Para 30 días necesitamos ~6500 velas de 5min.
     """
     global _weekly_trend_cache
     _weekly_trend_cache = {}
@@ -168,9 +167,10 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
         try:
-            # Descargar velas 5min - 6500 para cubrir 30 días
-            params = {"symbol": symbol, "interval": "5min", "apikey": apiKey, "outputSize": 6500 if  DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL}
-            df_5m = await tdApi.getTimeSeries(params)
+            # Si es DB local, pedimos 15,000 velas de 5min para asegurar >30 días diarios
+            # Si es TwelveData, nos limitamos al máximo permitido (MAX_CANDLES_PER_CALL)
+            nVelas = 15000 if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
+            df_5m = await dbManager.getCandles(symbol, n_velas=nVelas)
             
             if df_5m is not None and len(df_5m) >= 200:
                 # Asegurar columnas minúsculas
