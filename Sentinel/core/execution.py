@@ -260,7 +260,21 @@ class ExecutionEngine:
         # Umbral de conflicto (configurable en el futuro)
         THRESHOLD = 0.30
         symbol = signal.symbol.upper()
+        strategy = signal.strategy
         
+        # Estrategias FVG exigen filtros de sentimiento de IA rigurosos
+        fvg_strategies = ('GenericFVG', 'FVGDiario')
+        if strategy in fvg_strategies:
+            # Umbral de sentimiento más estricto y comparación inclusiva (<= o >=) para FVG
+            fvg_threshold = 0.25
+            if signal.direction == "LARGO" and sentiment <= -fvg_threshold:
+                logger.info(f"🚫 [Sentiment-FVG] Bloqueando COMPRA de FVG en {symbol} por sentimiento bajista de IA ({sentiment:.2f} <= -{fvg_threshold})")
+                return True
+            if signal.direction == "CORTO" and sentiment >= fvg_threshold:
+                logger.info(f"🚫 [Sentiment-FVG] Bloqueando VENTA de FVG en {symbol} por sentimiento alcista de IA ({sentiment:.2f} >= {fvg_threshold})")
+                return True
+            return False
+
         # Caso Especial: Oro (XAU/USD) - Activo Refugio
         # Si el sentimiento es muy negativo (miedo), el Oro suele subir. No bloqueamos compras.
         if "XAU" in symbol or "GOLD" in symbol:

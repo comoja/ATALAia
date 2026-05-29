@@ -225,8 +225,15 @@ class SilverBulletBot:
         entry = setup['entry']
         sl = setup['sl']
         direction = setup['direction']
-        levels = technical.get_structural_levels(df, lookback=50)
-        tp_ref = levels["high_zone"] if sweep["type"] == "LARGO" else levels["low_zone"]
+        # Lógica SMC/ICT Estricta: El Take Profit de alta probabilidad es el primer alto/bajo anterior (Swing High/Low local)
+        # con respecto a la 3ª vela del FVG (inclusive), previniendo distorsiones por la acción del precio posterior.
+        fvg_idx = fvg.get('idx', len(df) - 1)
+        df_prior = df.iloc[:fvg_idx + 1]
+        levels = technical.get_structural_levels(df_prior, lookback=20)
+        if direction == "LARGO":
+            tp_ref = levels['swing_high']  # Primer máximo local anterior
+        else:
+            tp_ref = levels['swing_low']   # Primer mínimo local anterior
         
         # Cap de TP por ATR: máximo 3.0 ATR desde la entrada (ventana Silver Bullet = 1h)
         from Sentinel.analysis.technical import capTpByAtr
@@ -248,15 +255,23 @@ class SilverBulletBot:
             logger.info(f"[{symbol}] No hay patrón MSS detectado")
             return None
         
-        # --- FILTRO HTF: Alinear con tendencia macro ---
+        # --- FILTRO HTF: Alinear con tendencia macro (flexibilizado) ---
         monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
         direction = "LARGO" if sweep["type"] == "LARGO" else "CORTO"
-        if monthly_trend == "BAJISTA" and direction == "LARGO":
-            logger.info(f"[{symbol}] SilverBullet: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
-            return None
-        elif monthly_trend == "ALCISTA" and direction == "CORTO":
-            logger.info(f"[{symbol}] SilverBullet: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
-            return None
+        
+        filterByHtfTrend = strat_config.get('filter_by_htf_trend', False)
+        if filterByHtfTrend:
+            if monthly_trend == "BAJISTA" and direction == "LARGO":
+                logger.info(f"[{symbol}] SilverBullet: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
+                return None
+            elif monthly_trend == "ALCISTA" and direction == "CORTO":
+                logger.info(f"[{symbol}] SilverBullet: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
+                return None
+        else:
+            # Si no se exige de forma estricta, si la tendencia es contraria se reduce levemente la confianza
+            if (monthly_trend == "BAJISTA" and direction == "LARGO") or \
+               (monthly_trend == "ALCISTA" and direction == "CORTO"):
+                base_confidence = 70
 
         # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
         from Sentinel.analysis import risk
@@ -284,6 +299,15 @@ class SilverBulletBot:
             return None
             
         expectedProfit = riskUsdActual * rrRatio
+        
+        minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+        # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
+        if minUsdProfit < 6.0:
+            minUsdProfit = 6.0
+            
+        if expectedProfit < minUsdProfit:
+            logger.info(f"[{symbol}] SilverBullet: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando")
+            return None
         
         base_confidence = 80
         if base_confidence < min_confidence:

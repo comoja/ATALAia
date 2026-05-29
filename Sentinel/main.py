@@ -71,7 +71,7 @@ INTERVALmax = settings.INTERVALmax
 _resumen_momentum_enviado = False
 _momentum_data_cache = {}  # Cache para收集 datos de momentum
 _weekly_trend_cache = {}  # Cache para tendencia semanal por símbolo
-diasTendencia = 30
+diasTendencia = 14
 
 
 # --- Funciones de Tendencia ---
@@ -257,6 +257,20 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         "Ichimoku",
     ])
 
+    # Cargar exclusiones dinámicas de symbolNotStrategia de la base de datos
+    exclusions = set()
+    try:
+        from middleware.database import dbConnection as _dbConnection
+        _conn = _dbConnection.getConnection()
+        _cur = _conn.cursor()
+        _cur.execute("SELECT symbol, strategy FROM symbolNotStrategia")
+        exclusions = {(r[0], r[1]) for r in _cur.fetchall()}
+        _cur.close()
+        _conn.close()
+        logger.info(f"🛡️  [Exclusiones] Cargadas {len(exclusions)} exclusiones desde la tabla symbolNotStrategia")
+    except Exception as e:
+        logger.error(f"⚠️  Error cargando exclusiones desde symbolNotStrategia: {e}")
+
     # Cargar cuenta de referencia para sizing de señales
     
     refAccount = dbManager.getAccountById(2)
@@ -275,9 +289,11 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         symbolApiKey, _, nombreKey, _, _ = getParametros()
         logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...", extra={"color": "orange"})
         
-        # 1. Descargar datos
-        params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": MAX_CANDLES_PER_CALL}
+        # 1. Descargar datos de forma consistente (local o remota según configuración y aplicando spread de broker)
+        nVelas = 15000 if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
+        params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": nVelas}
         df = await tdApi.getTimeSeries(params)
+        
         
         if df is None or len(df) < 200:
             logger.warning(f"[{symbol}] Datos insuficientes. Saltando...")
@@ -335,7 +351,6 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         lastClosed5m = get_last_closed_candle(datetime.now(cdmxTz), 5)
         df_5m = df_5m[df_5m.index <= lastClosed5m]
 
-
         df_5m = calculateFeatures(df_5m)
 
         
@@ -382,37 +397,37 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         tasks = []
         
         # 1. Sniper & SMA (15min)
-        if _is_strategy_enabled(strategy_configs, "Sniper"):
+        if _is_strategy_enabled(strategy_configs, "Sniper") and (symbol, "Sniper") not in exclusions:
             tasks.append(sniper_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
-        if _is_strategy_enabled(strategy_configs, "SMA20_200"):
+        if _is_strategy_enabled(strategy_configs, "SMA20_200") and (symbol, "SMA20_200") not in exclusions:
             tasks.append(sma_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
 
         # 2. Imbalances (Pre-cálculo de niveles para seguridad en paralelo)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
         iNY, fNY, cNY = get_localized_session_times('America/New_York', 8, 0, 9, 0, 14, 0)
-        if ahoraMX > fNY and _is_strategy_enabled(strategy_configs, "ImbalanceNY"):
+        if ahoraMX > fNY and _is_strategy_enabled(strategy_configs, "ImbalanceNY") and (symbol, "ImbalanceNY") not in exclusions:
             symbolInfo_NY = symbolInfo.copy()
             symbolInfo_NY['precioMaximo'], symbolInfo_NY['precioMinimo'] = df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['high'].max(), df_5m.loc[(df_5m.index >= iNY) & (df_5m.index < fNY)]['low'].min()
             tasks.append(imbalance_ny_bot.runAnalysisCycleForSymbol(symbolInfo_NY, {symbol: preloaded_master}, symbolApiKey))
             
         iLDN, fLDN, cLDN = get_localized_session_times('Europe/London', 8, 0, 9, 0, 14, 0)
-        if ahoraMX > fLDN and _is_strategy_enabled(strategy_configs, "ImbalanceLDN"):
+        if ahoraMX > fLDN and _is_strategy_enabled(strategy_configs, "ImbalanceLDN") and (symbol, "ImbalanceLDN") not in exclusions:
             symbolInfo_LDN = symbolInfo.copy()
             symbolInfo_LDN['precioMaximo'], symbolInfo_LDN['precioMinimo'] = df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['high'].max(), df_5m.loc[(df_5m.index >= iLDN) & (df_5m.index < fLDN)]['low'].min()
             tasks.append(imbalance_ldn_bot.runAnalysisCycleForSymbol(symbolInfo_LDN, {symbol: preloaded_master}, symbolApiKey))
 
         iPMNY, fPMNY, cPMNY = get_localized_session_times('America/New_York', 14, 0, 15, 0, 17, 0)
-        if ahoraMX > fPMNY and _is_strategy_enabled(strategy_configs, "ImbalancePMNY"):
+        if ahoraMX > fPMNY and _is_strategy_enabled(strategy_configs, "ImbalancePMNY") and (symbol, "ImbalancePMNY") not in exclusions:
             symbolInfo_PMNY = symbolInfo.copy()
             symbolInfo_PMNY['precioMaximo'], symbolInfo_PMNY['precioMinimo'] = df_5m.loc[(df_5m.index >= iPMNY) & (df_5m.index < fPMNY)]['high'].max(), df_5m.loc[(df_5m.index >= iPMNY) & (df_5m.index < fPMNY)]['low'].min()
             tasks.append(imbalance_pm_bot.runAnalysisCycleForSymbol(symbolInfo_PMNY, {symbol: preloaded_master}, symbolApiKey))
 
         # 3. EMA, Patron4H, Sesgo, SB, FVGs
-        if _is_strategy_enabled(strategy_configs, "EMA20200"):
+        if _is_strategy_enabled(strategy_configs, "EMA20200") and (symbol, "EMA20200") not in exclusions:
             tasks.append(ema20200_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "Patron4h"):
+        if _is_strategy_enabled(strategy_configs, "Patron4h") and (symbol, "Patron4h") not in exclusions:
             tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "SesgoBiasHTF"):
+        if _is_strategy_enabled(strategy_configs, "SesgoBiasHTF") and (symbol, "SesgoBiasHTF") not in exclusions:
             tasks.append(sesgo_bias_htf_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
 
         # Filtro de Horas Muertas (11:00 AM a 12:00 PM CDMX) - Pausa de bots de ruptura rápida
@@ -423,18 +438,18 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         if is_dead_hour:
             logger.info(f"[{symbol}] [Filtro Horas Muertas] Pausando temporalmente bots de ruptura rápida (11:00-12:00 CDMX)", extra={"color": "yellow"})
 
-        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SilverBullet"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SilverBullet") and (symbol, "SilverBullet") not in exclusions:
             tasks.append(silver_bullet_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "GenericFVG"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "GenericFVG") and (symbol, "GenericFVG") not in exclusions:
             tasks.append(generic_fvg_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "FVGDiario"):
+        if _is_strategy_enabled(strategy_configs, "FVGDiario") and (symbol, "FVGDiario") not in exclusions:
             tasks.append(fvg_diario_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SpeedBot"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "SpeedBot") and (symbol, "SpeedBot") not in exclusions:
             tasks.append(speed_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "BreakoutNY"):
+        if not is_dead_hour and _is_strategy_enabled(strategy_configs, "BreakoutNY") and (symbol, "BreakoutNY") not in exclusions:
             tasks.append(breakout_ny_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
             
-        if _is_strategy_enabled(strategy_configs, "Ichimoku"):
+        if _is_strategy_enabled(strategy_configs, "Ichimoku") and (symbol, "Ichimoku") not in exclusions:
             tasks.append(ichimoku_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
 
@@ -481,6 +496,13 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
                 else:
                     logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
         logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
+        # --- Control de Exposición Simultánea Máxima ---
+        # Si hay más de 3 señales en el mismo ciclo, las ordenamos por confianza y RR, y nos quedamos con las 3 mejores.
+        if len(unique_signals) > 3:
+            logger.warning(f"⚠️  [Exposición Máxima] Se detectaron {len(unique_signals)} señales únicas. Limitando a un máximo de 3 señales simultáneas por ciclo para evitar riesgos correlacionados.")
+            unique_signals = sorted(unique_signals, key=lambda s: (s.confidence, s.rr_ratio), reverse=True)[:3]
+            logger.info(f"👉 Señales seleccionadas: {[f'{s.strategy} {s.symbol} ({s.direction})' for s in unique_signals]}")
+
         await engine.processSignals(unique_signals, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews)
 
 setupLogging(enableConsole=True)
@@ -549,6 +571,21 @@ async def main():
         try:
             if not isRestTime():
                 logger.info("Iniciando ciclo de análisis...")
+
+                # --- FILTRO: Límite de Drawdown Diario (20%) ---
+                # DESACTIVADO A PETICIÓN DEL USUARIO: Permite a Sentinel enviar señales de forma ininterrumpida sin bloqueo de drawdown.
+                # from Sentinel.analysis.risk import isDailyDrawdownLimitReached
+                # refAccount = dbManager.getAccountById(2)
+                # if not refAccount:
+                #     cuentas = dbManager.getAccount()
+                #     refAccount = next((a for a in cuentas if a['idCuenta'] != 1), None)
+                # refAccountId = refAccount['idCuenta'] if refAccount else 2
+                # 
+                # if isDailyDrawdownLimitReached(refAccountId, maxDrawdownPercent=20.0):
+                #     logger.warning(f"⚠️ BLOQUEO OPERACIONAL: Límite de Drawdown Diario del 20% alcanzado para la cuenta {refAccountId}. Ciclo omitido.", extra={"color": "red"})
+                #     await sendTelegramAlert(f"⚠️ <b>Alerta de Drawdown Diario (20%)</b>\nEl portafolio ha alcanzado el límite de pérdida diario del 20%. Se suspenden las operaciones intradiarias de forma automática por seguridad para proteger la integridad del capital. Las operaciones se reanudarán de forma automática mañana.")
+                #     await asyncio.sleep(3600) # Dormir 1 hora antes de volver a evaluar
+                #     continue
                 
                 # --- Tareas de Nuevo Día (Solo al abrir el ciclo) ---
                 today_str = datetime.now(TIMEZONE_LOCAL).strftime("%Y-%m-%d")

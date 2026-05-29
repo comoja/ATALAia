@@ -342,7 +342,7 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         logger.error(f"Error al calcular PNL: {e}", exc_info=True)
         return 0.0
 
-def isDailyDrawdownLimitReached(accountId: int, maxDrawdownPercent: float = 2.0) -> bool:
+def isDailyDrawdownLimitReached(accountId: int, maxDrawdownPercent: float = 20.0) -> bool:
     """
     Verifica si se ha alcanzado el límite de pérdida diaria (Drawdown).
     Compara la pérdida acumulada de trades cerrados hoy contra el capital INICIAL del día.
@@ -378,9 +378,9 @@ def isDailyDrawdownLimitReached(accountId: int, maxDrawdownPercent: float = 2.0)
         
         perdidaPercent = (abs(totalPnl) / initialCapital) * 100
         
-        # if perdidaPercent >= maxDrawdownPercent:
-        #     logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({perdidaPercent:.2f}%). Capital inicial: ${initialCapital:.2f}, Pérdida: ${abs(totalPnl):.2f}")
-        #     return True
+        if perdidaPercent >= maxDrawdownPercent:
+            logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({perdidaPercent:.2f}%). Capital inicial: ${initialCapital:.2f}, Pérdida: ${abs(totalPnl):.2f}")
+            return True
             
         return False
     except Exception as e:

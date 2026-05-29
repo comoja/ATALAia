@@ -98,7 +98,8 @@ def init_alerts_table():
             "sniper_threshold_adjust_pct": "DOUBLE NULL",
             "sniper_min_confidence_adjust_pct": "DOUBLE NULL",
             "sniper_extra_confirmations": "INT NULL",
-            "sniper_max_rr": "DOUBLE NULL"
+            "sniper_max_rr": "DOUBLE NULL",
+            "priceOffset": "DOUBLE DEFAULT 0.0"
         }
         for col, definition in symbol_cols.items():
             try:
@@ -880,6 +881,11 @@ async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
     - "db": tabla candles (5min)
     - "12data": API 12Data (usa INTERVAL)
     """
+    try:
+        from middleware.api.twelvedata import adjustDataframeInplace
+    except ImportError:
+        adjustDataframeInplace = lambda df: df
+
     if DATA_SOURCE == "12data":
         api_key = _get_api_key()
         if not api_key:
@@ -905,12 +911,20 @@ async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
             else:
                 df["volume"] = pd.Series(0, index=df.index)
             
-            return df.dropna(subset=["close"])
+            df_cleaned = df.dropna(subset=["close"])
+            # Añadir columna symbol si no existe en el DataFrame para que adjustDataframeInplace lo identifique
+            if "symbol" not in df_cleaned.columns:
+                df_cleaned["symbol"] = symbol
+            return adjustDataframeInplace(df_cleaned)
         except Exception as e:
             logger.error(f"Error en getCandles (12Data): {e}")
             return pd.DataFrame()
     else:
-        return await getCandlesFromDb(symbol, "5min", n_velas)
+        df = await getCandlesFromDb(symbol, "5min", n_velas)
+        # Añadir columna symbol si no existe en el DataFrame para que adjustDataframeInplace lo identifique
+        if not df.empty and "symbol" not in df.columns:
+            df["symbol"] = symbol
+        return adjustDataframeInplace(df)
 
 
 def get_sleep_time(esperaMin: int = 15) -> int:

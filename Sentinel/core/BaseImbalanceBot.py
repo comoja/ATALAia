@@ -183,10 +183,46 @@ class BaseImbalanceBot:
         direction = velaCorte['type']
         startSearch = velaCorte['idx'] + 1
         
-        fvgs_dentro = self.findFvgEnRango(datos5min, startSearch, direction, precioMaximo, precioMinimo, maxFvg=2)
-        fvgs_fuera = self.findFvgFueraRango(datos5min, startSearch, direction, precioMaximo, precioMinimo, maxFvg=2)
+        # Centralizar lógica: Usar detect_fvgs de alta probabilidad y descartar trampas de mecha (Rechazo/Baja Probabilidad)
+        from Sentinel.analysis import technical as _technical
+        raw_fvgs = _technical.detect_fvgs(datos5min, apply_high_prob_filters=True)
         
-        fvgs = fvgs_dentro + fvgs_fuera
+        fvgs = []
+        for f in raw_fvgs:
+            if f.get('classification') == 'Rechazo/Baja Probabilidad':
+                logger.info(f"[{symbol}] FVG {f['idx']} ({f['type']}) de Rechazo/Baja Probabilidad (trampa) - omitido en Imbalance")
+                continue
+            
+            fvg_direction = 'LARGO' if f['type'] == 'Bullish_FVG' else 'CORTO'
+            if fvg_direction != direction:
+                continue
+                
+            # Solo procesar FVGs generados a partir de velaCorte
+            if f['idx'] < startSearch:
+                continue
+                
+            # Construir objeto compatible con la lógica subsiguiente
+            f_compat = {
+                'type': f['type'],
+                'start': f['bottom'] if fvg_direction == 'LARGO' else f['top'],
+                'end': f['top'] if fvg_direction == 'LARGO' else f['bottom'],
+                'mid': f['mid'],
+                'size': f['size'],
+                'idx': f['idx']
+            }
+            
+            # Clasificar si está dentro o fuera del rango de la sesión
+            fvg_candle_idx = f['idx']
+            vela = datos5min.iloc[fvg_candle_idx]
+            highPrice = vela['high']
+            lowPrice = vela['low']
+            dentroRango = highPrice <= precioMaximo and lowPrice >= precioMinimo
+            f_compat['dentroRango'] = dentroRango
+            
+            fvgs.append(f_compat)
+            if len(fvgs) >= 4: # tope de FVGs a procesar
+                break
+                
         if not fvgs:
             return []
         

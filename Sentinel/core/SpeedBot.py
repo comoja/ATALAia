@@ -41,8 +41,10 @@ class SpeedBot:
             df = preloaded_master.get(interval)
             if df is None or len(df) < 50: continue
 
-            # 1. Detectar Desplazamiento Extremo
-            # Usamos las últimas 2 velas para ver si hay una explosión
+            # 1. Detectar Desplazamiento Extremo y Confirmado (Lógica SMC Sostenida)
+            # Exigimos dos velas consecutivas en la misma dirección, donde:
+            # - La primera vela (prev_candle) es explosiva (>1.4x ATR) y sólida (>78% cuerpo/rango).
+            # - La segunda vela (last_candle, actual) confirma la dirección y recorre >= 50% de la primera.
             df_feat = df.tail(5).copy()
             atr_series = ta.ATR(df['high'], df['low'], df['close'], 14).dropna()
             if atr_series.empty: continue
@@ -53,18 +55,17 @@ class SpeedBot:
             
             body_last = abs(last_candle['close'] - last_candle['open'])
             body_prev = abs(prev_candle['close'] - prev_candle['open'])
-            range_last = last_candle['high'] - last_candle['low']
+            range_prev = prev_candle['high'] - prev_candle['low']
             
-            # Dirección coincidente
+            # Validar la vela detonadora (prev_candle)
+            is_explosive = body_prev > (atr * 1.4)
+            is_solid = (body_prev / range_prev) > 0.78 if range_prev > 0 else False
+            
+            # Validar la vela de confirmación (last_candle)
             same_dir = (last_candle['close'] > last_candle['open']) == (prev_candle['close'] > prev_candle['open'])
+            is_confirmed = same_dir and (body_last >= body_prev * 0.50)
             
-            # Condición 1: Vela única explosiva (> 1.4x ATR para captura más temprana)
-            is_explosive = body_last > (atr * 1.4)
-            
-            # Condición de "Cuerpo Sólido" (vela con pocas mechas - exigencia 78%)
-            is_solid = (body_last / range_last) > 0.78 if range_last > 0 else False
-            
-            if not (is_explosive and is_solid):
+            if not (is_explosive and is_solid and is_confirmed):
                 continue
                 
             direction = "LARGO" if last_candle['close'] > last_candle['open'] else "CORTO"
@@ -87,20 +88,21 @@ class SpeedBot:
             signal_key = f"{symbol}_{interval}_{df.index[-1]}"
             if signal_key in self._sent_signals: continue
             
-            # 4. Calcular SL y TP
+            # 4. Calcular SL y TP con precisión SMC
             entry_price = float(last_candle['close'])
-            # SL por debajo de la vela explosiva
+            # SL por debajo/encima del extremo del impulso completo de 2 velas más buffer ATR
             if direction == "LARGO":
-                sl = float(last_candle['low']) - (atr * 0.1)
+                sl = min(float(last_candle['low']), float(prev_candle['low'])) - (atr * 0.1)
             else:
-                sl = float(last_candle['high']) + (atr * 0.1)
+                sl = max(float(last_candle['high']), float(prev_candle['high'])) + (atr * 0.1)
                 
             risk_dist = abs(entry_price - sl)
             if risk_dist == 0: continue
             
-            # TP Estructural (Swing High/Low)
-            levels = technical.get_structural_levels(df, lookback=40)
-            tp_ref = levels['high_zone'] if direction == "LARGO" else levels['low_zone']
+            # Lógica SMC Estricta: Buscar el primer Swing High/Low local previo al inicio del desplazamiento
+            df_prior = df.iloc[:-2]
+            levels = technical.get_structural_levels(df_prior, lookback=30)
+            tp_ref = levels['swing_high'] if direction == "LARGO" else levels['swing_low']
             
             # Si el TP estructural está muy cerca o no existe, usar RR fijo 1.5
             tp1 = adjustTPForMinRR(entry_price, sl, tp_ref, direction, minRR=min_rr)

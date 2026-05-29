@@ -54,44 +54,61 @@ class GenericFVGBot:
                 logger.info(f"[{symbol}] Datos insuficientes en {interval}")
                 continue
             
-            # 1. Detectar FVGs
-            fvgs = technical.detect_fvgs(df)
+            # 1. Detectar FVGs con filtros de alta probabilidad activos (tendencia EMA 200 y MSS de Vela 2)
+            fvgs = technical.detect_fvgs(df, apply_high_prob_filters=True)
             if not fvgs:
-                logger.info(f"[{symbol}] No se detecto FVG en {interval}")
+                logger.info(f"[{symbol}] No se detecto FVG de alta probabilidad en {interval}")
                 continue
             
             # Tomar el más reciente
             latestFvg = fvgs[-1]
+            
+            # Filtrar trampas / rechazos de mecha
+            classification = latestFvg.get('classification', 'Alta Probabilidad')
+            if classification == 'Rechazo/Baja Probabilidad':
+                logger.info(f"[{symbol}] {interval}: FVG de Rechazo/Baja Probabilidad detectado (trampa de liquidez) - descartando")
+                continue
+                
             fvgDirection = "LARGO" if latestFvg['type'] == 'Bullish_FVG' else "CORTO"
 
-            # --- FILTRO MTF: Verificar HTF Liquidity Sweep (regla video) ---
-            # Solo operar el FVG si hay un sweep de liquidez real en el HTF
-            # (precio superó PDH/PDL y cerró de vuelta dentro del rango)
+            # --- FILTRO MTF: Verificar HTF Liquidity Sweep (regla video, flexibilizada) ---
+            # Solo operar el FVG si hay un sweep de liquidez real en el HTF.
+            # Se ha ampliado el lookback dinámicamente y se hace opcional mediante base de datos.
+            requireHtfSweep = strat_config.get('require_htf_sweep', False)
             htfLevels = technical.get_prev_day_high_low(df)
             htfHigh   = htfLevels.get('pdh')
             htfLow    = htfLevels.get('pdl')
+            
             if htfHigh and htfLow:
-                htfSweep = technical.detectLiquiditySweep(df, htfHigh=htfHigh, htfLow=htfLow, lookback=20)
-                if not htfSweep:
-                    # Sin sweep HTF confirmado no hay 'intención real' detrás de la entrada
-                    logger.info(f"[{symbol}] {interval}: Sin HTF liquidity sweep confirmado - saltando")
-                    continue
-                # Validar alineación: el FVG debe ser en dirección opuesta al sweep
-                sweepType = htfSweep.get('type', '')
-                if sweepType == 'MANIPULATION_UP' and fvgDirection != 'CORTO':
-                    logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep UP → solo CORTO)")
-                    continue
-                if sweepType == 'MANIPULATION_DOWN' and fvgDirection != 'LARGO':
-                    logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep DOWN → solo LARGO)")
-                    continue
+                # Lookback dinámico según el timeframe: mayor lookback para timeframes pequeños
+                sweepLookback = 150 if interval in ['5min', '15min'] else 50 if interval == '1h' else 30
+                htfSweep = technical.detectLiquiditySweep(df, htfHigh=htfHigh, htfLow=htfLow, lookback=sweepLookback)
+                
+                if htfSweep:
+                    # Validar alineación: el FVG debe ser en dirección opuesta al sweep
+                    sweepType = htfSweep.get('type', '')
+                    if sweepType == 'MANIPULATION_UP' and fvgDirection != 'CORTO':
+                        logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep UP → solo CORTO)")
+                        continue
+                    if sweepType == 'MANIPULATION_DOWN' and fvgDirection != 'LARGO':
+                        logger.info(f"[{symbol}] {interval}: FVG no alineado al bias HTF (sweep DOWN → solo LARGO)")
+                        continue
+                else:
+                    if requireHtfSweep:
+                        logger.info(f"[{symbol}] {interval}: Sin HTF liquidity sweep confirmado (requerido) - saltando")
+                        continue
+                    else:
+                        logger.debug(f"[{symbol}] {interval}: Sin sweep HTF confirmado, pero se continúa según configuración")
 
             latest_fvg = latestFvg
             signal_direction = fvgDirection
             
-            # --- FILTRO MAURA 1: MSS (Market Structure Shift) ---
-            if not technical.detect_mss(df, signal_direction, lookback=15):
-                logger.info(f"[{symbol}] {interval}: No se detecto MSS")
-                continue
+            # --- FILTRO MAURA 1: MSS (Market Structure Shift) Comentado por contradicción lógica en retest ---
+            # El MSS ya se valida a nivel de vela de impulso (Vela 2) en detect_fvgs.
+            # Exigirlo en la vela de retest bloquea todas las señales porque el precio está retrocediendo (no rompiendo máximos).
+            # if not technical.detect_mss(df, signal_direction, lookback=15):
+            #     logger.info(f"[{symbol}] {interval}: No se detecto MSS")
+            #     continue
 
             # Evitar señales duplicadas
             signal_key = f"{symbol}_{interval}_{latest_fvg['timestamp']}"
@@ -119,13 +136,15 @@ class GenericFVGBot:
             sl = setup_fvg['sl']
             signal_direction = setup_fvg['direction']
             sl_dist = setup_fvg['sl_dist']
-            levels = technical.get_structural_levels(df, lookback=60)
-            # Usar high_zone/low_zone (percentil 90/10) en lugar de swing_high/low absoluto
-            # para evitar TPs que apuntan al máximo histórico de las últimas 15h
+            # Lógica SMC/ICT Estricta: El Take Profit de alta probabilidad es el primer alto/bajo anterior (Swing High/Low local)
+            # con respecto a la 3ª vela del FVG (inclusive), previniendo distorsiones por la acción del precio posterior.
+            fvg_idx = latest_fvg.get('idx', len(df) - 1)
+            df_prior = df.iloc[:fvg_idx + 1]
+            levels = technical.get_structural_levels(df_prior, lookback=20)
             if signal_direction == "LARGO":
-                tp_ref = levels['high_zone']
+                tp_ref = levels['swing_high']  # Primer máximo local anterior
             else:
-                tp_ref = levels['low_zone']
+                tp_ref = levels['swing_low']   # Primer mínimo local anterior
 
             # Cap de TP por ATR: máximo 3.0 ATR desde el precio actual (estrategia multi-TF)
             from Sentinel.analysis.technical import capTpByAtr
@@ -194,6 +213,9 @@ class GenericFVGBot:
                 continue
                 
             minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+            # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
+            if minUsdProfit < 6.0:
+                minUsdProfit = 6.0
             rrVal = round(abs(tp1 - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
             
             # --- FILTRO SEGURIDAD: Evitar entradas tardías con RR real pésimo ---
@@ -217,15 +239,16 @@ class GenericFVGBot:
                 logger.info(f"[{symbol}] {interval}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
                 continue
             
-            # 5. Filtrar por tendencia HTF (21 días con filtro de neutralidad)
+            # 5. Filtrar por tendencia HTF de forma estrictamente obligatoria para FVG
             monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
             signal_direction = "LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO"
             
+            # Las señales de FVG en temporalidades pequeñas exigen alineación obligatoria con la tendencia macro dominantes
             if monthly_trend == "BAJISTA" and signal_direction == "LARGO":
-                logger.info(f"[{symbol}] {interval}: Señal LARGO descartada - tendencia mensual BAJISTA")
+                logger.info(f"[{symbol}] {interval}: Señal LARGO descartada - FVG exige alineación HTF y la tendencia macro es BAJISTA")
                 continue
             elif monthly_trend == "ALCISTA" and signal_direction == "CORTO":
-                logger.info(f"[{symbol}] {interval}: Señal CORTO descartada - tendencia mensual ALCISTA")
+                logger.info(f"[{symbol}] {interval}: Señal CORTO descartada - FVG exige alineación HTF y la tendencia macro es ALCISTA")
                 continue
             
             # Marcar como enviada en RAM

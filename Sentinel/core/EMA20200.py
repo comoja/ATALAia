@@ -41,9 +41,20 @@ class EMA20200Bot:
 
     def detectCross(self, emaFast, emaSlow):
         diff = emaFast - emaSlow
-        if len(diff) < 2: return None
+        if len(diff) < 4: return None
+        
+        # 1. Evaluar cruce en la vela actual (lookback 1)
         if (diff.iloc[-1] > 0) and (diff.iloc[-2] <= 0): return "LARGO"
         if (diff.iloc[-1] < 0) and (diff.iloc[-2] >= 0): return "CORTO"
+        
+        # 2. Evaluar cruce hace 1 vela (lookback 2 - la tendencia se mantiene)
+        if (diff.iloc[-2] > 0) and (diff.iloc[-3] <= 0) and (diff.iloc[-1] > 0): return "LARGO"
+        if (diff.iloc[-2] < 0) and (diff.iloc[-3] >= 0) and (diff.iloc[-1] < 0): return "CORTO"
+        
+        # 3. Evaluar cruce hace 2 velas (lookback 3 - la tendencia se mantiene)
+        if (diff.iloc[-3] > 0) and (diff.iloc[-4] <= 0) and (diff.iloc[-2] > 0) and (diff.iloc[-1] > 0): return "LARGO"
+        if (diff.iloc[-3] < 0) and (diff.iloc[-4] >= 0) and (diff.iloc[-2] < 0) and (diff.iloc[-1] < 0): return "CORTO"
+        
         return None
 
     def evaluateML(self, df: pd.DataFrame) -> float:
@@ -92,7 +103,12 @@ class EMA20200Bot:
         direction = self.waitingPullback[symbol]["direction"]
         price, ema20_last = df['close'].iloc[-1], df['ema20'].iloc[-1]
         
-        if abs(price - ema20_last) / ema20_last >= self.pullbackTolerance: return None
+        # Tolerancia de pullback adaptativa basada en la volatilidad real (ATR)
+        # Permite hasta 1.5x el ATR actual de distancia a la EMA20, previniendo descartes injustificados en expansiones
+        atr_last = df['atr'].iloc[-1] if 'atr' in df.columns else None
+        pullback_limit = atr_last * 1.5 if (atr_last and not pd.isna(atr_last)) else (ema20_last * self.pullbackTolerance)
+        
+        if abs(price - ema20_last) > pullback_limit: return None
         
 
         strat_config = dbManager.getStrategyConfig("EMA20200") or {}
@@ -101,7 +117,8 @@ class EMA20200Bot:
         prob = self.evaluateML(df)
         if prob < min_conf_val: return None
         
-        levels = technical.get_structural_levels(df, lookback=40)
+        # Lookback estructural más ajustado (20 velas) para optimizar la distancia del Stop Loss (mayor R:R)
+        levels = technical.get_structural_levels(df, lookback=20)
         sl_price = (levels['swing_low'] - df['atr'].iloc[-1]*0.2) if direction=="LARGO" else (levels['swing_high'] + df['atr'].iloc[-1]*0.2)
         sl_dist = abs(price - sl_price)
         min_rr_val = float(strat_config.get('min_rr', 1.5))
@@ -119,6 +136,31 @@ class EMA20200Bot:
         mom_state = symbolInfo.get('momentum', '☁️ SIN DATOS')
         mom_bonus, _ = momentum.getMomentumBonus(mom_state, direction)
         
+        # --- Cálculo de Tamaño de Posición y Beneficio Esperado ---
+        from Sentinel.analysis import risk as riskAnalysis
+        refCapital = symbolInfo.get('refCapital', 10000.0)
+        refRiskPct = symbolInfo.get('refRiskPct', 1.0)
+        
+        size, riskUsdActual, marginUsed = riskAnalysis.calculatePositionSize(
+            refCapital, refRiskPct, sl_dist, symbolInfo, entryPrice=price
+        )
+        
+        if size is None or size <= 0:
+            logger.info(f"[{symbol}] EMA20200: Tamaño de posición inválido o margen insuficiente - saltando")
+            return None
+            
+        rrVal = round(abs(tp_price - price) / sl_dist, 2) if sl_dist > 0 else 0
+        expectedProfit = riskUsdActual * rrVal
+        
+        minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+        # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
+        if minUsdProfit < 6.0:
+            minUsdProfit = 6.0
+            
+        if expectedProfit < minUsdProfit:
+            logger.info(f"[{symbol}] EMA20200: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando señal por órdenes de centavos")
+            return None
+            
         # Calcular Break Even inteligente
         be_trigger = calculateBEPrice(price, sl_price, tp_price, direction)
 
@@ -134,10 +176,16 @@ class EMA20200Bot:
             setup="EMA Pullback",
             status="EN ZONA ✅",
             candleTime=candle_time,
-
             intervalo="5min",
             riesgo_pips=round(sl_dist * multiplier, 1),
-            rr_ratio=round(abs(tp_price - price)/sl_dist, 2),
+            rr_ratio=rrVal,
             break_even=be_trigger,
-            metadata={"prob": prob, "momentum": mom_state}
+            size=size,
+            metadata={
+                "prob": prob, 
+                "momentum": mom_state,
+                "risk_usd": round(riskUsdActual, 2),
+                "expected_profit": round(expectedProfit, 2),
+                "margin_used": round(marginUsed, 2)
+            }
         )

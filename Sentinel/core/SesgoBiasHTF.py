@@ -181,7 +181,7 @@ class SesgoBiasHTFBot:
         conf = ob_confluence_score(price, obs, direction, atr=atr)
         return {'order_blocks': obs, 'breaker_blocks': bbs, 'ob_score': conf['score'], 'in_ob_zone': conf['in_ob_zone'], 'nearest_ob': conf.get('nearest_ob'), 'ob_count': conf['ob_count']}
 
-    def calculate_fibonacci_zone(self, df: pd.DataFrame, direction: str, lookback: int = 50) -> Optional[Dict]:
+    def calculate_fibonacci_zone(self, symbol: str, df: pd.DataFrame, direction: str, lookback: int = 50) -> Optional[Dict]:
         if len(df) < lookback + 1: return None
         relevant_data = df.iloc[-lookback:]
         if direction == 'CORTO':
@@ -195,11 +195,11 @@ class SesgoBiasHTFBot:
             swing_high, swing_low = float(relevant_data['high'].max()), float(relevant_data['low'].min())
             if swing_high <= swing_low: 
                 logger.info(f"[{symbol}] Swing high <= swing low en fibonacci_zone") 
-            return None
+                return None
             fib_50 = swing_low + (swing_high - swing_low) * self.fibonacci_level
             return {'type': 'DISCOUNT', 'swing_low': swing_low, 'swing_high': swing_high, 'fib_50': fib_50}
 
-    def detect_engulfing(self, df: pd.DataFrame, idx: int, direction: str) -> Optional[Dict]:
+    def detect_engulfing(self, symbol: str, df: pd.DataFrame, idx: int, direction: str) -> Optional[Dict]:
         if idx < 1 or idx >= len(df): return None
         prev, curr = df.iloc[idx - 1], df.iloc[idx]
         prev_open, prev_close, prev_high, prev_low = float(prev['open']), float(prev['close']), float(prev['high']), float(prev['low'])
@@ -282,13 +282,13 @@ class SesgoBiasHTFBot:
             logger.info(f"[{symbol}] No hay consenso de tendencia")
             return None
         
-        fib_zone = self.calculate_fibonacci_zone(df_15m, consensus_direction)
+        fib_zone = self.calculate_fibonacci_zone(symbol, df_15m, consensus_direction)
         if not fib_zone: return None
         
         liquidity = self.find_swing_highs_lows(df_15m)
         prev_day = self.get_prev_day_high_low(df_15m)
         
-        po3_data = self.analyze_po3_cycle(df_15m, consensus_direction, fib_zone, liquidity)
+        po3_data = self.analyze_po3_cycle(symbol, df_15m, consensus_direction, fib_zone, liquidity)
         if not po3_data or not po3_data.get('mss'): 
             logger.info(f"[{symbol}] No hay patrón MSS detectado")
             return None
@@ -371,7 +371,7 @@ class SesgoBiasHTFBot:
             }
         )
 
-    def analyze_po3_cycle(self, df: pd.DataFrame, direction: str, zone: Dict, liquidity: Dict) -> Optional[Dict]:
+    def analyze_po3_cycle(self, symbol: str, df: pd.DataFrame, direction: str, zone: Dict, liquidity: Dict) -> Optional[Dict]:
         logger.info(f"Iniciando análisis para PO3_cycle")
         if df is None or len(df) < 30: return None
         price = float(df['close'].iloc[-1])
@@ -382,7 +382,7 @@ class SesgoBiasHTFBot:
         sweep = self.detect_liquidity_sweep(df, direction, liquidity_levels)
         if not sweep: return None
         for i in range(sweep['idx'] - 1, max(0, sweep['idx'] - 20), -1):
-            engulf = self.detect_engulfing(df, i, direction)
+            engulf = self.detect_engulfing(symbol, df, i, direction)
             if engulf:
                 ahora = self.getMexicoTime().replace(tzinfo=None)
                 vela_time = df.index[i]

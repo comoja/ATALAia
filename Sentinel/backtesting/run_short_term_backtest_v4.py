@@ -21,14 +21,16 @@ ACTIVE_SYMBOLS = [
     'USD/HKD', 'USD/JPY', 'USD/MXN', 'XAU/USD'
 ]
 
-# Orden cronologico: Dia 5 (mas viejo) -> Dia 1 (mas reciente)
+# Orden cronologico: Dia 5 (mas viejo) -> Dia 1 (mas reciente) -> Hoy (lo que va de hoy)
 PERIODS = [
     ('5 Dias', 5),
     ('4 Dias', 4),
     ('3 Dias', 3),
     ('2 Dias', 2),
     ('1 Dia',  1),
+    ('Hoy', 0),
 ]
+
 
 INITIAL_PORTFOLIO = 500.0   # Capital TOTAL del portafolio
 PORTFOLIO_RISK_PCT = 0.01   # 1% del portafolio por trade (distribuido por combo activo)

@@ -167,21 +167,59 @@ async def _callTimeSeriesApi(params: dict) -> pd.DataFrame | None:
         return None
     
 def adjustDataframeInplace(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+
+    # Control preventivo: Evitar doble calibración y desfase acumulativo
+    if hasattr(df, "attrs") and df.attrs.get("_calibrated", False):
+        return df
+
     df = df.copy()
 
-    df["range"] = df["high"] - df["low"]
-    df["spread"] = df["range"] * 0.2
+    # Intentar obtener el símbolo para aplicar el offset correcto
+    symbol = "UNKNOWN"
+    if "symbol" in df.columns:
+        symbol = str(df["symbol"].iloc[0]).upper()
+        
+    # Intentar obtener el offset dinámicamente de la base de datos MySQL (SentinelSymbol)
+    offset = 0.0
+    has_db_offset = False
+    if symbol != "UNKNOWN":
+        try:
+            symbol_data = dbManager.getSymbol(symbol)
+            if symbol_data and "priceOffset" in symbol_data and symbol_data["priceOffset"] is not None and float(symbol_data["priceOffset"]) != 0.0:
+                offset = float(symbol_data["priceOffset"])
+                has_db_offset = True
+        except Exception as e:
+            logger.warning(f"Error al obtener priceOffset para {symbol} de la DB: {e}.")
+            
+    if has_db_offset:
+        df["open"]  = df["open"]  + offset
+        df["high"]  = df["high"]  + offset
+        df["low"]   = df["low"]   + offset
+        df["close"] = df["close"] + offset
+        logger.info(f"[{symbol}] Capa de Calibración: Aplicado priceOffset de {offset:.5f} desde MySQL en RAM.")
+    else:
+        # Si no hay offset en la DB, reactivamos tu fórmula original de spread dinámico por volatilidad (Cualquier símbolo)
+        # Esto calcula el spread de forma 100% proporcional al rango de la propia vela en tiempo real.
+        df["range"] = df["high"] - df["low"]
+        df["spread"] = df["range"] * 0.2
 
-    spread_high = df["spread"] * 0.3
-    spread_low  = df["spread"] * 0.7
+        spread_high = df["spread"] * 0.3
+        spread_low  = df["spread"] * 0.7
 
-    df["high"] = df["high"] + spread_high
-    df["low"]  = df["low"]  - spread_low
+        df["high"] = df["high"] + spread_high
+        df["low"]  = df["low"]  - spread_low
 
-    adjustment = (spread_high - spread_low) / 2
+        adjustment = (spread_high - spread_low) / 2
 
-    df["open"]  = df["open"]  + adjustment
-    df["close"] = df["close"] + adjustment
+        df["open"]  = df["open"]  + adjustment
+        df["close"] = df["close"] + adjustment
+        logger.info(f"[{symbol}] Capa de Calibración: Aplicado Spread Dinámico del Bróker (20% del Rango) en RAM por defecto.")
+
+    # Marcar como calibrado para prevenir doble desfase
+    if hasattr(df, "attrs"):
+        df.attrs["_calibrated"] = True
 
     return df
 
@@ -191,86 +229,6 @@ async def getTimeSeries(params: dict) -> pd.DataFrame | None:
         return adjustDataframeInplace(await getCandlesFromDb(params.get("symbol"), params.get("interval"), params.get("outputSize", 500)))
     else:
         return await _callTimeSeriesApi(params)
-
-
-async def updateCandles5min(apiKey: str, accountName: str = None):
-    """
-    Descarga velas de 5 min para todos los símbolos activos y las guarda en la tabla 'candles'.
-    Solo inserta velas nuevas.
-    """
-    # --- Traer símbolos ---
-    symbols_raw = dbManager.getSymbols()  # lista de dicts
-    symbols = [s['symbol'] for s in symbols_raw]
-    if not symbols:
-        logger.warning("No hay símbolos activos en la base de datos.")
-        return
-
-    accountInfo = f" [{accountName}]" if accountName else ""
-    logger.info(f"Descargando velas 5min de {len(symbols)} símbolos{accountInfo}")
-
-    # --- Descargar data multi-symbol ---
-    url = f"{TWELVE_DATA_API_URL}/time_series"
-    params = {
-        "symbol": ",".join(symbols),
-        "interval": "5min",
-        "outputsize": 500,  # máximo que quieras traer
-        "apikey": apiKey,
-        "format": "JSON"
-    }
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, timeout=20.0)
-            response.raise_for_status()
-            data = response.json()
-
-        if "code" in data:
-            logger.error(f"API error: {data}")
-            return
-
-        # --- Preparar velas ---
-        df_list = []
-        for symbol in symbols:
-            if symbol not in data or "values" not in data[symbol]:
-                logger.warning(f"No hay datos para {symbol}")
-                continue
-
-            df_symbol = pd.DataFrame(data[symbol]["values"])
-            df_symbol['symbol'] = symbol
-            df_symbol['datetime'] = pd.to_datetime(df_symbol['datetime'])
-            df_symbol['timeframe'] = "5min"
-            df_symbol = df_symbol.rename(columns={
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "close": "close",
-                "volume": "volume"
-            })
-            df_list.append(df_symbol)
-
-        if not df_list:
-            logger.warning("No se obtuvieron velas de ningún símbolo.")
-            return
-
-        df_all = pd.concat(df_list, ignore_index=True)
-        df_all = df_all[['symbol','timeframe','datetime','open','high','low','close','volume']]
-
-        # --- Guardar en DB ---
-        conn = dbConnection.getConnection()
-        cursor = conn.cursor()
-
-        insert_sql = """
-        INSERT IGNORE INTO candles (symbol, timeframe, datetime, open, high, low, close, volume)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-        """
-        values = df_all.to_records(index=False)
-        cursor.executemany(insert_sql, values)
-        conn.commit()
-        logger.info(f"Velas insertadas/ignorar duplicados: {cursor.rowcount}")
-        conn.close()
-
-    except Exception as e:
-        logger.error(f"Error al actualizar velas 5min: {e}", exc_info=True)
 
 
 def resample_candles(df: pd.DataFrame, rule: str) -> pd.DataFrame:

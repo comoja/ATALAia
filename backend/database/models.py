@@ -30,14 +30,13 @@ class User(Base):
 class RatioSymbol(Base):
     """
     Tabla de administración del catálogo de pares 
-    exclusivos para el modelo de correlación (diferentes a Sentinel).
+    exclusivos para el modelo de correlación.
     """
     __tablename__ = "RatioSymbol"
 
-    id = Column(Integer, primary_key=True, index=True)
-    pair_name = Column(String(20), unique=True, index=True) # ej. EURGBPUSD
-    description = Column(String(100))
-    is_active = Column(Boolean, default=True)
+    symbol = Column(String(10), primary_key=True, index=True)
+    Activo = Column(Integer, default=1)
+    tipo = Column(String(10))
 
 # Crea las tablas si no existen en la BD "ATALAia"
 Base.metadata.create_all(bind=engine)

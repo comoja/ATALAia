@@ -84,6 +84,7 @@ def generatePortfolioPdfV4() -> None:
             '3 Dias': BASE_PATH + 'backtest_short_term_v4_3_dias.csv',
             '2 Dias': BASE_PATH + 'backtest_short_term_v4_2_dias.csv',
             '1 Dia':  BASE_PATH + 'backtest_short_term_v4_1_dia.csv',
+            'Hoy':    BASE_PATH + 'backtest_short_term_v4_hoy.csv',
             'Summary': BASE_PATH + 'backtest_short_term_v4_portfolio_summary.csv',
         }
         for path in csvFiles.values():
@@ -103,7 +104,7 @@ def generatePortfolioPdfV4() -> None:
         peorDia = dfSummary.loc[dfSummary['PnL_Dia'].idxmin()]
 
         # Top combos acumulados en todos los periodos
-        allTrades = pd.concat([dfs[k] for k in ['5 Dias', '4 Dias', '3 Dias', '2 Dias', '1 Dia']])
+        allTrades = pd.concat([dfs[k] for k in ['5 Dias', '4 Dias', '3 Dias', '2 Dias', '1 Dia', 'Hoy']])
         allTrades['pnlNum'] = allTrades['PnL Combo ($)'].str.replace('$', '', regex=False).str.replace(',', '').astype(float)
         topCombos = (
             allTrades.groupby(['Simbolo', 'Estrategia'])['pnlNum']
@@ -158,7 +159,7 @@ def generatePortfolioPdfV4() -> None:
         pdf.cell(0, 7, f"Balance Inicial: ${INITIAL_PORTFOLIO:.2f}  ->  Balance Final: ${balanceFinal:.2f}", 0, 1, 'C')
         pdf.set_font('Helvetica', '', 10)
         pdf.set_text_color(160, 210, 240)
-        pdf.cell(0, 6, f"PnL Total: ${pnlTotal:+.2f} USD ({retornoTotal:+.1f}%)  |  5 Dias de Operacion", 0, 1, 'C')
+        pdf.cell(0, 6, f"PnL Total: ${pnlTotal:+.2f} USD ({retornoTotal:+.1f}%)  |  6 Periodos (5 Dias + Hoy)", 0, 1, 'C')
 
         # KPIs portada
         pdf.set_y(182)
@@ -169,7 +170,7 @@ def generatePortfolioPdfV4() -> None:
             f"Mejor dia: {mejorDia['Periodo']} con PnL de ${mejorDia['PnL_Dia']:+.2f} USD "
             f"| Combos activos: {int(mejorDia['Combos_Activos'])}\n"
             f"Peor dia:  {peorDia['Periodo']} con PnL de ${peorDia['PnL_Dia']:+.2f} USD\n"
-            f"Riesgo: 1% del portafolio por trade | RR Minimo: 1.5 | 14 Simbolos x 14 Estrategias"
+            f"Riesgo: 1% del portafolio por trade | RR Minimo: 1.5 | 6 Periodos (5 Dias + Hoy intradiario)"
         )
         pdf.multi_cell(0, 6, kpi.encode('latin-1', 'replace').decode('latin-1'), 0, 'C')
 
@@ -203,7 +204,7 @@ def generatePortfolioPdfV4() -> None:
         dfEvoDisp['Retorno_Dia_%'] = dfEvoDisp['Retorno_Dia_%'].apply(lambda x: f"{x:+.2f}%")
         dfEvoDisp['Combos_Activos'] = dfEvoDisp['Combos_Activos'].astype(int).astype(str)
         dfEvoDisp = dfEvoDisp[['Periodo', 'Balance_Inicio', 'PnL_Dia', 'Balance_Fin', 'Retorno_Dia_%', 'Combos_Activos']]
-        drawColorTable(pdf, dfEvoDisp, headerEvo, colEvo, maxRows=5)
+        drawColorTable(pdf, dfEvoDisp, headerEvo, colEvo, maxRows=6)
         pdf.ln(5)
 
         # Metodologia V4
@@ -258,7 +259,7 @@ def generatePortfolioPdfV4() -> None:
         # Top 15 combos acumulados
         pdf.set_font('Helvetica', 'B', 10)
         pdf.set_text_color(0, 130, 180)
-        pdf.cell(0, 6, "[A] TOP 15 COMBINACIONES POR PnL ACUMULADO (5 DIAS DE PORTAFOLIO)", 0, 1, 'L')
+        pdf.cell(0, 6, "[A] TOP 15 COMBINACIONES POR PnL ACUMULADO (5 DIAS + HOY)", 0, 1, 'L')
         pdf.ln(2)
         headersTop = ['Simbolo', 'Estrategia', 'PnL Acum. ($)']
         colTop = [50, 70, 76]
@@ -315,12 +316,55 @@ def generatePortfolioPdfV4() -> None:
         drawColorTable(pdf, dfBot, headers5d, colWidths5d, maxRows=5)
 
         # ──────────────────────────────────────────────────────────────────────
-        # PAGINA 5: DIRECTRICES V4 + RESUMEN BD
+        # PAGINA 5: MATRIZ DE RENDIMIENTO INTRADIARIO - HOY (INTRADIARIO)
         # ──────────────────────────────────────────────────────────────────────
         pdf.add_page()
         pdf.set_text_color(24, 28, 36)
         pdf.set_font('Helvetica', 'B', 15)
-        pdf.cell(0, 10, "4. DIRECTRICES TACTICAS V4 Y ACTUALIZACION DE BASE DE DATOS", 0, 1, 'L')
+        pdf.cell(0, 10, "4. MATRIZ DE RENDIMIENTO INTRADIARIO - HOY (PORTAFOLIO EN VIVO)", 0, 1, 'L')
+        pdf.ln(2)
+
+        # Top 5 combos de Hoy
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_text_color(150, 0, 150) # Purpura elegante
+        pdf.cell(0, 6, "[A] TOP 5 COMBOS - HOY (Compounding intradiario activo)", 0, 1, 'L')
+        pdf.ln(2)
+        dfDispHoy = dfs['Hoy'].head(5)[['Simbolo', 'Estrategia', 'Win Rate', 'Total Trades', 'Riesgo/Trade ($)', 'PnL Combo ($)']]
+        drawColorTable(pdf, dfDispHoy, headers5d, colWidths5d, maxRows=5)
+        pdf.ln(6)
+
+        # Bottom 5 combos de Hoy (Drawdown intradiario)
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_text_color(200, 50, 70)
+        pdf.cell(0, 6, "[B] BOTTOM 5 COMBOS - HOY (Mayor detraccion de balance intradiario)", 0, 1, 'L')
+        pdf.ln(2)
+        dfBotHoy = dfs['Hoy'].tail(5)[['Simbolo', 'Estrategia', 'Win Rate', 'Total Trades', 'Riesgo/Trade ($)', 'PnL Combo ($)']]
+        drawColorTable(pdf, dfBotHoy, headers5d, colWidths5d, maxRows=5)
+        pdf.ln(6)
+
+        # Resumen de actividad intradiaria
+        pdf.set_font('Helvetica', 'B', 10.5)
+        pdf.set_text_color(0, 130, 180)
+        pdf.cell(0, 6, "[C] COMENTARIO SOBRE LA JORNADA INTRADIARIA (HOY)", 0, 1, 'L')
+        pdf.set_font('Helvetica', '', 9.5)
+        pdf.set_text_color(40, 44, 52)
+        comentarioHoy = (
+            "La sesion de hoy ha estado marcada por la expansion del compounding intradiario, "
+            f"donde el balance ha pasado de ${dfs['Hoy']['Riesgo/Trade ($)'].iloc[0]} USD a ${balanceFinal:.2f} USD en el transcurso del dia de hoy. "
+            "El trade individual con mayor contribucion ha sido SilverBullet en XAU/USD con un PnL intradiario sobresaliente, "
+            "gracias al incremento en el volumen y el apalancamiento que permite el compounding global. "
+            "Por otro lado, los drawdowns intradiarios de las estrategias menos rentables han sido absorbidos con extrema facilidad "
+            "debido a la altisima diversificacion en 188 combinaciones simultaneas."
+        )
+        pdf.multi_cell(0, 5, comentarioHoy.encode('latin-1', 'replace').decode('latin-1'), 0, 'L')
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PAGINA 6: DIRECTRICES V4 + RESUMEN BD
+        # ──────────────────────────────────────────────────────────────────────
+        pdf.add_page()
+        pdf.set_text_color(24, 28, 36)
+        pdf.set_font('Helvetica', 'B', 15)
+        pdf.cell(0, 10, "5. DIRECTRICES TACTICAS V4 Y ACTUALIZACION DE BASE DE DATOS", 0, 1, 'L')
         pdf.ln(3)
 
         pdf.set_font('Helvetica', 'B', 11)
@@ -368,7 +412,7 @@ def generatePortfolioPdfV4() -> None:
         pdf.set_y(pdf.get_y() + 4)
         pdf.set_font('Helvetica', 'B', 9)
         pdf.set_text_color(0, 210, 255)
-        pdf.cell(0, 5, f"   [+] AUDITORIA V4 COMPLETADA | Portafolio: ${balanceFinal:.2f} ({retornoTotal:+.1f}% en 5 dias)", 0, 1, 'L')
+        pdf.cell(0, 5, f"   [+] AUDITORIA V4 COMPLETADA | Portafolio: ${balanceFinal:.2f} ({retornoTotal:+.1f}% en 5 dias + Hoy)", 0, 1, 'L')
         pdf.set_font('Helvetica', 'I', 8)
         pdf.set_text_color(80, 160, 200)
         pdf.cell(0, 5, "   BD actualizada con exclusiones V4. SMA20_200 y Sniper deshabilitadas. USD/HKD y GBP/CAD parcialmente excluidos.", 0, 1, 'L')

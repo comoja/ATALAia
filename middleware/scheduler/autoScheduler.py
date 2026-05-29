@@ -43,7 +43,7 @@ def get_next_sync_time(intervaloMinutos):
     tz = pytz.timezone(timeZone)
     now = datetime.now(tz)
     
-    offset_segundos = 2.3 * 60
+    offset_segundos = 2.1 * 60
     intervalo_segundos = intervaloMinutos * 60
     current_seconds_in_hour = now.minute * 60 + now.second
     
