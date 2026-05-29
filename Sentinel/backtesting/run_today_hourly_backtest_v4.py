@@ -17,7 +17,7 @@ sys.path.append("/Volumes/TimeMachine/ATALAia")
 from middleware.database import dbConnection
 from middleware.database import dbManager
 
-initialPortfolio = 500.0
+initialPortfolio = 418.19
 portfolioRiskPct = 0.01
 rewardRatio = 1.5
 
@@ -81,8 +81,12 @@ def runTodayHourlyBacktestV4() -> None:
 
     rawSymbols = dbManager.getSymbols()
     activeSymbols = [s['symbol'] for s in rawSymbols if s.get('Activo') == 1]
-    enabledStrategies = loadEnabledStrategies()
-    exclusions = loadExclusionsToday()
+    enabledStrategies = [
+        'Ichimoku', 'EMA20200', 'SMA20_200', 'Sniper', 'SilverBullet',
+        'GenericFVG', 'FVGDiario', 'SesgoBiasHTF', 'ImbalanceNY',
+        'ImbalanceLDN', 'ImbalancePMNY', 'Patron4h', 'BreakoutNY', 'SpeedBot'
+    ]
+    exclusions = set()
     
     todayDateStr = datetime.now().strftime('%Y-%m-%d') + ' 00:00:00'
     
@@ -522,7 +526,7 @@ def generateTodayHourlyPdfV4(dfHourly: pd.DataFrame, dfTrades: pd.DataFrame, bes
             f"Total de Trades Ejecutados Hoy: {totalTrades} | PnL Neto Total: ${totalPnl:+.2f} USD ({retornoTotal:+.1f}%)\n"
             f"Simbolos Activos Analizados ({len(activeSymbols)}): {symListStr}\n"
             f"Estrategias Habilitadas ({len(enabledStrategies)}): {stratListStr}\n"
-            f"Metodologia: Capital Inicial de $500.00 con compounding trade-a-trade dinamico."
+            f"Metodologia: Capital Inicial de $418.19 con compounding trade-a-trade dinamico."
         )
         pdf.multi_cell(0, 6, kpis.encode('latin-1', 'replace').decode('latin-1'), 0, 'C')
 

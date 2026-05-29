@@ -64,39 +64,43 @@ class BreakoutNYBot:
 
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
         start_hour = int(strat_config.get("start_hour", 9))
-        start_minute = int(strat_config.get("start_minute", 30))
-        rr = float(strat_config.get("min_rr", 1.0))
+        start_minute = int(strat_config.get("start_minute", 0))
+        rr = float(strat_config.get("min_rr", 2.0))
         confidence = float(strat_config.get("min_confidence", 75))
 
-        range_candle, target_ts = self._get_range_candle(df_15m, start_hour, start_minute)
-        if range_candle is None:
-            logger.info(f"[{symbol}] No se encontro vela de rango")
+        # Rango de 30 minutos de apertura (ej. 09:00 a 09:30 local/NY)
+        start_ts = self._timestamp_for_today(start_hour, start_minute, df_5m)
+        end_ts = start_ts + timedelta(minutes=30)
+
+        df_range = df_5m[(df_5m.index >= start_ts) & (df_5m.index < end_ts)]
+        if df_range.empty:
+            logger.info(f"[{symbol}] No se encontraron velas de M5 para el rango de 30 minutos ({start_hour:02d}:{start_minute:02d} a 09:30)")
             return []
 
         now_ts = pd.Timestamp(self._now_local())
-        if target_ts.tzinfo is not None:
-            now_ts = now_ts.tz_convert(target_ts.tzinfo)
+        if start_ts.tzinfo is not None:
+            now_ts = now_ts.tz_convert(start_ts.tzinfo)
         elif now_ts.tzinfo is not None:
             now_ts = now_ts.tz_localize(None)
 
-        if now_ts < target_ts + timedelta(minutes=15):
-            logger.info(f"[{symbol}] No se encontro vela de rango")
+        if now_ts < end_ts:
+            logger.info(f"[{symbol}] El rango de 30min ({start_hour:02d}:{start_minute:02d} a 09:30) aún no ha concluido")
             return []
 
-        # Hora límite: 12:00 PM (mediodía) hora local para evitar alertas tardías en la tarde o noche
-        end_time_ts = target_ts + timedelta(hours=2, minutes=30)
+        # Hora límite: 12:00 PM (mediodía) hora local (2h 30m desde las 09:30)
+        end_time_ts = end_ts + timedelta(hours=2, minutes=30)
         if now_ts > end_time_ts:
-            logger.info(f"[{symbol}] No se encontro vela de rango")
+            logger.info(f"[{symbol}] Hora actual {now_ts} excede la hora límite de trading {end_time_ts}")
             return []
 
-        trade_day = target_ts.date()
+        trade_day = start_ts.date()
         day_key = f"{symbol}_{trade_day.isoformat()}"
         if day_key in self._triggered_days:
-            logger.info(f"[{symbol}] Ya se encontro vela de rango")
+            logger.info(f"[{symbol}] Estrategia ya ejecutada hoy para {symbol}")
             return []
 
-        range_high = float(range_candle["high"])
-        range_low = float(range_candle["low"])
+        range_high = float(df_range["high"].max())
+        range_low = float(df_range["low"].min())
         last_m5 = df_5m.iloc[-1]
         close_price = float(last_m5["close"])
         candle_time = df_5m.index[-1].strftime("%Y-%m-%d %H:%M:%S")
@@ -123,13 +127,13 @@ class BreakoutNYBot:
             logger.info(f"[{symbol}] BreakoutNY descartada: señal tardía (delay de {delaySeconds:.1f}s > 90s)")
             return []
 
-        df_5m_range = df_5m[(df_5m.index >= target_ts) & (df_5m.index < target_ts + timedelta(minutes=15))]
+        df_5m_range = df_5m[(df_5m.index >= start_ts) & (df_5m.index < end_ts)]
         if not df_5m_range.empty:
             max_time = df_5m_range['high'].idxmax().strftime("%Y-%m-%d %H:%M:%S")
             min_time = df_5m_range['low'].idxmin().strftime("%Y-%m-%d %H:%M:%S")
         else:
-            max_time = target_ts.strftime("%Y-%m-%d %H:%M:%S")
-            min_time = target_ts.strftime("%Y-%m-%d %H:%M:%S")
+            max_time = start_ts.strftime("%Y-%m-%d %H:%M:%S")
+            min_time = start_ts.strftime("%Y-%m-%d %H:%M:%S")
 
         if close_price > range_high:
             direction = "LARGO"
@@ -169,7 +173,7 @@ class BreakoutNYBot:
                 take_profit=take_profit,
                 sl_distance=risk_dist,
                 confidence=confidence,
-                setup="NY APERTURA 15MIN",
+                setup="NY APERTURA 30MIN",
                 status="RUPTURA CONFIRMADA",
                 candleTime=candle_time,
                 intervalo="5min",
@@ -179,7 +183,7 @@ class BreakoutNYBot:
                 metadata={
                     "range_high": range_high,
                     "range_low": range_low,
-                    "range_time": target_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "range_time": start_ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "high_time": max_time,
                     "low_time": min_time,
                     "breakout_close": close_price,

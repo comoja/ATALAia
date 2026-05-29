@@ -42,7 +42,7 @@ class BaseImbalanceBot:
         self.lastMessageIds = {}
         
         self.velaCorte = None
-        self.signalGenerada = False
+        self._sent_signals = {}
         self.timestamp_signal1 = None
         self.timestamp_signal2 = None
         self.signal1_enviada = False
@@ -55,35 +55,9 @@ class BaseImbalanceBot:
     def getMexicoTime(self) -> datetime:
         return datetime.now(self.MEXICO_TZ)
     
-    def detectarFvg(self, datos5min: pd.DataFrame, idx: int, direction: str) -> dict:
-        if idx >= len(datos5min) - 3:
-            return None
-        
-        if direction == 'CORTO':
-            lowN = datos5min['low'].iloc[idx]
-            highN2 = datos5min['high'].iloc[idx + 2]
-            if lowN > highN2:
-                return {
-                    'type': 'Bearish_FVG',
-                    'start': highN2,
-                    'end': lowN,
-                    'mid': (highN2 + lowN) / 2,
-                    'size': lowN - highN2,
-                    'idx': idx
-                }
-        else:
-            highN = datos5min['high'].iloc[idx]
-            lowN2 = datos5min['low'].iloc[idx + 2]
-            if highN < lowN2:
-                return {
-                    'type': 'Bullish_FVG',
-                    'start': highN,
-                    'end': lowN2,
-                    'mid': (highN + lowN2) / 2,
-                    'size': lowN2 - highN,
-                    'idx': idx
-                }
-        return None
+    # detectarFvg(), findFvgEnRango() y findFvgFueraRango() fueron eliminados.
+    # _getSignals() usa Sentinel.analysis.technical.detect_fvgs() como fuente
+    # centralizada con EMA200, Market Structure Shift y clasificación de probabilidad.
     
     def findVelaCorte(self, datos5min: pd.DataFrame, precioMaximo: float, precioMinimo: float) -> dict:
         for i in range(len(datos5min)):
@@ -119,42 +93,6 @@ class BaseImbalanceBot:
                     }
         return None
     
-    def findFvgEnRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
-        fvgs = []
-        for i in range(startIdx, min(startIdx + 50, len(datos5min) - 3)):
-            vela = datos5min.iloc[i]
-            highPrice = vela['high']
-            lowPrice = vela['low']
-            
-            dentroRango = highPrice <= precioMaximo and lowPrice >= precioMinimo
-            
-            if dentroRango:
-                fvg = self.detectarFvg(datos5min, i, direction)
-                if fvg:
-                    fvg['dentroRango'] = True
-                    fvgs.append(fvg)
-                    if len(fvgs) >= maxFvg:
-                        break
-        return fvgs
-    
-    def findFvgFueraRango(self, datos5min: pd.DataFrame, startIdx: int, direction: str, precioMaximo: float, precioMinimo: float, maxFvg: int = 2) -> list:
-        fvgs = []
-        for i in range(startIdx, min(startIdx + 50, len(datos5min) - 3)):
-            vela = datos5min.iloc[i]
-            highPrice = vela['high']
-            lowPrice = vela['low']
-            
-            fueraRango = highPrice > precioMaximo or lowPrice < precioMinimo
-            
-            if fueraRango:
-                fvg = self.detectarFvg(datos5min, i, direction)
-                if fvg:
-                    fvg['dentroRango'] = False
-                    fvgs.append(fvg)
-                    if len(fvgs) >= maxFvg:
-                        break
-        return fvgs
-    
     async def _getSignals(self, datos5min: pd.DataFrame, symbolInfo: Dict) -> list[Signal]:
         symbol = symbolInfo['symbol']
         precioMaximo = symbolInfo.get('precioMaximo')
@@ -164,14 +102,6 @@ class BaseImbalanceBot:
             return []
         
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
-        
-        adx = ta.ADX(datos5min['high'], datos5min['low'], datos5min['close'], timeperiod=14)
-        adx_val = float(adx.dropna().iloc[-1]) if len(adx.dropna()) > 0 else 25.0
-        if adx_val < 20:
-            return []
-        
-        if self.signalGenerada:
-            return []
         
         if self.velaCorte is None:
             velaCorte = self.findVelaCorte(datos5min, precioMaximo, precioMinimo)
@@ -236,6 +166,11 @@ class BaseImbalanceBot:
         
         for idx, fvg in enumerate(fvgs):
             fvg_time = pd.Timestamp(datos5min.index[fvg['idx']]).tz_localize(None)
+            
+            signalKey = f"{symbol}_5min_{fvg_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            if signalKey in self._sent_signals:
+                continue
+                
             minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
             if minutos_desde_fvg > self.maxMinutosFvg:
                 continue
@@ -290,7 +225,7 @@ class BaseImbalanceBot:
             
             # Exhaustion Filter
             vela_origen_idx = len(datos5min) - 5
-            is_valid, _, mensaje = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, tp_final, stopLoss, signalDirection, threshold=0.60, timeframe="5min")
+            is_valid, _, mensaje = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, tp_final, stopLoss, signalDirection, threshold=0.75, timeframe="5min")
             if not is_valid:
                 continue
             
@@ -303,13 +238,13 @@ class BaseImbalanceBot:
             momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS')
             momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, signalDirection)
             
-            # --- FILTRO HTF: Solo operar a favor de la tendencia mensual/semanal ---
-            monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
-            if monthly_trend == "BAJISTA" and signalDirection == "LARGO":
-                logger.info(f"[{symbol}] {self.strategy_name}: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
+            # --- FILTRO HTF: Solo operar a favor de la tendencia macro ---
+            weeklyTrend = str(symbolInfo.get('weekly_trend', 'NEUTRAL')).upper()
+            if signalDirection == "LARGO" and ("BAJISTA" in weeklyTrend or "LIQUIDACION" in weeklyTrend):
+                logger.info(f"[{symbol}] {self.strategy_name}: Señal LARGO bloqueada - Tendencia macro BAJISTA ({weeklyTrend})")
                 continue
-            elif monthly_trend == "ALCISTA" and signalDirection == "CORTO":
-                logger.info(f"[{symbol}] {self.strategy_name}: Señal CORTO bloqueada - Tendencia HTF ALCISTA")
+            elif signalDirection == "CORTO" and ("ALCISTA" in weeklyTrend or "GIRO" in weeklyTrend):
+                logger.info(f"[{symbol}] {self.strategy_name}: Señal CORTO bloqueada - Tendencia macro ALCISTA ({weeklyTrend})")
                 continue
 
             base_confidence = 75 + momentum_bonus
@@ -373,9 +308,9 @@ class BaseImbalanceBot:
                     "fvgTime": fvg_time.strftime("%Y-%m-%d %H:%M:%S")
                 }
             ))
+            
+            self._sent_signals[signalKey] = True
 
-        
-        self.signalGenerada = True
         return signals
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> list[Signal]:

@@ -70,13 +70,11 @@ class SpeedBot:
                 
             direction = "LARGO" if last_candle['close'] > last_candle['open'] else "CORTO"
             
-            # Filtro de agotamiento de RSI (para no comprar techos ni vender suelos)
+            # Filtro e integración inteligente del RSI basado en momentum (nivel 50) y agotamiento real extremo (85/15) centralizado
             rsi_val = last_candle['rsi'] if 'rsi' in last_candle else 50.0
-            if direction == "LARGO" and rsi_val >= 70.0:
-                logger.info(f"[{symbol}] {interval}: Impulso LARGO descartado por sobrecompra extrema (RSI={rsi_val:.1f})")
-                continue
-            if direction == "CORTO" and rsi_val <= 30.0:
-                logger.info(f"[{symbol}] {interval}: Impulso CORTO descartado por sobreventa extrema (RSI={rsi_val:.1f})")
+            rsi_ok, rsi_reason = technical.check_rsi_momentum(rsi_val, direction)
+            if not rsi_ok:
+                logger.info(f"[{symbol}] {interval}: Impulso {direction} descartado por {rsi_reason}")
                 continue
             
             # 2. Filtro de Momentum (No entrar contra tendencia)

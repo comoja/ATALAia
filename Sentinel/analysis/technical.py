@@ -217,7 +217,7 @@ def get_prev_day_high_low(df: pd.DataFrame) -> dict:
 def get_structural_levels(df: pd.DataFrame, lookback: int = 40, lookback_macro: int = 120) -> dict:
     """
     Identifica niveles estructurales (Swing High/Low) en el periodo reciente y macro.
-    Retorna el máximo y mínimo absoluto del periodo, junto con zonas de liquidez macro.
+    Retorna tanto los extremos de mechas como los niveles de cuerpo de alta probabilidad.
     """
     if len(df) < lookback:
         lookback = len(df)
@@ -225,9 +225,15 @@ def get_structural_levels(df: pd.DataFrame, lookback: int = 40, lookback_macro: 
     recent = df.iloc[-lookback:]
     macro = df.iloc[-min(len(df), lookback_macro):]
     
+    # Calcular extremos de los cuerpos (Body-to-Body target de alta probabilidad)
+    body_highs = np.maximum(recent['open'], recent['close'])
+    body_lows = np.minimum(recent['open'], recent['close'])
+    
     return {
         "swing_high": float(recent['high'].max()),
         "swing_low": float(recent['low'].min()),
+        "swing_high_body": float(body_highs.max()),
+        "swing_low_body": float(body_lows.min()),
         "high_zone": float(np.percentile(recent['high'], 90)),
         "low_zone": float(np.percentile(recent['low'], 10)),
         "macro_high": float(macro['high'].max()),
@@ -1224,3 +1230,30 @@ def check_signal_health(entry: float, tp: float, sl: float, direction: str, curr
     except Exception as e:
         logger.error(f"[Health] Error: {e}", exc_info=True)
         return (True, 0.0, f"Error: {e}")
+
+def check_rsi_momentum(
+    rsi_val: float,
+    direction: str,
+    mid_level: float = 50.0,
+    extreme_long: float = 85.0,
+    extreme_short: float = 15.0
+) -> tuple:
+    """
+    Evalúa el RSI de forma inteligente basándose en momentum y agotamiento extremo.
+    Evita el auto-sabotaje en tendencias fuertes centralizando los umbrales.
+    
+    Returns:
+        tuple: (es_valido: bool, motivo_descarte: str)
+    """
+    if direction == "LARGO":
+        if rsi_val < mid_level:
+            return False, f"falta de momentum alcista (RSI={rsi_val:.1f} < {mid_level})"
+        if rsi_val >= extreme_long:
+            return False, f"agotamiento alcista absoluto (RSI={rsi_val:.1f} >= {extreme_long})"
+    else: # CORTO
+        if rsi_val > mid_level:
+            return False, f"falta de momentum bajista (RSI={rsi_val:.1f} > {mid_level})"
+        if rsi_val <= extreme_short:
+            return False, f"agotamiento bajista absoluto (RSI={rsi_val:.1f} <= {extreme_short})"
+            
+    return True, ""

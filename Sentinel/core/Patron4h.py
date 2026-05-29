@@ -169,8 +169,18 @@ class Patron4HBot:
             logger.info(f"[{symbol}] No se detecto FVG") 
             return None
         
-        v_origen_idx = catalizador['vela_origen_idx'] if catalizador['vela_origen_idx'] is not None else fvg['idx']
-        v_origen_time = str(df_15m.index[v_origen_idx]) if v_origen_idx < len(df_15m) else "N/A"
+        df_catalizador = df_4h if c4h['confirmado'] else df_1h
+        fvg_time = df_catalizador.index[fvg['idx']]
+        
+        # Mapear el índice al dataframe de 15min (LTF) por timestamp
+        try:
+            v_origen_idx_ltf = int(df_15m.index.get_indexer([fvg_time], method='pad')[0])
+            if v_origen_idx_ltf < 0:
+                v_origen_idx_ltf = len(df_15m) - 5
+        except Exception:
+            v_origen_idx_ltf = len(df_15m) - 5
+            
+        v_origen_time = fvg_time.strftime("%Y-%m-%d %H:%M:%S")
         
         # --- Cálculo de Niveles Centralizado (Maura SMC) ---
         current_price = float(df_15m['close'].iloc[-1])
@@ -214,7 +224,7 @@ class Patron4HBot:
 
         multiplier = getPipMultiplier(symbol)
         
-        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx, entry, tp_final_val, sl, direction, threshold=0.60, timeframe="15min")
+        is_valid, _, _ = check_tp_exhaustion(df_15m, v_origen_idx_ltf, entry, tp_final_val, sl, direction, threshold=0.75, timeframe="15min")
         if not is_valid: return None
         
         current_price = float(df_15m['close'].iloc[-1])
@@ -276,39 +286,29 @@ class Patron4HBot:
         if sizePerTp < 1000 and "JPY" not in symbol: sizePerTp = 1000
 
 
-        signals = []
-        tp_configs = [
-            ("TP1", tp1_val, "TP1 [1.25 RR]"),
-            ("TP2", tp2_val, "TP2 [Intermedio]"),
-            ("TP3", tp_final_val, "TP3 [Estructural]")
-        ]
-        
-        for suffix, tp_val, setup_label in tp_configs:
-            signals.append(Signal(
-                strategy=f"Patron4h_{suffix}",
-                symbol=symbol,
-                direction=direction,
-                entry_price=realEntry,
-                stop_loss=sl,
-                take_profit=tp_val,
-                sl_distance=realRiskDist,
-                risk_factor=0.33,
-                confidence=base_confidence,
-                setup=setup_label,
-                status="EN ZONA ✅",
-                candleTime=candleTime,
-                intervalo="15min",
-                riesgo_pips=round(realRiskDist * multiplier, 1),
-                rr_ratio=round(abs(tp_val - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0,
-                break_even=calculateBEPrice(realEntry, sl, tp_val, direction),
-                size=sizePerTp,
-                metadata={
-                    "riskUsd": round(riskUsdActual / 3, 2),
-                    "expectedProfit": round(expectedProfit / 3, 2),
-                    "marginUsed": round(marginUsed / 3, 2),
-                    "velaOrigen": v_origen_time
-                }
-            ))
-            
-        return signals
+        # Retornar una sola señal robusta unificada
+        return [Signal(
+            strategy=self.strategy_name,
+            symbol=symbol,
+            direction=direction,
+            entry_price=realEntry,
+            stop_loss=sl,
+            take_profit=tp_final_val,
+            sl_distance=realRiskDist,
+            confidence=base_confidence,
+            setup="Ruptura Estructural 4H/1H",
+            status="EN ZONA ✅",
+            candleTime=candleTime,
+            intervalo="15min",
+            riesgo_pips=round(realRiskDist * multiplier, 1),
+            rr_ratio=rrRatio,
+            break_even=calculateBEPrice(realEntry, sl, tp_final_val, direction),
+            size=totalSize,
+            metadata={
+                "riskUsd": round(riskUsdActual, 2),
+                "expectedProfit": round(expectedProfit, 2),
+                "marginUsed": round(marginUsed, 2),
+                "velaOrigen": v_origen_time
+            }
+        )]
 

@@ -241,12 +241,7 @@ class FVGDiarioBot:
         if signal_key in self._sent_signals:
             return None
         
-        # ── FILTRO: ADX ──
-        if df is not None:
-            adx_ok, adx_value = technical.is_market_trending(df, min_adx=20, period=14)
-            if not adx_ok:
-                logger.info(f"[{symbol}] Señal descartada: ADX={adx_value:.1f} (< 20)")
-                return None
+        # ADX Filter removed to allow execution in consolidation zones
         
         # Calcular niveles usando la función centralizada
         strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
@@ -275,7 +270,7 @@ class FVGDiarioBot:
         # ── FILTRO: Exhaustion ──
         if df is not None:
             vela_origen_idx = len(df) - 5
-            is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, stop_loss, direction, threshold=0.60, timeframe="15M")
+            is_valid, _, mensaje = check_tp_exhaustion(df, vela_origen_idx, entry_price, take_profit, stop_loss, direction, threshold=0.75, timeframe="15M")
             if not is_valid:
                 logger.info(f"[{symbol}] Señal descartada: Exhaustion - {mensaje}")
                 return None
@@ -294,13 +289,13 @@ class FVGDiarioBot:
             logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
             return None
         
-        # ── FILTRO: Tendencia mensual ──
-        monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
-        if monthly_trend == "BAJISTA" and direction == "LARGO":
-            logger.info(f"[{symbol}] Señal LARGO descartada - tendencia mensual BAJISTA")
+        # ── FILTRO: Tendencia Macro Unificada ──
+        weeklyTrend = str(symbolInfo.get('weekly_trend', 'NEUTRAL')).upper()
+        if direction == "LARGO" and ("BAJISTA" in weeklyTrend or "LIQUIDACION" in weeklyTrend):
+            logger.info(f"[{symbol}] Señal LARGO descartada - tendencia macro BAJISTA ({weeklyTrend})")
             return None
-        elif monthly_trend == "ALCISTA" and direction == "CORTO":
-            logger.info(f"[{symbol}] Señal CORTO descartada - tendencia mensual ALCISTA")
+        elif direction == "CORTO" and ("ALCISTA" in weeklyTrend or "GIRO" in weeklyTrend):
+            logger.info(f"[{symbol}] Señal CORTO descartada - tendencia macro ALCISTA ({weeklyTrend})")
             return None
         
         # ── FILTRO: Ganancia Mínima Estimada ──

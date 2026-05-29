@@ -103,6 +103,16 @@ class GenericFVGBot:
             latest_fvg = latestFvg
             signal_direction = fvgDirection
             
+            # --- FILTRO DE TENDENCIA MACRO UNIFICADO (Body-to-Body / SMC Alignment) ---
+            # Solo tomar compras si la tendencia macro del instrumento es alcista y ventas si es bajista
+            weeklyTrend = str(symbolInfo.get('weekly_trend', 'NEUTRAL')).upper()
+            if signal_direction == "LARGO" and ("BAJISTA" in weeklyTrend or "LIQUIDACION" in weeklyTrend):
+                logger.info(f"[{symbol}] {interval}: FVG LARGO descartado porque la tendencia macro es bajista ({weeklyTrend})")
+                continue
+            if signal_direction == "CORTO" and ("ALCISTA" in weeklyTrend or "GIRO" in weeklyTrend):
+                logger.info(f"[{symbol}] {interval}: FVG CORTO descartado porque la tendencia macro es alcista ({weeklyTrend})")
+                continue
+            
             # --- FILTRO MAURA 1: MSS (Market Structure Shift) Comentado por contradicción lógica en retest ---
             # El MSS ya se valida a nivel de vela de impulso (Vela 2) en detect_fvgs.
             # Exigirlo en la vela de retest bloquea todas las señales porque el precio está retrocediendo (no rompiendo máximos).
@@ -117,14 +127,12 @@ class GenericFVGBot:
                 continue
             
             # 2. Calcular niveles SMC
-            # --- FILTRO SEGURIDAD: Antigüedad del FVG (Máx 24h) ---
-            fvg_time = pd.to_datetime(latest_fvg['timestamp'])
-            ahora = self._now_mx().replace(tzinfo=None)
-            fvg_time_naive = fvg_time.replace(tzinfo=None)
-            age_hours = (ahora - fvg_time_naive).total_seconds() / 3600
+            # --- FILTRO SEGURIDAD: Antigüedad del FVG por velas (Máx 40 velas) ---
+            fvgIdx = latest_fvg.get('idx', len(df) - 1)
+            fvgAgeCandles = len(df) - 1 - fvgIdx
             
-            if age_hours > 24:
-                # logger.debug(f"[{symbol}] {interval}: FVG demasiado antiguo ({age_hours:.1f}h) - saltando")
+            if fvgAgeCandles > 40:
+                logger.info(f"[{symbol}] {interval}: FVG demasiado antiguo ({fvgAgeCandles} velas > 40) - saltando")
                 continue
 
             # --- Cálculo de Niveles Centralizado (Maura SMC) ---
@@ -142,9 +150,9 @@ class GenericFVGBot:
             df_prior = df.iloc[:fvg_idx + 1]
             levels = technical.get_structural_levels(df_prior, lookback=20)
             if signal_direction == "LARGO":
-                tp_ref = levels['swing_high']  # Primer máximo local anterior
+                tp_ref = levels['swing_high_body']  # Primer máximo del cuerpo de vela local anterior
             else:
-                tp_ref = levels['swing_low']   # Primer mínimo local anterior
+                tp_ref = levels['swing_low_body']   # Primer mínimo del cuerpo de vela local anterior
 
             # Cap de TP por ATR: máximo 3.0 ATR desde el precio actual (estrategia multi-TF)
             from Sentinel.analysis.technical import capTpByAtr
@@ -213,9 +221,6 @@ class GenericFVGBot:
                 continue
                 
             minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
-            # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
-            if minUsdProfit < 6.0:
-                minUsdProfit = 6.0
             rrVal = round(abs(tp1 - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
             
             # --- FILTRO SEGURIDAD: Evitar entradas tardías con RR real pésimo ---
@@ -239,17 +244,8 @@ class GenericFVGBot:
                 logger.info(f"[{symbol}] {interval}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
                 continue
             
-            # 5. Filtrar por tendencia HTF de forma estrictamente obligatoria para FVG
-            monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
+            # 5. Filtrar por tendencia HTF (Ya validada al inicio del ciclo de forma unificada)
             signal_direction = "LARGO" if latest_fvg['type'] == 'Bullish_FVG' else "CORTO"
-            
-            # Las señales de FVG en temporalidades pequeñas exigen alineación obligatoria con la tendencia macro dominantes
-            if monthly_trend == "BAJISTA" and signal_direction == "LARGO":
-                logger.info(f"[{symbol}] {interval}: Señal LARGO descartada - FVG exige alineación HTF y la tendencia macro es BAJISTA")
-                continue
-            elif monthly_trend == "ALCISTA" and signal_direction == "CORTO":
-                logger.info(f"[{symbol}] {interval}: Señal CORTO descartada - FVG exige alineación HTF y la tendencia macro es ALCISTA")
-                continue
             
             # Marcar como enviada en RAM
             self._sent_signals[signal_key] = True
