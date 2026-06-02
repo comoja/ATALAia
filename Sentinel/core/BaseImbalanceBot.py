@@ -136,6 +136,8 @@ class BaseImbalanceBot:
                 'type': f['type'],
                 'start': f['bottom'] if fvg_direction == 'LARGO' else f['top'],
                 'end': f['top'] if fvg_direction == 'LARGO' else f['bottom'],
+                'bottom': f['bottom'],
+                'top': f['top'],
                 'mid': f['mid'],
                 'size': f['size'],
                 'idx': f['idx']

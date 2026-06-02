@@ -38,12 +38,55 @@ def _clean_html_for_telegram(text: str) -> str:
 
     return re.sub(r'<(/?\w+).*?>', stripUnsupportedTags, text)
 
-async def alertaInmediata(id, mensaje, prioridad=True):
+async def alertaInmediata(id, mensaje, prioridad=True, filePath=None):
     cuentas = dbManager.getAccount(id)
     
     if cuentas:
         cuenta = cuentas[0]
-        await sendTelegramAlert(cuenta['TokenMsg'],cuenta['idGrupoMsg'], message=mensaje) 
+        if filePath:
+            await sendTelegramDocument(cuenta['TokenMsg'], cuenta['idGrupoMsg'], filePath=filePath, caption=mensaje, highPriority=prioridad)
+        else:
+            await sendTelegramAlert(cuenta['TokenMsg'], cuenta['idGrupoMsg'], message=mensaje, highPriority=prioridad) 
+
+async def sendTelegramDocument(token: str, chatId: str, filePath: str, caption: str = None, highPriority: bool = True):
+    """
+    Sends a document to a Telegram chat with intelligent retry on flood control.
+    Returns message_id on success, None on failure.
+    """
+    if not filePath or not token or not chatId:
+        logger.warning("Envío de documento de Telegram omitido por falta de archivo, token o chatId.")
+        return None
+
+    bot = Bot(token=token)
+    cleanedCaption = _clean_html_for_telegram(caption) if caption else None
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with open(filePath, 'rb') as doc_file:
+                sent_message = await bot.send_document(
+                    chat_id=chatId, 
+                    document=doc_file,
+                    caption=cleanedCaption, 
+                    parse_mode='HTML', 
+                    disable_notification=not highPriority
+                )
+            logger.info(f"✅ Documento {filePath} enviado con éxito a {chatId}.")
+            return sent_message.message_id
+
+        except RetryAfter as e:
+            wait_time = e.retry_after + 1
+            logger.warning(f"⚠️ Flood control excedido en documento. Esperando {wait_time}s antes del reintento {attempt + 1}/{max_retries}...")
+            await asyncio.sleep(wait_time)
+            
+        except TelegramError as e:
+            logger.error(f"Error en intento {attempt + 1} al enviar documento a {chatId}: {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                logger.critical(f"❌ Error fatal de Telegram enviando documento tras {max_retries} intentos: {e}")
+                
+    return None
 
 async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True):
     """

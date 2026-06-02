@@ -24,7 +24,7 @@ def init_alerts_table():
             ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
             ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60),
             ('FVGDiario', 2.0, 70), ('SpeedBot', 1.5, 70), ('ImbalancePMNY', 1.5, 75),
-            ('BreakoutNY', 1.0, 75)
+            ('BreakoutNY', 1.0, 75), ('Regresivol', 2.5, 70), ('QTrend', 1.5, 70)
         ]
 
         dbCursor.execute("SHOW TABLES LIKE 'strategyConfig'")
@@ -85,14 +85,25 @@ def init_alerts_table():
             )
 
         dbCursor.execute("""
-            UPDATE CUENTA
-            SET estrategias = CASE
-                WHEN estrategias IS NULL OR estrategias = '' THEN 'BreakoutNY'
-                WHEN FIND_IN_SET('BreakoutNY', estrategias) = 0 THEN CONCAT(estrategias, ',BreakoutNY')
-                ELSE estrategias
-            END
-            WHERE Activo = 1
+            CREATE TABLE IF NOT EXISTS CuentaEstrategia (
+                idCuenta INT NOT NULL,
+                strategy VARCHAR(50) NOT NULL,
+                PRIMARY KEY (idCuenta, strategy),
+                FOREIGN KEY (idCuenta) REFERENCES Cuenta(idCuenta) ON DELETE CASCADE,
+                FOREIGN KEY (strategy) REFERENCES strategyConfig(strategy) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+
+        # Asegurar que todas las cuentas activas tengan vinculadas BreakoutNY y QTrend
+        dbCursor.execute("SELECT idCuenta FROM Cuenta WHERE Activo = 1")
+        cuentasActivas = dbCursor.fetchall()
+        for c in cuentasActivas:
+            idCta = c[0]
+            for est in ['BreakoutNY', 'QTrend']:
+                dbCursor.execute(
+                    "INSERT IGNORE INTO CuentaEstrategia (idCuenta, strategy) VALUES (%s, %s)",
+                    (idCta, est)
+                )
 
         symbol_cols = {
             "sniper_threshold_adjust_pct": "DOUBLE NULL",
@@ -118,6 +129,44 @@ def init_alerts_table():
             )
         """
         dbCursor.execute(sql_api)
+        
+        # Crear tabla broker si no existe
+        dbCursor.execute("""
+            CREATE TABLE IF NOT EXISTS broker (
+                idBroker INT AUTO_INCREMENT PRIMARY KEY,
+                nombre VARCHAR(100) NOT NULL UNIQUE,
+                activo TINYINT(1) NOT NULL DEFAULT 1,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+        """)
+
+        # Crear tabla BrokerCuenta si no existe
+        dbCursor.execute("""
+            CREATE TABLE IF NOT EXISTS BrokerCuenta (
+                idBrokerCuenta INT AUTO_INCREMENT PRIMARY KEY,
+                idCuenta INT NOT NULL,
+                idBroker INT NOT NULL,
+                tipoConexion ENUM('PRIMARIA', 'ESPEJO', 'PUENTE') NOT NULL DEFAULT 'PRIMARIA',
+                loginUsuario VARCHAR(150) DEFAULT NULL,
+                tokenAcceso VARCHAR(255) DEFAULT NULL,
+                activo TINYINT(1) NOT NULL DEFAULT 1,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (idCuenta) REFERENCES Cuenta(idCuenta) ON DELETE CASCADE,
+                FOREIGN KEY (idBroker) REFERENCES broker(idBroker) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+        """)
+
+        # Sembrar brokers iniciales
+        brokersSeed = [
+            ("Oanda", 1),
+            ("Forex.com", 1),
+            ("MetaTrader 5", 1)
+        ]
+        dbCursor.executemany("""
+            INSERT INTO broker (nombre, activo) 
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE activo = VALUES(activo);
+        """, brokersSeed)
         
         dbConn.commit()
     except Exception as e:
@@ -367,20 +416,24 @@ def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bo
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT estrategias FROM CUENTA WHERE idCuenta = %s", (idCuenta,))
+        
+        # Si la cuenta no tiene configurada ninguna estrategia, por defecto permitimos operar (lógica defensiva)
+        cursor.execute("SELECT COUNT(*) as total FROM CuentaEstrategia WHERE idCuenta = %s", (idCuenta,))
+        cnt = cursor.fetchone()
+        if cnt['total'] == 0:
+            conn.close()
+            return True
+            
+        baseName = nombreEstrategia.split('_')[0]
+        cursor.execute("""
+            SELECT idCuenta FROM CuentaEstrategia 
+            WHERE idCuenta = %s AND (strategy = %s OR strategy = %s)
+            LIMIT 1
+        """, (idCuenta, nombreEstrategia, baseName))
         
         result = cursor.fetchone()
         conn.close()
-        
-        if not result or not result.get('estrategias'):
-            return True
-        
-        estrategias_str = result['estrategias']
-        estrategias = [e.strip() for e in estrategias_str.split(',')]
-        
-        # Validación flexible: permite coincidencia exacta o base (ej. Patron4h_TP1 -> Patron4h)
-        base_name = nombreEstrategia.split('_')[0]
-        return (nombreEstrategia in estrategias) or (base_name in estrategias)
+        return result is not None
     except Exception as e:
         logger.error(f"Error en isEstrategiaHabilitadaParaCuenta: {e}", exc_info=True)
         return True
@@ -947,3 +1000,74 @@ def get_min_wait_time() -> int:
     if DATA_SOURCE == "db":
         return 1
     return 3
+
+def getBrokers() -> list:
+    """Retorna la lista de todos los brokers registrados."""
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor(dictionary=True)
+        dbCursor.execute("SELECT idBroker, nombre, activo FROM broker ORDER BY nombre")
+        return dbCursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error en getBrokers: {e}")
+        return []
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def getBrokerCuentas(idCuenta: int = None) -> list:
+    """
+    Retorna la lista de mapeos de broker por cuenta.
+    Opcionalmente filtra por idCuenta.
+    """
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor(dictionary=True)
+        
+        sql = """
+            SELECT bc.idBrokerCuenta, bc.idCuenta, bc.idBroker, b.nombre AS nombreBroker, 
+                   bc.tipoConexion, bc.loginUsuario, bc.tokenAcceso, bc.activo, bc.createdAt 
+            FROM BrokerCuenta bc
+            JOIN broker b ON bc.idBroker = b.idBroker
+        """
+        if idCuenta is not None:
+            sql += " WHERE bc.idCuenta = %s"
+            dbCursor.execute(sql, (idCuenta,))
+        else:
+            dbCursor.execute(sql)
+            
+        return dbCursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error en getBrokerCuentas: {e}")
+        return []
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
+def addBrokerCuenta(idCuenta: int, idBroker: int, tipoConexion: str, loginUsuario: str = None, tokenAcceso: str = None, activo: int = 1) -> bool:
+    """
+    Agrega o actualiza una relación de broker por cuenta para soporte de Mirroring.
+    """
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor()
+        
+        sql = """
+            INSERT INTO BrokerCuenta (idCuenta, idBroker, tipoConexion, loginUsuario, tokenAcceso, activo)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                tipoConexion = VALUES(tipoConexion),
+                loginUsuario = VALUES(loginUsuario),
+                tokenAcceso = VALUES(tokenAcceso),
+                activo = VALUES(activo)
+        """
+        dbCursor.execute(sql, (idCuenta, idBroker, tipoConexion, loginUsuario, tokenAcceso, activo))
+        dbConn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error en addBrokerCuenta: {e}")
+        return False
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+

@@ -129,6 +129,24 @@ def buildAlertMessage(
     if imminent:
         text += f"<center><b>{imminent}</b></center>\n"
         
+    # Calcular distancia de Stop Loss dinámico y Trail
+    slDistPrice = abs(close - sl)
+    symbolMultiplier = getPipMultiplier(trade['symbol'])
+    slDistPips = slDistPrice * symbolMultiplier
+    
+    metadata = signal.get('metadata', {})
+    atrMult = metadata.get('supertrendMultiplier', metadata.get('atr_multiplier', None))
+    
+    try:
+        atrMultVal = float(atrMult) if atrMult is not None else None
+    except (ValueError, TypeError):
+        atrMultVal = None
+        
+    if atrMultVal is not None:
+        trailInfo = f"{slDistPips:.1f} pips ({atrMultVal:.1f}x ATR)"
+    else:
+        trailInfo = f"{slDistPips:.1f} pips"
+
     text += f"━━━━━━━━━━━━━━━\n"
 
     if direction == "LARGO":
@@ -139,11 +157,11 @@ def buildAlertMessage(
             text += f"🟠 BREAK EVEN:  <b>{be:,.5f}</b>\n"
         text += (
             f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
-            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"🔴 STOP LOSS TRAIL: <b>{sl:,.5f} ({trailInfo})</b>\n"
         )
     else:
         text += (
-            f"🔴 STOP LOSS:   <b>{sl:,.5f}</b>\n"
+            f"🔴 STOP LOSS TRAIL: <b>{sl:,.5f} ({trailInfo})</b>\n"
             f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
         )
         if be:
@@ -570,3 +588,66 @@ def buildIchimokuAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="ICHIMOKU + BB + MACD",
         extraFields=extraFields
     )
+
+def buildRegresivolAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje estructurado para la estrategia RegressiVol Mean Reversion (LRC + RSI)"""
+    metadata = signal.get('metadata', {})
+    
+    # Calcular beneficios de forma segura
+    riesgo_usd = float(signal.get('profit', 0))
+    if riesgo_usd == 0:
+        riesgo_usd = float(metadata.get('risk_usd', 0))
+        
+    rr_ratio = float(signal.get('rr_ratio', 0))
+    expected_profit = riesgo_usd * rr_ratio
+    
+    extraFields = {
+        'Estado': signal.get('status', 'EN ZONA ✅'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': rr_ratio,
+        'Riesgo Máx:': f"${riesgo_usd:.2f} USD",
+        'Beneficio Est:': f"${expected_profit:.2f} USD",
+        'RSI (14)': f"{metadata.get('rsi', 0):.2f}",
+        'Pendiente LRC': f"{metadata.get('lrc_slope', 0):.6f}",
+        'Volumen VSA': f"{metadata.get('volume_ratio', 0):.2f}x (vs Promedio 20v)",
+        'TP/SL Estructural': 'Confirmado 🛡️',
+        'TF Entrada': trade.get('intervalo', '1h')
+    }
+
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="REGRESSIVOL MEAN REVERSION",
+        extraFields=extraFields
+    )
+
+def buildQTrendAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para la estrategia QTrend (SuperTrend + Q-Trend EMA)."""
+    metadata = signal.get('metadata', {})
+    momentumState = metadata.get('momentum', '☁️ NEUTRAL')
+    
+    supertrendPeriod = metadata.get('supertrendPeriod', 10)
+    supertrendMult = metadata.get('supertrendMultiplier', 3.0)
+    qtrendFast = metadata.get('qtrendFast', 9)
+    qtrendSlow = metadata.get('qtrendSlow', 21)
+    tpPercent = metadata.get('tpPercent', 0.025)
+    
+    extraFields = {
+        'Estado': signal.get('status', 'ACTIVA ✅'),
+        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'RR Ratio': signal.get('rr_ratio', 0),
+        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'SuperTrend': f"{supertrendPeriod}p / {supertrendMult}x",
+        'Q-Trend (EMA)': f"{qtrendFast} / {qtrendSlow}",
+        'TP %': f"{tpPercent * 100:.2f}%",
+        'Momentum': momentumState
+    }
+
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="QTREND SUPERTREND",
+        extraFields=extraFields
+    )
+

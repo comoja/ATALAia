@@ -62,7 +62,7 @@ function startServices() {
     echo "----------------------------------------------------------"
     echo "🎉 ¡Servicios iniciados con éxito!"
     echo "🌐 FastAPI Backend:   http://localhost:8000"
-    echo "🌐 PrimeFaces Visual: http://localhost:8080/dashboard.xhtml"
+    echo "🌐 PrimeFaces Visual: http://localhost:8080/Atalaia/login.xhtml"
     echo "📊 Monitorea la consola con: tail -f logs/backend_output.log o logs/frontend_output.log"
     echo "=========================================================="
 }
@@ -151,7 +151,7 @@ function showStatus() {
     if [ -f "$frontendPidFile" ]; then
         frontendPid=$(cat "$frontendPidFile")
         if kill -0 "$frontendPid" 2>/dev/null; then
-            echo "🟢 Frontend (Java):    ACTIVO (PID: $frontendPid) | http://localhost:8080/dashboard.xhtml"
+            echo "🟢 Frontend (Java):    ACTIVO (PID: $frontendPid) | http://localhost:8080/Atalaia/login.xhtml"
         else
             echo "🔴 Frontend (Java):    INACTIVO (PID muerto)"
         fi

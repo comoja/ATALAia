@@ -127,12 +127,12 @@ class GenericFVGBot:
                 continue
             
             # 2. Calcular niveles SMC
-            # --- FILTRO SEGURIDAD: Antigüedad del FVG por velas (Máx 40 velas) ---
+            # --- FILTRO SEGURIDAD: Antigüedad del FVG por velas (Máx 10 velas) ---
             fvgIdx = latest_fvg.get('idx', len(df) - 1)
             fvgAgeCandles = len(df) - 1 - fvgIdx
             
-            if fvgAgeCandles > 40:
-                logger.info(f"[{symbol}] {interval}: FVG demasiado antiguo ({fvgAgeCandles} velas > 40) - saltando")
+            if fvgAgeCandles > 10:
+                logger.info(f"[{symbol}] {interval}: FVG demasiado antiguo ({fvgAgeCandles} velas > 10) - saltando")
                 continue
 
             # --- Cálculo de Niveles Centralizado (Maura SMC) ---

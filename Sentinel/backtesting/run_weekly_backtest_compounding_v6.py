@@ -13,12 +13,14 @@ import os
 import pandas as pd
 import numpy as np
 import talib as ta
+import asyncio
 from datetime import datetime, timedelta
 from fpdf import FPDF
 
 sys.path.append("/Volumes/TimeMachine/ATALAia")
 from middleware.database import dbConnection
 from middleware.database import dbManager
+from middleware.utils.communications import alertaInmediata
 
 initialPortfolio = 418.19
 portfolioRiskPct = 0.01
@@ -76,6 +78,47 @@ def loadCandlesRange(symbol: str, startDate: str) -> pd.DataFrame:
     except Exception as e:
         print(f"❌ Error al cargar velas para {symbol}: {e}")
         return pd.DataFrame()
+
+def calculateLrc(closePrices: np.ndarray, period: int = 100, dev: float = 2.0):
+    n = len(closePrices)
+    center = np.full(n, np.nan)
+    upper = np.full(n, np.nan)
+    lower = np.full(n, np.nan)
+    slope = np.full(n, np.nan)
+    if n < period:
+        return center, upper, lower, slope
+    x = np.arange(period)
+    for i in range(period - 1, n):
+        y = closePrices[i - period + 1 : i + 1]
+        m, c = np.polyfit(x, y, 1)
+        predVal = m * (period - 1) + c
+        center[i] = predVal
+        slope[i] = m
+        yFit = m * x + c
+        residuals = y - yFit
+        stdDev = np.std(residuals)
+        upper[i] = predVal + (dev * stdDev)
+        lower[i] = predVal - (dev * stdDev)
+    return center, upper, lower, slope
+
+def checkDivergence(df: pd.DataFrame, rsiSeries: pd.Series, lookback: int = 5) -> dict:
+    divergences = {"bullish": False, "bearish": False}
+    if len(df) < lookback + 1:
+        return divergences
+    pricesLow = df['low'].tail(lookback)
+    pricesHigh = df['high'].tail(lookback)
+    rsiVals = rsiSeries.tail(lookback)
+    if pricesLow.iloc[-1] <= pricesLow.iloc[:-1].min():
+        minPriceIdx = pricesLow.iloc[:-1].idxmin()
+        if minPriceIdx in rsiVals.index:
+            if rsiVals.iloc[-1] > rsiVals.loc[minPriceIdx]:
+                divergences["bullish"] = True
+    if pricesHigh.iloc[-1] >= pricesHigh.iloc[:-1].max():
+        maxPriceIdx = pricesHigh.iloc[:-1].idxmax()
+        if maxPriceIdx in rsiVals.index:
+            if rsiVals.iloc[-1] < rsiVals.loc[maxPriceIdx]:
+                divergences["bearish"] = True
+    return divergences
 
 def runWeeklyPortfolioBacktestV6() -> None:
     print("==========================================================")
@@ -442,6 +485,215 @@ def runWeeklyPortfolioBacktestV6() -> None:
                 win = df15m['close'].iloc[idx] > df15m['open'].iloc[idx]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
 
+        # ── 15. REGRESIVOL (1H) ──
+        strategy = 'Regresivol'
+        if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 100:
+            df1h['rsi'] = ta.RSI(df1h['close'].values, timeperiod=14)
+            df1h['atr'] = ta.ATR(df1h['high'].values, df1h['low'].values, df1h['close'].values, timeperiod=14)
+            
+            closePrices = df1h['close'].values
+            centerChannel, upperChannel, lowerChannel, slopeChannel = calculateLrc(closePrices, period=100, dev=2.0)
+            df1h['lrcCenter'] = centerChannel
+            df1h['lrcUpper'] = upperChannel
+            df1h['lrcLower'] = lowerChannel
+            df1h['lrcSlope'] = slopeChannel
+            
+            # Calcular volumen promedio para el filtro de breakout
+            df1h['vol_avg20'] = df1h['volume'].rolling(window=20).mean()
+            
+            for idx in range(100, len1h):
+                t = df1h.index[idx]
+                
+                # Validar nulos
+                if pd.isna(df1h['lrcCenter'].iloc[idx]) or pd.isna(df1h['rsi'].iloc[idx]) or pd.isna(df1h['atr'].iloc[idx]):
+                    continue
+                
+                # Volume Breakout Protection
+                currentVolume = df1h['volume'].iloc[idx]
+                avgVolume = df1h['vol_avg20'].iloc[idx]
+                if avgVolume > 0 and currentVolume > 1.5 * avgVolume:
+                    continue
+                
+                currentClose = df1h['close'].iloc[idx]
+                currentHigh = df1h['high'].iloc[idx]
+                currentLow = df1h['low'].iloc[idx]
+                currentRsi = df1h['rsi'].iloc[idx]
+                currentAtr = df1h['atr'].iloc[idx]
+                
+                currentLrcUpper = df1h['lrcUpper'].iloc[idx]
+                currentLrcLower = df1h['lrcLower'].iloc[idx]
+                currentLrcSlope = df1h['lrcSlope'].iloc[idx]
+                
+                # Obtener sub-dataframe para divergencias
+                df_sub = df1h.iloc[idx-5:idx+1]
+                rsi_sub = df1h['rsi'].iloc[idx-5:idx+1]
+                divergences = checkDivergence(df_sub, rsi_sub, lookback=5)
+                
+                isTrendBullish = (currentLrcSlope > 0)
+                direction = None
+                
+                if currentClose < currentLrcLower and isTrendBullish:
+                    if currentRsi < 30 or divergences["bullish"]:
+                        direction = 'LARGO'
+                elif currentClose > currentLrcUpper and not isTrendBullish:
+                    if currentRsi > 70 or divergences["bearish"]:
+                        direction = 'CORTO'
+                        
+                if direction:
+                    # SL y TP estructural adaptativo
+                    sub_15 = df1h.iloc[max(0, idx-14):idx+1]
+                    swingLow = sub_15['low'].min()
+                    swingHigh = sub_15['high'].max()
+                    
+                    if direction == 'LARGO':
+                        stopLoss = min(currentLow - (1.5 * currentAtr), swingLow - (0.2 * currentAtr))
+                    else:
+                        stopLoss = max(currentHigh + (1.5 * currentAtr), swingHigh + (0.2 * currentAtr))
+                        
+                    slDist = abs(currentClose - stopLoss)
+                    if slDist <= 0:
+                        continue
+                        
+                    # R:R de 2.5
+                    takeProfit = currentClose + (slDist * 2.5) if direction == 'LARGO' else currentClose - (slDist * 2.5)
+                    
+                    # Evaluar resultado en velas de 5min posteriores
+                    df_post = df5m[df5m.index > t]
+                    win = None
+                    lastClose = None
+                    for t_p, row_p in df_post.iterrows():
+                        lastClose = row_p['close']
+                        if direction == 'LARGO':
+                            if row_p['low'] <= stopLoss:
+                                win = False
+                                break
+                            if row_p['high'] >= takeProfit:
+                                win = True
+                                break
+                        else:
+                            if row_p['high'] >= stopLoss:
+                                win = False
+                                break
+                            if row_p['low'] <= takeProfit:
+                                win = True
+                                break
+                    if win is None and lastClose is not None:
+                        win = (lastClose > currentClose) if direction == 'LARGO' else (lastClose < currentClose)
+                        
+                    if win is not None:
+                        allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 2.5 if win else -1.0, 'hour': t.hour})
+
+        # ── 16. QTREND (M15) ──
+        strategy = 'QTrend'
+        if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 30:
+            close = df15m['close'].values.astype(float)
+            high = df15m['high'].values.astype(float)
+            low = df15m['low'].values.astype(float)
+            
+            stAtr = ta.ATR(high, low, close, timeperiod=10)
+            stAtrSeries = pd.Series(stAtr).ffill().bfill().values
+            
+            upperBand = close + (3.0 * stAtrSeries)
+            lowerBand = close - (3.0 * stAtrSeries)
+            
+            stTrend = []
+            stTrail = []
+            
+            currentSt = 1
+            lastStTrail = lowerBand[0]
+            
+            for idxSt in range(len(close)):
+                if idxSt == 0:
+                    stTrend.append(1)
+                    stTrail.append(lowerBand[0])
+                    continue
+                    
+                if currentSt == 1:
+                    if close[idxSt] < lastStTrail:
+                        currentSt = -1
+                        lastStTrail = upperBand[idxSt]
+                    else:
+                        lastStTrail = max(lowerBand[idxSt], lastStTrail)
+                else:
+                    if close[idxSt] > lastStTrail:
+                        currentSt = 1
+                        lastStTrail = lowerBand[idxSt]
+                    else:
+                        lastStTrail = min(upperBand[idxSt], lastStTrail)
+                        
+                stTrend.append(currentSt)
+                stTrail.append(lastStTrail)
+                
+            ema9 = ta.EMA(close, timeperiod=9)
+            ema21 = ta.EMA(close, timeperiod=21)
+            ema9 = pd.Series(ema9).ffill().bfill().values
+            ema21 = pd.Series(ema21).ffill().bfill().values
+            
+            for idx in range(2, len15m):
+                t = df15m.index[idx]
+                
+                supertrendBullish = stTrend[idx] == 1
+                supertrendBearish = stTrend[idx] == -1
+                
+                qtrendBullish = ema9[idx] > ema21[idx]
+                qtrendBearish = ema9[idx] < ema21[idx]
+                
+                direction = None
+                
+                if supertrendBullish and qtrendBullish:
+                    if stTrend[idx-1] == -1 or ema9[idx-1] <= ema21[idx-1]:
+                        direction = 'LARGO'
+                elif supertrendBearish and qtrendBearish:
+                    if stTrend[idx-1] == 1 or ema9[idx-1] >= ema21[idx-1]:
+                        direction = 'CORTO'
+                        
+                if direction:
+                    currentPrice = float(close[idx])
+                    slPrice = float(stTrail[idx])
+                    slDist = abs(currentPrice - slPrice)
+                    
+                    if slDist <= 0:
+                        continue
+                        
+                    calculatedTp = currentPrice * (1.0 + 0.025) if direction == 'LARGO' else currentPrice * (1.0 - 0.025)
+                    
+                    from middleware.utils.alertBuilder import adjustTPForMinRR
+                    tpPrice = adjustTPForMinRR(currentPrice, slPrice, calculatedTp, direction, minRR=1.5)
+                    
+                    df_post = df5m[df5m.index > t]
+                    win = None
+                    lastClose = None
+                    for _, row_p in df_post.iterrows():
+                        lastClose = row_p['close']
+                        if direction == 'LARGO':
+                            if row_p['low'] <= slPrice:
+                                win = False
+                                break
+                            if row_p['high'] >= tpPrice:
+                                win = True
+                                break
+                        else:
+                            if row_p['high'] >= slPrice:
+                                win = False
+                                break
+                            if row_p['low'] <= tpPrice:
+                                win = True
+                                break
+                                
+                    if win is None and lastClose is not None:
+                        win = (lastClose > currentPrice) if direction == 'LARGO' else (lastClose < currentPrice)
+                        
+                    if win is not None:
+                        rrVal = round(abs(tpPrice - currentPrice) / slDist, 2)
+                        allTrades.append({
+                            'datetime': t, 
+                            'symbol': symbol, 
+                            'strategy': strategy, 
+                            'pnl_mult': rrVal if win else -1.0, 
+                            'hour': t.hour
+                        })
+
+
     dfRawTrades = pd.DataFrame(allTrades)
     if dfRawTrades.empty:
         print("⚠️ No se registraron trades en la V6 para ninguna combinación activa en la DB.")
@@ -509,6 +761,28 @@ def runWeeklyPortfolioBacktestV6() -> None:
     ).reset_index()
     dfStratPerf['Win_Rate_%'] = (dfStratPerf['Wins'] / dfStratPerf['Total_Trades']) * 100
 
+    # Garantizar que todas las estrategias habilitadas (incluso las de 0 trades o con PnL negativo) aparezcan en dfStratPerf
+    all_enabled_stats = []
+    for strat in enabledStrategies:
+        if not dfStratPerf.empty and strat in dfStratPerf['strategy'].values:
+            strat_row = dfStratPerf[dfStratPerf['strategy'] == strat].iloc[0]
+            all_enabled_stats.append({
+                'strategy': strat,
+                'Total_Trades': int(strat_row['Total_Trades']),
+                'Wins': int(strat_row['Wins']),
+                'Win_Rate_%': float(strat_row['Win_Rate_%']),
+                'PnL_Total': float(strat_row['PnL_Total'])
+            })
+        else:
+            all_enabled_stats.append({
+                'strategy': strat,
+                'Total_Trades': 0,
+                'Wins': 0,
+                'Win_Rate_%': 0.0,
+                'PnL_Total': 0.0
+            })
+    dfStratPerf = pd.DataFrame(all_enabled_stats)
+
     # Guardar CSVs de la versión V6
     basePath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/"
     dfCompiledTrades.to_csv(basePath + "backtest_weekly_trades_raw_v6.csv", index=False)
@@ -518,7 +792,37 @@ def runWeeklyPortfolioBacktestV6() -> None:
     print("✅ CSVs semanales de V6 generados correctamente.")
 
     # Generar Reporte PDF Semanal V6 Premium (Verde Esmeralda y Oro)
-    generateWeeklyReportPdfV6(dfCompiledTrades, dfComboPerf, dfStratPerf, portfolioBalance, activeSymbols, enabledStrategies, len(exclusions))
+    pdfPath = generateWeeklyReportPdfV6(dfCompiledTrades, dfComboPerf, dfStratPerf, portfolioBalance, activeSymbols, enabledStrategies, len(exclusions))
+
+    # Enviar reportes generados por Telegram a la cuenta ID 1
+    if pdfPath and os.path.exists(pdfPath):
+        try:
+            print("🚀 Despachando reportes a Telegram (Cuenta ID 1)...")
+            retornoTotal = ((portfolioBalance - initialPortfolio) / initialPortfolio) * 100
+            captionMsg = (
+                f"📊 <b>AUDITORÍA SEMANAL ESTRUCTURAL V6</b>\n\n"
+                f"💵 <b>Balance Compuesto Exponencial:</b> ${portfolioBalance:.2f} USD\n"
+                f"📈 <b>Retorno Compuesto:</b> ${portfolioBalance - initialPortfolio:+.2f} USD ({retornoTotal:+.1f}%)\n"
+                f"⚙️ <b>Estrategias Analizadas:</b> {len(enabledStrategies)} habilitadas en DB\n"
+                f"🚫 <b>Exclusiones Aplicadas:</b> {len(exclusions)} parejas de divisas bloqueadas\n\n"
+                f"Todo configurado en MySQL y listo para iniciar operaciones mañana temprano. 📈"
+            )
+            # Enviar el Reporte PDF
+            asyncio.run(alertaInmediata(1, captionMsg, prioridad=True, filePath=pdfPath))
+            
+            # Enviar los 3 CSVs detallados de forma secuencial
+            csvsToSend = [
+                ("backtest_weekly_trades_raw_v6.csv", "📝 Detalle de Trades Completos Semanales (V6)"),
+                ("backtest_weekly_combos_performance_v6.csv", "📊 Rendimiento Detallado por Combo Símbolo-Estrategia (V6)"),
+                ("backtest_weekly_strategies_performance_v6.csv", "⚙️ Rendimiento Consolidado por Estrategia Activa (V6)")
+            ]
+            for csvFile, csvCaption in csvsToSend:
+                fullCsvPath = os.path.join(basePath, csvFile)
+                if os.path.exists(fullCsvPath):
+                    asyncio.run(alertaInmediata(1, csvCaption, prioridad=False, filePath=fullCsvPath))
+            print("✅ Todos los archivos de reporte de la suite V6 enviados por Telegram.")
+        except Exception as e:
+            print(f"⚠️ Error al enviar archivos por Telegram: {e}")
 
 class WeeklyReportPdfV6(FPDF):
     def header(self) -> None:
@@ -699,13 +1003,15 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
 
         dateStr = datetime.now().strftime('%Y_%m_%d')
         pdfPath = f"/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/reporte_semanal_optimizacion_{dateStr}.pdf"
-        pdf.output(pdfPath, 'F')
+        pdf.output(name=pdfPath)
         print(f"✅ Reporte Semanal PDF generado en: {pdfPath}")
+        return pdfPath
 
     except Exception as e:
         print(f"❌ Error al generar reporte PDF semanal V6: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 if __name__ == '__main__':
     runWeeklyPortfolioBacktestV6()

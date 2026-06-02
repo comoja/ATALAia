@@ -12,7 +12,7 @@ export PYTHONPATH="/Volumes/TimeMachine/ATALAia"
 # Asegurar que existe el directorio de logs
 mkdir -p "/Volumes/TimeMachine/ATALAia/logs"
 
-# Ejecutar el orquestador de backtest maestro con la ruta absoluta del intérprete de Python
-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 /Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_weekly_backtest_compounding.py >> /Volumes/TimeMachine/ATALAia/logs/cron_maintenance.log 2>&1
+# Ejecutar el orquestador de backtest maestro V6 con la ruta absoluta del intérprete de Python
+/Library/Frameworks/Python.framework/Versions/3.14/bin/python3 /Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_weekly_backtest_compounding_v6.py >> /Volumes/TimeMachine/ATALAia/logs/cron_maintenance.log 2>&1
 
 echo "✅ Proceso de mantenimiento semanal finalizado correctamente a $(date)" >> /Volumes/TimeMachine/ATALAia/logs/cron_maintenance.log

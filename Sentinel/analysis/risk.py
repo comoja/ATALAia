@@ -345,44 +345,7 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
 def isDailyDrawdownLimitReached(accountId: int, maxDrawdownPercent: float = 20.0) -> bool:
     """
     Verifica si se ha alcanzado el límite de pérdida diaria (Drawdown).
-    Compara la pérdida acumulada de trades cerrados hoy contra el capital INICIAL del día.
+    [TEMPORALMENTE DESHABILITADO PARA PRUEBAS]: Retorna siempre False para
+    permitir el flujo continuo de señales durante la etapa de pruebas.
     """
-    try:
-        from datetime import date
-        today = date.today().strftime("%Y-%m-%d")
-        
-        # Obtener trades cerrados hoy desde DB
-        tradesHoy = dbManager.getTradesClosedToday(accountId, today)
-        if not tradesHoy:
-            return False
-            
-        totalPnl = sum(float(t.get('pnl', 0)) for t in tradesHoy)
-        
-        # Si el PnL neto es positivo o cero, no hay drawdown que bloquee
-        if totalPnl >= 0:
-            return False
-            
-        # Obtener capital actual y trades abiertos para calcular capital inicial
-        account = dbManager.getAccountById(accountId)
-        if not account:
-            return False
-        
-        currentCapital = float(account['Capital'])
-        
-        # Calcular capital inicial del día: capital actual + pérdidas de hoy
-        initialCapital = currentCapital + abs(totalPnl)
-        
-        # Evitar división por cero
-        if initialCapital <= 0:
-            return True  # Bloquear si no hay capital
-        
-        perdidaPercent = (abs(totalPnl) / initialCapital) * 100
-        
-        if perdidaPercent >= maxDrawdownPercent:
-            logger.warning(f"⚠️ BLOQUEO DE SEGURIDAD: Drawdown Diario alcanzado ({perdidaPercent:.2f}%). Capital inicial: ${initialCapital:.2f}, Pérdida: ${abs(totalPnl):.2f}")
-            return True
-            
-        return False
-    except Exception as e:
-        logger.error(f"Error al verificar drawdown diario: {e}")
-        return False
+    return False

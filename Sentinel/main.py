@@ -33,6 +33,8 @@ from Sentinel.core.FVGDiario import FVGDiarioBot
 from Sentinel.core.SpeedBot import SpeedBot
 from Sentinel.core.BreakoutNY import BreakoutNYBot
 from Sentinel.core.Ichimoku import IchimokuBot
+from Sentinel.core.Regresivol import RegresivolBot
+from Sentinel.core.QTrend import QTrendBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
@@ -233,7 +235,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, regresivol_bot, qtrend_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
@@ -255,6 +257,8 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         "SpeedBot",
         "BreakoutNY",
         "Ichimoku",
+        "Regresivol",
+        "QTrend",
     ])
 
     # Cargar exclusiones dinámicas de symbolNotStrategia de la base de datos
@@ -451,6 +455,10 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             
         if _is_strategy_enabled(strategy_configs, "Ichimoku") and (symbol, "Ichimoku") not in exclusions:
             tasks.append(ichimoku_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "Regresivol") and (symbol, "Regresivol") not in exclusions:
+            tasks.append(regresivol_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "QTrend") and (symbol, "QTrend") not in exclusions:
+            tasks.append(qtrend_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
 
 
@@ -563,6 +571,8 @@ async def main():
     speed_bot = SpeedBot(intervals=['5min'])
     breakout_ny_bot = BreakoutNYBot()
     ichimoku_bot = IchimokuBot()
+    regresivol_bot = RegresivolBot()
+    qtrend_bot = QTrendBot()
     
     _weekly_trends_loaded_today = None  # Track fecha de última carga
     _ml_retrained_today = None  # Track fecha de último retraining
@@ -630,7 +640,7 @@ async def main():
                 await run_sequential_analysis(
                     engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
                     ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
-                    generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, symbolsToScan, 
+                    generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, regresivol_bot, qtrend_bot, symbolsToScan, 
                     apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
                 )
                 

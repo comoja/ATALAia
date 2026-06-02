@@ -68,7 +68,7 @@ public class DashboardBean implements Serializable {
     private String arbitrageSignal = "Sin Señal";
     private String arbitrageType = "NEUTRAL";
 
-    // JSON String del historial para alimentar ApexCharts
+    // JSON String del historial para alimentar Chart.js
     private String historyJson = "[]";
     private String analysisResult;
 
@@ -291,6 +291,56 @@ public class DashboardBean implements Serializable {
         } catch (Exception e) {
             log.error("Error al calibrar con el backend holográfico", e);
             analysisResult = "Error conectando al engine de Python: " + e.getMessage();
+        }
+    }
+
+    public void optimizeCalibration() {
+        if (selectedPair == null || selectedPair.isEmpty()) {
+            analysisResult = "Por favor, seleccione un par válido.";
+            return;
+        }
+
+        try {
+            log.info("Optimizando parámetros del ciclo de ratio sintético: {} / {}...", selectedPair, selectedPair2);
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+
+            String url = String.format(
+                    "%s/api/v1/optimize/ratio/%s?pairB=%s&tf=%s&days=%d",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
+                    timeframe, historyDays);
+
+            log.info("Llamando a FastAPI para optimización: {}", url);
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr == null || responseStr.isEmpty()) {
+                responseStr = "{\"success\": false, \"error\": \"Respuesta nula del servidor.\"}";
+            }
+
+            JsonNode rootNode = mapper.readTree(responseStr);
+            if (rootNode.has("success") && rootNode.get("success").asBoolean()) {
+                this.amplitude = rootNode.get("amplitude").asDouble();
+                this.freq = rootNode.get("freq").asDouble();
+                this.phase = rootNode.get("phase").asDouble();
+                this.offset = rootNode.get("offset").asDouble();
+
+                log.info("Parámetros optimizados aplicados: Amp={}, Freq={}, Phase={}, Offset={}",
+                        amplitude, freq, phase, offset);
+
+                // Recalcular análisis con los parámetros optimizados
+                analyzePair();
+                
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Optimización Exitosa", "Calibración óptima de ciclo calculada y aplicada."));
+            } else {
+                analysisResult = "Fallo en optimización: " +
+                        (rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido");
+            }
+        } catch (Exception e) {
+            log.error("Error al optimizar la calibración con el backend", e);
+            analysisResult = "Error conectando al engine de optimización de Python: " + e.getMessage();
         }
     }
 

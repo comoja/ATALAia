@@ -3,6 +3,12 @@
 
 # cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia
 requests
+httpx
+finnhub-python
+apscheduler
+python-telegram-bot
+sqlalchemy
+fpdf2
 pandas
 mysql-connector-python
 pytz
@@ -11,10 +17,16 @@ scikit-learn
 TA-Lib
 python-dotenv
 
+
+
+
+
+
+
 #python3 -m pip install requests pandas TA-Lib scikit-learn mysql-connector-python pytz
 #pm2 start sentinel.py --name "sentinelBot" --interpreter python3 
 #pm2 start precios.py --name "preciosBot" --interpreter python3 --cron-restart "12 16 * * *" --no-autorestart
 
 
-/Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/.venv/bin/activate && cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/middlend && python main.py
+# /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/.venv/bin/activate && cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/middlend && python main.py
 

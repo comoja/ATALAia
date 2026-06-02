@@ -10,6 +10,7 @@ from urllib.parse import unquote
 import logging
 from middleware.database.dbManager import getCandlesFromDb
 from backend.services.correlation_engine import engine
+from backend.services.optimizer_service import optimizer
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, RatioSymbol
 import pandas as pd
@@ -251,17 +252,106 @@ async def get_ratio_correlation(
                             "isProjection": True
                         }
                         history_proyeccion.append(item_futuro)
-                        
                     resultado["history"] = history_real + history_proyeccion
                 else:
                     resultado["history"] = history_real
 
         return resultado
-
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error calculando ratio {pairA}/{pairB}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/optimize/ratio/{pairA:path}")
+async def get_ratio_optimization(
+    pairA: str,
+    pairB: str,
+    tf: str = "1h",
+    days: int = 365
+) -> Dict[str, Any]:
+    """
+    Endpoint de optimización cuantitativa para encontrar los parámetros senoidales
+    que maximizan las ganancias de arbitraje del ratio sintético A/B.
+    """
+    logger.info(f"Optimización de ratio solicitada: {pairA} / {pairB}")
+    pairA = unquote(pairA)
+    pairB = unquote(pairB)
+
+    try:
+        # Usar el mismo calentamiento que en el cálculo normal del ratio
+        candle_limit = 2000000 if days == 0 else ((days + 30) * 288)
+
+        df_a = await getCandlesFromDb(symbol=pairA, timeframe="5min", limit=candle_limit)
+        df_b = await getCandlesFromDb(symbol=pairB, timeframe="5min", limit=candle_limit)
+
+        if df_a.empty or df_b.empty:
+            raise HTTPException(status_code=404, detail="Datos de velas no encontrados en la base de datos.")
+
+        # Lógica de Agrupación idéntica a routes.py
+        resample_rule = 'D'
+        if tf == "1month":
+            resample_rule = 'ME'
+        elif tf == "1week":
+            resample_rule = 'W'
+        elif tf == "1h":
+            resample_rule = '1H'
+        elif tf == "30m":
+            resample_rule = '30T'
+        elif tf == "15m":
+            resample_rule = '15T'
+        elif tf == "5m":
+            resample_rule = None
+
+        if resample_rule:
+            df_a_daily = df_a.resample(resample_rule).agg({'close': 'last'}).dropna()
+            df_b_daily = df_b.resample(resample_rule).agg({'close': 'last'}).dropna()
+        else:
+            df_a_daily = df_a
+            df_b_daily = df_b
+
+        # Calcular la serie del ratio sintético en común
+        df_ratio = engine.compute_ratio_series(df_a_daily, df_b_daily)
+        
+        # Obtener log returns, volatilidad y SMA20 usando el engine
+        df_ratio = engine.calculate_log_returns(df_ratio, 'price')
+        df_ratio = engine.calculate_volatility(df_ratio, 7)
+        df_ratio = engine.calculate_volatility(df_ratio, 60)
+        df_ratio = engine.calculate_moving_average(df_ratio, 'price', 20)
+        df_ratio = df_ratio.dropna()
+
+        if df_ratio.empty:
+            raise HTTPException(status_code=400, detail="Historial insuficiente tras aplicar ventanas móviles.")
+
+        # Recortar la serie a la ventana histórica especificada
+        points_to_keep = days
+        if tf == "1month":
+            points_to_keep = max(1, days // 30)
+        elif tf == "1week":
+            points_to_keep = max(1, days // 7)
+        elif tf == "1h":
+            points_to_keep = days * 24
+        elif tf == "30m":
+            points_to_keep = days * 48
+        elif tf == "15m":
+            points_to_keep = days * 96
+        elif tf == "5m":
+            points_to_keep = days * 288
+
+        df_target = df_ratio.iloc[-points_to_keep:] if days > 0 else df_ratio
+
+        price_list = df_target['price'].tolist()
+        sma20_list = df_target['sma_20'].tolist()
+
+        # Invocar al optimizador vectorizado
+        optimal_params = optimizer.optimizeCycle(price_list, sma20_list)
+        optimal_params["success"] = True
+
+        return optimal_params
+
+    except Exception as e:
+        logger.error(f"Error durante la optimización del ratio: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

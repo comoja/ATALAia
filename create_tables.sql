@@ -107,9 +107,40 @@ CREATE TABLE IF NOT EXISTS Cuenta (
     riesgoPorOperacion DOUBLE DEFAULT 0.01,
     apiKey VARCHAR(255) DEFAULT NULL,
     apiSecret VARCHAR(255) DEFAULT NULL,
-    estrategias VARCHAR(500) DEFAULT 'ImbalanceNY,ImbalanceLDN,SMA20_200,DEMA20_200,Sniper,SCLPNG,SesgoBiasHTF,SilverBullet,Patron4h,GenericFVG,EMA20200,FVGDiario,ImbalancePMNY,Ichimoku',
     PRIMARY KEY (idCuenta)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 8b. Tabla de brokers soportados
+CREATE TABLE IF NOT EXISTS broker (
+    idBroker INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL UNIQUE,
+    activo TINYINT(1) NOT NULL DEFAULT 1,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 8c. Mapeo y credenciales de broker por cuenta (Soporte Mirroring)
+CREATE TABLE IF NOT EXISTS BrokerCuenta (
+    idBrokerCuenta INT AUTO_INCREMENT PRIMARY KEY,
+    idCuenta INT NOT NULL,
+    idBroker INT NOT NULL,
+    tipoConexion ENUM('PRIMARIA', 'ESPEJO', 'PUENTE') NOT NULL DEFAULT 'PRIMARIA',
+    loginUsuario VARCHAR(150) DEFAULT NULL,
+    tokenAcceso VARCHAR(255) DEFAULT NULL,
+    activo TINYINT(1) NOT NULL DEFAULT 1,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (idCuenta) REFERENCES Cuenta(idCuenta) ON DELETE CASCADE,
+    FOREIGN KEY (idBroker) REFERENCES broker(idBroker) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- 9. Tabla intermedia de relación Cuenta-Estrategia
+CREATE TABLE IF NOT EXISTS CuentaEstrategia (
+    idCuenta INT NOT NULL,
+    strategy VARCHAR(50) NOT NULL,
+    PRIMARY KEY (idCuenta, strategy),
+    FOREIGN KEY (idCuenta) REFERENCES Cuenta(idCuenta) ON DELETE CASCADE,
+    FOREIGN KEY (strategy) REFERENCES strategyConfig(strategy) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 10. Configuración de estrategias
 CREATE TABLE IF NOT EXISTS strategyConfig (
@@ -162,6 +193,14 @@ INSERT INTO RatioSymbol (symbol, Activo) VALUES
     ("USD/CHF",1),("GBP/CAD",1)
 ON DUPLICATE KEY UPDATE Activo = 1;
 
+-- Insertar brokers iniciales
+INSERT INTO broker (nombre, activo) VALUES 
+    ("Oanda", 1),
+    ("Forex.com", 1),
+    ("MetaTrader 5", 1)
+ON DUPLICATE KEY UPDATE activo = VALUES(activo);
+
+
 -- Insertar estrategias por defecto
 INSERT INTO strategyConfig (nombre, enabled, min_rr, min_confidence) VALUES 
     ('EMA20200', 1, 1.5, 70),
@@ -179,3 +218,80 @@ INSERT INTO strategyConfig (nombre, enabled, min_rr, min_confidence) VALUES
     ('FVGDiario', 1, 1.5, 70),
     ('Ichimoku', 1, 1.5, 75)
 ON DUPLICATE KEY UPDATE enabled = 1;
+
+-- ============================================
+-- TABLAS DE SEGURIDAD INSTITUCIONAL (ATALAia)
+-- ============================================
+
+-- 13. Tabla de Roles
+CREATE TABLE IF NOT EXISTS Role (
+    idRole INT AUTO_INCREMENT PRIMARY KEY,
+    nameRole VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 14. Tabla de Usuarios
+CREATE TABLE IF NOT EXISTS Usuario (
+    idUsuario INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    passwordHash VARCHAR(255) NOT NULL,
+    email VARCHAR(100),
+    idRole INT NOT NULL,
+    status TINYINT(1) DEFAULT 1,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (idRole) REFERENCES Role(idRole)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 15. Tabla de Menús Dinámicos
+CREATE TABLE IF NOT EXISTS Menu (
+    idMenu INT AUTO_INCREMENT PRIMARY KEY,
+    nameMenu VARCHAR(50) NOT NULL,
+    url VARCHAR(255) NOT NULL,
+    icon VARCHAR(50),
+    parentId INT DEFAULT NULL,
+    FOREIGN KEY (parentId) REFERENCES Menu(idMenu) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 16. Tabla de Relación Rol-Menú (RoleMenu)
+CREATE TABLE IF NOT EXISTS RoleMenu (
+    idRole INT NOT NULL,
+    idMenu INT NOT NULL,
+    PRIMARY KEY (idRole, idMenu),
+    FOREIGN KEY (idRole) REFERENCES Role(idRole) ON DELETE CASCADE,
+    FOREIGN KEY (idMenu) REFERENCES Menu(idMenu) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- DATOS SEMILLA DE SEGURIDAD
+-- ============================================
+
+-- Insertar Roles Institucionales
+INSERT INTO Role (idRole, nameRole, description) VALUES 
+(1, 'Administrador', 'Control total de parametrizaciones y visualización del sistema ATALAia.'),
+(2, 'Analista', 'Acceso a visualización de ratios, dashboard y reportes avanzados.'),
+(3, 'Trader', 'Acceso limitado a dashboard de ratios y monitoreo intradiario.')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+-- Insertar Menús Dinámicos
+INSERT INTO Menu (idMenu, nameMenu, url, icon, parentId) VALUES 
+(1, 'Dashboard', 'dashboard.xhtml', 'pi pi-home', NULL),
+(2, 'Reportes', 'reportes.xhtml', 'pi pi-chart-bar', NULL),
+(3, 'Mantenimiento', 'mantenimiento.xhtml', 'pi pi-cog', NULL)
+ON DUPLICATE KEY UPDATE nameMenu = VALUES(nameMenu), url = VALUES(url), icon = VALUES(icon);
+
+-- Relacionar Roles y Menús
+INSERT INTO RoleMenu (idRole, idMenu) VALUES 
+(1, 1), (1, 2), (1, 3),
+(2, 1), (2, 2),
+(3, 1)
+ON DUPLICATE KEY UPDATE idRole = idRole;
+
+-- Insertar Usuarios Semilla (Contraseñas hasheadas con SHA-256)
+-- admin: 'admin123'
+-- analista: 'analista123'
+-- trader: 'trader123'
+INSERT INTO Usuario (username, passwordHash, email, idRole, status) VALUES 
+('admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'admin@atalaia.com', 1, 1),
+('analista', '9cd268397030111adacb4268e51f0dbbb0dbc8c59eb34f8f7d55f72d4c888349', 'analista@atalaia.com', 2, 1),
+('trader', '8f851d723d5fba36294b98968ae64119dbd1f5260900c05c424baf465e73e762', 'trader@atalaia.com', 3, 1)
+ON DUPLICATE KEY UPDATE passwordHash = VALUES(passwordHash), email = VALUES(email), idRole = VALUES(idRole), status = VALUES(status);

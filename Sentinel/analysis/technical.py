@@ -636,16 +636,23 @@ def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
     El gap se considera INVÁLIDO solo cuando una vela CIERRA dentro del espacio del FVG
     superando el punto medio (50% del gap).
     """
-    gap_mid = fvg.get('mid', (fvg['bottom'] + fvg['top']) / 2)
+    gapMid = fvg.get('mid')
+    if gapMid is None:
+        bottom = fvg.get('bottom') or fvg.get('start')
+        top = fvg.get('top') or fvg.get('end')
+        if bottom is not None and top is not None:
+            gapMid = (bottom + top) / 2
+        else:
+            return False
 
     for i in range(fvg_start_idx + 1, len(df)):
-        candle_close = float(df['close'].iloc[i])
+        candleClose = float(df['close'].iloc[i])
 
         if fvg['type'] == 'Bullish_FVG':
-            if candle_close <= gap_mid:
+            if candleClose <= gapMid:
                 return True
         else:
-            if candle_close >= gap_mid:
+            if candleClose >= gapMid:
                 return True
 
     return False
@@ -1171,7 +1178,7 @@ def check_tp_exhaustion(df: pd.DataFrame, vela_origen_idx: int, entry: float, tp
         return (True, 0.0, f"Error: {e}")
 
 
-def check_signal_health(entry: float, tp: float, sl: float, direction: str, current_price: float, threshold: float = 0.65, candle_time: str = "") -> tuple:
+def check_signal_health(entry: float, tp: float, sl: float, direction: str, current_price: float, threshold: float = 0.65, candle_time: str = "", **kwargs) -> tuple:
     """
     Verifica la salud de una señal potencial:
     1. Si el precio ya cruzó el SL (se acercó demasiado al SL)
@@ -1190,6 +1197,7 @@ def check_signal_health(entry: float, tp: float, sl: float, direction: str, curr
         (is_valid, progress_pct, message)
     """
     logger = logging.getLogger("sentinel")
+    candle_time = kwargs.get("candleTime", candle_time)
     time_prefix = f"[{candle_time}] " if candle_time else ""
     
     try:
@@ -1257,3 +1265,56 @@ def check_rsi_momentum(
             return False, f"agotamiento bajista absoluto (RSI={rsi_val:.1f} <= {extreme_short})"
             
     return True, ""
+
+def calculateAtrStop(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> tuple:
+    """
+    Calcula de forma centralizada la banda de parada y tendencia del ATR Stop (SuperTrend).
+    
+    :param df: pd.DataFrame con columnas ['high', 'low', 'close']
+    :param period: Periodo de cálculo del ATR (volatilidad)
+    :param multiplier: Multiplicador del ATR para definir la distancia de la banda
+    :return: (stTrend, stTrail)
+             - stTrend: Lista con la tendencia (1 para Alcista, -1 para Bajista)
+             - stTrail: Lista con el nivel exacto de precio del Trailing Stop
+    """
+    close = df['close'].values.astype(float)
+    high = df['high'].values.astype(float)
+    low = df['low'].values.astype(float)
+    
+    # Calcular el ATR de forma consistente con talib
+    stAtr = ta.ATR(high, low, close, timeperiod=period)
+    stAtrSeries = pd.Series(stAtr).ffill().bfill().values
+    
+    upperBand = close + (multiplier * stAtrSeries)
+    lowerBand = close - (multiplier * stAtrSeries)
+    
+    stTrend = []
+    stTrail = []
+    
+    currentSt = 1
+    lastStTrail = lowerBand[0]
+    
+    for i in range(len(close)):
+        if i == 0:
+            stTrend.append(1)
+            stTrail.append(lowerBand[0])
+            continue
+            
+        if currentSt == 1:
+            if close[i] < lastStTrail:
+                currentSt = -1  # Cambio a tendencia bajista (Corto)
+                lastStTrail = upperBand[i]
+            else:
+                lastStTrail = max(lowerBand[i], lastStTrail)
+        else:
+            if close[i] > lastStTrail:
+                currentSt = 1   # Cambio a tendencia alcista (Largo)
+                lastStTrail = lowerBand[i]
+            else:
+                lastStTrail = min(upperBand[i], lastStTrail)
+                
+        stTrend.append(currentSt)
+        stTrail.append(lastStTrail)
+        
+    return stTrend, stTrail
+
