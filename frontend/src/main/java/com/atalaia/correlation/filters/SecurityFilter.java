@@ -33,6 +33,23 @@ public class SecurityFilter implements Filter {
 
         log.debug("Evaluando petición: {}", relativeUri);
 
+        // Redirección inteligente de la ruta raíz (/) para evitar 404 Whitelabel Error
+        if (relativeUri.equals("/")) {
+            HttpSession session = httpRequest.getSession(false);
+            SecurityBean securityBean = null;
+            if (session != null) {
+                securityBean = (SecurityBean) session.getAttribute("securityBean");
+            }
+            if (securityBean != null && securityBean.isLoggedIn()) {
+                log.info("Redirección inteligente raíz (/): Usuario autenticado. Enviando a dashboard.xhtml");
+                httpResponse.sendRedirect(contextPath + "/dashboard.xhtml");
+            } else {
+                log.info("Redirección inteligente raíz (/): Usuario no autenticado. Enviando a login.xhtml");
+                httpResponse.sendRedirect(contextPath + "/login.xhtml");
+            }
+            return;
+        }
+
         // 1. Permitir acceso a recursos estáticos (CSS, JS, imágenes de PrimeFaces, etc.)
         boolean isStaticResource = relativeUri.contains("/javax.faces.resource/") ||
                                    relativeUri.contains("/resources/") ||
@@ -44,7 +61,6 @@ public class SecurityFilter implements Filter {
 
         // 2. Permitir acceso a la página de login
         boolean isLoginPage = relativeUri.equals("/login.xhtml") || 
-                              relativeUri.equals("/") || 
                               relativeUri.equals("/login");
 
         // Si es recurso estático o página de login, continuar sin evaluar autenticación

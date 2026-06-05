@@ -20,6 +20,7 @@ logger = logging.getLogger("sentinel")
 
 class RegresivolBot:
     def __init__(self):
+        self._signals_sent = {}
         logger.info("Bot RegressiVol Mean Reversion (LRC + RSI) iniciado")
 
     def rsi(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -171,18 +172,28 @@ class RegresivolBot:
         # Si la pendiente es negativa (bajista), bloqueamos Longs y solo permitimos Shorts.
         isTrendBullish = (currentLrcSlope > 0)
 
-        # 3. Evaluar condiciones de entrada con confluencia del filtro de tendencia
+        # Impulse MACD (Filtro de giro de momentum para evitar entrar contra un impulso fuerte)
+        currentImpulse = df["impulseMacd"].iloc[-1] if "impulseMacd" in df.columns else 0.0
+        prevImpulse = df["impulseMacd"].iloc[-2] if "impulseMacd" in df.columns else 0.0
+        currentSignal = df["impulseSignal"].iloc[-1] if "impulseSignal" in df.columns else 0.0
+        prevSignal = df["impulseSignal"].iloc[-2] if "impulseSignal" in df.columns else 0.0
+
+        # Detectar giros/cambios en el Impulse MACD (cruce estricto para evitar entradas prematuras)
+        impulseGiroLong = (currentImpulse > currentSignal) and (prevImpulse <= prevSignal)
+        impulseGiroShort = (currentImpulse < currentSignal) and (prevImpulse >= prevSignal)
+
+        # 3. Evaluar condiciones de entrada con confluencia del filtro de tendencia e Impulse MACD
         # Configuración para COMPRA (Long Trigger)
         if currentClose < currentLrcLower and isTrendBullish:
-            if currentRsi < 30 or divergences["bullish"]:
+            if (currentRsi < 30 or divergences["bullish"]) and impulseGiroLong:
                 direction = "LARGO"
-                setup = "LRC Oversold Buy (Trend Confirmed)"
+                setup = "LRC Oversold Buy (Impulse Confirmed)"
 
         # Configuración para VENTA (Short Trigger)
         elif currentClose > currentLrcUpper and not isTrendBullish:
-            if currentRsi > 70 or divergences["bearish"]:
+            if (currentRsi > 70 or divergences["bearish"]) and impulseGiroShort:
                 direction = "CORTO"
-                setup = "LRC Overbought Sell (Trend Confirmed)"
+                setup = "LRC Overbought Sell (Impulse Confirmed)"
 
         if not direction:
             return None
@@ -228,6 +239,12 @@ class RegresivolBot:
         lastV = get_last_closed_candle(datetime.now(ZoneInfo(TIMEZONE)), 60, df=df)
         candleTime = (lastV.name if hasattr(lastV, 'name') else lastV).strftime("%Y-%m-%d %H:%M:%S")
 
+        # Deduplicación por vela para evitar re-entradas rápidas en caso de tocar SL
+        sigKey = f"{symbol}_{candleTime}"
+        if sigKey in self._signals_sent:
+            logger.info(f"[{symbol}] Regresivol: Señal ya emitida para la vela {candleTime} — omitiendo duplicado.")
+            return None
+
         # Chequeo de salud de la señal
         isHealth, _, healthMsg = check_signal_health(currentClose, tpPrice, slPrice, direction, currentClose, threshold=0.65, candleTime=candleTime)
         if not isHealth:
@@ -261,6 +278,7 @@ class RegresivolBot:
         # Se calcula la línea media central del LRC como Break Even para proteger capital
         beTrigger = currentLrcCenter
 
+        self._signals_sent[sigKey] = True
         logger.info(f"[{symbol}] ¡Señal de Arbitraje RegressiVol Optimizada EN ZONA! {direction} - Entrada: {currentClose}, SL: {slPrice}, TP: {tpPrice}")
 
         return Signal(

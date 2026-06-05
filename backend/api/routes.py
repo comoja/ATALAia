@@ -117,8 +117,15 @@ async def get_ratio_correlation(
     pairB = unquote(pairB)
 
     try:
-        # Asegurar un calentamiento (warm-up) de al menos 30 días para calcular los indicadores (como SMA20) sin fallar el mínimo de 20 filas
-        candle_limit = 2000000 if days == 0 else ((days + 30) * 288)
+        # Asegurar suficientes datos para el cálculo (mínimo 20 velas tras agrupación)
+        min_days_required = 0
+        if tf == "1month":
+            min_days_required = 20 * 30
+        elif tf == "1week":
+            min_days_required = 20 * 7
+            
+        days_to_load = max(days, min_days_required) if days > 0 else 0
+        candle_limit = 2000000 if days_to_load == 0 else ((days_to_load + 30) * 288)
 
         # Cargar todo el historial posible según el request
         df_a = await getCandlesFromDb(symbol=pairA, timeframe="5min", limit=candle_limit)
@@ -136,17 +143,22 @@ async def get_ratio_correlation(
         elif tf == "1week":
             resample_rule = 'W'   # Weekly
         elif tf == "1h":
-            resample_rule = '1H'
+            resample_rule = '1h'
         elif tf == "30m":
-            resample_rule = '30T'
+            resample_rule = '30min'
         elif tf == "15m":
-            resample_rule = '15T'
+            resample_rule = '15min'
         elif tf == "5m":
             resample_rule = None
 
         if resample_rule:
             df_a_daily = df_a.resample(resample_rule).agg({'close': 'last'}).dropna()
             df_b_daily = df_b.resample(resample_rule).agg({'close': 'last'}).dropna()
+            # Omitir la última vela incompleta (en desarrollo) para trabajar con velas terminadas
+            if len(df_a_daily) > 1:
+                df_a_daily = df_a_daily.iloc[:-1]
+            if len(df_b_daily) > 1:
+                df_b_daily = df_b_daily.iloc[:-1]
         else:
             df_a_daily = df_a
             df_b_daily = df_b
@@ -185,9 +197,9 @@ async def get_ratio_correlation(
             if days > 0 and "history" in resultado:
                 points_to_keep = days
                 if tf == "1month":
-                    points_to_keep = max(1, days // 30)
+                    points_to_keep = max(1, (days + 29) // 30)
                 elif tf == "1week":
-                    points_to_keep = max(1, days // 7)
+                    points_to_keep = max(1, (days + 6) // 7)
                 elif tf == "1h":
                     points_to_keep = days * 24
                 elif tf == "30m":
@@ -281,7 +293,14 @@ async def get_ratio_optimization(
 
     try:
         # Usar el mismo calentamiento que en el cálculo normal del ratio
-        candle_limit = 2000000 if days == 0 else ((days + 30) * 288)
+        min_days_required = 0
+        if tf == "1month":
+            min_days_required = 20 * 30
+        elif tf == "1week":
+            min_days_required = 20 * 7
+            
+        days_to_load = max(days, min_days_required) if days > 0 else 0
+        candle_limit = 2000000 if days_to_load == 0 else ((days_to_load + 30) * 288)
 
         df_a = await getCandlesFromDb(symbol=pairA, timeframe="5min", limit=candle_limit)
         df_b = await getCandlesFromDb(symbol=pairB, timeframe="5min", limit=candle_limit)
@@ -296,17 +315,22 @@ async def get_ratio_optimization(
         elif tf == "1week":
             resample_rule = 'W'
         elif tf == "1h":
-            resample_rule = '1H'
+            resample_rule = '1h'
         elif tf == "30m":
-            resample_rule = '30T'
+            resample_rule = '30min'
         elif tf == "15m":
-            resample_rule = '15T'
+            resample_rule = '15min'
         elif tf == "5m":
             resample_rule = None
 
         if resample_rule:
             df_a_daily = df_a.resample(resample_rule).agg({'close': 'last'}).dropna()
             df_b_daily = df_b.resample(resample_rule).agg({'close': 'last'}).dropna()
+            # Omitir la última vela incompleta (en desarrollo) para trabajar con velas terminadas
+            if len(df_a_daily) > 1:
+                df_a_daily = df_a_daily.iloc[:-1]
+            if len(df_b_daily) > 1:
+                df_b_daily = df_b_daily.iloc[:-1]
         else:
             df_a_daily = df_a
             df_b_daily = df_b
@@ -327,9 +351,9 @@ async def get_ratio_optimization(
         # Recortar la serie a la ventana histórica especificada
         points_to_keep = days
         if tf == "1month":
-            points_to_keep = max(1, days // 30)
+            points_to_keep = max(1, (days + 29) // 30)
         elif tf == "1week":
-            points_to_keep = max(1, days // 7)
+            points_to_keep = max(1, (days + 6) // 7)
         elif tf == "1h":
             points_to_keep = days * 24
         elif tf == "30m":
@@ -381,7 +405,10 @@ async def get_correlations_for_base(base_pair: str, db: Session = Depends(get_db
                 df = await getCandlesFromDb(symbol=p.symbol, timeframe="5min", limit=5000)
                 if not df.empty:
                     # Agrupar por hora para estabilidad y velocidad
-                    df_hourly = df.resample('1H').agg({'close': 'last'}).dropna()
+                    df_hourly = df.resample('1h').agg({'close': 'last'}).dropna()
+                    # Omitir la última vela incompleta
+                    if len(df_hourly) > 1:
+                        df_hourly = df_hourly.iloc[:-1]
                     series[p.symbol] = df_hourly['close']
             except Exception as e:
                 logger.error(f"Error cargando serie temporal para correlación de {p.symbol}: {e}")
@@ -426,4 +453,112 @@ async def get_correlations_for_base(base_pair: str, db: Session = Depends(get_db
     except Exception as e:
         logger.error(f"Error calculando matriz de correlaciones: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from pydantic import BaseModel, Field
+
+class TradingViewSignal(BaseModel):
+    strategy: str = Field(..., description="Nombre de la estrategia, ej: Sniper")
+    symbol: str = Field(..., description="Símbolo del par, ej: EUR/USD")
+    direction: str = Field(..., description="Dirección: COMPRA/LARGO o VENTA/CORTO")
+    entryPrice: float = Field(..., description="Precio de entrada")
+    stopLoss: float = Field(..., description="Precio de Stop Loss")
+    takeProfit: float = Field(..., description="Precio de Take Profit")
+    size: float = Field(default=0.0, description="Tamaño del lote/unidades")
+    confidence: float = Field(default=80.0, description="Nivel de confianza en %")
+    setup: str = Field(default="TradingView Alert", description="Nombre del setup")
+    is_adjustment: bool = Field(default=False, description="Indica si es un ajuste de niveles")
+    idCuenta: int = Field(default=2, description="ID de la cuenta destino")
+
+@router.post("/webhook/tradingview")
+async def receive_tradingview_signal(payload: TradingViewSignal) -> Dict[str, Any]:
+    logger.info(f"Recibida señal de TradingView: {payload}")
+    
+    from middleware.database import dbManager
+    from middleware.execution.broker_gateway import gateway
+    from middleware.utils.alertBuilder import getPipMultiplier
+    import datetime
+    
+    # 1. Obtener la cuenta desde la base de datos
+    accounts = dbManager.getAccount(payload.idCuenta)
+    if not accounts:
+        raise HTTPException(status_code=404, detail=f"Cuenta con ID {payload.idCuenta} no encontrada.")
+    account = accounts[0]
+    
+    # 2. Sanitizar dirección
+    rawDir = payload.direction.upper()
+    directionStr = "LARGO" if rawDir in ["BUY", "COMPRA", "LONG", "LARGO"] else "CORTO"
+    
+    # 3. Calcular métricas auxiliares
+    slDistance = abs(payload.entryPrice - payload.stopLoss)
+    rrRatio = abs(payload.entryPrice - payload.takeProfit) / slDistance if slDistance > 0 else 1.0
+    multiplier = getPipMultiplier(payload.symbol)
+    riesgoPips = slDistance * multiplier
+    
+    # Calcular profit/riesgo máximo en USD
+    capitalVal = float(account.get('Capital') or 1000.0)
+    riskPercent = float(account.get('riesgoPorOperacion') or 1.0)
+    maxRiskUsd = capitalVal * (riskPercent / 100.0)
+    
+    tradeSize = payload.size
+    if tradeSize <= 0:
+        tradeSize = 10000.0  # 0.10 lotes estándar en Forex por defecto
+    
+    nowStr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    tradeData = {
+        "idTrade": None,
+        "idCuenta": payload.idCuenta,
+        "accountName": account.get('Nombre', 'N/A'),
+        "symbol": payload.symbol,
+        "direction": directionStr,
+        "entryPrice": payload.entryPrice,
+        "stopLoss": payload.stopLoss,
+        "takeProfit": payload.takeProfit,
+        "size": tradeSize,
+        "margin_used": 0.0,
+        "intervalo": "15min",
+        "strategy": payload.strategy,
+        "setup": payload.setup,
+        "openTime": nowStr,
+        "status": "OPEN",
+        "candleTime": nowStr
+    }
+    
+    signalDict = {
+        "strategy": payload.strategy,
+        "symbol": payload.symbol,
+        "direction": directionStr,
+        "entryPrice": payload.entryPrice,
+        "stopLoss": payload.stopLoss,
+        "takeProfit": payload.takeProfit,
+        "slDistance": slDistance,
+        "riesgo_pips": riesgoPips,
+        "rr_ratio": rrRatio,
+        "confidence": payload.confidence,
+        "setup": payload.setup,
+        "status": "ACTIVA ✅",
+        "candleTime": nowStr,
+        "intervalo": "15min",
+        "profit": maxRiskUsd,
+        "size": tradeSize,
+        "is_adjustment": payload.is_adjustment,
+        "marketSentiment": 0.0,
+        "latestMetrics": {}
+    }
+    
+    try:
+        success, msgId = await gateway.execute_trade(
+            trade_data=tradeData,
+            signal=signalDict,
+            account=account,
+            strategy_name=payload.strategy
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Error al procesar la señal en el gateway: {msgId}")
+        return {"status": "success", "message_id": msgId}
+    except Exception as e:
+        logger.error(f"Error procesando Webhook de TradingView: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 

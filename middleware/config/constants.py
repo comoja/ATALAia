@@ -4,8 +4,14 @@ This file contains all shared constants and settings used across subprojects.
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent.parent.parent.resolve()
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
+mt5Login = int(os.getenv("MT5_LOGIN", "0"))
+mt5Password = os.getenv("MT5_PASSWORD", "")
+mt5Server = os.getenv("MT5_SERVER", "")
 
 import numpy as np
 
@@ -94,7 +100,7 @@ MODEL_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedModel.joblib")
 MODEL_REG_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedRegModel.joblib")
 
 # --- Production Settings ---
-PRODUCTION_MODE = False # Cambiar a True para ejecución real en Broker
+PRODUCTION_MODE = True # Cambiar a True para ejecución real en Broker
 
 # --- Risk & Safety ---
 MAX_SIGNAL_AGE_MINUTES = 45 # Tiempo máximo permitido desde la vela origen hasta la ejecución

@@ -171,3 +171,67 @@ def get_last_closed_candle(dt, interval, df=None):
             
     return lastCandle
 
+def get_seconds_until_market_opens(dt=None) -> float:
+    """
+    Calcula exactamente cuántos segundos faltan para que termine el periodo de descanso (isRestTime = False)
+    y el mercado/sesión abra de nuevo.
+    """
+    localTz = pytz.timezone(TIMEZONE)
+    nyTz = pytz.timezone('America/New_York')
+    
+    if dt is None:
+        nowLocal = datetime.now(localTz)
+    else:
+        if dt.tzinfo is None:
+            nowLocal = localTz.localize(dt)
+        else:
+            nowLocal = dt.astimezone(localTz)
+            
+    nowNy = nowLocal.astimezone(nyTz)
+    
+    # Caso 1: Madrugada local (00:20 a 05:00 AM Mexico City)
+    # Abre a las 05:00 AM local
+    if (nowLocal.hour == 0 and nowLocal.minute >= 20) or (1 <= nowLocal.hour < 5):
+        targetLocal = nowLocal.replace(hour=5, minute=0, second=0, microsecond=0)
+        diff = (targetLocal - nowLocal).total_seconds()
+        if diff > 0:
+            return diff
+            
+    # Caso 2: Cierre fin de semana (Viernes 17:00 NY a Domingo 17:00 NY)
+    # Abre el Domingo a las 17:00 NY
+    weekdayNy = nowNy.weekday()
+    hourNy = nowNy.hour
+    
+    isWeekend = False
+    if weekdayNy == 4 and hourNy >= 17: # Viernes tarde
+        isWeekend = True
+    elif weekdayNy == 5: # Sábado
+        isWeekend = True
+    elif weekdayNy == 6 and hourNy < 17: # Domingo mañana
+        isWeekend = True
+        
+    if isWeekend:
+        # Calcular próximo Domingo a las 17:00 NY
+        daysToSunday = (6 - weekdayNy) % 7
+        if daysToSunday == 0 and hourNy >= 17:
+            # Si ya es domingo después de las 17:00 (no debería entrar aquí)
+            daysToSunday = 7
+            
+        sundayTargetNy = nowNy + timedelta(days=daysToSunday)
+        sundayTargetNy = sundayTargetNy.replace(hour=17, minute=0, second=0, microsecond=0)
+        
+        diff = (sundayTargetNy - nowNy).total_seconds()
+        if diff > 0:
+            return diff
+            
+    # Caso 3: Rollover diario (17:00 NY a 18:00 NY)
+    # Abre a las 18:00 NY de ese día
+    if 17 <= hourNy < 18 and weekdayNy != 6:
+        targetNy = nowNy.replace(hour=18, minute=0, second=0, microsecond=0)
+        diff = (targetNy - nowNy).total_seconds()
+        if diff > 0:
+            return diff
+            
+    # Fallback de seguridad: 5 minutos
+    return 300.0
+

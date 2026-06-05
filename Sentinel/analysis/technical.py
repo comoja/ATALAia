@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 import numpy as np
 import talib as ta
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from datetime import datetime
 import pytz
 
@@ -121,6 +121,50 @@ def _calculate_slope(series: pd.Series, window: int = 3) -> pd.Series:
 
     return series.rolling(window=window).apply(getSlope, raw=True)
 
+def calculateImpulseMacd(
+    df: pd.DataFrame, 
+    lengthMa: int = 34, 
+    lengthSignal: int = 9
+) -> Tuple[pd.Series, pd.Series]:
+    """
+    Calcula el indicador Impulse MACD (LazyBear) sobre el DataFrame.
+    Retorna una tupla de series (impulseMacd, impulseSignal).
+    """
+    try:
+        if df is None or len(df) < lengthMa:
+            empty = pd.Series(0.0, index=df.index if df is not None else [])
+            return empty, empty
+
+        hlc3 = (df["high"] + df["low"] + df["close"]) / 3.0
+
+        # SMMA es equivalente a una EMA con alpha = 1 / lengthMa
+        smmaHigh = df["high"].ewm(alpha=1.0 / lengthMa, adjust=False).mean()
+        smmaLow = df["low"].ewm(alpha=1.0 / lengthMa, adjust=False).mean()
+
+        # ZLEMA
+        ema1 = hlc3.ewm(span=lengthMa, adjust=False).mean()
+        ema2 = ema1.ewm(span=lengthMa, adjust=False).mean()
+        zlemaMid = ema1 + (ema1 - ema2)
+
+        # Impulse MACD
+        impulseMacdVal = np.where(
+            zlemaMid > smmaHigh, 
+            zlemaMid - smmaHigh, 
+            np.where(zlemaMid < smmaLow, zlemaMid - smmaLow, 0.0)
+        )
+        
+        impulseMacd = pd.Series(impulseMacdVal, index=df.index)
+        impulseSignal = impulseMacd.rolling(window=lengthSignal).mean()
+        
+        # Rellenar NaNs iniciales por el rolling de la señal
+        impulseSignal = impulseSignal.ffill().bfill()
+
+        return impulseMacd, impulseSignal
+    except Exception as e:
+        logger.error(f"Error calculando Impulse MACD: {e}")
+        empty = pd.Series(0.0, index=df.index if df is not None else [])
+        return empty, empty
+
 def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates all technical indicators and features for the given DataFrame.
@@ -186,6 +230,11 @@ def calculateFeatures(df: pd.DataFrame) -> pd.DataFrame:
     dfFeatured["cdlEngulfing"] = ta.CDLENGULFING(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
     dfFeatured["cdlHammer"] = ta.CDLHAMMER(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
     dfFeatured["cdlShootingStar"] = ta.CDLSHOOTINGSTAR(dfFeatured['open'], dfFeatured['high'], dfFeatured['low'], dfFeatured['close'])
+
+    # --- Impulse MACD ---
+    impulseMacd, impulseSignal = calculateImpulseMacd(dfFeatured)
+    dfFeatured["impulseMacd"] = impulseMacd
+    dfFeatured["impulseSignal"] = impulseSignal
 
     return dfFeatured
 

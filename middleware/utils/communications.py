@@ -4,6 +4,7 @@ Module for handling external communications, like Telegram alerts.
 import logging
 import re
 import asyncio
+import io
 from telegram import Bot
 from telegram.error import TelegramError, RetryAfter
 from middleware.database import dbManager
@@ -88,9 +89,10 @@ async def sendTelegramDocument(token: str, chatId: str, filePath: str, caption: 
                 
     return None
 
-async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True):
+async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority: bool = True, photoBytes: io.BytesIO = None):
     """
     Sends a message to a Telegram chat with intelligent retry on flood control.
+    If photoBytes is provided, sends it as a photo with the message as caption.
     Returns message_id on success, None on failure.
     """
     if not message or not token or not chatId:
@@ -103,16 +105,29 @@ async def sendTelegramAlert(token: str, chatId: str, message: str, highPriority:
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            sent_message = await bot.send_message(
-                chat_id=chatId, 
-                text=cleanedMessage, 
-                parse_mode='HTML', 
-                disable_notification=not highPriority
-            )
-            if attempt > 0:
-                logger.info(f"✅ Alerta de Telegram enviada {cleanedMessage} a {chatId} tras {attempt} reintentos.")
+            if photoBytes:
+                # Ensure the stream is positioned at the start
+                photoBytes.seek(0)
+                
+                sent_message = await bot.send_photo(
+                    chat_id=chatId,
+                    photo=photoBytes,
+                    caption=None,
+                    parse_mode='HTML',
+                    disable_notification=not highPriority
+                )
             else:
-                logger.debug(f"Alerta de Telegram enviada {cleanedMessage} a chatId {chatId}")
+                sent_message = await bot.send_message(
+                    chat_id=chatId, 
+                    text=cleanedMessage, 
+                    parse_mode='HTML', 
+                    disable_notification=not highPriority
+                )
+                
+            if attempt > 0:
+                logger.info(f"✅ Alerta de Telegram enviada {cleanedMessage[:100]} a {chatId} tras {attempt} reintentos.")
+            else:
+                logger.debug(f"Alerta de Telegram enviada {cleanedMessage[:100]} a chatId {chatId}")
             return sent_message.message_id
 
         except RetryAfter as e:

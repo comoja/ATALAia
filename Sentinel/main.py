@@ -64,7 +64,7 @@ from middleware.execution.broker_gateway import gateway
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 MAX_CANDLES_PER_CALL = 5000
 
-from middleware.utils.time_utils import get_localized_session_times, isRestTime, get_sleep_minutes, get_seconds_to_next_sync
+from middleware.utils.time_utils import get_localized_session_times, isRestTime, get_sleep_minutes, get_seconds_to_next_sync, get_seconds_until_market_opens
 from middleware.api import twelvedata as tdApi
 
 INTERVAL = settings.INTERVAL
@@ -646,9 +646,15 @@ async def main():
                 
                 await getTiempoEspera(5)
             else:
-                sleep_min = get_sleep_minutes()
-                segundos_sueño = get_seconds_to_next_sync(sleep_min)
-                logger.info(f"💤 Periodo de descanso detectado. Dormirá {int(segundos_sueño // 60)}m {int(segundos_sueño % 60)}s para sincronizar a los {sleep_min} min...", extra={"color": "blue"})
+                segundos_sueño = get_seconds_until_market_opens()
+                # Margen de seguridad de 10 segundos
+                segundos_sueño += 10.0
+                
+                horas = int(segundos_sueño // 3600)
+                minutos = int((segundos_sueño % 3600) // 60)
+                segundos = int(segundos_sueño % 60)
+                
+                logger.info(f"💤 Periodo de descanso detectado. Dormirá {horas}h {minutos}m {segundos}s hasta la apertura del mercado...", extra={"color": "blue"})
                 await asyncio.sleep(segundos_sueño)
         except Exception as e:
             logger.critical(f"Error en bucle: {e}", exc_info=True)

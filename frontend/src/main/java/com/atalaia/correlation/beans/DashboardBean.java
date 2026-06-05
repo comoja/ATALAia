@@ -230,6 +230,13 @@ public class DashboardBean implements Serializable {
             analysisResult = "Por favor, seleccione un par válido.";
             return;
         }
+        if (selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            analysisResult = "Por favor, seleccione un denominador compatible (Par B).";
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                    "Selección Incompleta", "Por favor seleccione un denominador compatible (Par B)."));
+            return;
+        }
 
         loadCorrelationsForSelectedPair();
 
@@ -285,18 +292,31 @@ public class DashboardBean implements Serializable {
 
                 analysisResult = "Ratio sintético calculado: " + this.ratioLabel;
             } else {
-                analysisResult = "Fallo en motor de correlación: " +
-                        (rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido");
+                String errorMsg = rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido";
+                analysisResult = "Fallo en motor de correlación: " + errorMsg;
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error de Procesamiento", errorMsg));
             }
         } catch (Exception e) {
             log.error("Error al calibrar con el backend holográfico", e);
             analysisResult = "Error conectando al engine de Python: " + e.getMessage();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión", e.getMessage()));
         }
     }
 
     public void optimizeCalibration() {
         if (selectedPair == null || selectedPair.isEmpty()) {
             analysisResult = "Por favor, seleccione un par válido.";
+            return;
+        }
+        if (selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            analysisResult = "Por favor, seleccione un denominador compatible (Par B) para optimizar.";
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                    "Selección Incompleta", "Por favor seleccione un denominador compatible (Par B) para optimizar."));
             return;
         }
 
@@ -335,12 +355,18 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                 "Optimización Exitosa", "Calibración óptima de ciclo calculada y aplicada."));
             } else {
-                analysisResult = "Fallo en optimización: " +
-                        (rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido");
+                String errorMsg = rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido";
+                analysisResult = "Fallo en optimización: " + errorMsg;
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Fallo de Optimización", errorMsg));
             }
         } catch (Exception e) {
             log.error("Error al optimizar la calibración con el backend", e);
             analysisResult = "Error conectando al engine de optimización de Python: " + e.getMessage();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión", e.getMessage()));
         }
     }
 
@@ -369,9 +395,9 @@ public class DashboardBean implements Serializable {
             if (p.getTipo() != null && numeradorDto.getTipo().equalsIgnoreCase(p.getTipo())
                     && !p.getPairName().equals(selectedPair)) {
                 Double score = p.getCorrelationScore();
-                // Permitir nulos temporalmente en el arranque, luego filtrar estrictamente por
-                // correlación absoluta >= 0.50
-                if (score == null || Math.abs(score) >= 0.50) {
+                // Permitir nulos o si es el denominador actualmente seleccionado para evitar que JSF lo limpie
+                // o si la correlación absoluta es >= 0.50
+                if (score == null || p.getPairName().equals(selectedPair2) || Math.abs(score) >= 0.50) {
                     list.add(p);
                 }
             }

@@ -174,17 +174,17 @@ class SniperBot:
             return 25.0
 
     def _evaluate_technical_confirmations(self, df: pd.DataFrame, direction: str, symbol: str) -> Tuple[int, List[str], Dict[str, float]]:
-        histVal = self.latestFullData["macdHist"].iloc[-1]
-        prevHistVal = df["macdHist"].iloc[-2]
-        macdLine = self.latestFullData["macd"].iloc[-1]
-        macdSignal = self.latestFullData["macdSig"].iloc[-1]
+        histVal = self.latestFullData["impulseMacd"].iloc[-1]
+        prevHistVal = df["impulseMacd"].iloc[-2]
+        macdLine = self.latestFullData["impulseMacd"].iloc[-1]
+        macdSignal = self.latestFullData["impulseSignal"].iloc[-1]
         rsi = self.latestFullData["rsi"].iloc[-1]
         prevRsi = df["rsi"].iloc[-2]
         ema20 = self.latestFullData["ema20"].iloc[-1]
         ema50 = self.latestFullData["ema50"].iloc[-1]
         
-        macdCrossLong = (macdLine > macdSignal) and (df["macd"].iloc[-2] <= df["macdSig"].iloc[-2])
-        macdCrossShort = (macdLine < macdSignal) and (df["macd"].iloc[-2] >= df["macdSig"].iloc[-2])
+        macdCrossLong = (macdLine > macdSignal) and (df["impulseMacd"].iloc[-2] <= df["impulseSignal"].iloc[-2])
+        macdCrossShort = (macdLine < macdSignal) and (df["impulseMacd"].iloc[-2] >= df["impulseSignal"].iloc[-2])
         histImprovingLong = histVal > prevHistVal
         histImprovingShort = histVal < prevHistVal
         macdZeroCrossLong = (prevHistVal <= 0 and histVal > 0)
@@ -197,7 +197,7 @@ class SniperBot:
         rsiImprovingShort = rsi < prevRsi
         
         prices = df["close"].iloc[-5:].values
-        hists = df["macdHist"].iloc[-5:].values
+        hists = df["impulseMacd"].iloc[-5:].values
         bearishDivergence = (prices[-1] > np.max(prices[:-1])) and (hists[-1] < np.max(hists[:-1]))
         bullishDivergence = (prices[-1] < np.min(prices[:-1])) and (hists[-1] > np.min(hists[:-1]))
         

@@ -274,7 +274,7 @@ ON DUPLICATE KEY UPDATE description = VALUES(description);
 
 -- Insertar Menús Dinámicos
 INSERT INTO Menu (idMenu, nameMenu, url, icon, parentId) VALUES 
-(1, 'Dashboard', 'dashboard.xhtml', 'pi pi-home', NULL),
+(1, 'Panel de Control', 'dashboard.xhtml', 'pi pi-home', NULL),
 (2, 'Reportes', 'reportes.xhtml', 'pi pi-chart-bar', NULL),
 (3, 'Mantenimiento', 'mantenimiento.xhtml', 'pi pi-cog', NULL)
 ON DUPLICATE KEY UPDATE nameMenu = VALUES(nameMenu), url = VALUES(url), icon = VALUES(icon);

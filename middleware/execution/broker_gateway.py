@@ -25,7 +25,13 @@ from middleware.utils.alertBuilder import (
     buildRegresivolAlertMessage,
     buildQTrendAlertMessage
 )
-from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY
+from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY, mt5Login, mt5Password, mt5Server
+
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    mt5 = None
+
 from middleware.database import dbManager as _db
 
 setupLogging("execution")
@@ -193,6 +199,12 @@ class BrokerGateway:
             logger.warning(f"⚠️ Orden RECHAZADA: La cuenta {account['idCuenta']} está INACTIVA o no existe.")
             return False, "cuenta_inactiva"
             
+        symbolName = trade_data.get('symbol')
+        symbolConfig = dbManager.getSymbol(symbolName)
+        if not symbolConfig or not symbolConfig.get('Activo'):
+            logger.warning(f"⚠️ Orden RECHAZADA: El símbolo {symbolName} está INACTIVO en Sentinel.")
+            return False, "simbolo_inactivo"
+            
         logger.info(f" Iniciando ejecución para {trade_data.get('symbol')} | Estrategia: {strategy_name}")
         
         # 0. Filtro de Seguridad: Staleness (Antigüedad dinámica por velas del intervalo)
@@ -231,10 +243,13 @@ class BrokerGateway:
         # 2. Ejecución Broker (si aplica)
         exec_success = True
         if self.mode == "live":
-            exec_success = await self._execute_live(trade_data)
-            if not exec_success:
-                logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
-                return False, "drawdown_superado"
+            if symbolConfig.get('broker'):
+                exec_success = await self._execute_live(trade_data)
+                if not exec_success:
+                    logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
+                    return False, "drawdown_superado"
+            else:
+                logger.info(f"ℹ️ Modo 'live' activo pero el símbolo {symbolName} tiene 'broker' = 0. Se omite ejecución en el bróker (se procesa como simulación).")
 
         # 3. Verificar TRADE DUPLICADO antes de Telegram (mismo symbol, strategy, intervalo, direction, size)
         is_adjustment = signal.get('is_adjustment', False)
@@ -263,11 +278,19 @@ class BrokerGateway:
         # 4. Notificación Telegram
         msg_id = None
         
+        # Desactivado a petición del usuario: Volvemos a formato Texto para operar más cómodamente
+        photoBytes = None
+        # try:
+        #     from middleware.utils.imageGenerator import generateSignalCard
+        #     photoBytes = generateSignalCard(strategy_name, signal, trade_data)
+        # except Exception as imgErr:
+        #     logger.error(f"❌ Error al generar la tarjeta visual de señal: {imgErr}")
+        
         logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
         logger.info(f"[TELEGRAM] Mensaje a enviar: \n{message[:500]}...")
         logger.info(f"[TELEGRAM] 🔐 Token: {account['TokenMsg'][:15]}... | 💬 ChatId: {account['idGrupoMsg']}")
         try:
-            msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message)
+            msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message, photoBytes=photoBytes)
             if not msg_id:
                 logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
             else:
@@ -275,19 +298,18 @@ class BrokerGateway:
         except Exception as e:
             logger.error(f"❌ Excepción al enviar alerta de Telegram: {e}")
 
-        # 5. Registro en Base de Datos (solo si se envió Telegram exitosamente)
-        if msg_id:
-            try:
-                if is_adjustment and trade_data.get('idTrade'):
-                    dbManager.updateTradeLevels(
-                        trade_data['idTrade'], 
-                        trade_data['stopLoss'], 
-                        trade_data['takeProfit']
-                    )
-                else:
-                    dbManager.buscaTrade(trade_data)
-            except Exception as e:
-                logger.error(f"⚠️ Error al registrar/actualizar trade en DB: {e} (Continuando con alerta...)")
+        # 5. Registro en Base de Datos
+        try:
+            if is_adjustment and trade_data.get('idTrade'):
+                dbManager.updateTradeLevels(
+                    trade_data['idTrade'], 
+                    trade_data['stopLoss'], 
+                    trade_data['takeProfit']
+                )
+            else:
+                dbManager.buscaTrade(trade_data)
+        except Exception as e:
+            logger.error(f"⚠️ Error al registrar/actualizar trade en DB: {e}")
 
         return exec_success, msg_id
 
@@ -331,8 +353,251 @@ class BrokerGateway:
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 
+    def connectMt5(self) -> bool:
+        """
+        Inicializa la conexión con la terminal de MetaTrader 5 y realiza el login.
+        """
+        if mt5 is None:
+            logger.error("❌ El módulo MetaTrader5 no está disponible o no es compatible con esta plataforma.")
+            return False
+            
+        logger.info("Inicializando conexión con MT5...")
+        if not mt5.initialize():
+            logger.error(f"❌ Error al inicializar MT5: {mt5.last_error()}")
+            return False
+            
+        # Verificar primero si el terminal ya tiene una sesión activa autorizada
+        accountInfo = mt5.account_info()
+        if accountInfo is not None:
+            logger.info(f"✅ Usando sesión activa autorizada en el terminal MT5 (Login: {accountInfo.login}, Servidor: {accountInfo.server})")
+            return True
+            
+        # Si no hay sesión activa, intentamos hacer login programático con las credenciales del .env
+        logger.info(f"Intentando login programático a la cuenta {mt5Login} en el servidor {mt5Server}...")
+        authorized = mt5.login(mt5Login, password=mt5Password, server=mt5Server)
+        if not authorized:
+            logger.error(f"❌ Error al autenticar en MT5 con credenciales: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        logger.info("✅ Conexión con MT5 establecida con éxito vía login programático.")
+        return True
+
+    def findMt5Symbol(self, baseSymbol: str) -> str:
+        """
+        Busca el símbolo correspondiente en MT5 manejando posibles sufijos.
+        """
+        if mt5 is None:
+            return baseSymbol.replace("/", "")
+            
+        cleanSymbol = baseSymbol.replace("/", "")
+        
+        # Primero intentamos coincidencia exacta
+        symbolInfo = mt5.symbol_info(cleanSymbol)
+        if symbolInfo is not None:
+            return cleanSymbol
+            
+        # Si no se encuentra, buscamos en la lista completa de símbolos de MT5
+        symbols = mt5.symbols_get()
+        if symbols:
+            for s in symbols:
+                if s.name.startswith(cleanSymbol):
+                    logger.info(f"🔍 Símbolo coincidente encontrado: {s.name} para {baseSymbol}")
+                    return s.name
+                    
+        logger.warning(f"⚠️ No se encontró coincidencia exacta ni sufijo para {baseSymbol}. Se usará {cleanSymbol}")
+        return cleanSymbol
+
+    def _closeLive(self, tradeData: dict) -> bool:
+        """
+        Cierra una posición abierta en MT5 usando su ticketId.
+        """
+        if mt5 is None:
+            logger.error("❌ El módulo MetaTrader5 no está disponible o no es compatible con esta plataforma.")
+            return False
+            
+        ticketIdVal = tradeData.get('ticketId')
+        if not ticketIdVal:
+            logger.warning("⚠️ No se encontró ticketId en los datos del trade para cerrar en MT5.")
+            return True
+            
+        if not self.connectMt5():
+            return False
+            
+        ticketId = int(ticketIdVal)
+        logger.info(f"Buscando posición abierta con ticket {ticketId} en MT5...")
+        positionsList = mt5.positions_get(ticket=ticketId)
+        
+        if not positionsList:
+            logger.warning(f"⚠️ Posición con ticket {ticketId} no encontrada en MT5. Puede haber sido cerrada manualmente o por SL/TP.")
+            mt5.shutdown()
+            return True
+            
+        positionInfo = positionsList[0]
+        mt5Symbol = positionInfo.symbol
+        orderVolume = positionInfo.volume
+        
+        # Para cerrar la posición, realizamos una transacción opuesta (BUY -> SELL, SELL -> BUY)
+        # y especificamos el ticket de la posición a cerrar.
+        tickInfo = mt5.symbol_info_tick(mt5Symbol)
+        if tickInfo is None:
+            logger.error(f"❌ No se pudo obtener tick info para {mt5Symbol}")
+            mt5.shutdown()
+            return False
+            
+        if positionInfo.type == mt5.POSITION_TYPE_BUY:
+            orderType = mt5.ORDER_TYPE_SELL
+            orderPrice = tickInfo.bid
+        else:
+            orderType = mt5.ORDER_TYPE_BUY
+            orderPrice = tickInfo.ask
+            
+        # Determinar el tipo de filling compatible
+        symbolInfo = mt5.symbol_info(mt5Symbol)
+        if symbolInfo is None:
+            logger.error(f"❌ No se pudo obtener información de símbolo para {mt5Symbol}")
+            mt5.shutdown()
+            return False
+            
+        fillingMode = symbolInfo.filling_mode
+        if fillingMode & mt5.SYMBOL_FILLING_FOK:
+            typeFilling = mt5.ORDER_FILLING_FOK
+        elif fillingMode & mt5.SYMBOL_FILLING_IOC:
+            typeFilling = mt5.ORDER_FILLING_IOC
+        else:
+            typeFilling = mt5.ORDER_FILLING_RETURN
+            
+        tradeRequest = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": mt5Symbol,
+            "volume": orderVolume,
+            "type": orderType,
+            "position": ticketId,
+            "price": orderPrice,
+            "deviation": 20,
+            "magic": 123456,
+            "comment": "Cierre Sentinel",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": typeFilling,
+        }
+        
+        logger.info(f"Enviando orden de cierre a MT5: {tradeRequest}")
+        orderResult = mt5.order_send(tradeRequest)
+        
+        if orderResult is None:
+            logger.error(f"❌ Error al cerrar posición {ticketId}: order_send retornó None. Error: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        if orderResult.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"❌ Orden de cierre rechazada por MT5. Código: {orderResult.retcode}. Error: {orderResult.comment}")
+            mt5.shutdown()
+            return False
+            
+        logger.info(f"✅ Posición {ticketId} cerrada exitosamente en MT5.")
+        mt5.shutdown()
+        return True
+
     async def _execute_live(self, trade_data: dict) -> bool:
-        # ... (Lógica de ejecución ya implementada o placeholder)
+        """
+        Ejecuta una orden de compra o venta en MT5.
+        """
+        if mt5 is None:
+            logger.error("❌ El módulo MetaTrader5 no está disponible o no es compatible con esta plataforma.")
+            return False
+            
+        if not self.connectMt5():
+            return False
+            
+        mt5Symbol = self.findMt5Symbol(trade_data['symbol'])
+        
+        # Seleccionar el símbolo en Market Watch
+        if not mt5.symbol_select(mt5Symbol, True):
+            logger.error(f"❌ No se pudo seleccionar el símbolo {mt5Symbol} en Market Watch: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        # Calcular el volumen en lotes (1 lote estándar = 100k unidades en Forex, 100 onzas en Oro)
+        cleanSymbol = trade_data['symbol'].replace("/", "")
+        if "XAU" in cleanSymbol.upper():
+            orderVolume = float(trade_data['size']) / 100.0
+        else:
+            orderVolume = float(trade_data['size']) / 100000.0
+            
+        orderVolume = round(orderVolume, 2)
+        if orderVolume < 0.01:
+            orderVolume = 0.01
+            
+        # Obtener información del tick actual
+        tickInfo = mt5.symbol_info_tick(mt5Symbol)
+        if tickInfo is None:
+            logger.error(f"❌ No se pudo obtener tick info para {mt5Symbol}: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        direction = trade_data['direction'].upper()
+        if direction == "BUY":
+            orderType = mt5.ORDER_TYPE_BUY
+            orderPrice = tickInfo.ask
+        elif direction == "SELL":
+            orderType = mt5.ORDER_TYPE_SELL
+            orderPrice = tickInfo.bid
+        else:
+            logger.error(f"❌ Dirección de orden inválida: {direction}")
+            mt5.shutdown()
+            return False
+            
+        # Determinar el tipo de filling compatible del símbolo
+        symbolInfo = mt5.symbol_info(mt5Symbol)
+        if symbolInfo is None:
+            logger.error(f"❌ No se pudo obtener información del símbolo para {mt5Symbol}")
+            mt5.shutdown()
+            return False
+            
+        fillingMode = symbolInfo.filling_mode
+        if fillingMode & mt5.SYMBOL_FILLING_FOK:
+            typeFilling = mt5.ORDER_FILLING_FOK
+        elif fillingMode & mt5.SYMBOL_FILLING_IOC:
+            typeFilling = mt5.ORDER_FILLING_IOC
+        else:
+            typeFilling = mt5.ORDER_FILLING_RETURN
+            
+        slValue = float(trade_data['stopLoss']) if trade_data.get('stopLoss') else 0.0
+        tpValue = float(trade_data['takeProfit']) if trade_data.get('takeProfit') else 0.0
+        
+        tradeRequest = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": mt5Symbol,
+            "volume": orderVolume,
+            "type": orderType,
+            "price": orderPrice,
+            "sl": slValue,
+            "tp": tpValue,
+            "deviation": 20,
+            "magic": 123456,
+            "comment": f"Sentinel {trade_data.get('strategy', '')}",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": typeFilling,
+        }
+        
+        logger.info(f"Enviando orden a MT5: {tradeRequest}")
+        orderResult = mt5.order_send(tradeRequest)
+        
+        if orderResult is None:
+            logger.error(f"❌ Error al enviar orden a MT5: order_send retornó None. Error: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        if orderResult.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"❌ Orden rechazada por MT5. Código de retorno: {orderResult.retcode}. Error: {orderResult.comment}")
+            mt5.shutdown()
+            return False
+            
+        positionTicket = orderResult.position if orderResult.position else orderResult.order
+        trade_data['ticketId'] = str(positionTicket)
+        logger.info(f"✅ Orden ejecutada con éxito en MT5. Ticket Posición: {positionTicket}")
+        
+        mt5.shutdown()
         return True
 
     async def close_trade(self, id_trade: int, exit_price: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
@@ -366,11 +631,20 @@ class BrokerGateway:
                 logger.debug(f"Gateway: Trade {id_trade} ya está cerrado (closeTime: {trade_data['closeTime']}). Omitiendo.")
                 return
 
+            # Cierre en MT5 si es en vivo
+            if self.mode == "live" and trade_data.get("ticketId"):
+                logger.info(f"Cerrando trade en MT5 para la posición {trade_data.get('ticketId')}...")
+                closeSuccess = self._closeLive(trade_data)
+                if not closeSuccess:
+                    logger.error(f"❌ Error al cerrar trade {id_trade} en el broker MT5. Abortando cierre en DB.")
+                    return
+
             closure_data = {"exitPrice": exit_price}
             pnl = risk.calculatePnl(trade_data, closure_data)
             
             dbManager.closeTrade(id_trade, exit_price, pnl, reason, capital_anterior, pnl_anterior)
             logger.info(f"✅ Gateway: Trade {id_trade} symbol {trade_data['symbol']} cuenta {trade_data['idCuenta']} cerrado por {reason}. PnL Calculado: {pnl:.2f}")
+
             
         except Exception as e:
             logger.error(f"Error al cerrar trade vía Gateway: {e}")

@@ -67,6 +67,14 @@ def calculateBEPrice(entry: float, sl: float, tp: float, direction: str) -> floa
     else:
         return entry - trigger_dist
 
+def safe_float(val, default=0.0) -> float:
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 def buildAlertMessage(
     signal: dict,
     trade: dict,
@@ -233,9 +241,9 @@ def buildAlertMessage(
     if extraFields:
         for key, value in extraFields.items():
             if "Ratio" in key:
-                text += f"• {key}: <b>{value:.2f}</b>\n"
+                text += f"• {key}: <b>{safe_float(value):.2f}</b>\n"
             elif "Pips" in key:
-                text += f"• {key}: <b>{value:,.1f}</b>\n"
+                text += f"• {key}: <b>{safe_float(value):,.1f}</b>\n"
             elif isinstance(value, float):
                 text += f"• {key}: <b>{value:,.4f}</b>\n"
             else:
@@ -253,12 +261,16 @@ def buildImbalanceNYAlertMessage(signal: dict, trade: dict) -> str:
     dentroRango = signal.get('dentroRango', True)
     rangoText = "Dentro" if dentroRango else "Fuera"
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
@@ -280,12 +292,16 @@ def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
     dentroRango = signal.get('dentroRango', True)
     rangoText = "Dentro" if dentroRango else "Fuera"
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
@@ -302,12 +318,16 @@ def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'SMA20': f"{signal.get('sma20', 0):,.4f}",
         'SMA200': f"{signal.get('sma200', 0):,.4f}",
         'Tendencia': signal.get('tendencia', 'N/A'),
@@ -328,12 +348,16 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
     tp2 = signal.get('tp2', signal.get('takeProfit2'))
     tp_final = signal.get('tp_final', signal.get('takeProfit3'))
     
+    riesgoUsd = safe_float(signal.get('riskUsd', signal.get('profit')))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0) or 0,
-        'RR Ratio': signal.get('rr_ratio', 0) or 0,
-        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
-        'Beneficio Est:': f"${signal.get('expectedProfit', (signal.get('profit') or 0) * (signal.get('rr_ratio') or 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Vela Origen': signal.get('velaOrigen', signal.get('candleTime', 'N/A')),
         'Momentum': momentum
     }
@@ -353,12 +377,16 @@ def buildPatron4HAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildEMAAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Slope': f"{signal.get('slope', 0):.2f}",
         'Separation': f"{signal.get('separation', 0):.4f}",
         'Prob ML': f"{signal.get('confidence', 0):.2f}%",
@@ -380,12 +408,16 @@ def buildSniperAlertMessage(signal: dict, trade: dict) -> str:
     vol_porcentaje = (currentAtr / close) * 100 if close > 0 else 0
     momentum = signal.get('momentum', '☁️ NEUTRAL')
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'RSI': f"{latest.get('rsi', 0):.2f} ({'🟢' if latest.get('pendienteRsi', 0) > 0 else '🔴'})",
         'MACD': 'ALCISTA 🟢' if latest.get('macdHist', 0) > 0 else 'BAJISTA 🔴',
         'Volatilidad': f"{vol_porcentaje:.3f}%",
@@ -406,12 +438,16 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
     
     bias_str = f"H4: {biases.get('H4', 'N/A')} | D: {biases.get('D', 'N/A')} | W: {biases.get('W', 'N/A')} | M: {biases.get('M', 'N/A')}"
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Bias HTF': bias_str,
         'Zona': f"{zone.get('type', 'N/A')} ({zone.get('fib_50', 0):.5f})",
         'Modelo': signal.get('tipo_entrada', 'N/A'),
@@ -430,15 +466,20 @@ def buildSesgoBiasHTFAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    riesgoUsd = safe_float(signal.get('riskUsd', signal.get('profit')))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
-        'Beneficio Est:': f"${signal.get('expectedProfit', signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Ventana': signal.get('window', 'N/A'),
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
+        'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'ADX': signal.get('adx', 0),
         'Momentum': momentum
     }
@@ -452,14 +493,24 @@ def buildSilverBulletAlertMessage(signal: dict, trade: dict) -> str:
 
 
 def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
+    fvgNum = signal.get('fvgNum', '')
+    fvgText = f" #{fvgNum}" if fvgNum else ""
+    
+    dentroRango = signal.get('dentroRango', True)
+    rangoText = "Dentro" if dentroRango else "Fuera"
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
-        'Hora FVG': str(signal.get('vela_origen', 'N/A')).split('.')[0],
         'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Sesión PM': f"{signal.get('precioMaximo', 0):,.4f} - {signal.get('precioMinimo', 0):,.4f}",
         'Momentum': momentum
@@ -474,12 +525,17 @@ def buildImbalancePMNYAlertMessage(signal: dict, trade: dict) -> str:
 def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
     """Standardized message for Generic FVG signals matching the user's template."""
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    riesgoUsd = safe_float(signal.get('riskUsd', signal.get('profit')))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('riskUsd', signal.get('profit', 0)):.2f} USD",
-        'Beneficio Est:': f"${signal.get('expectedProfit', signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'FVG': signal.get('fvg', 'N/A'),
         'Hora FVG': str(signal.get('fvgTime', signal.get('vela_origen', 'N/A'))).split('.')[0],
         'Confirmación': 'Price Action',
@@ -498,12 +554,17 @@ def buildGenericFVGAlertMessage(signal: dict, trade: dict) -> str:
 def buildFVGDiarioAlertMessage(signal: dict, trade: dict) -> str:
     """Mensaje para estrategia FVGDiario - Manipulación + Daily Bias"""
     momentum = signal.get('momentum', '☁️ NEUTRAL')
+    
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Daily Bias': signal.get('daily_bias', 'N/A'),
         'PDH': f"{signal.get('pdh', 0):,.5f}",
         'PDL': f"{signal.get('pdl', 0):,.5f}",
@@ -527,12 +588,16 @@ def buildSpeedBotAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
     metadata = signal.get('metadata', {})
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'IMPULSO ⚡️'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'ATR Mult.': f"{metadata.get('atr_multiplier', 0):.2f}x",
         'Setup': signal.get('setup', 'N/A'),
         'Momentum': momentum
@@ -547,12 +612,16 @@ def buildSpeedBotAlertMessage(signal: dict, trade: dict) -> str:
 
 def buildBreakoutNYAlertMessage(signal: dict, trade: dict) -> str:
     """Mensaje para estrategia BreakoutNY - rango apertura NY."""
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'RUPTURA CONFIRMADA'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Rango Alto': f"{signal.get('range_high', 0):,.5f}",
         'Rango Bajo': f"{signal.get('range_low', 0):,.5f}",
         'Hora Rango': str(signal.get('range_time', 'N/A')),
@@ -570,12 +639,16 @@ def buildIchimokuAlertMessage(signal: dict, trade: dict) -> str:
     """Mensaje para estrategia Ichimoku + Bollinger Bands."""
     momentum = signal.get('momentum', '☁️ NEUTRAL')
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'Tenkan-sen': f"{signal.get('tenkan', 0):.5f}",
         'Kijun-sen': f"{signal.get('kijun', 0):.5f}",
         'BB Middle': f"{signal.get('bb_middle', 0):.5f}",
@@ -594,16 +667,16 @@ def buildRegresivolAlertMessage(signal: dict, trade: dict) -> str:
     metadata = signal.get('metadata', {})
     
     # Calcular beneficios de forma segura
-    riesgo_usd = float(signal.get('profit', 0))
+    riesgo_usd = safe_float(signal.get('profit'))
     if riesgo_usd == 0:
-        riesgo_usd = float(metadata.get('risk_usd', 0))
+        riesgo_usd = safe_float(metadata.get('risk_usd', 0))
         
-    rr_ratio = float(signal.get('rr_ratio', 0))
+    rr_ratio = safe_float(signal.get('rr_ratio'))
     expected_profit = riesgo_usd * rr_ratio
     
     extraFields = {
         'Estado': signal.get('status', 'EN ZONA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
         'RR Ratio': rr_ratio,
         'Riesgo Máx:': f"${riesgo_usd:.2f} USD",
         'Beneficio Est:': f"${expected_profit:.2f} USD",
@@ -632,12 +705,16 @@ def buildQTrendAlertMessage(signal: dict, trade: dict) -> str:
     qtrendSlow = metadata.get('qtrendSlow', 21)
     tpPercent = metadata.get('tpPercent', 0.025)
     
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
-        'Riesgo Pips': signal.get('riesgo_pips', 0),
-        'RR Ratio': signal.get('rr_ratio', 0),
-        'Riesgo Máx:': f"${signal.get('profit', 0):.2f} USD",
-        'Beneficio Est:': f"${(signal.get('profit', 0) * signal.get('rr_ratio', 0)):.2f} USD",
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD",
         'SuperTrend': f"{supertrendPeriod}p / {supertrendMult}x",
         'Q-Trend (EMA)': f"{qtrendFast} / {qtrendSlow}",
         'TP %': f"{tpPercent * 100:.2f}%",

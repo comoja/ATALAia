@@ -161,7 +161,7 @@ class DatabaseManager:
             
             ruleMap = {
                 "15min": "15min", "1h": "1h", "1day": "1D",
-                "1week": "1W", "1month": "1M"
+                "1week": "1W", "1month": "ME"
             }
             
             dfResampled = df.resample(rule=ruleMap.get(targetTf, "15min"), closed='right', label='right').agg({

@@ -31,8 +31,8 @@ function startServices() {
 
     if [ ! -f "$backendPidFile" ]; then
         echo "⚡ Iniciando Backend en puerto 8000..."
-        # Ejecutar en segundo plano redirigiendo logs
-        python3 "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
+        # Ejecutar en segundo plano redirigiendo logs usando el venv local
+        "$scriptDir/.venv/bin/python" "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
         backendPid=$!
         echo "$backendPid" > "$backendPidFile"
         echo "✅ Backend levantado con éxito (PID: $backendPid)."
@@ -62,7 +62,7 @@ function startServices() {
     echo "----------------------------------------------------------"
     echo "🎉 ¡Servicios iniciados con éxito!"
     echo "🌐 FastAPI Backend:   http://localhost:8000"
-    echo "🌐 PrimeFaces Visual: http://localhost:8080/Atalaia/login.xhtml"
+    echo "🌐 PrimeFaces Visual: http://localhost:8080/ATALA.ia/login.xhtml"
     echo "📊 Monitorea la consola con: tail -f logs/backend_output.log o logs/frontend_output.log"
     echo "=========================================================="
 }
@@ -151,7 +151,7 @@ function showStatus() {
     if [ -f "$frontendPidFile" ]; then
         frontendPid=$(cat "$frontendPidFile")
         if kill -0 "$frontendPid" 2>/dev/null; then
-            echo "🟢 Frontend (Java):    ACTIVO (PID: $frontendPid) | http://localhost:8080/Atalaia/login.xhtml"
+            echo "🟢 Frontend (Java):    ACTIVO (PID: $frontendPid) | http://localhost:8080/ATALA.ia/login.xhtml"
         else
             echo "🔴 Frontend (Java):    INACTIVO (PID muerto)"
         fi

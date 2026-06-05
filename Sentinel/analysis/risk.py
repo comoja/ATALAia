@@ -313,6 +313,24 @@ def check_multi_tp_closure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]
         return None
 
 
+def _get_latest_price_sync(symbol: str) -> float:
+    try:
+        from middleware.database import dbConnection
+        conn = dbConnection.getConnection()
+        if conn is None:
+            return 1.0
+        cursor = conn.cursor()
+        cursor.execute("SELECT close FROM candles WHERE symbol=%s AND timeframe='5min' ORDER BY timestamp DESC LIMIT 1", (symbol,))
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if row and row[0]:
+            return float(row[0])
+    except Exception as e:
+        logger.error(f"Error en _get_latest_price_sync para {symbol}: {e}")
+    return 1.0
+
+
 def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> float:
     """
     Calculates the net Profit and Loss for a closed trade.
@@ -322,6 +340,7 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
         entryPrice = tradeData['entryPrice']
         size = tradeData['size']
         exitPrice = closureData['exitPrice']
+        symbol = tradeData.get('symbol')
         
         # Simplified commission logic for now - handle None cases
         commission = tradeData.get('commission')
@@ -334,6 +353,54 @@ def calculatePnl(tradeData: Dict[str, Any], closureData: Dict[str, Any]) -> floa
             grossPnl = (exitPrice - entryPrice) * size
         else:  # CORTO
             grossPnl = (entryPrice - exitPrice) * size
+            
+        # Convert grossPnl from quote currency to USD if needed
+        symbolInfo = dbManager.getSymbol(symbol)
+        quoteCurr = 'USD'
+        if symbolInfo and 'quote_currency' in symbolInfo:
+            quoteCurr = str(symbolInfo['quote_currency']).upper()
+        elif symbolInfo and 'currencyQuote' in symbolInfo:
+            quoteCurr = str(symbolInfo['currencyQuote']).upper()
+            
+        if quoteCurr != 'USD' and quoteCurr != '':
+            usd_base_symbol = f"USD/{quoteCurr}"
+            quote_usd_symbol = f"{quoteCurr}/USD"
+            
+            rate = 1.0
+            # For JPY/CAD/CHF/MXN quote pairs, if the pair itself has USD base, use exitPrice
+            if symbol.startswith("USD/"):
+                rate = exitPrice
+                if rate > 0:
+                    grossPnl = grossPnl / rate
+            else:
+                rate_obtained = False
+                try:
+                    if quoteCurr in ["GBP", "EUR", "AUD", "NZD", "BTC"]:
+                        rate = _get_latest_price_sync(quote_usd_symbol)
+                        if rate > 0:
+                            grossPnl = grossPnl * rate
+                            rate_obtained = True
+                    elif quoteCurr in ["JPY", "CAD", "CHF", "MXN", "HKD"]:
+                        rate = _get_latest_price_sync(usd_base_symbol)
+                        if rate > 0:
+                            grossPnl = grossPnl / rate
+                            rate_obtained = True
+                except Exception as ex:
+                    logger.error(f"Error obteniendo tasa de conversión para {quoteCurr}: {ex}")
+                
+                if not rate_obtained:
+                    if "JPY" in symbol:
+                        rate = _get_latest_price_sync("USD/JPY")
+                        grossPnl = grossPnl / rate
+                    elif "CAD" in symbol:
+                        rate = _get_latest_price_sync("USD/CAD")
+                        grossPnl = grossPnl / rate
+                    elif "CHF" in symbol:
+                        rate = _get_latest_price_sync("USD/CHF")
+                        grossPnl = grossPnl / rate
+                    elif "GBP" in symbol:
+                        rate = _get_latest_price_sync("GBP/USD")
+                        grossPnl = grossPnl * rate
         
         netPnl = grossPnl - commission
         return netPnl

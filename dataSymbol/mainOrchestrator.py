@@ -19,7 +19,7 @@ setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__
 
 from middleware.database import dbManager as middlewareDb
 from middleware.scheduler.autoScheduler import isRestTime
-from middleware.utils.time_utils import get_sleep_minutes, get_seconds_to_next_sync
+from middleware.utils.time_utils import get_sleep_minutes, get_seconds_to_next_sync, get_seconds_until_market_opens
 from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
 from middleware.api.twelvedata import _callTimeSeriesApi
 from middleware.database.dbManager import DatabaseManager, get_api_usage, update_api_usage
@@ -180,12 +180,13 @@ async def main():
             now_api = datetime.now(api_tz)
             today_api = now_api.date()
 
-            # 1. Verificar periodos de descanso global (evita llenar logs)
             if isRestTime():
-                # Si estamos en descanso, usamos la lógica centralizada de sueño sincronizado
-                sleep_min = get_sleep_minutes()
-                segundos_sueño = get_seconds_to_next_sync(sleep_min)
-                logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {int(segundos_sueño // 60)}m {int(segundos_sueño % 60)}s para sincronizar...")
+                segundos_sueño = get_seconds_until_market_opens()
+                segundos_sueño += 10.0
+                horas = int(segundos_sueño // 3600)
+                minutos = int((segundos_sueño % 3600) // 60)
+                segundos = int(segundos_sueño % 60)
+                logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {horas}h {minutos}m {segundos}s hasta la apertura...")
                 await asyncio.sleep(segundos_sueño)
                 continue
             

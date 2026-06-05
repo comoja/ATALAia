@@ -110,7 +110,8 @@ def init_alerts_table():
             "sniper_min_confidence_adjust_pct": "DOUBLE NULL",
             "sniper_extra_confirmations": "INT NULL",
             "sniper_max_rr": "DOUBLE NULL",
-            "priceOffset": "DOUBLE DEFAULT 0.0"
+            "priceOffset": "DOUBLE DEFAULT 0.0",
+            "broker": "TINYINT(1) DEFAULT 0"
         }
         for col, definition in symbol_cols.items():
             try:
@@ -292,6 +293,8 @@ except ImportError:
 _indice_key = -1
 
 def cierraTradeEnDb(idTrade, precioCierre, fechaCierre, comentario):
+    dbConn = None
+    dbCursor = None
     try:
         dbConn = dbConnection.getConnection()
         dbCursor = dbConn.cursor()
@@ -299,20 +302,26 @@ def cierraTradeEnDb(idTrade, precioCierre, fechaCierre, comentario):
         sqlClose = """
             UPDATE trades 
             SET exitPrice = %s, 
-                closeTime = %s
+                closeTime = %s,
+                status = 'CLOSED'
             WHERE idTrade = %s
         """
-        dbCursor.execute(sqlClose, (precioCierre, fechaCierre, comentario, idTrade))
+        # Se remueve comentario de los parámetros para evitar error de mismatch
+        dbCursor.execute(sqlClose, (precioCierre, fechaCierre, idTrade))
         dbConn.commit()
         
     except Exception as error:
         logger.error(f"❌ Error al cerrar trade en DB: {error}")
     finally:
-        dbCursor.close()
-        dbConn.close()
+        if dbCursor:
+            dbCursor.close()
+        if dbConn:
+            dbConn.close()
 
 
 def verificaCierreTrade(tradeData, dfVelas):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -362,22 +371,34 @@ def verificaCierreTrade(tradeData, dfVelas):
                     print(f"🎯 Trade {idTrade} cerrado por {motivoCierre} en {fechaVela}")
                     cierraTradeEnDb(idTrade, precioCierre, fechaVela, motivoCierre)
                     return True 
-        conn.close()        
+        return False
     except Exception as error:
         logger.error(f"❌ Error en verificaCierreTrade: {error}")
         return False
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 def logTrade(symbol, regime, pf, sharpe):
-    conn = dbConnection.getConnection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO trades (symbol, regime, pf, sharpe)
-        VALUES (%s, %s, %s, %s)
-    """, (symbol, regime, pf, sharpe))
+    conn = None
+    cursor = None
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO trades (symbol, regime, pf, sharpe)
+            VALUES (%s, %s, %s, %s)
+        """, (symbol, regime, pf, sharpe))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    except Exception as error:
+        logger.error(f"❌ Error en logTrade: {error}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getAccount(id=None):
     try:
@@ -528,6 +549,8 @@ def getStrategyConfig(nombreEstrategia: str):
         return None
 
 def buscaTrade(tradeData):
+    dbConn = None
+    dbCursor = None
     try:
         dbConn = dbConnection.getConnection()
         dbCursor = dbConn.cursor(dictionary=True)
@@ -596,10 +619,14 @@ def buscaTrade(tradeData):
     except Exception as error:
         logger.error(f"❌ Error en buscaTrade: {error}")
     finally:
-        if 'dbCursor' in locals(): 
+        if dbCursor:
             dbCursor.close()
+        if dbConn:
+            dbConn.close()
 
 def actualizarTrade(idTrade, data):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor()
@@ -620,9 +647,14 @@ def actualizarTrade(idTrade, data):
 
     except Exception as e:
         logger.error(f"❌ Error al actualizarTrade {idTrade}: {e}")
-        if 'conn' in locals(): conn.rollback()
+        if conn: conn.rollback()
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def insertarTrade(data):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -648,17 +680,17 @@ def insertarTrade(data):
         existing = cursor.fetchone()
 
         if existing:
-            conn.close()
             logger.warning(f"⚠️ Trade duplicado omitido: {symbol} | {strategy} | {intervalo} | {direction} | size={size}")
             return None
 
         cursor = conn.cursor()
-        margin_used = float(data.get('margin_used', 0))
-        candle_time = data.get('candleTime')
+        marginUsedVal = float(data.get('margin_used', 0))
+        candleTimeVal = data.get('candleTime')
+        ticketIdVal = data.get('ticketId')
         
         sqlInsert = """
-            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit, intervalo, strategy, setup, margin_used, candleTime, sentAt)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            INSERT INTO trades (idCuenta, symbol, direction, openTime, size, entryPrice, stopLoss, takeProfit, intervalo, strategy, setup, margin_used, candleTime, ticketId, sentAt)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         valores = (
             data['idCuenta'], data['symbol'], data['direction'], 
@@ -667,24 +699,30 @@ def insertarTrade(data):
             data.get('intervalo', '15min'),
             data.get('strategy', ''),
             data.get('setup'),  # Requerido para detección de señales de ajuste
-            margin_used,
-            candle_time
+            marginUsedVal,
+            candleTimeVal,
+            ticketIdVal
         )
 
         cursor.execute(sqlInsert, valores)
         
-        if margin_used > 0:
+        if marginUsedVal > 0:
             cursor.execute("UPDATE Cuenta SET Capital = Capital - %s WHERE idCuenta = %s", 
-                         (margin_used, data['idCuenta']))
+                         (marginUsedVal, data['idCuenta']))
         
         conn.commit()
-        logger.info(f"🚀 Nuevo trade insertado: {data['symbol']} | Margen reservado: {margin_used}")
+        logger.info(f"🚀 Nuevo trade insertado: {data['symbol']} | Margen reservado: {marginUsedVal}")
 
     except Exception as e:
         logger.error(f"❌ Error al insertarTrade: {e}")
-        if 'conn' in locals(): conn.rollback()
+        if conn: conn.rollback()
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getOpenTradesForActiveAccounts():
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -694,25 +732,33 @@ def getOpenTradesForActiveAccounts():
             WHERE t.status = 'OPEN' AND c.Activo = 1
         """)
         trades = cursor.fetchall()
-        conn.close()
         return trades
     except Exception as e:
         logger.error(f"Error en getOpenTradesForActiveAccounts: {e}")
         return []
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getOpenTrades():
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM trades WHERE closeTime IS NULL")
         trades = cursor.fetchall()
-        conn.close()
         return trades
     except Exception as e:
         logger.error(f"❌ Error en getOpenTrades: {e}")
         return []
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getOpenTradesBySymbol(symbol: str) -> list:
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -721,28 +767,36 @@ def getOpenTradesBySymbol(symbol: str) -> list:
             (symbol,)
         )
         trades = cursor.fetchall()
-        conn.close()
         return trades if trades else []
     except Exception as e:
         logger.error(f"❌ Error en getOpenTradesBySymbol: {e}")
         return []
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def updateTradeLevels(id_trade: int, stop_loss: float, take_profit: float):
     """Actualiza los niveles de SL y TP de un trade abierto."""
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor()
         sql = "UPDATE trades SET stopLoss = %s, takeProfit = %s WHERE idTrade = %s"
         cursor.execute(sql, (stop_loss, take_profit, id_trade))
         conn.commit()
-        conn.close()
         logger.info(f"✅ Trade {id_trade} actualizado: SL={stop_loss}, TP={take_profit}")
         return True
     except Exception as e:
         logger.error(f"❌ Error al actualizar niveles del trade {id_trade}: {e}")
         return False
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_anterior: float = None, pnl_anterior: float = None):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -769,6 +823,8 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_
             WHERE idTrade = %s
         """, (closeTime, exitPrice, nuevo_pnl, idTrade))
         
+        capital_nuevo = 0.0
+        capital_change = 0.0
         if capital_anterior is not None:
             capital_nuevo = capital_anterior + pnl + margin_used
             cursor.execute("UPDATE Cuenta SET Capital = %s WHERE idCuenta = %s", (capital_nuevo, idCuenta))
@@ -777,34 +833,40 @@ def closeTrade(idTrade: int, exitPrice: float, pnl: float, reason: str, capital_
             cursor.execute("UPDATE Cuenta SET Capital = Capital + %s WHERE idCuenta = %s", (capital_change, idCuenta))
         
         conn.commit()
-        conn.close()
         color_tag = "✅" if pnl >= 0 else "❌"
         logger.info(f"{color_tag} Trade {idTrade} Symbol: {trade['symbol']} | Cerrado: {reason} | PnL: {nuevo_pnl:.2f} | Margen devuelto: {margin_used:.2f} | Capital actualizado: {capital_nuevo if capital_anterior is not None else capital_change:.2f}")
         return True
         
     except Exception as e:
         logger.error(f"❌ Error al cerrar trade {idTrade}: {e}")
-        if 'conn' in locals() and conn is not None: 
+        if conn: 
             try: conn.rollback() 
             except: pass
         return False
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getTradesClosedToday(idCuenta: int, fecha: str):
     """
     Retorna la lista de trades cerratizados hoy para una cuenta.
     fecha: Formato 'YYYY-MM-DD'
     """
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         sql = "SELECT pnl FROM trades WHERE idCuenta = %s AND DATE(closeTime) = %s AND closeTime IS NOT NULL"
         cursor.execute(sql, (idCuenta, fecha))
         results = cursor.fetchall()
-        conn.close()
         return results
     except Exception as e:
         logger.error(f"Error en getTradesClosedToday: {e}")
         return []
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 def getAccountById(idCuenta: int):
     """
@@ -816,6 +878,8 @@ def getAccountById(idCuenta: int):
 
 async def getLastCandleDatetime(symbol: str, timeframe: str):
     def query():
+        conn = None
+        cursor = None
         try:
             conn = dbConnection.getConnection()
             cursor = conn.cursor()
@@ -824,11 +888,13 @@ async def getLastCandleDatetime(symbol: str, timeframe: str):
                 (symbol, timeframe)
             )
             result = cursor.fetchone()
-            conn.close()
             return result[0] if result[0] else None
         except Exception as e:
             logger.error(f"Error en getLastCandleDatetime: {e}", exc_info=True)
             return None
+        finally:
+            if cursor: cursor.close()
+            if conn: conn.close()
 
     return await asyncio.to_thread(query)
 
@@ -844,6 +910,8 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
         df['volume'] = None
 
     def insert():
+        conn = None
+        cursor = None
         try:
             conn = dbConnection.getConnection()
             cursor = conn.cursor()
@@ -869,11 +937,13 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
             cursor.executemany(insert_query, values)
             conn.commit()
             inserted = cursor.rowcount
-            conn.close()
             return inserted
         except Exception as e:
             logger.error(f"Error en insertNewCandlesToDb: {e}", exc_info=True)
             return 0
+        finally:
+            if cursor: cursor.close()
+            if conn: conn.close()
 
     inserted_count = await asyncio.to_thread(insert)
     return inserted_count
@@ -884,6 +954,8 @@ async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 50
     Obtiene velas de la tabla 'candles' como DataFrame.
     """
     def query():
+        conn = None
+        cursor = None
         try:
             conn = dbConnection.getConnection()
             cursor = conn.cursor()
@@ -893,7 +965,6 @@ async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 50
                 (symbol, timeframe, limit)
             )
             rows = cursor.fetchall()
-            conn.close()
             
             if not rows:
                 return pd.DataFrame()

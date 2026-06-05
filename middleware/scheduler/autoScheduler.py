@@ -20,7 +20,7 @@ except ImportError:
     DATA_SOURCE = "db"
 
 
-from middleware.utils.time_utils import isRestTime, get_sleep_minutes, get_seconds_to_next_sync
+from middleware.utils.time_utils import isRestTime, get_sleep_minutes, get_seconds_to_next_sync, get_seconds_until_market_opens
 
 def startScheduler(jobFunction):
 
@@ -69,9 +69,12 @@ async def getTiempoEspera(intervaloMinutos):
         return
         
     if isRestTime():
-        sleep_min = get_sleep_minutes()
-        segundos_sueño = get_seconds_to_next_sync(sleep_min)
-        logger.info(f"Mercado en descanso. Esperando {int(segundos_sueño // 60)}m {int(segundos_sueño % 60)}s para sincronizar...")
+        segundos_sueño = get_seconds_until_market_opens()
+        segundos_sueño += 10.0
+        horas = int(segundos_sueño // 3600)
+        minutos = int((segundos_sueño % 3600) // 60)
+        segundos = int(segundos_sueño % 60)
+        logger.info(f"Mercado en descanso. Esperando {horas}h {minutos}m {segundos}s hasta la apertura...")
         await asyncio.sleep(segundos_sueño)
         return
 

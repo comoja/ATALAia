@@ -210,10 +210,9 @@ class IchimokuBot:
         bb_width_current = bb_upper - bb_lower
         bb_width_prev = prev_bb_upper - prev_bb_lower
 
-        # MACD
-        macd_s, macd_signal_s, macdHist_s = ta.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
-        macdHist_val = macdHist_s.iloc[-1] if not pd.isna(macdHist_s.iloc[-1]) else 0
-        macdhist_anterior = macdHist_s.iloc[-2] if not pd.isna(macdHist_s.iloc[-2]) else 0
+        # Impulse MACD
+        macdHist_val = df["impulseMacd"].iloc[-1] if "impulseMacd" in df.columns else 0.0
+        macdhist_anterior = df["impulseMacd"].iloc[-2] if "impulseMacd" in df.columns else 0.0
 
         if macdHist_val > 0:
             impulso = "Alcista Ganando Fuerza" if macdHist_val > macdhist_anterior else "Alcista Perdiendo Fuerza"
@@ -221,7 +220,7 @@ class IchimokuBot:
             impulso = "Bajista Ganando Fuerza" if macdHist_val < macdhist_anterior else "Bajista Perdiendo Fuerza"
         else:
             impulso = "Cruce / Neutro"
-        logger.info(f"[{symbol}][{interval_used}] MACD impulso={impulso} | HTF={htfTrend}")
+        logger.info(f"[{symbol}][{interval_used}] Impulse MACD impulso={impulso} | HTF={htfTrend}")
 
         # VSA: Absorcion institucional
         atr14 = ta.ATR(df['high'], df['low'], df['close'], 14).iloc[-1]
