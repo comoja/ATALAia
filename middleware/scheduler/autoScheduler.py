@@ -64,19 +64,32 @@ async def getTiempoEspera(intervaloMinutos):
     tz = pytz.timezone(timeZone)
     now = datetime.now(tz)
     if now.strftime("%Y-%m-%d") in FESTIVOS:
-        logger.info(f"Dia festivo: {now.strftime('%Y-%m-%d')}. Esperando 1 hora...")
-        await asyncio.sleep(3600)
+        logger.info(f"Dia festivo: {now.strftime('%Y-%m-%d')}. Esperando 1 hora (bucle de espera)...")
+        segundosEspera = 3600.0
+        while segundosEspera > 0:
+            tiempoSueñoParcial = min(60.0, segundosEspera)
+            await asyncio.sleep(tiempoSueñoParcial)
+            segundosEspera -= tiempoSueñoParcial
         return
         
-    if isRestTime():
-        segundos_sueño = get_seconds_until_market_opens()
-        segundos_sueño += 10.0
-        horas = int(segundos_sueño // 3600)
-        minutos = int((segundos_sueño % 3600) // 60)
-        segundos = int(segundos_sueño % 60)
-        logger.info(f"Mercado en descanso. Esperando {horas}h {minutos}m {segundos}s hasta la apertura...")
-        await asyncio.sleep(segundos_sueño)
-        return
+    ultimoLogMinuto = -1
+    while isRestTime():
+        segundosSueño = get_seconds_until_market_opens()
+        segundosSueño += 10.0
+        horasRestantes = int(segundosSueño // 3600)
+        minutosRestantes = int((segundosSueño % 3600) // 60)
+        segundosRestantes = int(segundosSueño % 60)
+        tiempoSueñoParcial = min(60.0, segundosSueño)
+        
+        mensajeDescanso = f"Mercado en descanso. Apertura en {horasRestantes}h {minutosRestantes}m {segundosRestantes}s..."
+        if minutosRestantes % 15 == 0 and minutosRestantes != ultimoLogMinuto:
+            logger.info(mensajeDescanso)
+            ultimoLogMinuto = minutosRestantes
+        else:
+            logger.debug(mensajeDescanso + f" (durmiendo ciclo de {int(tiempoSueñoParcial)}s)")
+            
+        await asyncio.sleep(tiempoSueñoParcial)
+    return
 
     # 3. Cálculo de Sincronización
     proximo_escaneo = get_next_sync_time(intervaloMinutos)
@@ -86,4 +99,7 @@ async def getTiempoEspera(intervaloMinutos):
     logger.info(f"⏳ Sincronizando: Próximo escaneo a las {hora_str} (faltan {int(segundosEspera // 60)}m {int(segundosEspera % 60)}s)\n\n")
     
     if segundosEspera > 0:
-        await asyncio.sleep(segundosEspera)
+        while segundosEspera > 0:
+            tiempoSueñoParcial = min(60.0, segundosEspera)
+            await asyncio.sleep(tiempoSueñoParcial)
+            segundosEspera -= tiempoSueñoParcial

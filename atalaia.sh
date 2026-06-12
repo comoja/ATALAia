@@ -10,61 +10,66 @@ scriptDir=$(cd "$(dirname "$0")" && pwd)
 logsDir="$scriptDir/logs"
 backendPidFile="$logsDir/backend.pid"
 frontendPidFile="$logsDir/frontend.pid"
+tailPid=""
 
 # Asegurar que existe el directorio de logs
 mkdir -p "$logsDir"
 
+function cleanupAndExit() {
+    echo -e "\n👋 Capturado Ctrl-C. Deteniendo todos los servicios de ATALA.ia..."
+    if [ -n "$tailPid" ]; then
+        kill "$tailPid" 2>/dev/null
+    fi
+    stopServices
+    exit 0
+}
+
 function startServices() {
+    # 1. Dar de baja servicios existentes preventivamente
+    stopServices
+
     echo "=========================================================="
     echo "🚀 Levantando Sistema ATALA.ia (Aetherial UI)..."
     echo "=========================================================="
 
-    # --- 1. LEVANTAR BACKEND (FastAPI) ---
-    if [ -f "$backendPidFile" ]; then
-        backendPid=$(cat "$backendPidFile")
-        if kill -0 "$backendPid" 2>/dev/null; then
-            echo "⚠️  El Backend (FastAPI) ya está corriendo (PID: $backendPid)."
-        else
-            rm -f "$backendPidFile"
-        fi
-    fi
-
-    if [ ! -f "$backendPidFile" ]; then
-        echo "⚡ Iniciando Backend en puerto 8000..."
-        # Ejecutar en segundo plano redirigiendo logs usando el venv local
-        "$scriptDir/.venv/bin/python" "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
-        backendPid=$!
-        echo "$backendPid" > "$backendPidFile"
-        echo "✅ Backend levantado con éxito (PID: $backendPid)."
-    fi
-
-    # --- 2. LEVANTAR FRONTEND (Java Spring Boot/PrimeFaces) ---
-    if [ -f "$frontendPidFile" ]; then
-        frontendPid=$(cat "$frontendPidFile")
-        if kill -0 "$frontendPid" 2>/dev/null; then
-            echo "⚠️  El Frontend (Java Maven) ya está corriendo (PID: $frontendPid)."
-        else
-            rm -f "$frontendPidFile"
-        fi
-    fi
-
-    if [ ! -f "$frontendPidFile" ]; then
-        echo "⚡ Iniciando Frontend (Java 8 Maven) en puerto 8080..."
-        # Entrar al directorio del frontend para levantar con Maven
-        cd "$scriptDir/frontend" || exit 1
-        mvn spring-boot:run > "$logsDir/frontend_output.log" 2>&1 &
-        frontendPid=$!
-        echo "$frontendPid" > "$frontendPidFile"
+    # 2. Compilar el Frontend
+    echo "📦 Compilando Frontend (Java 8 Maven)..."
+    cd "$scriptDir/frontend" || exit 1
+    if ! mvn clean package -DskipTests; then
+        echo "❌ Error de compilación en el Frontend. Abortando inicio."
         cd "$scriptDir" || exit 1
-        echo "✅ Frontend levantado con éxito (PID: $frontendPid)."
+        exit 1
     fi
+    cd "$scriptDir" || exit 1
+
+    # 3. Levantar el Backend (FastAPI)
+    echo "⚡ Iniciando Backend en puerto 8000..."
+    "$scriptDir/.venv/bin/python" "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
+    backendPid=$!
+    echo "$backendPid" > "$backendPidFile"
+    echo "✅ Backend levantado con éxito (PID: $backendPid)."
+
+    # 4. Levantar el Frontend (Tomcat Embebido)
+    echo "⚡ Iniciando Frontend (Tomcat Embebido) en puerto 8080..."
+    java -jar "$scriptDir/frontend/target/correlation-frontend-1.0.0-SNAPSHOT.jar" > "$logsDir/frontend_output.log" 2>&1 &
+    frontendPid=$!
+    echo "$frontendPid" > "$frontendPidFile"
+    echo "✅ Frontend (Tomcat) levantado con éxito (PID: $frontendPid)."
 
     echo "----------------------------------------------------------"
     echo "🎉 ¡Servicios iniciados con éxito!"
     echo "🌐 FastAPI Backend:   http://localhost:8000"
     echo "🌐 PrimeFaces Visual: http://localhost:8080/ATALA.ia/login.xhtml"
-    echo "📊 Monitorea la consola con: tail -f logs/backend_output.log o logs/frontend_output.log"
     echo "=========================================================="
+
+    # 5. Configurar el trap para capturar Ctrl-C (SIGINT)
+    trap cleanupAndExit INT
+
+    echo "📊 Mostrando logs de Tomcat en tiempo real. Presiona Ctrl-C para detener todos los servicios..."
+    echo "----------------------------------------------------------"
+    tail -f "$logsDir/frontend_output.log" &
+    tailPid=$!
+    wait "$tailPid" 2>/dev/null
 }
 
 function stopServices() {

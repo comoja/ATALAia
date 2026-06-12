@@ -18,10 +18,10 @@ from Sentinel.core.models import Signal
 
 logger = logging.getLogger("sentinel")
 
-class RegresivolBot:
+class ReversionMediaBot:
     def __init__(self):
         self._signals_sent = {}
-        logger.info("Bot RegressiVol Mean Reversion (LRC + RSI) iniciado")
+        logger.info("Bot Reversión a la Media (LRC + RSI) iniciado")
 
     def rsi(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
         return pd.Series(ta.RSI(df['close'].values, timeperiod=period), index=df.index)
@@ -221,7 +221,7 @@ class RegresivolBot:
         tpPrice = adjustTPForMinRR(currentClose, slPrice, (currentClose + (slDist * minRrVal) if direction == "LARGO" else currentClose - (slDist * minRrVal)), direction, minRR=minRrVal)
 
         # Validación de configuración de estrategia en base de datos
-        stratConfig = dbManager.getStrategyConfig("Regresivol") or {}
+        stratConfig = dbManager.getStrategyConfig("ReversionMedia") or {}
         minConfVal = float(stratConfig.get('min_confidence', 70)) / 100.0
         
         # La confianza se estima a partir de la confluencia (RSI y divergencia aumentan confianza)
@@ -232,7 +232,7 @@ class RegresivolBot:
             baseConfidence += 0.15
             
         if baseConfidence < minConfVal:
-            logger.info(f"[{symbol}] Regresivol: Confianza {baseConfidence:.2f} < {minConfVal:.2f} - saltando")
+            logger.info(f"[{symbol}] ReversionMedia: Confianza {baseConfidence:.2f} < {minConfVal:.2f} - saltando")
             return None
 
         # Obtener marcas de tiempo y vela cerrada
@@ -242,13 +242,13 @@ class RegresivolBot:
         # Deduplicación por vela para evitar re-entradas rápidas en caso de tocar SL
         sigKey = f"{symbol}_{candleTime}"
         if sigKey in self._signals_sent:
-            logger.info(f"[{symbol}] Regresivol: Señal ya emitida para la vela {candleTime} — omitiendo duplicado.")
+            logger.info(f"[{symbol}] ReversionMedia: Señal ya emitida para la vela {candleTime} — omitiendo duplicado.")
             return None
 
         # Chequeo de salud de la señal
         isHealth, _, healthMsg = check_signal_health(currentClose, tpPrice, slPrice, direction, currentClose, threshold=0.65, candleTime=candleTime)
         if not isHealth:
-            logger.info(f"[{symbol}] Regresivol: Señal descartada por salud - {healthMsg}")
+            logger.info(f"[{symbol}] ReversionMedia: Señal descartada por salud - {healthMsg}")
             return None
 
         multiplier = getPipMultiplier(symbol)
@@ -262,7 +262,7 @@ class RegresivolBot:
         )
 
         if size is None or size <= 0:
-            logger.info(f"[{symbol}] Regresivol: Tamaño de posición inválido o margen insuficiente - saltando")
+            logger.info(f"[{symbol}] ReversionMedia: Tamaño de posición inválido o margen insuficiente - saltando")
             return None
 
         rrVal = round(abs(tpPrice - currentClose) / slDist, 2)
@@ -271,7 +271,7 @@ class RegresivolBot:
         # Criterio mínimo de USD Profit
         minUsdProfit = float(stratConfig.get('min_usd_profit', 10.0))
         if expectedProfit < minUsdProfit:
-            logger.info(f"[{symbol}] Regresivol: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando por devaluación de ganancia")
+            logger.info(f"[{symbol}] ReversionMedia: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando por devaluación de ganancia")
             return None
 
         # --- MEJORA 4: Trailing Stop dinámico sobre la línea central del LRC ---
@@ -279,10 +279,10 @@ class RegresivolBot:
         beTrigger = currentLrcCenter
 
         self._signals_sent[sigKey] = True
-        logger.info(f"[{symbol}] ¡Señal de Arbitraje RegressiVol Optimizada EN ZONA! {direction} - Entrada: {currentClose}, SL: {slPrice}, TP: {tpPrice}")
+        logger.info(f"[{symbol}] ¡Señal de Reversión a la Media Optimizada EN ZONA! {direction} - Entrada: {currentClose}, SL: {slPrice}, TP: {tpPrice}")
 
         return Signal(
-            strategy="Regresivol",
+            strategy="ReversionMedia",
             symbol=symbol,
             direction=direction,
             entry_price=currentClose,

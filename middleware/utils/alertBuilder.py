@@ -662,8 +662,8 @@ def buildIchimokuAlertMessage(signal: dict, trade: dict) -> str:
         extraFields=extraFields
     )
 
-def buildRegresivolAlertMessage(signal: dict, trade: dict) -> str:
-    """Mensaje estructurado para la estrategia RegressiVol Mean Reversion (LRC + RSI)"""
+def buildReversionMediaAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje estructurado para la estrategia Reversión a la Media (LRC + RSI)"""
     metadata = signal.get('metadata', {})
     
     # Calcular beneficios de forma segura
@@ -690,7 +690,7 @@ def buildRegresivolAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="REGRESSIVOL MEAN REVERSION",
+        strategyName="REVERSIÓN A LA MEDIA",
         extraFields=extraFields
     )
 
@@ -727,4 +727,39 @@ def buildQTrendAlertMessage(signal: dict, trade: dict) -> str:
         strategyName="QTREND SUPERTREND",
         extraFields=extraFields
     )
+
+
+def buildBreakoutProbabilityAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para la estrategia BreakoutProbability - Rupturas cuantitativas con Impulse MACD."""
+    metadata = signal.get('metadata', {})
+    
+    breakoutProbability = metadata.get('breakout_probability', signal.get('confidence', 50.0))
+    impulseMacd = metadata.get('impulse_macd', 0.0)
+    channelMax = metadata.get('channel_max', 0.0)
+    channelMin = metadata.get('channel_min', 0.0)
+    
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), (riesgoUsd or 0) * (rrRatio or 0))
+    
+    extraFields = {
+        'Estado': signal.get('status', 'RUPTURA ⚡️'),
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD" if riesgoUsd is not None else "N/A",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD" if expectedProfit is not None else "N/A",
+        'Prob. Ruptura': f"<b>{breakoutProbability:.1f}%</b>",
+        'Impulse MACD': f"{impulseMacd:.5f}",
+        'Canal Máx': f"{channelMax:,.5f}",
+        'Canal Mín': f"{channelMin:,.5f}",
+        'TF': trade.get('intervalo', '15min')
+    }
+
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="BREAKOUT PROBABILITY",
+        extraFields=extraFields
+    )
+
 

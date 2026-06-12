@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Float
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import sys
@@ -84,6 +84,34 @@ class RatioSymbol(Base):
     symbol = Column(String(10), primary_key=True, index=True)
     Activo = Column(Integer, default=1)
     tipo = Column(String(10))
+
+class Cuenta(Base):
+    """
+    Tabla corporativa de cuentas de trading en Sentinel/ATALAia.
+    """
+    __tablename__ = "Cuenta"
+
+    idCuenta = Column(Integer, primary_key=True, autoincrement=True)
+    Nombre = Column(String(100), nullable=False)
+    Capital = Column(Float, default=0.0)
+    ganancia = Column(Float, default=1.0) # Representa el riesgo base de la cuenta
+    Activo = Column(Integer, default=1)
+    TokenMsg = Column(String(255), nullable=True)
+    idGrupoMsg = Column(String(50), nullable=True)
+    riesgoPorOperacion = Column(Float, default=1.0)
+
+class SentinelSymbol(Base):
+    """
+    Tabla de configuración de símbolos/instrumentos de Sentinel.
+    """
+    __tablename__ = "SentinelSymbol"
+
+    symbol = Column(String(20), primary_key=True, index=True)
+    Activo = Column(Integer, default=1)
+    min_lots = Column(Float, default=1000.0)
+    broker = Column(Integer, default=0)
+    precioMaximo = Column(Float, nullable=True)
+    precioMinimo = Column(Float, nullable=True)
 
 # Crea las tablas si no existen en la BD "ATALAia"
 Base.metadata.create_all(bind=engine)

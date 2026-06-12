@@ -131,15 +131,20 @@ class ExecutionEngine:
                     logger.debug(f"[ExecutionEngine] [{symbol}] Setup ya abierto en cuenta {accountId} - omitiendo.")
                     continue
 
-            # 4. Calculate Risk and Position Size (Apply risk_factor)
+            # 4. Calculate Risk and Position Size (Apply risk_factor and riesgoSugeridoMultiplier)
             try:
                 baseRisk = float(account['ganancia'])
-                effectiveRisk = baseRisk * signal.risk_factor
+                riesgoSugeridoMultiplier = dbManager.getRiesgoSugerido(symbol, strategyName)
+                effectiveRisk = baseRisk * signal.risk_factor * riesgoSugeridoMultiplier
                 
+                if riesgoSugeridoMultiplier != 1.0:
+                    logger.info(f"[ExecutionEngine] [{symbol}] [{strategyName}] Multiplicador de riesgo sugerido aplicado: x{riesgoSugeridoMultiplier:.2f}")
+
                 # Aplicar Cap de Riesgo Máximo
                 if effectiveRisk > config.MAX_RISK_PER_TRADE:
                     logger.info(f"[ExecutionEngine] [{symbol}] Riesgo {effectiveRisk}% excedía el máximo. Ajustado a {config.MAX_RISK_PER_TRADE}%")
                     effectiveRisk = config.MAX_RISK_PER_TRADE
+
                 
                 posSize, riskUsd, marginUsed = risk.calculatePositionSize(
                     capital=float(account['Capital']),

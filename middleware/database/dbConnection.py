@@ -26,14 +26,16 @@ class DBConnectionPool:
             pool_config = dbConfig.copy()
             if 'connect_timeout' not in pool_config:
                 pool_config['connect_timeout'] = 10
+            # Forzar liberación de conexiones ociosas en 90s
+            pool_config['connection_timeout'] = 90
             
             self._pool = pooling.MySQLConnectionPool(
                 pool_name="atalaia_pool",
-                pool_size=10,
+                pool_size=8,        # Reducido: 3 procesos x 8 = 24 conexiones (< 300)
                 pool_reset_session=True,
                 **pool_config
             )
-            logger.info("Pool de conexiones MySQL inicializado (size=10)")
+            logger.info("Pool de conexiones MySQL inicializado (size=8)")
         except MySQLError as e:
             logger.error(f"Error al crear pool de conexiones: {e}")
             self._pool = None

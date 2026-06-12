@@ -24,7 +24,8 @@ def init_alerts_table():
             ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
             ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60),
             ('FVGDiario', 2.0, 70), ('SpeedBot', 1.5, 70), ('ImbalancePMNY', 1.5, 75),
-            ('BreakoutNY', 1.0, 75), ('Regresivol', 2.5, 70), ('QTrend', 1.5, 70)
+            ('BreakoutNY', 1.0, 75), ('ReversionMedia', 2.5, 70), ('QTrend', 1.5, 70),
+            ('BreakoutProbability', 1.5, 60)
         ]
 
         dbCursor.execute("SHOW TABLES LIKE 'strategyConfig'")
@@ -99,7 +100,7 @@ def init_alerts_table():
         cuentasActivas = dbCursor.fetchall()
         for c in cuentasActivas:
             idCta = c[0]
-            for est in ['BreakoutNY', 'QTrend']:
+            for est in ['BreakoutNY', 'QTrend', 'BreakoutProbability']:
                 dbCursor.execute(
                     "INSERT IGNORE INTO CuentaEstrategia (idCuenta, strategy) VALUES (%s, %s)",
                     (idCta, est)
@@ -168,6 +169,20 @@ def init_alerts_table():
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE activo = VALUES(activo);
         """, brokersSeed)
+        
+        # Crear tabla symbolStrategyConfig si no existe
+        dbCursor.execute("""
+            CREATE TABLE IF NOT EXISTS symbolStrategyConfig (
+                strategy VARCHAR(50) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                parametersJson JSON DEFAULT NULL,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (strategy, symbol),
+                FOREIGN KEY (strategy) REFERENCES strategyConfig(strategy) ON DELETE CASCADE,
+                FOREIGN KEY (symbol) REFERENCES SentinelSymbol(symbol) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
         
         dbConn.commit()
     except Exception as e:
@@ -547,6 +562,38 @@ def getStrategyConfig(nombreEstrategia: str):
     except Exception as e:
         logger.error(f"Error en getStrategyConfig: {e}", exc_info=True)
         return None
+
+def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        # 1. Intentar obtener la configuración específica del símbolo
+        cursor.execute("""
+            SELECT parametersJson FROM symbolStrategyConfig 
+            WHERE strategy = %s AND symbol = %s AND enabled = TRUE
+        """, (strategyName, symbol))
+        result = cursor.fetchone()
+        
+        # 2. Si existe el JSON de parámetros, decodificarlo y retornarlo
+        if result and result.get('parametersJson'):
+            import json
+            params = result['parametersJson']
+            if isinstance(params, str):
+                params = json.loads(params)
+            cursor.close()
+            conn.close()
+            return params
+            
+        # 3. Fallback: Obtener la configuración global de la estrategia
+        cursor.execute("SELECT * FROM strategyConfig WHERE strategy = %s AND enabled = TRUE", (strategyName,))
+        globalConfig = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        return globalConfig or {}
+    except Exception as e:
+        logger.error(f"Error en getSymbolStrategyConfig para {strategyName} - {symbol}: {e}", exc_info=True)
+        return {}
 
 def buscaTrade(tradeData):
     dbConn = None
@@ -1141,4 +1188,27 @@ def addBrokerCuenta(idCuenta: int, idBroker: int, tipoConexion: str, loginUsuari
     finally:
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
+
+
+def getRiesgoSugerido(symbol: str, strategy: str) -> float:
+    """
+    Obtiene el riesgo sugerido para una combinación de símbolo y estrategia.
+    Si no existe, retorna 1.0 por defecto.
+    """
+    try:
+        dbConn = dbConnection.getConnection()
+        dbCursor = dbConn.cursor(dictionary=True)
+        sql = "SELECT riesgoSugerido FROM EstrategiaSymbol WHERE symbol = %s AND strategy = %s LIMIT 1"
+        dbCursor.execute(sql, (symbol, strategy))
+        result = dbCursor.fetchone()
+        if result and result.get('riesgoSugerido') is not None:
+            return float(result['riesgoSugerido'])
+        return 1.0
+    except Exception as e:
+        logger.error(f"Error en getRiesgoSugerido: {e}")
+        return 1.0
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
 

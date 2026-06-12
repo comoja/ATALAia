@@ -16,6 +16,9 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         import math
         from decimal import Decimal
         
+        if entryPrice is None or entryPrice <= 0:
+            entryPrice = 1.0
+
         if slDistance <= 0 or math.isnan(slDistance):
             return None, None, 0
 
@@ -25,13 +28,27 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
         symbolType = symbolInfo.get('tipo', 'MONEDA').upper()
         symbolName = symbolInfo.get('symbol', '').upper()
         
-        # Margen desde la BD (porcentaje, ej: 0.25)
+        # Margen desde la BD (porcentaje, ej: 2.0)
         marginPercentValue = float(symbolInfo.get('margen', 2.0))
         marginPercent = marginPercentValue / 100.0
         
-        # Lote mínimo desde la BD
-        symbolMinLots = symbolInfo.get('min_lots', 1000)
-        minLots = float(symbolMinLots) if symbolMinLots else 1000.0
+        # Mapeo de lotes mínimos por defecto según tipo de activo para consistencia
+        minUnitsDict = {
+            "METALES": 1.0,
+            "INDICES": 1.0,
+            "INDICE": 1.0,
+            "CRIPTO": 0.01,
+            "CRYPTO": 0.01,
+            "MONEDA": 1000.0,
+            "EXOTIC": 1000.0,
+            "FOREX": 1000.0
+        }
+        
+        symbolMinLots = symbolInfo.get('min_lots')
+        if symbolMinLots is not None:
+            minLots = float(symbolMinLots)
+        else:
+            minLots = float(minUnitsDict.get(symbolType, 1000.0))
 
         def adjustForMargin(size, mPercent, capAvailable, riskCurr, mLots, price=1.0):
             requiredMargin = size * price * mPercent
@@ -47,9 +64,16 @@ def calculatePositionSize(capital: float, riskPercentage: float, slDistance: flo
             return maxSize, adjustedRisk
 
         # --- FOREX ---
-        if symbolType in ["MONEDA", "EXOTIC"]:
-            # Pip value calculation
-            pipValue = float(symbolInfo.get('pip', 0.0001))
+        if symbolType in ["MONEDA", "EXOTIC", "FOREX", "CURRENCY"]:
+            # Pip value calculation con inferencia robusta de JPY/HUF si no viene en symbolInfo
+            pipValue = symbolInfo.get('pip')
+            if pipValue is None:
+                symbol_up = symbolName.upper()
+                if any(s in symbol_up for s in ["JPY", "HUF"]):
+                    pipValue = 0.01
+                else:
+                    pipValue = 0.0001
+            pipValue = float(pipValue)
             pipsDistance = slDistance / pipValue
             if pipsDistance == 0: return None, None, 0
 

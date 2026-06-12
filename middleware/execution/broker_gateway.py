@@ -22,8 +22,9 @@ from middleware.utils.alertBuilder import (
     buildSpeedBotAlertMessage,
     buildBreakoutNYAlertMessage,
     buildIchimokuAlertMessage,
-    buildRegresivolAlertMessage,
-    buildQTrendAlertMessage
+    buildReversionMediaAlertMessage,
+    buildQTrendAlertMessage,
+    buildBreakoutProbabilityAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY, mt5Login, mt5Password, mt5Server
 
@@ -247,7 +248,7 @@ class BrokerGateway:
                 exec_success = await self._execute_live(trade_data)
                 if not exec_success:
                     logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
-                    return False, "drawdown_superado"
+                    message = f"⚠️ <b>[BROKER ERROR]</b> No se pudo ejecutar en el Broker.\n\n{message}"
             else:
                 logger.info(f"ℹ️ Modo 'live' activo pero el símbolo {symbolName} tiene 'broker' = 0. Se omite ejecución en el bróker (se procesa como simulación).")
 
@@ -346,10 +347,12 @@ class BrokerGateway:
             return buildBreakoutNYAlertMessage(signal, trade_data)
         elif strategy_name == "Ichimoku":
             return buildIchimokuAlertMessage(signal, trade_data)
-        elif strategy_name == "Regresivol":
-            return buildRegresivolAlertMessage(signal, trade_data)
+        elif strategy_name == "ReversionMedia":
+            return buildReversionMediaAlertMessage(signal, trade_data)
         elif strategy_name == "QTrend":
             return buildQTrendAlertMessage(signal, trade_data)
+        elif strategy_name == "BreakoutProbability":
+            return buildBreakoutProbabilityAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

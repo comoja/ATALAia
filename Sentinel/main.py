@@ -33,8 +33,10 @@ from Sentinel.core.FVGDiario import FVGDiarioBot
 from Sentinel.core.SpeedBot import SpeedBot
 from Sentinel.core.BreakoutNY import BreakoutNYBot
 from Sentinel.core.Ichimoku import IchimokuBot
-from Sentinel.core.Regresivol import RegresivolBot
+from Sentinel.core.ReversionMedia import ReversionMediaBot
 from Sentinel.core.QTrend import QTrendBot
+from Sentinel.core.BreakoutProbability import BreakoutProbabilityBot
+from Sentinel.core.PremiumConfluence import PremiumConfluenceBot
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
@@ -235,7 +237,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, regresivol_bot, qtrend_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
+async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, reversion_media_bot, qtrend_bot, breakout_probability_bot, premium_confluence_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
@@ -257,8 +259,10 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         "SpeedBot",
         "BreakoutNY",
         "Ichimoku",
-        "Regresivol",
+        "ReversionMedia",
         "QTrend",
+        "BreakoutProbability",
+        "PremiumConfluence",
     ])
 
     # Cargar exclusiones dinámicas de symbolNotStrategia de la base de datos
@@ -455,10 +459,14 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             
         if _is_strategy_enabled(strategy_configs, "Ichimoku") and (symbol, "Ichimoku") not in exclusions:
             tasks.append(ichimoku_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
-        if _is_strategy_enabled(strategy_configs, "Regresivol") and (symbol, "Regresivol") not in exclusions:
-            tasks.append(regresivol_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "ReversionMedia") and (symbol, "ReversionMedia") not in exclusions:
+            tasks.append(reversion_media_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         if _is_strategy_enabled(strategy_configs, "QTrend") and (symbol, "QTrend") not in exclusions:
             tasks.append(qtrend_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "BreakoutProbability") and (symbol, "BreakoutProbability") not in exclusions:
+            tasks.append(breakout_probability_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "PremiumConfluence") and (symbol, "PremiumConfluence") not in exclusions:
+            tasks.append(premium_confluence_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         
 
 
@@ -571,11 +579,14 @@ async def main():
     speed_bot = SpeedBot(intervals=['5min'])
     breakout_ny_bot = BreakoutNYBot()
     ichimoku_bot = IchimokuBot()
-    regresivol_bot = RegresivolBot()
+    reversion_media_bot = ReversionMediaBot()
     qtrend_bot = QTrendBot()
+    breakout_probability_bot = BreakoutProbabilityBot()
+    premium_confluence_bot = PremiumConfluenceBot()
     
     _weekly_trends_loaded_today = None  # Track fecha de última carga
     _ml_retrained_today = None  # Track fecha de último retraining
+    ultimoLogMinuto = -1
     
     while True:
         try:
@@ -640,22 +651,37 @@ async def main():
                 await run_sequential_analysis(
                     engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
                     ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
-                    generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, regresivol_bot, qtrend_bot, symbolsToScan, 
+                    generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, reversion_media_bot, qtrend_bot, breakout_probability_bot, premium_confluence_bot, symbolsToScan, 
                     apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
                 )
                 
                 await getTiempoEspera(5)
             else:
-                segundos_sueño = get_seconds_until_market_opens()
+                segundosSueño = get_seconds_until_market_opens()
                 # Margen de seguridad de 10 segundos
-                segundos_sueño += 10.0
+                segundosSueño += 10.0
                 
-                horas = int(segundos_sueño // 3600)
-                minutos = int((segundos_sueño % 3600) // 60)
-                segundos = int(segundos_sueño % 60)
+                horasRestantes = int(segundosSueño // 3600)
+                minutosRestantes = int((segundosSueño % 3600) // 60)
+                segundosRestantes = int(segundosSueño % 60)
                 
-                logger.info(f"💤 Periodo de descanso detectado. Dormirá {horas}h {minutos}m {segundos}s hasta la apertura del mercado...", extra={"color": "blue"})
-                await asyncio.sleep(segundos_sueño)
+                # Para evitar congelamientos del event loop de asyncio en periodos largos y mantener activo el proceso,
+                # dormimos en tramos cortos de máximo 60 segundos
+                tiempoSueñoParcial = min(60.0, segundosSueño)
+                
+                mensajeDescanso = (
+                    f"💤 Periodo de descanso activo. Apertura en {horasRestantes}h {minutosRestantes}m {segundosRestantes}s. "
+                    f"Modo de espera activo..."
+                )
+                
+                # Loguear en INFO cada 15 minutos, y en DEBUG el resto de los ciclos
+                if minutosRestantes % 15 == 0 and minutosRestantes != ultimoLogMinuto:
+                    logger.info(mensajeDescanso, extra={"color": "blue"})
+                    ultimoLogMinuto = minutosRestantes
+                else:
+                    logger.debug(mensajeDescanso + f" (durmiendo ciclo de {int(tiempoSueñoParcial)}s)")
+                
+                await asyncio.sleep(tiempoSueñoParcial)
         except Exception as e:
             logger.critical(f"Error en bucle: {e}", exc_info=True)
             await asyncio.sleep(60)

@@ -173,6 +173,7 @@ async def main():
     api_tz = pytz.utc
     lastResetDate = datetime.now(api_tz).date()
     symbolIndex = 0
+    ultimoLogMinuto = -1
     
     while True:
         try:
@@ -181,13 +182,21 @@ async def main():
             today_api = now_api.date()
 
             if isRestTime():
-                segundos_sueño = get_seconds_until_market_opens()
-                segundos_sueño += 10.0
-                horas = int(segundos_sueño // 3600)
-                minutos = int((segundos_sueño % 3600) // 60)
-                segundos = int(segundos_sueño % 60)
-                logger.info(f"💤 Periodo de descanso detectado. El orquestador dormirá {horas}h {minutos}m {segundos}s hasta la apertura...")
-                await asyncio.sleep(segundos_sueño)
+                segundosSueño = get_seconds_until_market_opens()
+                segundosSueño += 10.0
+                horasRestantes = int(segundosSueño // 3600)
+                minutosRestantes = int((segundosSueño % 3600) // 60)
+                segundosRestantes = int(segundosSueño % 60)
+                tiempoSueñoParcial = min(60.0, segundosSueño)
+                
+                mensajeDescanso = f"💤 Periodo de descanso detectado. Apertura en {horasRestantes}h {minutosRestantes}m {segundosRestantes}s."
+                if minutosRestantes % 15 == 0 and minutosRestantes != ultimoLogMinuto:
+                    logger.info(mensajeDescanso)
+                    ultimoLogMinuto = minutosRestantes
+                else:
+                    logger.debug(mensajeDescanso + f" (durmiendo ciclo de {int(tiempoSueñoParcial)}s)")
+                
+                await asyncio.sleep(tiempoSueñoParcial)
                 continue
             
             # Reset diario basado en el reloj de TwelveData (UTC)
@@ -207,15 +216,22 @@ async def main():
                 continue
             
             if limiter.allExhausted():
-                logger.warning("🚨 Todas las cuentas agotadas por hoy. Esperando ciclo de descanso...")
-                await asyncio.sleep(3600)
+                logger.warning("🚨 Todas las cuentas agotadas por hoy. Esperando ciclo de descanso (bucle)...")
+                segundosEspera = 3600.0
+                while segundosEspera > 0 and limiter.allExhausted():
+                    tiempoSueñoParcial = min(60.0, segundosEspera)
+                    await asyncio.sleep(tiempoSueñoParcial)
+                    segundosEspera -= tiempoSueñoParcial
                 continue
         
             if symbolIndex >= len(symbols):
                 symbolIndex = 0
-                sleep_seconds, next_time = seconds_until_next_5min(now_local)
-                logger.info(f"✅ Ronda completada. Próximo escaneo: {next_time.strftime('%H:%M:%S')} (Status: {limiter.getStatus()})")
-                await asyncio.sleep(sleep_seconds)
+                sleepSeconds, nextTime = seconds_until_next_5min(now_local)
+                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {limiter.getStatus()})")
+                while sleepSeconds > 0:
+                    tiempoSueñoParcial = min(60.0, sleepSeconds)
+                    await asyncio.sleep(tiempoSueñoParcial)
+                    sleepSeconds -= tiempoSueñoParcial
                 continue
             
             symbolData = symbols[symbolIndex]

@@ -75,8 +75,8 @@ class SniperBot:
             return default
 
     def _get_ml_thresholds(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> Tuple[float, float]:
-        base_long = float(strat_config.get("proba_threshold_long", config.PROBA_THRESHOLD_LONG))
-        base_short = float(strat_config.get("proba_threshold_short", config.PROBA_THRESHOLD_SHORT))
+        base_long = max(0.60, float(strat_config.get("proba_threshold_long", config.PROBA_THRESHOLD_LONG)))
+        base_short = min(0.40, float(strat_config.get("proba_threshold_short", config.PROBA_THRESHOLD_SHORT)))
 
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
             default_adjust = float(strat_config.get("jpy_threshold_adjust_pct", 0.0))
@@ -438,10 +438,11 @@ class SniperBot:
             (direction == "CORTO" and tp_structural and tp_structural < close)
         )
 
-        if structural_is_valid:
-            tpPrice = min(tp_structural, tp_by_rr) if direction == "LARGO" else max(tp_structural, tp_by_rr)
-        else:
-            tpPrice = tp_by_rr
+        if not structural_is_valid:
+            logger.info(f"[{symbol}] Sniper: Señal rechazada por sobre-extensión estructural (close={close:.5f} ya superó o igualó tp_structural={tp_structural})")
+            return None
+
+        tpPrice = min(tp_structural, tp_by_rr) if direction == "LARGO" else max(tp_structural, tp_by_rr)
 
         # --- Cap TP por ATR: máximo 2.5 ATR desde la entrada (Sniper es 15min) ---
         # Esto evita TPs irracionales tipo 6 ATR que nunca se alcanzan

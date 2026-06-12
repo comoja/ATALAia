@@ -105,21 +105,74 @@ class QTrendBot:
         qtrendBullish = emaFast[-1] > emaSlow[-1]
         qtrendBearish = emaFast[-1] < emaSlow[-1]
 
+        # Calcular antigüedad del crossover de SuperTrend alcista/bajista
+        stBullishCrossAge = -1
+        stBearishCrossAge = -1
+        for age in range(0, 10):
+            idx = len(stTrend) - 1 - age
+            if idx > 0:
+                if stTrend[idx - 1] == -1 and stTrend[idx] == 1:
+                    stBullishCrossAge = age
+                    break
+        for age in range(0, 10):
+            idx = len(stTrend) - 1 - age
+            if idx > 0:
+                if stTrend[idx - 1] == 1 and stTrend[idx] == -1:
+                    stBearishCrossAge = age
+                    break
+
+        # Calcular antigüedad del crossover de QTrend (EMAs) alcista/bajista
+        qtrendBullishCrossAge = -1
+        qtrendBearishCrossAge = -1
+        for age in range(0, 10):
+            idx = len(emaFast) - 1 - age
+            if idx > 0:
+                if emaFast[idx - 1] <= emaSlow[idx - 1] and emaFast[idx] > emaSlow[idx]:
+                    qtrendBullishCrossAge = age
+                    break
+        for age in range(0, 10):
+            idx = len(emaFast) - 1 - age
+            if idx > 0:
+                if emaFast[idx - 1] >= emaSlow[idx - 1] and emaFast[idx] < emaSlow[idx]:
+                    qtrendBearishCrossAge = age
+                    break
+
         direction = None
+        isBrokerEnabled = bool(symbolInfo.get('broker', 0))
+        maxCrossAge = 3
         
-        # --- LÓGICA DE ENTRADA (CONFLUENCIA DE AMBOS INDICADORES) ---
+        # --- LÓGICA DE ENTRADA (CONFLUENCIA DE AMBOS INDICADORES CON RESTRICCIÓN TEMPORAL) ---
         if supertrendBullish and qtrendBullish:
-            # Largo si el SuperTrend se acaba de volver alcista O la EMA cruzó al alza
-            if stTrend[-2] == -1 or emaFast[-2] <= emaSlow[-2]:
+            # Validamos que ambos crossovers hayan ocurrido recientemente (dentro de la ventana maxCrossAge)
+            if (0 <= stBullishCrossAge <= maxCrossAge) and (0 <= qtrendBullishCrossAge <= maxCrossAge):
                 direction = "LARGO"
+                logger.info(f"[{symbol}] QTrend: Confluencia LARGO confirmada. Antigüedad ST Cross: {stBullishCrossAge} velas, QTrend Cross: {qtrendBullishCrossAge} velas")
+            else:
+                logger.info(f"[{symbol}] QTrend: Señal LARGO ignorada por desincronización o madurez de tendencia. Antigüedad ST Cross: {stBullishCrossAge} velas, QTrend Cross: {qtrendBullishCrossAge} velas")
                 
         elif supertrendBearish and qtrendBearish:
-            # Corto si el SuperTrend se acaba de volver bajista O la EMA cruzó a la baja
-            if stTrend[-2] == 1 or emaFast[-2] >= emaSlow[-2]:
+            # Validamos que ambos crossovers hayan ocurrido recientemente
+            if (0 <= stBearishCrossAge <= maxCrossAge) and (0 <= qtrendBearishCrossAge <= maxCrossAge):
                 direction = "CORTO"
+                logger.info(f"[{symbol}] QTrend: Confluencia CORTO confirmada. Antigüedad ST Cross: {stBearishCrossAge} velas, QTrend Cross: {qtrendBearishCrossAge} velas")
+            else:
+                logger.info(f"[{symbol}] QTrend: Señal CORTO ignorada por desincronización o madurez de tendencia. Antigüedad ST Cross: {stBearishCrossAge} velas, QTrend Cross: {qtrendBearishCrossAge} velas")
             
         if not direction:
             return None
+            
+        # --- FILTRO DE CONTRADICCIÓN DE IMPULSE MACD ---
+        if "impulseMacd" in df.columns and "impulseSignal" in df.columns:
+            currentImpulse = df["impulseMacd"].iloc[-1]
+            currentSignal = df["impulseSignal"].iloc[-1]
+            macdAlcista = currentImpulse > currentSignal
+            
+            if direction == "LARGO" and not macdAlcista:
+                logger.info(f"[{symbol}] QTrend: Señal LARGO descartada por contradicción con Impulse MACD (bajista)")
+                return None
+            elif direction == "CORTO" and macdAlcista:
+                logger.info(f"[{symbol}] QTrend: Señal CORTO descartada por contradicción con Impulse MACD (alcista)")
+                return None
             
         logger.info(f"[{symbol}] ¡Señal detectada en QTrend! Dirección: {direction}")
 
@@ -130,16 +183,50 @@ class QTrendBot:
         if slDist <= 0:
             return None
 
-        if direction == "LARGO":
-            calculatedTp = currentPrice * (1.0 + tpPercent)
+        # Calcular ATR de 14 periodos para filtros de sobre-extensión
+        atrSeries = ta.ATR(df['high'].values.astype(float), df['low'].values.astype(float), df['close'].values.astype(float), timeperiod=14)
+        if len(atrSeries) > 0 and not np.isnan(atrSeries[-1]):
+            atrVal = float(atrSeries[-1])
         else:
-            calculatedTp = currentPrice * (1.0 - tpPercent)
+            atrVal = 0.0
 
-        # Ajuste de Take Profit con R:R mínimo configurado en DB (si aplica)
+        if atrVal > 0:
+            # 1. Filtro de vela Spike (vela de disparo anormalmente grande)
+            triggerCandleRange = float(df['high'].iloc[-1] - df['low'].iloc[-1])
+            maxTriggerAtrMult = float(stratConfig.get('max_trigger_atr_mult', 2.0))
+            if maxTriggerAtrMult <= 0:
+                maxTriggerAtrMult = 2.0
+            
+            if triggerCandleRange > maxTriggerAtrMult * atrVal:
+                logger.info(f"[{symbol}] QTrend: Señal {direction} descartada por vela de disparo gigante (Spike). Rango de vela: {triggerCandleRange:.5f} > {maxTriggerAtrMult} * ATR ({maxTriggerAtrMult * atrVal:.5f})")
+                return None
+                
+            # 2. Filtro de Stop Loss sobre-extendido (distancia de stop loss muy grande)
+            maxSlAtrMult = float(stratConfig.get('max_sl_atr_mult', 2.0))
+            if maxSlAtrMult <= 0:
+                maxSlAtrMult = 2.0
+                
+            if slDist > maxSlAtrMult * atrVal:
+                logger.info(f"[{symbol}] QTrend: Señal {direction} descartada por Stop Loss sobre-extendido. Distancia SL: {slDist:.5f} > {maxSlAtrMult} * ATR ({maxSlAtrMult * atrVal:.5f})")
+                return None
+
         minRrVal = float(stratConfig.get('min_rr', 1.5))
         if minRrVal <= 0:
             minRrVal = 1.5
-            
+
+        symbolType = symbolInfo.get('tipo', 'MONEDA').upper()
+        if symbolType in ["MONEDA", "EXOTIC"]:
+            # Para Forex, el TP de 1.5% de precio es excesivo. Calculamos con base en la distancia del SL y el minRrVal.
+            if direction == "LARGO":
+                calculatedTp = currentPrice + (minRrVal * slDist)
+            else:
+                calculatedTp = currentPrice - (minRrVal * slDist)
+        else:
+            if direction == "LARGO":
+                calculatedTp = currentPrice * (1.0 + tpPercent)
+            else:
+                calculatedTp = currentPrice * (1.0 - tpPercent)
+
         tpPrice = adjustTPForMinRR(currentPrice, slPrice, calculatedTp, direction, minRR=minRrVal)
 
         # Validaciones de salud y agotamiento de la señal

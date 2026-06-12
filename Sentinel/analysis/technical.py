@@ -10,6 +10,7 @@ from datetime import datetime
 import pytz
 
 from middleware.database import dbManager
+from Sentinel.analysis.fvg_analyzer import FvgAnalyzer
 
 logger = logging.getLogger("sentinel")
 
@@ -476,31 +477,12 @@ def is_spread_safe(df: pd.DataFrame, max_spread_atr_percent: float = 20.0) -> bo
 
 def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 0, validate_mitigation: bool = True, apply_high_prob_filters: bool = False) -> list:
     """
-    Detecta Fair Value Gaps (FVG) usando definición centralizada e implementa
-    las reglas avanzadas de alta probabilidad (SMC/Quant de basicas.md).
-    
-    Estructura de 3 Velas (Vela 1 = i-2, Vela 2 = i-1, Vela 3 = i):
-    
-    FVG Alcista (Bullish): Low[i] > High[i-2]
-    FVG Bajista (Bearish): High[i] < Low[i-2]
-    
-    Si `apply_high_prob_filters` es True, aplica los filtros estrictos:
-      1. EMA 200: Alcistas sobre EMA200, Bajistas bajo EMA200.
-      2. MSS de Vela 2 (vela central): Vela 2 debe romper el máximo/mínimo anterior local (corto plazo).
-    
-    Clasificación avanzada de Vela 3:
-      - 'Alta Probabilidad': Cuerpo Vela 3 < 60% rango total (pausa/consolidación).
-      - 'Breakaway Gap': Cuerpo Vela 3 > 80% rango, cierra lejos, ATR Vela 3 > 1.5 * ATR prom 14.
-      - 'Rechazo/Baja Probabilidad': Mecha entra al gap > 30% y cierra fuera, o mecha > 50% total.
-    
-    Mitigación por Toque Físico:
-      - Un FVG se marca como mitigado si cualquier vela posterior toca el precio del gap.
+    Detecta Fair Value Gaps (FVG) delegando la lógica a la clase centralizada FvgAnalyzer,
+    manteniendo total compatibilidad con las firmas y tipos de retorno existentes.
     """
-    fvgs = []
     df = filter_to_closed_candles(df)
-    
     if len(df) < 4:
-        return fvgs
+        return []
 
     # ADX filter opcional
     if min_adx > 0 and len(df) >= 14:
@@ -508,203 +490,23 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
             adx = float(ta.ADX(df['high'], df['low'], df['close'], timeperiod=14).dropna().iloc[-1])
             if adx < min_adx:
                 logger.debug(f"[FVG] ADX={adx:.1f} < {min_adx} → mercado lateral, sin FVG")
-                return fvgs
+                return []
         except Exception as e:
             logger.debug(f"[FVG] Error calculando ADX: {e}")
 
-    # Calcular EMA 200 manejando valores nulos para el filtro de tendencia
-    ema200Series = df['close'].ewm(span=200, adjust=False, min_periods=1).mean()
-    
-    # Calcular ATR 14 para la clasificación Breakaway Gap
-    atr14Series = ta.ATR(df['high'], df['low'], df['close'], timeperiod=14)
-    # Rellenar nulos del ATR al inicio de la serie
-    atr14Series = atr14Series.ffill().bfill()
-    
-    highs = df['high'].values
-    lows = df['low'].values
-    closes = df['close'].values
-    opens = df['open'].values
-    times = df.index
-    
-    for i in range(2, len(df)):
-        v1_high = highs[i-2]
-        v1_low = lows[i-2]
-        v2_high = highs[i-1]
-        v2_low = lows[i-1]
-        v2_open = opens[i-1]
-        v2_close = closes[i-1]
-        v3_high = highs[i]
-        v3_low = lows[i]
-        v3_open = opens[i]
-        v3_close = closes[i]
-        
-        # Validar cuerpo de Vela 2
-        v2_range = v2_high - v2_low
-        if v2_range == 0:
-            continue
-        v2_body = abs(v2_close - v2_open)
-        v2_body_pct = v2_body / v2_range
-        
-        # Filtro de Desplazamiento base
-        if v2_body_pct < 0.50:
-            continue
-            
-        ema200Val = float(ema200Series.iloc[i])
-        closeVal = float(closes[i])
-        
-        # Inicializar variables camelCase
-        isBullish = False
-        isBearish = False
-        gapSize = 0.0
-        
-        # 1. Detección base
-        if v1_high < v3_low and v2_close > v2_open:
-            isBullish = True
-            gapSize = v3_low - v1_high
-        elif v1_low > v3_high and v2_close < v2_open:
-            isBearish = True
-            gapSize = v1_low - v3_high
-            
-        if not (isBullish or isBearish) or (gapSize / closeVal < min_gap_pct):
-            continue
-            
-        # 2. Filtrado por EMA 200 (si se activa)
-        if apply_high_prob_filters:
-            if isBullish and closeVal <= ema200Val:
-                continue
-            if isBearish and closeVal >= ema200Val:
-                continue
-                
-        # 3. Market Structure Shift (MSS) local de Vela 2
-        # Validar si Vela 2 rompe máximo/mínimo local de las 5 velas anteriores
-        if apply_high_prob_filters and i >= 7:
-            if isBullish:
-                localMax = float(np.max(highs[i-7:i-2]))
-                if v2_high <= localMax:
-                    continue
-            else:
-                localMin = float(np.min(lows[i-7:i-2]))
-                if v2_low >= localMin:
-                    continue
-
-        # 4. Clasificación avanzada de Vela 3
-        classification = 'CONTINUATION'
-        highProbability = False
-        breakawayGap = False
-        rejectionLowProbability = False
-        
-        rangoVela3 = v3_high - v3_low
-        cuerpoVela3 = abs(v3_close - v3_open)
-        cuerpoPct3 = cuerpoVela3 / rangoVela3 if rangoVela3 > 0 else 0.0
-        mechaVela3 = rangoVela3 - cuerpoVela3
-        mechaPct3 = mechaVela3 / rangoVela3 if rangoVela3 > 0 else 0.0
-        
-        # a. Alta Probabilidad (pausa / consolidación)
-        if cuerpoPct3 < 0.60:
-            highProbability = True
-            classification = 'Alta Probabilidad'
-            
-        # b. Breakaway Gap
-        currentAtr = float(atr14Series.iloc[i])
-        isCappingAway = False
-        if isBullish:
-            isCappingAway = (v3_close >= v3_low + 0.8 * rangoVela3)
-        else:
-            isCappingAway = (v3_close <= v3_low + 0.2 * rangoVela3)
-            
-        if cuerpoPct3 > 0.80 and isCappingAway and currentAtr > 0 and rangoVela3 > 1.5 * currentAtr:
-            breakawayGap = True
-            classification = 'Breakaway Gap'
-            highProbability = True  # Breakaway gap también es considerado alta probabilidad
-            
-        # c. Trampa / Baja Probabilidad (Rechazo)
-        # Determinar si entra en más de un 30% al gap teórico dejado por Vela 2
-        isDeepPenetration = False
-        gapTeorico = abs(v2_close - v1_high) if isBullish else abs(v1_low - v2_close)
-        if gapTeorico > 0:
-            if isBullish and v3_low < v2_low:
-                penetration = v2_low - v3_low
-                if penetration > 0.3 * gapTeorico and v3_close > v2_low:
-                    isDeepPenetration = True
-            elif isBearish and v3_high > v2_high:
-                penetration = v3_high - v2_high
-                if penetration > 0.3 * gapTeorico and v3_close < v2_high:
-                    isDeepPenetration = True
-                    
-        if isDeepPenetration or mechaPct3 > 0.50:
-            rejectionLowProbability = True
-            classification = 'Rechazo/Baja Probabilidad'
-            highProbability = False
-            breakawayGap = False
-            
-        # 5. Evaluar Mitigación por Toque físico de precio
-        mitigated = False
-        for j in range(i + 1, len(df)):
-            if isBullish:
-                if lows[j] <= v3_low:  # Toca o cruza el borde superior
-                    mitigated = True
-                    break
-            else:
-                if highs[j] >= v3_high:  # Toca o cruza el borde inferior
-                    mitigated = True
-                    break
-                    
-        # Si se exige mitigación destructiva tradicional
-        if validate_mitigation and _is_fvg_mitigated(df, i, {'type': 'Bullish_FVG' if isBullish else 'Bearish_FVG', 'bottom': v1_high if isBullish else v3_high, 'top': v3_low if isBullish else v1_low, 'mid': (v1_high + v3_low)/2 if isBullish else (v1_low + v3_high)/2}):
-            continue
-
-        fvgObj = {
-            'type': 'Bullish_FVG' if isBullish else 'Bearish_FVG',
-            'top': float(v3_low) if isBullish else float(v1_low),
-            'bottom': float(v1_high) if isBullish else float(v3_high),
-            'gap_low': float(v1_high) if isBullish else float(v3_high),
-            'gap_high': float(v3_low) if isBullish else float(v1_low),
-            'gapLow': float(v1_high) if isBullish else float(v3_high),
-            'gapHigh': float(v3_low) if isBullish else float(v1_low),
-            'mid': float((v1_high + v3_low) / 2) if isBullish else float((v1_low + v3_high) / 2),
-            'size': float(gapSize),
-            'v1_low': float(v1_low),
-            'v1_high': float(v1_high),
-            'timestamp': _format_timestamp(times[i]),
-            'idx': i,
-            'classification': classification,
-            'highProbability': highProbability,
-            'breakawayGap': breakawayGap,
-            'rejectionLowProbability': rejectionLowProbability,
-            'mitigated': mitigated
-        }
-        fvgs.append(fvgObj)
-        
-    return fvgs
+    analyzer = FvgAnalyzer(minGapPct=min_gap_pct)
+    rawFvgs = analyzer.detectFvg(df)
+    filteredFvgs = analyzer.applyFilters(df, rawFvgs, applyHighProbFilters=apply_high_prob_filters, validateMitigation=validate_mitigation)
+    return filteredFvgs
 
 
 def _is_fvg_mitigated(df: pd.DataFrame, fvg_start_idx: int, fvg: Dict) -> bool:
     """
-    Valida si un FVG ha sido mitigado (llenado) por alguna vela posterior.
-    Regla ICT/SMC estándar (50% Rule):
-    El gap se considera INVÁLIDO solo cuando una vela CIERRA dentro del espacio del FVG
-    superando el punto medio (50% del gap).
+    Valida si un FVG ha sido mitigado (llenado) por alguna vela posterior usando la regla de 50%.
+    Delega a la implementación centralizada de FvgAnalyzer.
     """
-    gapMid = fvg.get('mid')
-    if gapMid is None:
-        bottom = fvg.get('bottom') or fvg.get('start')
-        top = fvg.get('top') or fvg.get('end')
-        if bottom is not None and top is not None:
-            gapMid = (bottom + top) / 2
-        else:
-            return False
-
-    for i in range(fvg_start_idx + 1, len(df)):
-        candleClose = float(df['close'].iloc[i])
-
-        if fvg['type'] == 'Bullish_FVG':
-            if candleClose <= gapMid:
-                return True
-        else:
-            if candleClose >= gapMid:
-                return True
-
-    return False
+    analyzer = FvgAnalyzer()
+    return analyzer._isFvgMitigated(df, fvg_start_idx, fvg)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

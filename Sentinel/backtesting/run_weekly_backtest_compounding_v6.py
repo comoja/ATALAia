@@ -485,8 +485,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
                 win = df15m['close'].iloc[idx] > df15m['open'].iloc[idx]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
 
-        # ── 15. REGRESIVOL (1H) ──
-        strategy = 'Regresivol'
+        # ── 15. REVERSIONMEDIA (1H) ──
+        strategy = 'ReversionMedia'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 100:
             df1h['rsi'] = ta.RSI(df1h['close'].values, timeperiod=14)
             df1h['atr'] = ta.ATR(df1h['high'].values, df1h['low'].values, df1h['close'].values, timeperiod=14)
@@ -791,6 +791,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
     
     print("✅ CSVs semanales de V6 generados correctamente.")
 
+    # Persistir la Matriz de Rendimiento EstrategiaSymbol en MySQL
+    persistirMatrizRendimiento(dfCompiledTrades, compoundingStartDate)
+
     # Generar Reporte PDF Semanal V6 Premium (Verde Esmeralda y Oro)
     pdfPath = generateWeeklyReportPdfV6(dfCompiledTrades, dfComboPerf, dfStratPerf, portfolioBalance, activeSymbols, enabledStrategies, len(exclusions))
 
@@ -1012,6 +1015,108 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
         import traceback
         traceback.print_exc()
         return None
+
+
+def persistirMatrizRendimiento(dfCompiledTrades: pd.DataFrame, startDate: datetime) -> None:
+    """
+    Calcula y persiste las métricas detalladas por combo símbolo-estrategia
+    en la tabla EstrategiaSymbol en MySQL.
+    """
+    try:
+        if dfCompiledTrades.empty:
+            print("⚠️ No hay trades para persistir en la matriz de rendimiento.")
+            return
+
+        conn = dbConnection.getConnection()
+        if conn is None:
+            print("⚠️ No se pudo obtener conexión para persistir la matriz de rendimiento.")
+            return
+        
+        # Agrupar por símbolo y estrategia
+        combos = dfCompiledTrades.groupby(['symbol', 'strategy'])
+        
+        cur = conn.cursor()
+        periodoFecha = startDate.strftime('%Y-%m-%d')
+        
+        for (symbol, strategy), group in combos:
+            totalTrades = int(len(group))
+            wins = int(group['Win'].sum())
+            winRate = float((wins / totalTrades) * 100.0) if totalTrades > 0 else 0.0
+            pnlNeto = float(group['PnL_Trade'].sum())
+            expectancy = float(group['PnL_Trade'].mean()) if totalTrades > 0 else 0.0
+            
+            # Profit Factor
+            gains = group[group['PnL_Trade'] > 0]['PnL_Trade'].sum()
+            losses = abs(group[group['PnL_Trade'] < 0]['PnL_Trade'].sum())
+            if losses == 0:
+                profitFactor = 99.99
+            else:
+                profitFactor = float(gains / losses)
+            
+            # Max Drawdown usando curva local de balance (basado en $1000 base)
+            local_balance = [1000.0]
+            for pnl in group.sort_values('datetime')['PnL_Trade']:
+                local_balance.append(local_balance[-1] + pnl)
+            local_balance = np.array(local_balance)
+            cum_max = np.maximum.accumulate(local_balance)
+            dd = (cum_max - local_balance) / cum_max * 100
+            maxDrawdown = float(dd.max())
+            
+            # Calcular riesgoSugerido según reglas de negocio
+            if winRate >= 60.0 and profitFactor >= 1.5 and totalTrades >= 20:
+                riesgoSugerido = 1.5
+            elif winRate >= 50.0 and profitFactor >= 1.2 and totalTrades >= 10:
+                riesgoSugerido = 1.0
+            elif winRate < 45.0 or pnlNeto < 0 or totalTrades < 5:
+                riesgoSugerido = 0.5
+            else:
+                riesgoSugerido = 0.75
+            
+            payload = {
+                'symbol': symbol,
+                'strategy': strategy,
+                'totalTrades': totalTrades,
+                'wins': wins,
+                'winRate': winRate,
+                'pnlNeto': pnlNeto,
+                'profitFactor': profitFactor,
+                'expectancy': expectancy,
+                'maxDrawdown': maxDrawdown,
+                'riesgoSugerido': riesgoSugerido,
+                'fuente': 'weekly',
+                'periodoFecha': periodoFecha
+            }
+            
+            cur.execute("""
+                INSERT INTO EstrategiaSymbol
+                    (symbol, strategy, totalTrades, wins, winRate, pnlNeto,
+                     profitFactor, expectancy, maxDrawdown, riesgoSugerido,
+                     fuente, periodoFecha)
+                VALUES
+                    (%(symbol)s, %(strategy)s, %(totalTrades)s, %(wins)s,
+                     %(winRate)s, %(pnlNeto)s, %(profitFactor)s, %(expectancy)s,
+                     %(maxDrawdown)s, %(riesgoSugerido)s, %(fuente)s, %(periodoFecha)s)
+                ON DUPLICATE KEY UPDATE
+                    totalTrades    = VALUES(totalTrades),
+                    wins           = VALUES(wins),
+                    winRate        = VALUES(winRate),
+                    pnlNeto        = VALUES(pnlNeto),
+                    profitFactor   = VALUES(profitFactor),
+                    expectancy     = VALUES(expectancy),
+                    maxDrawdown    = VALUES(maxDrawdown),
+                    riesgoSugerido = VALUES(riesgoSugerido),
+                    periodoFecha   = VALUES(periodoFecha)
+            """, payload)
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ Matriz de Rendimiento EstrategiaSymbol actualizada correctamente en MySQL.")
+    except Exception as e:
+        print(f"❌ Error al persistir la matriz de rendimiento: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 if __name__ == '__main__':
     runWeeklyPortfolioBacktestV6()
