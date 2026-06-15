@@ -10,6 +10,26 @@ import requests
 logger = logging.getLogger(__name__)
 
 from middleware.database import dbConnection
+import functools
+import time
+
+def ttl_cache(seconds=30):
+    def decorator(func):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache:
+                val, expiry = cache[key]
+                if now < expiry:
+                    return val
+            val = func(*args, **kwargs)
+            cache[key] = (val, now + seconds)
+            return val
+        wrapper.cache_clear = lambda: cache.clear()
+        return wrapper
+    return decorator
 
 def init_alerts_table():
     """Crea la tabla de registro de alertas y asegura que strategyConfig tenga las columnas necesarias."""
@@ -415,7 +435,10 @@ def logTrade(symbol, regime, pf, sharpe):
         if cursor: cursor.close()
         if conn: conn.close()
 
+@ttl_cache(30)
 def getAccount(id=None):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -425,30 +448,46 @@ def getAccount(id=None):
             cursor.execute("SELECT * FROM CUENTA WHERE Activo=1")
         
         cuentas = cursor.fetchall()
-        
-        conn.close()
         if cuentas:
             return cuentas
         return []
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return []
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 def getCuentaCapital(idCuenta: int) -> float:
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT Capital FROM CUENTA WHERE idCuenta = %s", (idCuenta,))
         result = cursor.fetchone()
-        conn.close()
         if result:
             return float(result['Capital'])
         return 0.0
     except Exception as e:
         logger.error(f"Error al obtener capital de cuenta {idCuenta}: {e}")
         return 0.0
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bool:
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -457,7 +496,6 @@ def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bo
         cursor.execute("SELECT COUNT(*) as total FROM CuentaEstrategia WHERE idCuenta = %s", (idCuenta,))
         cnt = cursor.fetchone()
         if cnt['total'] == 0:
-            conn.close()
             return True
             
         baseName = nombreEstrategia.split('_')[0]
@@ -468,21 +506,28 @@ def isEstrategiaHabilitadaParaCuenta(idCuenta: int, nombreEstrategia: str) -> bo
         """, (idCuenta, nombreEstrategia, baseName))
         
         result = cursor.fetchone()
-        conn.close()
         return result is not None
     except Exception as e:
         logger.error(f"Error en isEstrategiaHabilitadaParaCuenta: {e}", exc_info=True)
         return True
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def isTipoHabilitadoParaCuenta(idCuenta: int, tipoSymbol: str) -> bool:
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT tipo FROM cuentaOpera WHERE idCuenta = %s", (idCuenta,))
         
         results = cursor.fetchall()
-        conn.close()
-        
         if not results:
             # Si no hay registros en cuentaOpera para esta cuenta, no hay restricción por tipo.
             return True
@@ -492,78 +537,128 @@ def isTipoHabilitadoParaCuenta(idCuenta: int, tipoSymbol: str) -> bool:
     except Exception as e:
         logger.error(f"Error en isTipoHabilitadoParaCuenta: {e}", exc_info=True)
         return True
-    
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+@ttl_cache(30)
 def getSymbols():
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM SentinelSymbol WHERE Activo=1")
         
         symbols = cursor.fetchall()
-        
-        conn.close()
         if symbols:
             return symbols
         return []
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return []
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def getSymbol(symbol: str):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM SentinelSymbol WHERE symbol = %s", (symbol,))
         
         result = cursor.fetchone()
-        
-        conn.close()
         return result
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return None
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 def getSymbolStartDate(symbol: str):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT startDate FROM SentinelSymbol WHERE symbol = %s", (symbol,))
         result = cursor.fetchone()
-        conn.close()
         return result['startDate'] if result else None
     except Exception as e:
         logger.error(f"Error en getSymbolStartDate: {e}", exc_info=True)
         return None
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def getSymbolTypeConfig(tipo: str):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM SymbolTypeConfig WHERE tipo = %s", (tipo,))
         
         result = cursor.fetchone()
-        
-        conn.close()
         return result
     except Exception as e:
         logger.error(f"Error en la DB: {e}", exc_info=True)
         return None
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def getStrategyConfig(nombreEstrategia: str):
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM strategyConfig WHERE strategy = %s AND enabled = TRUE", (nombreEstrategia,))
         
         result = cursor.fetchone()
-        
-        conn.close()
         return result
     except Exception as e:
         logger.error(f"Error en getStrategyConfig: {e}", exc_info=True)
         return None
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
+@ttl_cache(30)
 def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
+    conn = None
+    cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
@@ -580,20 +675,22 @@ def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
             params = result['parametersJson']
             if isinstance(params, str):
                 params = json.loads(params)
-            cursor.close()
-            conn.close()
             return params
             
         # 3. Fallback: Obtener la configuración global de la estrategia
         cursor.execute("SELECT * FROM strategyConfig WHERE strategy = %s AND enabled = TRUE", (strategyName,))
         globalConfig = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
         return globalConfig or {}
     except Exception as e:
         logger.error(f"Error en getSymbolStrategyConfig para {strategyName} - {symbol}: {e}", exc_info=True)
         return {}
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 def buscaTrade(tradeData):
     dbConn = None

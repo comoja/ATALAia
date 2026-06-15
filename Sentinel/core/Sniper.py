@@ -75,11 +75,14 @@ class SniperBot:
             return default
 
     def _get_ml_thresholds(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> Tuple[float, float]:
-        base_long = max(0.60, float(strat_config.get("proba_threshold_long", config.PROBA_THRESHOLD_LONG)))
-        base_short = min(0.40, float(strat_config.get("proba_threshold_short", config.PROBA_THRESHOLD_SHORT)))
+        proba_threshold_long = float(strat_config.get("probaThresholdLong") or strat_config.get("proba_threshold_long") or config.PROBA_THRESHOLD_LONG)
+        proba_threshold_short = float(strat_config.get("probaThresholdShort") or strat_config.get("proba_threshold_short") or config.PROBA_THRESHOLD_SHORT)
+        base_long = max(0.60, proba_threshold_long)
+        base_short = min(0.40, proba_threshold_short)
 
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
-            default_adjust = float(strat_config.get("jpy_threshold_adjust_pct", 0.0))
+            jpy_threshold_adjust_pct = float(strat_config.get("jpyThresholdAdjustPct") or strat_config.get("jpy_threshold_adjust_pct") or 0.0)
+            default_adjust = jpy_threshold_adjust_pct
             adjust_pct = self._get_symbol_config_float(symbolInfo, "sniper_threshold_adjust_pct", default_adjust) / 100.0
             base_long = 0.5 + ((base_long - 0.5) * (1 + adjust_pct))
             base_short = 0.5 - ((0.5 - base_short) * (1 + adjust_pct))
@@ -87,21 +90,24 @@ class SniperBot:
         return min(0.99, max(0.5, base_long)), max(0.01, min(0.5, base_short))
 
     def _get_min_confidence(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> float:
-        min_confidence = float(strat_config.get("min_confidence", 70))
+        min_confidence = float(strat_config.get("minConfidence") or strat_config.get("min_confidence") or 70.0)
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
-            default_adjust = float(strat_config.get("jpy_min_confidence_adjust_pct", 0.0))
+            jpy_min_confidence_adjust_pct = float(strat_config.get("jpyMinConfidenceAdjustPct") or strat_config.get("jpy_min_confidence_adjust_pct") or 0.0)
+            default_adjust = jpy_min_confidence_adjust_pct
             adjust_pct = self._get_symbol_config_float(symbolInfo, "sniper_min_confidence_adjust_pct", default_adjust) / 100.0
             min_confidence *= (1 + adjust_pct)
         return min_confidence
 
     def _get_extra_confirmations(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> int:
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
-            default_extra = int(strat_config.get("jpy_extra_confirmations", 0))
+            jpy_extra_confirmations = int(strat_config.get("jpyExtraConfirmations") or strat_config.get("jpy_extra_confirmations") or 0)
+            default_extra = jpy_extra_confirmations
             return self._get_symbol_config_int(symbolInfo, "sniper_extra_confirmations", default_extra)
         return 0
 
     def _get_max_rr(self, strat_config: Dict, symbol: str, symbolInfo: Dict, ratioBase: float) -> float:
-        default_max_rr = float(strat_config.get("max_rr", min(ratioBase, 1.5)))
+        max_rr = float(strat_config.get("maxRr") or strat_config.get("max_rr") or min(ratioBase, 1.5))
+        default_max_rr = max_rr
         return self._get_symbol_config_float(symbolInfo, "sniper_max_rr", default_max_rr)
 
     async def _get_and_prepare_data(self, symbolInfo: Dict, apiKey: str, nVelas: int, interval: str, raw_df: pd.DataFrame = None) -> pd.DataFrame | None:
@@ -294,7 +300,7 @@ class SniperBot:
             logger.info(f"[{symbol}] Rechazada: ML no pudo calcular probabilidad")
             return None
 
-        strat_config = dbManager.getStrategyConfig("Sniper") or {}
+        strat_config = dbManager.getSymbolStrategyConfig("Sniper", symbol) or {}
         thresh_long, thresh_short = self._get_ml_thresholds(strat_config, symbol, symbolInfo)
         
         if proba >= thresh_long:
@@ -336,11 +342,11 @@ class SniperBot:
         confirmaciones, detalles, metrics = self._evaluate_technical_confirmations(df, direction, symbol)
         
         if direction == "LARGO" and not metrics["macd_alcista"]:
-            logger.info(f"[{symbol}] CONTRADICCIÓN: ML dice LARGO pero MACD bajista")
-            return None
+            logger.info(f"[{symbol}] Aviso: ML dice LARGO pero MACD bajista (restando confianza en su lugar de veto)")
+            confianza -= 5
         elif direction == "CORTO" and metrics["macd_alcista"]:
-            logger.info(f"[{symbol}] CONTRADICCIÓN: ML dice CORTO pero MACD alcista")
-            return None
+            logger.info(f"[{symbol}] Aviso: ML dice CORTO pero MACD alcista (restando confianza en su lugar de veto)")
+            confianza -= 5
 
         logger.info(f"[{symbol}] Confirmaciones: {confirmaciones} - {detalles}")
 
@@ -351,8 +357,7 @@ class SniperBot:
         min_confirmaciones += self._get_extra_confirmations(strat_config, symbol, symbolInfo)
         
         if mercado_erratico:
-            logger.info(f"[{symbol}] Rechazada: Mercado lateral (ADX={adx_val:.1f} < 20)")
-            return None
+            logger.info(f"[{symbol}] Mercado lateral (ADX={adx_val:.1f} < 20) -> Requerirá 3 confirmaciones")
             
         if confirmaciones < min_confirmaciones:
             logger.info(f"[{symbol}] Rechazada: Solo {confirmaciones} confirmaciones (mín={min_confirmaciones})")
@@ -405,7 +410,7 @@ class SniperBot:
         # --- 8. Structural Levels ---
         # lookback=20 (20 velas de 15min = 5h) para obtener niveles más cercanos y alcanzables
         levels = technical.get_structural_levels(self.latestFullData, lookback=20)
-        atr_padding = currentAtr * 0.2
+        atr_padding = currentAtr * 0.1
         
         if direction == "LARGO":
             sl_price = levels['swing_low'] - atr_padding
@@ -428,7 +433,7 @@ class SniperBot:
         # --- 10. SL / TP Final ---
         slPrice = close - sl_dist if direction == "LARGO" else close + sl_dist
         ratioBase = config.HIGH_CONFIDENCE_RISK_REWARD_RATIO if confianza > 85 else config.BASE_RISK_REWARD_RATIO
-        min_rr_val = float(strat_config.get('min_rr', 1.5))
+        min_rr_val = float(strat_config.get('minRr') or strat_config.get('min_rr') or 1.5)
         max_rr_val = self._get_max_rr(strat_config, symbol, symbolInfo, ratioBase)
         max_rr_val = max(min_rr_val, max_rr_val)
 
@@ -454,11 +459,11 @@ class SniperBot:
             return None
 
         multiplier = getPipMultiplier(symbol)
-        risk_usd = float(strat_config.get('risk_usd', 100.0))
+        risk_usd = float(strat_config.get('riskUsd') or strat_config.get('risk_usd') or 100.0)
         size = (risk_usd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
 
         # --- FILTRO: Ganancia Mínima Estimada ---
-        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        min_usd_profit = float(strat_config.get('minUsdProfit') or strat_config.get('min_usd_profit') or 10.0)
         expected_profit = risk_usd * rr_final
 
         if expected_profit < min_usd_profit:

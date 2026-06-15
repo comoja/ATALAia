@@ -24,7 +24,8 @@ from middleware.utils.alertBuilder import (
     buildIchimokuAlertMessage,
     buildReversionMediaAlertMessage,
     buildQTrendAlertMessage,
-    buildBreakoutProbabilityAlertMessage
+    buildBreakoutProbabilityAlertMessage,
+    buildPremiumConfluenceAlertMessage
 )
 from middleware.config.constants import PRODUCTION_MODE, FOREXCOM_USERNAME, FOREXCOM_PASSWORD, FOREXCOM_APP_KEY, mt5Login, mt5Password, mt5Server
 
@@ -353,6 +354,8 @@ class BrokerGateway:
             return buildQTrendAlertMessage(signal, trade_data)
         elif strategy_name == "BreakoutProbability":
             return buildBreakoutProbabilityAlertMessage(signal, trade_data)
+        elif strategy_name == "PremiumConfluence":
+            return buildPremiumConfluenceAlertMessage(signal, trade_data)
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 

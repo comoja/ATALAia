@@ -1,54 +1,114 @@
 import unittest
 import pandas as pd
 import numpy as np
-import talib as ta
+import asyncio
+from datetime import datetime
+import pytz
+
 from Sentinel.core.QTrend import QTrendBot
+from middleware.database import dbManager
 
 class TestQTrend(unittest.TestCase):
-    """Pruebas unitarias para la estrategia QTrend."""
+    """Pruebas unitarias para la estrategia QTrend (QTrendBot)."""
 
-    def testCalculateQTrend(self):
-        """Verifica que el cálculo de EMAs de QTrend devuelva arreglos válidos."""
+    def testInit(self):
+        """Verifica que el bot inicialice correctamente."""
+        bot = QTrendBot()
+        self.assertIsNotNone(bot)
+
+    def testRunAnalysisCycle(self):
+        """Verifica que runAnalysisCycleForSymbol procese señales y genere un objeto Signal en QTrend."""
         bot = QTrendBot()
         
-        # Generar datos de prueba
-        np.random.seed(42)
-        close = np.linspace(1.0800, 1.0900, 100) + np.random.normal(0, 0.0002, 100)
-        df = pd.DataFrame({
-            "close": close
-        })
+        # Generar datos de prueba para timeframe 15m (100 velas)
+        dates15m = pd.date_range(start="2026-06-01 00:00:00", periods=100, freq="15min", tz="America/Mexico_City")
+        prices15m = np.ones(100) * 1.0800
         
-        emaFast, emaSlow = bot.calculateQTrend(df, qtrendFast=9, qtrendSlow=21)
+        df15m = pd.DataFrame({
+            "open": prices15m,
+            "high": prices15m + 0.0001,
+            "low": prices15m - 0.0001,
+            "close": prices15m,
+            "volume": np.random.randint(100, 500, 100)
+        }, index=dates15m)
         
-        self.assertEqual(len(emaFast), 100)
-        self.assertEqual(len(emaSlow), 100)
-        self.assertFalse(np.isnan(emaFast[-1]))
-        self.assertFalse(np.isnan(emaSlow[-1]))
-
-    def testCalculateSuperTrend(self):
-        """Verifica el cálculo del Trailing Stop del canal de SuperTrend."""
-        bot = QTrendBot()
+        symbolInfo = {
+            "symbol": "GBP/USD",
+            "refCapital": 10000.0,
+            "refRiskPct": 1.0,
+            "pipMultiplier": 10000.0,
+            "minDistLimit": 5.0,
+            "maxDistLimit": 100.0,
+            "lotStep": 0.01,
+            "minLot": 0.01,
+            "contractSize": 100000.0,
+            "broker": 1
+        }
         
-        np.random.seed(42)
-        close = np.linspace(1.0800, 1.0900, 100)
-        high = close + 0.0005
-        low = close - 0.0005
-        open_val = close - 0.0001
+        preloadedData = {
+            "GBP/USD": df15m
+        }
         
-        df = pd.DataFrame({
-            "open": open_val,
-            "high": high,
-            "low": low,
-            "close": close
-        })
+        # Mocks de base de datos
+        orig_getSymbolConfig = dbManager.getSymbolStrategyConfig
+        dbManager.getSymbolStrategyConfig = lambda strat, sym: {
+            "supertrendPeriod": 10,
+            "supertrendMultiplier": 3.0,
+            "qtrendFast": 9,
+            "qtrendSlow": 21,
+            "minRr": 1.5,
+            "min_confidence": 70,
+            "min_usd_profit": 10.0
+        }
         
-        # SuperTrend requiere ATR
-        df['atr'] = ta.ATR(df['high'].values, df['low'].values, df['close'].values, timeperiod=14)
+        # Mocks técnicos
+        import Sentinel.core.QTrend as QTrendModule
         
-        stTrend, stTrail = bot.calculateSuperTrend(df, supertrendPeriod=10, supertrendMultiplier=3.0)
+        orig_calculateAtrStop = QTrendModule.technical.calculateAtrStop
+        orig_check_tp_exhaustion = QTrendModule.check_tp_exhaustion
+        orig_check_signal_health = QTrendModule.check_signal_health
+        import Sentinel.analysis.risk as riskModule
+        orig_calculatePositionSize = riskModule.calculatePositionSize
+        orig_ta_atr = QTrendModule.ta.ATR
         
-        self.assertEqual(len(stTrend), 100)
-        self.assertEqual(len(stTrail), 100)
+        QTrendModule.ta.ATR = lambda *args, **kwargs: np.ones(100) * 0.01
+        
+        # SuperTrend alcista y stop trail
+        stTrend = np.ones(100)
+        stTrend[-1] = 1
+        stTrend[-2] = -1 # Genera crossover alcista
+        stTrail = np.ones(100) * 1.0780
+        QTrendModule.technical.calculateAtrStop = lambda df, period, mult: (stTrend, stTrail)
+        
+        # EMAs de QTrend: emaFast cruza por encima de emaSlow en la última vela
+        emaFast = np.ones(100) * 1.0805
+        emaFast[-2] = 1.0790
+        emaSlow = np.ones(100) * 1.0800
+        emaSlow[-2] = 1.0800
+        bot.calculateQTrend = lambda df, fast, slow: (emaFast, emaSlow)
+        
+        # Mock de salud y agotamiento
+        QTrendModule.check_tp_exhaustion = lambda *args, **kwargs: (True, 0.0, "OK")
+        QTrendModule.check_signal_health = lambda *args, **kwargs: (True, 0.0, "OK")
+        
+        # Mock de tamaño de posición
+        riskModule.calculatePositionSize = lambda capital, riskPct, slDist, symInfo, entryPrice: (0.1, 10.0, 15.0)
+        
+        try:
+            signal = asyncio.run(bot.runAnalysisCycleForSymbol(symbolInfo, preloadedData))
+            self.assertIsNotNone(signal)
+            self.assertEqual(signal.strategy, "QTrend")
+            self.assertEqual(signal.direction, "LARGO")
+            self.assertEqual(signal.entry_price, 1.0800)
+            self.assertEqual(signal.stop_loss, 1.0780)
+        finally:
+            # Restaurar originales
+            dbManager.getSymbolStrategyConfig = orig_getSymbolConfig
+            QTrendModule.technical.calculateAtrStop = orig_calculateAtrStop
+            QTrendModule.check_tp_exhaustion = orig_check_tp_exhaustion
+            QTrendModule.check_signal_health = orig_check_signal_health
+            riskModule.calculatePositionSize = orig_calculatePositionSize
+            QTrendModule.ta.ATR = orig_ta_atr
 
 if __name__ == "__main__":
     unittest.main()

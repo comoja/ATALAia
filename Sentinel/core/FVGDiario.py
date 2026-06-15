@@ -230,24 +230,35 @@ class FVGDiarioBot:
         latestFvg = technical.detect_fvg_closed(
             df_source=dfAfter, interval='15min', min_gap_pct=0.0001, min_adx=15, lookback=10
         )
-        return latestFvg  # None si no hay FVG válido
-    
+        return latestFvg
+
     async def _generate_signal(self, symbolInfo: Dict, daily_bias: str, pdh: float, pdl: float, manipulation: Dict, fvg: Dict, opposite_liquidity: float, df: pd.DataFrame = None) -> Optional[Signal]:
         """Genera y devuelve una señal."""
         symbol = symbolInfo['symbol']
         
+        # Cargar parametros dinamicamente desde BD
+        globalConfig = dbManager.getStrategyConfig(self.strategy_name) or {}
+        stratConfig = dbManager.getSymbolStrategyConfig(self.strategy_name, symbol) or {}
+        
+        minRrVal = float(stratConfig.get('minRr', globalConfig.get('min_rr', 2.0)))
+        minConfidence = float(stratConfig.get('minConfidence', globalConfig.get('min_confidence', 70.0)))
+        minFvgPips = float(stratConfig.get('minFvgPips', globalConfig.get('min_fvg_pips', 5.0)))
+        riskUsd = float(stratConfig.get('riskUsd', globalConfig.get('risk_usd', 100.0)))
+        minUsdProfit = float(stratConfig.get('minUsdProfit', globalConfig.get('min_usd_profit', 10.0)))
+
         # Verificar si la señal ya fue enviada en RAM
-        signal_key = f"{symbol}_{fvg['timestamp']}"
-        if signal_key in self._sent_signals:
+        signalKey = f"{symbol}_{fvg['timestamp']}"
+        if signalKey in self._sent_signals:
             return None
         
-        # ADX Filter removed to allow execution in consolidation zones
-        
-        # Calcular niveles usando la función centralizada
-        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
-        min_rr_val = float(strat_config.get('min_rr', 2.0))
-        min_confidence = float(strat_config.get('min_confidence', 70))
-        
+        multiplier = getPipMultiplier(symbol)
+
+        # ── FILTRO: Tamaño Mínimo de FVG en Pips ──
+        fvgSizePips = float(fvg.get('size', 0.0)) * multiplier
+        if fvgSizePips < minFvgPips:
+            logger.info(f"[{symbol}] Señal descartada: FVG de {fvgSizePips:.1f} pips < Mínimo {minFvgPips:.1f} pips")
+            return None
+            
         atr = 0
         if df is not None:
             atr_series = ta.ATR(df['high'], df['low'], df['close'], 14).dropna()
@@ -259,7 +270,7 @@ class FVGDiarioBot:
         entry_price = setup_fvg['entry']
         stop_loss = setup_fvg['sl']
         direction = setup_fvg['direction']
-        take_profit = entry_price + (entry_price - stop_loss) * min_rr_val if direction == "LARGO" else entry_price - (stop_loss - entry_price) * min_rr_val
+        take_profit = entry_price + (entry_price - stop_loss) * minRrVal if direction == "LARGO" else entry_price - (stop_loss - entry_price) * minRrVal
         
         # Cap de TP por ATR: máximo 4.0 ATR (FVGDiario trabaja con bias diario, permite más espacio)
         from Sentinel.analysis.technical import capTpByAtr
@@ -285,8 +296,8 @@ class FVGDiarioBot:
         
         # Calcular confianza
         base_confidence = 85 if daily_bias != "NEUTRAL" else 75
-        if base_confidence < min_confidence:
-            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
+        if base_confidence < minConfidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={minConfidence}")
             return None
         
         # ── FILTRO: Tendencia Macro Unificada ──
@@ -299,23 +310,19 @@ class FVGDiarioBot:
             return None
         
         # ── FILTRO: Ganancia Mínima Estimada ──
-        multiplier = getPipMultiplier(symbol)
-        risk_usd = float(strat_config.get('risk_usd', 100.0))
-        size = (risk_usd / (sl_distance * multiplier)) if (sl_distance > 0 and multiplier > 0) else 0
-
-        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
+        size = (riskUsd / (sl_distance * multiplier)) if (sl_distance > 0 and multiplier > 0) else 0
         rr_ratio = round(abs(take_profit - entry_price) / sl_distance, 2)
         expected_profit = (sl_distance * multiplier * size) * rr_ratio
         
-        if expected_profit < min_usd_profit:
-            logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+        if expected_profit < minUsdProfit:
+            logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expected_profit:.2f} < ${minUsdProfit:.2f} - descartando")
             return None
-
+        
         # Calcular Break Even inteligente
         be_trigger = calculateBEPrice(entry_price, stop_loss, take_profit, direction)
-
+        
         # Marcar como enviada
-        self._sent_signals[signal_key] = True
+        self._sent_signals[signalKey] = True
         
         return Signal(
             strategy=self.strategy_name,

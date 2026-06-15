@@ -23,6 +23,7 @@ class BreakoutProbabilityBot:
     utilizando confluencia con el indicador Impulse MACD para ingresar al mercado.
     """
     def __init__(self):
+        self.strategy_name = "BreakoutProbability"
         logger.info("Bot Breakout Probability iniciado")
 
     def calculateBreakoutProbability(
@@ -147,20 +148,21 @@ class BreakoutProbabilityBot:
             df['atr'] = ta.ATR(df['high'].values, df['low'].values, df['close'].values, timeperiod=14)
 
         # Cargar parámetros de configuración de la BD
-        stratConfig = dbManager.getStrategyConfig("BreakoutProbability") or {}
+        globalConfig = dbManager.getStrategyConfig("BreakoutProbability") or {}
+        stratConfig = dbManager.getSymbolStrategyConfig(self.strategy_name, symbol) or {}
         
         # Longitud del canal de consolidación (Donchian/Rangos)
-        channelLen = int(stratConfig.get('start_hour', 20))  # Mapeamos a columna desocupada o genérica
+        channelLen = int(stratConfig.get('channelLen', globalConfig.get('start_hour', 20)))
         if channelLen <= 0 or channelLen > 100:
             channelLen = 20
             
         # Múltiplo de ATR para target de probabilidad
-        targetAtrMult = float(stratConfig.get('min_rr', 1.5))
+        targetAtrMult = float(stratConfig.get('targetAtrMult', globalConfig.get('min_rr', 1.5)))
         if targetAtrMult <= 0:
             targetAtrMult = 1.5
 
         # Umbral de probabilidad mínima para validar la ruptura (default 60%)
-        minProbThreshold = float(stratConfig.get('min_confidence', 60))
+        minProbThreshold = float(stratConfig.get('minProbThreshold', globalConfig.get('min_confidence', 60)))
         if minProbThreshold <= 0:
             minProbThreshold = 60.0
 
@@ -194,7 +196,7 @@ class BreakoutProbabilityBot:
             return None
 
         # Ajuste de Take Profit con R:R mínimo
-        minRrVal = float(stratConfig.get('min_rr', 1.5))
+        minRrVal = float(stratConfig.get('minRr', globalConfig.get('min_rr', 1.5)))
         if minRrVal <= 0:
             minRrVal = 1.5
 

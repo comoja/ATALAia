@@ -1,4 +1,4 @@
-import pytest
+import unittest
 import sys
 import os
 
@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Sentinel.analysis.risk import calculatePositionSize
 
 
-class TestCalculatePositionSize:
+class TestCalculatePositionSize(unittest.TestCase):
     """Tests for calculatePositionSize function."""
 
     # --- FOREX Tests ---
@@ -21,8 +21,8 @@ class TestCalculatePositionSize:
             slDistance=0.0050,  # 50 pips
             symbolInfo=symbolInfo
         )
-        assert risk == 100  # 1% of 10000
-        assert position == 20000
+        self.assertEqual(risk, 100)  # 1% of 10000
+        self.assertEqual(position, 20000)
 
     def test_forex_jpy_pair(self):
         """Test GBP/JPY: capital $10,000, risk 1%, SL 50 pips (0.50)"""
@@ -34,8 +34,8 @@ class TestCalculatePositionSize:
             symbolInfo=symbolInfo,
             entryPrice=150.0
         )
-        assert risk == 100
-        assert position == 29000
+        self.assertEqual(risk, 100)
+        self.assertEqual(position, 29000)
 
     def test_forex_larger_position(self):
         """Test EUR/USD with larger SL: capital $10,000, risk 2%, SL 20 pips"""
@@ -46,9 +46,9 @@ class TestCalculatePositionSize:
             slDistance=0.0020,  # 20 pips
             symbolInfo=symbolInfo
         )
-        assert risk == 200
+        self.assertEqual(risk, 200)
         # lots = 200 / (20 * 10) = 1 lot = 100,000 units
-        assert position == 100000
+        self.assertEqual(position, 100000)
 
     # --- METALS Tests ---
 
@@ -61,8 +61,8 @@ class TestCalculatePositionSize:
             slDistance=15.0,  # $15 = 150 pips
             symbolInfo=symbolInfo
         )
-        assert risk == 100
-        assert position == 6.0
+        self.assertEqual(risk, 100)
+        self.assertEqual(position, 6.0)
 
     def test_metals_xau_usd_small_sl(self):
         """Test XAU/USD with small SL: capital $10,000, risk 1%, SL $5 (50 pips)"""
@@ -73,8 +73,8 @@ class TestCalculatePositionSize:
             slDistance=5.0,  # $5 = 50 pips
             symbolInfo=symbolInfo
         )
-        assert risk == 100
-        assert position == 20.0
+        self.assertEqual(risk, 100)
+        self.assertEqual(position, 20.0)
 
     def test_metals_xau_usd_large_position(self):
         """Test XAU/USD: capital $10,000, risk 2%, SL $3 (30 pips)"""
@@ -85,8 +85,8 @@ class TestCalculatePositionSize:
             slDistance=3.0,  # $3 = 30 pips
             symbolInfo=symbolInfo
         )
-        assert risk == 200
-        assert position == 66.0
+        self.assertEqual(risk, 200)
+        self.assertEqual(position, 66.0)
 
     # --- INDICES Tests ---
 
@@ -99,9 +99,9 @@ class TestCalculatePositionSize:
             slDistance=50,  # 50 points
             symbolInfo=symbolInfo
         )
-        assert risk == 100
+        self.assertEqual(risk, 100)
         # contracts = 100 / 50 = 2
-        assert position == 2.0
+        self.assertEqual(position, 2.0)
 
     def test_indices_sp500(self):
         """Test US500: capital $10,000, risk 1%, SL 20 points"""
@@ -112,9 +112,9 @@ class TestCalculatePositionSize:
             slDistance=20,  # 20 points
             symbolInfo=symbolInfo
         )
-        assert risk == 100
+        self.assertEqual(risk, 100)
         # contracts = 100 / 20 = 5
-        assert position == 5.0
+        self.assertEqual(position, 5.0)
 
     # --- CRYPTO Tests ---
 
@@ -127,9 +127,9 @@ class TestCalculatePositionSize:
             slDistance=500,  # $500
             symbolInfo=symbolInfo
         )
-        assert risk == 100
+        self.assertEqual(risk, 100)
         # units = 100 / 500 = 0.2 BTC
-        assert position == 0.2
+        self.assertEqual(position, 0.2)
 
     # --- Edge Cases ---
 
@@ -142,8 +142,8 @@ class TestCalculatePositionSize:
             slDistance=0,
             symbolInfo=symbolInfo
         )
-        assert position is None
-        assert risk is None
+        self.assertIsNone(position)
+        self.assertIsNone(risk)
 
     def test_negative_sl_distance(self):
         """Test with negative SL distance returns None"""
@@ -154,8 +154,8 @@ class TestCalculatePositionSize:
             slDistance=-10,
             symbolInfo=symbolInfo
         )
-        assert position is None
-        assert risk is None
+        self.assertIsNone(position)
+        self.assertIsNone(risk)
 
     def test_default_symbol_type(self):
         """Test default tipo defaults to FOREX"""
@@ -166,9 +166,9 @@ class TestCalculatePositionSize:
             slDistance=0.0050,
             symbolInfo=symbolInfo
         )
-        assert risk == 100
-        assert position == 20000  # min for Forex
+        self.assertEqual(risk, 100)
+        self.assertEqual(position, 20000)  # min for Forex
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    unittest.main()

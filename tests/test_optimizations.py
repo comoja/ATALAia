@@ -49,7 +49,7 @@ class TestStrategyOptimizations(unittest.TestCase):
             'pip': 0.0001
         }
 
-    @patch('middleware.database.dbManager.getStrategyConfig')
+    @patch('middleware.database.dbManager.getSymbolStrategyConfig')
     @patch('Sentinel.analysis.risk.calculatePositionSize')
     @patch('Sentinel.analysis.technical.check_tp_exhaustion')
     @patch('Sentinel.analysis.technical.check_signal_health')
@@ -98,11 +98,11 @@ class TestStrategyOptimizations(unittest.TestCase):
 
         asyncio.run(run_case_2())
 
-    @patch('middleware.database.dbManager.getStrategyConfig')
+    @patch('middleware.database.dbManager.getSymbolStrategyConfig')
     @patch('Sentinel.ml.model.predictProba')
     @patch('Sentinel.ml.model.cleanDataForModel')
-    @patch('Sentinel.analysis.technical.check_tp_exhaustion')
-    @patch('Sentinel.analysis.technical.check_signal_health')
+    @patch('Sentinel.core.Sniper.check_tp_exhaustion')
+    @patch('Sentinel.core.Sniper.check_signal_health')
     @patch('dataSymbol.mainOrchestrator.get_last_closed_candle')
     def testSniperStructuralExhaustionAndProba(self, mock_last_candle, mock_health, mock_exhaustion, mock_clean, mock_predict, mock_config):
         """Prueba que Sniper aplique el descarte por sobre-extensión y los umbrales mínimos de ML."""
@@ -163,7 +163,7 @@ class TestStrategyOptimizations(unittest.TestCase):
 
         asyncio.run(run_case_2())
 
-    @patch('middleware.database.dbManager.getStrategyConfig')
+    @patch('middleware.database.dbManager.getSymbolStrategyConfig')
     @patch('Sentinel.analysis.risk.calculatePositionSize')
     @patch('Sentinel.analysis.technical.check_tp_exhaustion')
     @patch('Sentinel.analysis.technical.check_signal_health')

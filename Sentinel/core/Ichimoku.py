@@ -53,7 +53,7 @@ class IchimokuBot:
             self.useVolumeFilter, self.useLiquidityFilter
         )
 
-    def _calc_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _calc_indicators(self, df: pd.DataFrame, tenkanPeriod: int = 9, kijunPeriod: int = 26, senkouPeriod: int = 52, displacement: int = 26) -> pd.DataFrame:
         df = df.copy()
         
         # Bandas de Bollinger (20, 2)
@@ -61,25 +61,24 @@ class IchimokuBot:
             df['close'].values, timeperiod=20, nbdevup=2, nbdevdn=2, matype=0
         )
         
-        # Ichimoku (9, 26, 52)
-        # Tenkan-sen (9)
-        high_9 = df['high'].rolling(window=9).max()
-        low_9 = df['low'].rolling(window=9).min()
-        df['tenkan_sen'] = (high_9 + low_9) / 2
+        # Ichimoku dinamico
+        # Tenkan-sen
+        highT = df['high'].rolling(window=tenkanPeriod).max()
+        lowT = df['low'].rolling(window=tenkanPeriod).min()
+        df['tenkan_sen'] = (highT + lowT) / 2
         
-        # Kijun-sen (26)
-        high_26 = df['high'].rolling(window=26).max()
-        low_26 = df['low'].rolling(window=26).min()
-        df['kijun_sen'] = (high_26 + low_26) / 2
+        # Kijun-sen
+        highK = df['high'].rolling(window=kijunPeriod).max()
+        lowK = df['low'].rolling(window=kijunPeriod).min()
+        df['kijun_sen'] = (highK + lowK) / 2
         
-        # Senkou Span A (Shifted 26 periods ahead)
-        # En pandas, para comparar con el precio actual, traemos el Kumo que se generó hace 26 periodos.
-        df['senkou_span_a'] = ((df['tenkan_sen'] + df['kijun_sen']) / 2).shift(26)
+        # Senkou Span A (Shifted displacement periods ahead)
+        df['senkou_span_a'] = ((df['tenkan_sen'] + df['kijun_sen']) / 2).shift(displacement)
         
-        # Senkou Span B (52)
-        high_52 = df['high'].rolling(window=52).max()
-        low_52 = df['low'].rolling(window=52).min()
-        df['senkou_span_b'] = ((high_52 + low_52) / 2).shift(26)
+        # Senkou Span B
+        highS = df['high'].rolling(window=senkouPeriod).max()
+        lowS = df['low'].rolling(window=senkouPeriod).min()
+        df['senkou_span_b'] = ((highS + lowS) / 2).shift(displacement)
         
         # Indicadores de SMC (Volumen y Extremos de Liquidez)
         df['volumeMa'] = df['volume'].rolling(window=14).mean()
@@ -111,21 +110,21 @@ class IchimokuBot:
         # Fallback: resamplear el TF actual a 1H
         return self.resample_ohlcv(df, '1h') if hasattr(self, 'resample_ohlcv') else None
 
-    def _calc_htf_trend(self, dfH1: Optional[pd.DataFrame]) -> str:
+    def _calc_htf_trend(self, dfH1: Optional[pd.DataFrame], tenkanPeriod: int = 9, kijunPeriod: int = 26, senkouPeriod: int = 52, displacement: int = 26) -> str:
         """Calcula el sesgo de tendencia en HTF usando Doble Kumo Ichimoku."""
-        if dfH1 is None or len(dfH1) < 52:
+        if dfH1 is None or len(dfH1) < senkouPeriod:
             return "NEUTRAL"
 
-        high9H1 = dfH1['high'].rolling(window=9).max()
-        low9H1 = dfH1['low'].rolling(window=9).min()
-        tenkanH1 = (high9H1 + low9H1) / 2
-        high26H1 = dfH1['high'].rolling(window=26).max()
-        low26H1 = dfH1['low'].rolling(window=26).min()
-        kijunH1 = (high26H1 + low26H1) / 2
-        spanAH1 = ((tenkanH1 + kijunH1) / 2).shift(26)
-        high52H1 = dfH1['high'].rolling(window=52).max()
-        low52H1 = dfH1['low'].rolling(window=52).min()
-        spanBH1 = ((high52H1 + low52H1) / 2).shift(26)
+        highTH1 = dfH1['high'].rolling(window=tenkanPeriod).max()
+        lowTH1 = dfH1['low'].rolling(window=tenkanPeriod).min()
+        tenkanH1 = (highTH1 + lowTH1) / 2
+        highKH1 = dfH1['high'].rolling(window=kijunPeriod).max()
+        lowKH1 = dfH1['low'].rolling(window=kijunPeriod).min()
+        kijunH1 = (highKH1 + lowKH1) / 2
+        spanAH1 = ((tenkanH1 + kijunH1) / 2).shift(displacement)
+        highSH1 = dfH1['high'].rolling(window=senkouPeriod).max()
+        lowSH1 = dfH1['low'].rolling(window=senkouPeriod).min()
+        spanBH1 = ((highSH1 + lowSH1) / 2).shift(displacement)
 
         lastSpanA = spanAH1.iloc[-1]
         lastSpanB = spanBH1.iloc[-1]
@@ -148,12 +147,17 @@ class IchimokuBot:
         preloadedData: Optional[Dict],
         symbolInfo: Dict,
         htfTrend: str,
+        tenkanPeriod: int = 9,
+        kijunPeriod: int = 26,
+        senkouPeriod: int = 52,
+        displacement: int = 26,
+        minRrVal: float = 1.5,
     ) -> Optional[Signal]:
         """
         Ejecuta el analisis Ichimoku SMC completo sobre un DataFrame y timeframe dados.
         Retorna una Signal si se cumplen todas las condiciones, o None en caso contrario.
         """
-        df = self._calc_indicators(df)
+        df = self._calc_indicators(df, tenkanPeriod, kijunPeriod, senkouPeriod, displacement)
 
         row = df.iloc[-1]
         prev_row = df.iloc[-2]
@@ -303,10 +307,10 @@ class IchimokuBot:
             return None
 
         # Take Profits Parciales Dinamicos
-        tp1 = close + (risk_dist * 1.5) if direction == "LARGO" else close - (risk_dist * 1.5)
-        tp2Target = close + (risk_dist * 2.5) if direction == "LARGO" else close - (risk_dist * 2.5)
+        tp1 = close + (risk_dist * minRrVal) if direction == "LARGO" else close - (risk_dist * minRrVal)
+        tp2Target = close + (risk_dist * (minRrVal + 1.0)) if direction == "LARGO" else close - (risk_dist * (minRrVal + 1.0))
         tp2 = max(tp2Target, localHigh) if direction == "LARGO" else min(tp2Target, localLow)
-        tp3 = close + (risk_dist * 4.0) if direction == "LARGO" else close - (risk_dist * 4.0)
+        tp3 = close + (risk_dist * (minRrVal + 2.5)) if direction == "LARGO" else close - (risk_dist * (minRrVal + 2.5))
 
         # Tamaño de la Posicion
         refCapital = float(symbolInfo.get('refCapital', 10000.0))
@@ -319,7 +323,7 @@ class IchimokuBot:
             return None
 
         multiplier = getPipMultiplier(symbol)
-        expectedProfit = riskUsdActual * 2.5
+        expectedProfit = riskUsdActual * minRrVal
 
         # Deduplicacion por vela+direccion
         sig_key = f"{symbol}_{candle_time_str}_{direction}_{interval_used}"
@@ -353,7 +357,7 @@ class IchimokuBot:
             candleTime=candle_time_str,
             intervalo=interval_used,
             riesgo_pips=round(risk_dist * multiplier, 1),
-            rr_ratio=2.5,
+            rr_ratio=minRrVal,
             break_even=be_trigger,
             size=size,
             metadata={
@@ -383,6 +387,16 @@ class IchimokuBot:
         """
         symbol = symbolInfo["symbol"]
         logger.info(f"[{symbol}] IchimokuBot — iniciando cascada {self.TIMEFRAME_CASCADE}")
+
+        # Cargar parametros dinamicamente desde base de datos
+        stratConfig = dbManager.getSymbolStrategyConfig("Ichimoku", symbol) or {}
+        tenkanPeriod = int(stratConfig.get('tenkan_period', 9))
+        kijunPeriod = int(stratConfig.get('kijun_period', 26))
+        senkouPeriod = int(stratConfig.get('senkou_period', 52))
+        displacement = int(stratConfig.get('displacement', 26))
+        minRrVal = float(stratConfig.get('min_rr', 1.5))
+        if minRrVal <= 0:
+            minRrVal = 1.5
 
         masterData = preloadedData.get(symbol) if preloadedData else None
 
@@ -419,7 +433,7 @@ class IchimokuBot:
             if dfHtf is None and hasattr(self, 'resample_ohlcv'):
                 dfHtf = self.resample_ohlcv(df, htfKey)
 
-            htfTrend = self._calc_htf_trend(dfHtf)
+            htfTrend = self._calc_htf_trend(dfHtf, tenkanPeriod, kijunPeriod, senkouPeriod, displacement)
             logger.info(f"[{symbol}][{interval_used}] Doble Kumo HTF ({htfKey}): {htfTrend}")
 
             # TF inferior como vela guia (un nivel abajo del TF actual)
@@ -434,6 +448,11 @@ class IchimokuBot:
                 preloadedData=preloadedData,
                 symbolInfo=symbolInfo,
                 htfTrend=htfTrend,
+                tenkanPeriod=tenkanPeriod,
+                kijunPeriod=kijunPeriod,
+                senkouPeriod=senkouPeriod,
+                displacement=displacement,
+                minRrVal=minRrVal,
             )
 
             if signal is not None:

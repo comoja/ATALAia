@@ -27,112 +27,116 @@ class SpeedBot:
         import pytz
         return datetime.now(pytz.timezone('America/Mexico_City'))
 
-    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloaded_data: Dict = None) -> List[Signal]:
+    async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None) -> List[Signal]:
         symbol = symbolInfo['symbol']
         logger.info(f" Analizando {symbol}...")
-        preloaded_master = preloaded_data.get(symbol) if preloaded_data else None
-        if preloaded_master is None: return []
+        preloadedMaster = preloadedData.get(symbol) if preloadedData else None
+        if preloadedMaster is None: return []
 
         signals = []
-        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
-        min_rr = float(strat_config.get('min_rr', 1.5))
+        # Cargar parametros dinamicamente desde base de datos
+        stratConfig = dbManager.getSymbolStrategyConfig(self.strategy_name, symbol) or {}
+        minRr = float(stratConfig.get('min_rr', 1.5))
+        atrMultTrigger = float(stratConfig.get('atr_mult_trigger', 1.4))
+        bodyRatioThreshold = float(stratConfig.get('body_ratio_threshold', 0.78))
+        confirmRatio = float(stratConfig.get('confirm_ratio', 0.50))
         
         for interval in self.intervals:
-            df = preloaded_master.get(interval)
+            df = preloadedMaster.get(interval)
             if df is None or len(df) < 50: continue
 
-            # 1. Detectar Desplazamiento Extremo y Confirmado (Lógica SMC Sostenida)
-            # Exigimos dos velas consecutivas en la misma dirección, donde:
-            # - La primera vela (prev_candle) es explosiva (>1.4x ATR) y sólida (>78% cuerpo/rango).
-            # - La segunda vela (last_candle, actual) confirma la dirección y recorre >= 50% de la primera.
-            df_feat = df.tail(5).copy()
-            atr_series = ta.ATR(df['high'], df['low'], df['close'], 14).dropna()
-            if atr_series.empty: continue
-            atr = atr_series.iloc[-1]
+            # 1. Detectar Desplazamiento Extremo y Confirmado (Logica SMC Sostenida)
+            # Exigimos dos velas consecutivas en la misma direccion, donde:
+            # - La primera vela (prevCandle) es explosiva (>atrMultTriggerx ATR) y solida (>bodyRatioThreshold cuerpo/rango).
+            # - La segunda vela (lastCandle, actual) confirma la direccion y recorre >= confirmRatio de la primera.
+            dfFeat = df.tail(5).copy()
+            atrSeries = ta.ATR(df['high'], df['low'], df['close'], 14).dropna()
+            if atrSeries.empty: continue
+            atr = atrSeries.iloc[-1]
             
-            last_candle = df_feat.iloc[-1]
-            prev_candle = df_feat.iloc[-2]
+            lastCandle = dfFeat.iloc[-1]
+            prevCandle = dfFeat.iloc[-2]
             
-            body_last = abs(last_candle['close'] - last_candle['open'])
-            body_prev = abs(prev_candle['close'] - prev_candle['open'])
-            range_prev = prev_candle['high'] - prev_candle['low']
+            bodyLast = abs(lastCandle['close'] - lastCandle['open'])
+            bodyPrev = abs(prevCandle['close'] - prevCandle['open'])
+            rangePrev = prevCandle['high'] - prevCandle['low']
             
-            # Validar la vela detonadora (prev_candle)
-            is_explosive = body_prev > (atr * 1.4)
-            is_solid = (body_prev / range_prev) > 0.78 if range_prev > 0 else False
+            # Validar la vela detonadora (prevCandle)
+            isExplosive = bodyPrev > (atr * atrMultTrigger)
+            isSolid = (bodyPrev / rangePrev) > bodyRatioThreshold if rangePrev > 0 else False
             
-            # Validar la vela de confirmación (last_candle)
-            same_dir = (last_candle['close'] > last_candle['open']) == (prev_candle['close'] > prev_candle['open'])
-            is_confirmed = same_dir and (body_last >= body_prev * 0.50)
+            # Validar la vela de confirmacion (lastCandle)
+            sameDir = (lastCandle['close'] > lastCandle['open']) == (prevCandle['close'] > prevCandle['open'])
+            isConfirmed = sameDir and (bodyLast >= bodyPrev * confirmRatio)
             
-            if not (is_explosive and is_solid and is_confirmed):
+            if not (isExplosive and isSolid and isConfirmed):
                 continue
                 
-            direction = "LARGO" if last_candle['close'] > last_candle['open'] else "CORTO"
+            direction = "LARGO" if lastCandle['close'] > lastCandle['open'] else "CORTO"
             
-            # Filtro e integración inteligente del RSI basado en momentum (nivel 50) y agotamiento real extremo (85/15) centralizado
-            rsi_val = last_candle['rsi'] if 'rsi' in last_candle else 50.0
-            rsi_ok, rsi_reason = technical.check_rsi_momentum(rsi_val, direction)
-            if not rsi_ok:
-                logger.info(f"[{symbol}] {interval}: Impulso {direction} descartado por {rsi_reason}")
+            # Filtro e integracion inteligente del RSI basado en momentum (nivel 50) y agotamiento real extremo (85/15) centralizado
+            rsiVal = lastCandle['rsi'] if 'rsi' in lastCandle else 50.0
+            rsiOk, rsiReason = technical.check_rsi_momentum(rsiVal, direction)
+            if not rsiOk:
+                logger.info(f"[{symbol}] {interval}: Impulso {direction} descartado por {rsiReason}")
                 continue
             
             # 2. Filtro de Momentum (No entrar contra tendencia)
-            momentum_state = symbolInfo.get('momentum', 'NEUTRAL')
-            if direction == "LARGO" and momentum_state == "BAJISTA": continue
-            if direction == "CORTO" and momentum_state == "ALCISTA": continue
+            momentumState = symbolInfo.get('momentum', 'NEUTRAL')
+            if direction == "LARGO" and momentumState == "BAJISTA": continue
+            if direction == "CORTO" and momentumState == "ALCISTA": continue
             
             # 3. Evitar duplicados
-            signal_key = f"{symbol}_{interval}_{df.index[-1]}"
-            if signal_key in self._sent_signals: continue
+            signalKey = f"{symbol}_{interval}_{df.index[-1]}"
+            if signalKey in self._sent_signals: continue
             
-            # 4. Calcular SL y TP con precisión SMC
-            entry_price = float(last_candle['close'])
-            # SL por debajo/encima del extremo del impulso completo de 2 velas más buffer ATR
+            # 4. Calcular SL y TP con precision SMC
+            entryPrice = float(lastCandle['close'])
+            # SL por debajo/encima del extremo del impulso completo de 2 velas mas buffer ATR
             if direction == "LARGO":
-                sl = min(float(last_candle['low']), float(prev_candle['low'])) - (atr * 0.1)
+                sl = min(float(lastCandle['low']), float(prevCandle['low'])) - (atr * 0.1)
             else:
-                sl = max(float(last_candle['high']), float(prev_candle['high'])) + (atr * 0.1)
+                sl = max(float(lastCandle['high']), float(prevCandle['high'])) + (atr * 0.1)
                 
-            risk_dist = abs(entry_price - sl)
-            if risk_dist == 0: continue
+            riskDist = abs(entryPrice - sl)
+            if riskDist == 0: continue
             
-            # Lógica SMC Estricta: Buscar el primer Swing High/Low local previo al inicio del desplazamiento
-            df_prior = df.iloc[:-2]
-            levels = technical.get_structural_levels(df_prior, lookback=30)
-            tp_ref = levels['swing_high'] if direction == "LARGO" else levels['swing_low']
+            # Logica SMC Estricta: Buscar el primer Swing High/Low local previo al inicio del desplazamiento
+            dfPrior = df.iloc[:-2]
+            levels = technical.get_structural_levels(dfPrior, lookback=30)
+            tpRef = levels['swing_high'] if direction == "LARGO" else levels['swing_low']
             
-            # Si el TP estructural está muy cerca o no existe, usar RR fijo 1.5
-            tp1 = adjustTPForMinRR(entry_price, sl, tp_ref, direction, minRR=min_rr)
+            # Si el TP estructural esta muy cerca o no existe, usar RR fijo
+            tp1 = adjustTPForMinRR(entryPrice, sl, tpRef, direction, minRR=minRr)
             
-            # 5. Crear Señal
+            # 5. Crear Senal
             multiplier = getPipMultiplier(symbol)
-            rr_ratio = abs(tp1 - entry_price) / risk_dist
+            rrRatio = abs(tp1 - entryPrice) / riskDist
             
             sig = Signal(
                 strategy=self.strategy_name,
                 symbol=symbol,
                 direction=direction,
-                entry_price=entry_price,
+                entry_price=entryPrice,
                 stop_loss=sl,
                 take_profit=tp1,
-                sl_distance=risk_dist,
+                sl_distance=riskDist,
                 confidence=85,
                 setup=f"DESPLAZAMIENTO RAPIDO {interval}",
                 status="IMPULSO",
                 candleTime=df.index[-1].strftime("%Y-%m-%d %H:%M:%S"),
                 intervalo=interval,
-                riesgo_pips=round(risk_dist * multiplier, 1),
-                rr_ratio=round(rr_ratio, 2),
-                break_even=calculateBEPrice(entry_price, sl, tp1, direction),
+                riesgo_pips=round(riskDist * multiplier, 1),
+                rr_ratio=round(rrRatio, 2),
+                break_even=calculateBEPrice(entryPrice, sl, tp1, direction),
                 metadata={
-                    "atr_multiplier": round(body_last/atr, 2),
-                    "momentum": momentum_state
+                    "atr_multiplier": round(bodyLast/atr, 2),
+                    "momentum": momentumState
                 }
             )
             
             signals.append(sig)
-            self._sent_signals[signal_key] = True
-            logger.info(f"[{symbol}] {interval}: ¡DESPLAZAMIENTO DETECTADO! RR={rr_ratio:.2f}")
+            self._sent_signals[signalKey] = True
+            logger.info(f"[{symbol}] {interval}: ¡DESPLAZAMIENTO DETECTADO! RR={rrRatio:.2f}")
 
         return signals

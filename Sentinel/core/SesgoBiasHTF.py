@@ -33,22 +33,41 @@ class SesgoBiasHTFBot:
     }
     
     def __init__(self):
-        strategyConfig = dbManager.getStrategyConfig("SesgoBiasHTF")
+        strategyConfig = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
         
-        self.fibonacci_level      = strategyConfig.get('fibonacci_level', 0.50)      if strategyConfig else 0.50
-        self.entry_fib_min        = strategyConfig.get('entry_fib_min', 0.25)         if strategyConfig else 0.25
-        self.entry_fib_max        = strategyConfig.get('entry_fib_max', 0.50)         if strategyConfig else 0.50
-        self.swing_lookback       = strategyConfig.get('swing_lookback', 50)          if strategyConfig else 50
-        self.fvg_min_pct          = strategyConfig.get('fvg_min_pct', 0.0001)        if strategyConfig else 0.0001
-        self.min_distance_pips    = strategyConfig.get('min_distance_pips', 10)       if strategyConfig else 10
-        self.max_signal_age_minutes = strategyConfig.get('max_signal_age_minutes', 60) if strategyConfig else 60
-        self.mss_lookback         = strategyConfig.get('mss_lookback', 5)             if strategyConfig else 5
-        self.use_killzones        = strategyConfig.get('use_killzones', True)         if strategyConfig else True
-        self.volatility_threshold = strategyConfig.get('volatility_threshold', 0.5)  if strategyConfig else 0.5
-        self.use_ote_filter   = strategyConfig.get('use_ote_filter', True)   if strategyConfig else True
-        self.ote_fib_min      = strategyConfig.get('ote_fib_min', 0.62)      if strategyConfig else 0.62
-        self.ote_fib_max      = strategyConfig.get('ote_fib_max', 0.79)      if strategyConfig else 0.79
-        self.ote_reduce_conf  = strategyConfig.get('ote_reduce_conf', 15)    if strategyConfig else 15
+        self.fibonacciLevel      = float(strategyConfig.get('fibonacciLevel') or strategyConfig.get('fibonacci_level') or 0.50)
+        self.entryFibMin        = float(strategyConfig.get('entryFibMin') or strategyConfig.get('entry_fib_min') or 0.25)
+        self.entryFibMax        = float(strategyConfig.get('entryFibMax') or strategyConfig.get('entry_fib_max') or 0.50)
+        self.swingLookback       = int(strategyConfig.get('swingLookback') or strategyConfig.get('swing_lookback') or 50)
+        self.fvgMinPct          = float(strategyConfig.get('fvgMinPct') or strategyConfig.get('fvg_min_pct') or 0.0001)
+        self.minDistancePips    = float(strategyConfig.get('minDistancePips') or strategyConfig.get('min_distance_pips') or 10.0)
+        self.maxSignalAgeMinutes = int(strategyConfig.get('maxSignalAgeMinutes') or strategyConfig.get('max_signal_age_minutes') or 60)
+        self.mssLookback         = int(strategyConfig.get('mssLookback') or strategyConfig.get('mss_lookback') or 5)
+        self.useKillzones        = bool(strategyConfig.get('useKillzones') if 'useKillzones' in strategyConfig else strategyConfig.get('use_killzones', True))
+        self.volatilityThreshold = float(strategyConfig.get('volatilityThreshold') or strategyConfig.get('volatility_threshold') or 0.5)
+        self.useOteFilter   = bool(strategyConfig.get('useOteFilter') if 'useOteFilter' in strategyConfig else strategyConfig.get('use_ote_filter', True))
+        self.oteFibMin      = float(strategyConfig.get('oteFibMin') or strategyConfig.get('ote_fib_min') or 0.62)
+        self.oteFibMax      = float(strategyConfig.get('oteFibMax') or strategyConfig.get('ote_fib_max') or 0.79)
+        self.oteReduceConf  = int(strategyConfig.get('oteReduceConf') or strategyConfig.get('ote_reduce_conf') or 15)
+        self.minConfidence  = int(strategyConfig.get('minConfidence') or strategyConfig.get('min_confidence') or 70)
+        self.minRr          = float(strategyConfig.get('minRr') or strategyConfig.get('min_rr') or 1.5)
+        self.minUsdProfit   = float(strategyConfig.get('minUsdProfit') or strategyConfig.get('min_usd_profit') or 10.0)
+        
+        # Compatibilidad hacia atrás de variables de instancia
+        self.fibonacci_level = self.fibonacciLevel
+        self.entry_fib_min = self.entryFibMin
+        self.entry_fib_max = self.entryFibMax
+        self.swing_lookback = self.swingLookback
+        self.fvg_min_pct = self.fvgMinPct
+        self.min_distance_pips = self.minDistancePips
+        self.max_signal_age_minutes = self.maxSignalAgeMinutes
+        self.mss_lookback = self.mssLookback
+        self.use_killzones = self.useKillzones
+        self.volatility_threshold = self.volatilityThreshold
+        self.use_ote_filter = self.useOteFilter
+        self.ote_fib_min = self.oteFibMin
+        self.ote_fib_max = self.oteFibMax
+        self.ote_reduce_conf = self.oteReduceConf
         
         self.signalsGeneradas = {}
         self.timestamps_signals = {}
@@ -251,6 +270,42 @@ class SesgoBiasHTFBot:
         symbol = symbolInfo['symbol']
         logger.info(f"Iniciando análisis para {symbol}")
         
+        # Cargar parámetros dinámicos por símbolo (con soporte camelCase y fallback)
+        stratConfig = dbManager.getSymbolStrategyConfig("SesgoBiasHTF", symbol) or {}
+        
+        fibonacciLevel      = float(stratConfig.get('fibonacciLevel') or stratConfig.get('fibonacci_level') or self.fibonacciLevel)
+        entryFibMin        = float(stratConfig.get('entryFibMin') or stratConfig.get('entry_fib_min') or self.entryFibMin)
+        entryFibMax        = float(stratConfig.get('entryFibMax') or stratConfig.get('entry_fib_max') or self.entryFibMax)
+        swingLookback       = int(stratConfig.get('swingLookback') or stratConfig.get('swing_lookback') or self.swingLookback)
+        fvgMinPct          = float(stratConfig.get('fvgMinPct') or stratConfig.get('fvg_min_pct') or self.fvgMinPct)
+        minDistancePips    = float(stratConfig.get('minDistancePips') or stratConfig.get('min_distance_pips') or self.minDistancePips)
+        maxSignalAgeMinutes = int(stratConfig.get('maxSignalAgeMinutes') or stratConfig.get('max_signal_age_minutes') or self.maxSignalAgeMinutes)
+        mssLookback         = int(stratConfig.get('mssLookback') or stratConfig.get('mss_lookback') or self.mssLookback)
+        useKillzones        = bool(stratConfig.get('useKillzones') if 'useKillzones' in stratConfig else stratConfig.get('use_killzones', self.useKillzones))
+        volatilityThreshold = float(stratConfig.get('volatilityThreshold') or stratConfig.get('volatility_threshold') or self.volatilityThreshold)
+        useOteFilter   = bool(stratConfig.get('useOteFilter') if 'useOteFilter' in stratConfig else stratConfig.get('use_ote_filter', self.useOteFilter))
+        oteFibMin      = float(stratConfig.get('oteFibMin') or stratConfig.get('ote_fib_min') or self.oteFibMin)
+        oteFibMax      = float(stratConfig.get('oteFibMax') or stratConfig.get('ote_fib_max') or self.oteFibMax)
+        oteReduceConf  = int(stratConfig.get('oteReduceConf') or stratConfig.get('ote_reduce_conf') or self.oteReduceConf)
+        minConfidence  = int(stratConfig.get('minConfidence') or stratConfig.get('min_confidence') or self.minConfidence)
+        minRr          = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or self.minRr)
+
+        # Actualizar variables de instancia para la ejecución actual de métodos helper
+        self.fibonacci_level = fibonacciLevel
+        self.entry_fib_min = entryFibMin
+        self.entry_fib_max = entryFibMax
+        self.swing_lookback = swingLookback
+        self.fvg_min_pct = fvgMinPct
+        self.min_distance_pips = minDistancePips
+        self.max_signal_age_minutes = maxSignalAgeMinutes
+        self.mss_lookback = mssLookback
+        self.use_killzones = useKillzones
+        self.volatility_threshold = volatilityThreshold
+        self.use_ote_filter = useOteFilter
+        self.ote_fib_min = oteFibMin
+        self.ote_fib_max = oteFibMax
+        self.ote_reduce_conf = oteReduceConf
+
         master = preloadedData.get(symbol) if preloadedData else None
         
         # Punto 3: Master Dictionary integration
@@ -274,7 +329,6 @@ class SesgoBiasHTFBot:
         if df1w is None: df1w = self.resample_ohlcv(df_15m, '1w')
         if df1M is None: df1M = self.resample_ohlcv(df_15m, '1M')
 
-        
         biases = self.get_htf_bias(dfH1, df1d, df1w, df1M)
         consensus_direction, consensus_score = self.get_consensus_bias(biases)
         
@@ -299,24 +353,19 @@ class SesgoBiasHTFBot:
         ob_analysis = self.get_ob_analysis(df_15m, consensus_direction, price, atr)
         ote_analysis = self.check_ote(df_15m, consensus_direction)
         
-
-        strat_config = dbManager.getStrategyConfig("SesgoBiasHTF") or {}
-        
         confidence = int(consensus_score * 100)
         if ob_analysis['ob_score'] >= 10: confidence += 5
         if ote_analysis['in_ote']: confidence += 5
         
         if self.use_ote_filter and not ote_analysis['in_ote']: confidence -= self.ote_reduce_conf
         
-        min_conf = int(strat_config.get('min_confidence', 70))
-        if confidence < min_conf: return None
+        if confidence < minConfidence: return None
         
         entry_price = price
         sl_price = self.calculate_sl_from_sweep(po3_data, consensus_direction)
         tp_levels = self.calculate_tp_structural(df_15m, consensus_direction, liquidity, prev_day)
         tp_price = tp_levels[0] if tp_levels else (entry_price + abs(entry_price-sl_price)*2 if consensus_direction=='LARGO' else entry_price-abs(entry_price-sl_price)*2)
-        min_rr = float(strat_config.get('min_rr', 1.5))
-        tp_price = adjustTPForMinRR(entry_price, sl_price, tp_price, consensus_direction, minRR=min_rr)
+        tp_price = adjustTPForMinRR(entry_price, sl_price, tp_price, consensus_direction, minRR=minRr)
         
         multiplier = getPipMultiplier(symbol)
         sl_dist = abs(entry_price - sl_price)
@@ -392,3 +441,49 @@ class SesgoBiasHTFBot:
                 sweep.update({'mss': self.detect_mss(df, direction), 'engulf_info': engulf, 'vela_time': vela_time})
                 return sweep
         return None
+
+    def calculate_sl_from_sweep(self, sweep_info: Dict, direction: str) -> float:
+        """
+        Stop Loss: Siempre por debajo/encima de la mecha del sweep.
+        """
+        if direction == 'CORTO':
+            return sweep_info['swept_price'] + (sweep_info.get('candle_range', 0.001) * 0.1)
+        else:
+            return sweep_info['swept_price'] - (sweep_info.get('candle_range', 0.001) * 0.1)
+
+    def calculate_tp_structural(self, df: pd.DataFrame, direction: str, 
+                                liquidity: Dict, prev_day: Tuple[Optional[float], Optional[float]]) -> List[float]:
+        """
+        Take Profit: Objetivos hacia zonas de liquidez externa.
+        Prioridad: EQH/EQL > Alto/Bajo día anterior > Swing Highs/Lows.
+        """
+        tp_levels = []
+        
+        if direction == 'CORTO':
+            if liquidity.get('eqh'):
+                for eqh in liquidity['eqh'][:2]:
+                    if float(df['close'].iloc[-1]) > eqh:
+                        tp_levels.append(eqh)
+            
+            if prev_day[0] and float(df['close'].iloc[-1]) > prev_day[0]:
+                tp_levels.append(prev_day[0])
+            
+            if liquidity.get('swing_lows'):
+                for sl in liquidity['swing_lows'][:2]:
+                    if float(df['close'].iloc[-1]) > sl:
+                        tp_levels.append(sl)
+        else:
+            if liquidity.get('eql'):
+                for eql in liquidity['eql'][:2]:
+                    if float(df['close'].iloc[-1]) < eql:
+                        tp_levels.append(eql)
+            
+            if prev_day[1] and float(df['close'].iloc[-1]) < prev_day[1]:
+                tp_levels.append(prev_day[1])
+            
+            if liquidity.get('swing_highs'):
+                for sh in liquidity['swing_highs'][:2]:
+                    if float(df['close'].iloc[-1]) < sh:
+                        tp_levels.append(sh)
+        
+        return sorted(tp_levels, reverse=(direction == 'CORTO'))

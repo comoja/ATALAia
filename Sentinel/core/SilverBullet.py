@@ -29,14 +29,13 @@ MX_TZ = pytz.timezone(TIMEZONE)
 class SilverBulletBot:
     def __init__(self):
         self._signals_sent: Dict[str, bool] = {}
-        strategyConfig = dbManager.getStrategyConfig("SilverBullet") or {}
-        self.fvg_min_pct: float     = strategyConfig.get("fvg_min_pct",        0.0001)
-        self.max_signal_age_min: int = strategyConfig.get("max_signal_age_min", 45)
-        self.min_adx: float          = strategyConfig.get("min_adx",            15.0)
-        self.ote_fib_min: float      = strategyConfig.get("ote_fib_min",        0.62)
-        self.ote_fib_max: float      = strategyConfig.get("ote_fib_max",        0.79)
-        self.use_ote_filter: bool    = strategyConfig.get("use_ote_filter",     True)
-        self.min_rr: float           = strategyConfig.get("min_rr",             1.5)
+        self.fvg_min_pct: float     = 0.0001
+        self.max_signal_age_min: int = 45
+        self.min_adx: float          = 15.0
+        self.ote_fib_min: float      = 0.62
+        self.ote_fib_max: float      = 0.79
+        self.use_ote_filter: bool    = True
+        self.min_rr: float           = 1.5
         logger.info("SilverBulletBot iniciado — London / NY AM / NY PM")
 
     def _now_ny(self) -> datetime: return datetime.now(NY_TZ)
@@ -125,21 +124,23 @@ class SilverBulletBot:
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:
         symbol = symbolInfo["symbol"]
         logger.info(f"Iniciando análisis para {symbol}")
-        window_name, window = "ALL_DAY", {"label": "All Day 🕐", "emoji": "🕐", "start": None, "end": None}
-        sig_key = self._signal_key(symbol, window_name)
-        if self._signals_sent.get(sig_key, False): 
-            logger.info(f"[{symbol}] Señal ya enviada para {window_name}")
-            return None
-        
+        # --- Cargar datos y configuraciones ---
         master = preloadedData.get(symbol) if preloadedData else None
         
-        # Punto 6: Abstracción de parámetros dinámicos
-        from middleware.database import dbManager
-        strat_config = dbManager.getStrategyConfig("SilverBullet") or {}
-        min_rr_val = float(strat_config.get('min_rr', 1.5))
-        min_confidence = float(strat_config.get('min_confidence', 70))
+        # Cargar parámetros dinámicos por símbolo (con soporte camelCase y fallback)
+        stratConfig = dbManager.getSymbolStrategyConfig("SilverBullet", symbol) or {}
         
-        # Punto 3: Master Dictionary integration
+        fvgMinPct = float(stratConfig.get('fvgMinPct') or stratConfig.get('fvg_min_pct') or 0.0001)
+        minAdx = float(stratConfig.get('minAdx') or stratConfig.get('min_adx') or 15.0)
+        minRrVal = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or 1.5)
+        minConfidence = float(stratConfig.get('minConfidence') or stratConfig.get('min_confidence') or 70)
+        minUsdProfit = float(stratConfig.get('minUsdProfit') or stratConfig.get('min_usd_profit') or 10.0)
+        filterByHtfTrend = bool(stratConfig.get('filterByHtfTrend') or stratConfig.get('filter_by_htf_trend') or False)
+
+        # Asignar variables de instancia dinámicas para uso en métodos helper
+        self.fvg_min_pct = fvgMinPct
+        self.min_adx = minAdx
+        
         if isinstance(master, dict):
             df = master.get('5min')
         else:
@@ -149,27 +150,61 @@ class SilverBulletBot:
             logger.info(f"[{symbol}] No hay suficientes velas para análisis")
             return None
 
-        
         adx = self._calc_adx(df)
         if adx < self.min_adx: 
             logger.info(f"[{symbol}] ADX bajo: {adx:.2f} (se requiere mínimo {self.min_adx:.2f})")
             return None
-        
-        w_start = self._now_ny().replace(hour=8, minute=30, second=0, microsecond=0) # Example start
-        ref = self._get_reference_range(symbol, df, w_start)
-        if not ref: 
-            logger.info(f"[{symbol}] No hay rango de referencia")
+
+        # --- Lógica Multi-Ventana ICT ---
+        current_ny_time = df.index[-1]
+        if current_ny_time.tzinfo is None:
+            current_ny_time = current_ny_time.tz_localize(MX_TZ).tz_convert(NY_TZ)
+        else:
+            current_ny_time = current_ny_time.tz_convert(NY_TZ)
+
+        valid_signal = False
+        valid_window = None
+        valid_fvg = None
+        valid_sweep = None
+        valid_w_start = None
+
+        for w_name, w_info in SILVER_BULLET_WINDOWS.items():
+            w_start = current_ny_time.replace(hour=w_info["start"].hour, minute=w_info["start"].minute, second=0, microsecond=0)
+            
+            # Solo analizar si ya pasó el periodo de referencia (15 min) y estamos dentro de unas 2 horas de la ventana
+            if current_ny_time < w_start + timedelta(minutes=15) or current_ny_time > w_start + timedelta(hours=2):
+                continue
+                
+            sig_key = self._signal_key(symbol, w_name)
+            if self._signals_sent.get(sig_key, False):
+                continue
+                
+            ref = self._get_reference_range(symbol, df, w_start)
+            if not ref: continue
+            
+            sweep = self._detect_sweep(symbol, df, ref, w_start)
+            if not sweep or not self._detect_mss(df, sweep): continue
+            
+            fvg = self._detect_fvg(df, sweep["type"])
+            if not fvg: continue
+            
+            valid_signal = True
+            valid_window = w_info
+            valid_fvg = fvg
+            valid_sweep = sweep
+            valid_w_start = w_start
+            window_name = w_name
+            break
+            
+        if not valid_signal:
+            logger.info(f"[{symbol}] No hay setup SilverBullet en ninguna ventana activa")
             return None
-        
-        sweep = self._detect_sweep(symbol, df, ref, w_start)
-        if not sweep or not self._detect_mss(df, sweep): 
-            logger.info(f"[{symbol}] No hay sweep detectado")
-            return None
-        
-        fvg = self._detect_fvg(df, sweep["type"])
-        if not fvg: 
-            logger.info(f"[{symbol}] No hay FVG detectado")
-            return None
+            
+        window = valid_window
+        fvg = valid_fvg
+        sweep = valid_sweep
+        w_start = valid_w_start
+        sig_key = self._signal_key(symbol, window_name)
         
         # --- Normalizar FVG al formato estándar esperado por calculate_fvg_setup ---
         # _detect_fvg retorna {type, mid, idx, candle_time} pero calculate_fvg_setup
@@ -239,7 +274,7 @@ class SilverBulletBot:
         from Sentinel.analysis.technical import capTpByAtr
         tp_ref = capTpByAtr(tp_ref, entry, float(atr), "LARGO" if sweep["type"] == "LARGO" else "CORTO", maxAtrMult=3.0)
         
-        tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "LARGO" else "CORTO", minRR=min_rr_val)
+        tp = adjustTPForMinRR(entry, sl, tp_ref, "LARGO" if sweep["type"] == "LARGO" else "CORTO", minRR=minRrVal)
         
         sl_dist = abs(entry - sl)
         multiplier = getPipMultiplier(symbol)
@@ -259,7 +294,6 @@ class SilverBulletBot:
         monthly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL')
         direction = "LARGO" if sweep["type"] == "LARGO" else "CORTO"
         
-        filterByHtfTrend = strat_config.get('filter_by_htf_trend', False)
         if filterByHtfTrend:
             if monthly_trend == "BAJISTA" and direction == "LARGO":
                 logger.info(f"[{symbol}] SilverBullet: Señal LARGO bloqueada - Tendencia HTF BAJISTA")
@@ -293,14 +327,13 @@ class SilverBulletBot:
         rrRatio = round(abs(tp - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
         
         # --- FILTRO SEGURIDAD: Evitar entradas tardías con RR real pésimo ---
-        minRealRr = min_rr_val * 0.70
+        minRealRr = minRrVal * 0.70
         if rrRatio < minRealRr:
             logger.info(f"[{symbol}] SilverBullet: Descartando señal por RR real insuficiente ({rrRatio:.2f} < {minRealRr:.2f}) debido a entrada tardía")
             return None
             
         expectedProfit = riskUsdActual * rrRatio
         
-        minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
         # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
         if minUsdProfit < 6.0:
             minUsdProfit = 6.0
@@ -310,8 +343,8 @@ class SilverBulletBot:
             return None
         
         base_confidence = 80
-        if base_confidence < min_confidence:
-            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={min_confidence}")
+        if base_confidence < minConfidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={base_confidence} < min_confidence={minConfidence}")
             return None
         
         # Calcular Break Even inteligente

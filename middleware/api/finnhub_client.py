@@ -123,6 +123,9 @@ async def getHighImpactEvents() -> list:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, timeout=10.0)
+            if response.status_code == 403:
+                logger.warning("Finnhub: Calendario economico requiere suscripcion de pago (Premium). Saltando eventos.")
+                return []
             response.raise_for_status()
             data = response.json()
             events = data.get('economicCalendar', [])

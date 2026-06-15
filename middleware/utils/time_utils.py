@@ -158,12 +158,19 @@ def get_last_closed_candle(dt, interval, df=None):
     
     if df is not None:
         try:
+            targetCandle = lastCandle
+            if df.index.tz is None and targetCandle.tzinfo is not None:
+                targetCandle = targetCandle.replace(tzinfo=None)
+            elif df.index.tz is not None and targetCandle.tzinfo is None:
+                # Convert to index timezone
+                targetCandle = targetCandle.replace(tzinfo=pytz.UTC).astimezone(df.index.tz)
+            
             # Buscar la vela exacta en el DataFrame
-            if lastCandle in df.index:
-                return df.loc[lastCandle]
+            if targetCandle in df.index:
+                return df.loc[targetCandle]
             else:
-                # Si no está la exacta, devolver la última disponible que sea <= lastCandle
-                availableCandles = df[df.index <= lastCandle]
+                # Si no está la exacta, devolver la última disponible que sea <= targetCandle
+                availableCandles = df[df.index <= targetCandle]
                 if not availableCandles.empty:
                     return availableCandles.iloc[-1]
         except Exception as e:

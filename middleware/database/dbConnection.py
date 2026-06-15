@@ -31,11 +31,11 @@ class DBConnectionPool:
             
             self._pool = pooling.MySQLConnectionPool(
                 pool_name="atalaia_pool",
-                pool_size=8,        # Reducido: 3 procesos x 8 = 24 conexiones (< 300)
+                pool_size=32,       # Aumentado a 16 para soportar corrutinas concurrentes de Sentinel
                 pool_reset_session=True,
                 **pool_config
             )
-            logger.info("Pool de conexiones MySQL inicializado (size=8)")
+            logger.info("Pool de conexiones MySQL inicializado (size=16)")
         except MySQLError as e:
             logger.error(f"Error al crear pool de conexiones: {e}")
             self._pool = None
@@ -51,7 +51,8 @@ class DBConnectionPool:
                     conn.reconnect()
                 return conn
             except MySQLError as e:
-                if e.errno == 1040 and attempt < retries - 1:
+                is_pool_exhausted = "pool exhausted" in str(e).lower() or e.errno == 1040
+                if is_pool_exhausted and attempt < retries - 1:
                     logger.warning(f"Pool exhausted, esperando {wait}s (intento {attempt+1}/{retries})")
                     time.sleep(wait)
                     continue

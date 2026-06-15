@@ -548,6 +548,26 @@ async def main():
     logger.info("====== Inicializando Bot de Trading Sentinel (Decoupled) ======")
     dbManager.init_alerts_table()
     
+    # Tarea programada: Backtest Semanal automático los Sábados
+    import subprocess
+    today = datetime.now().date()
+    if today.weekday() == 5: # 5 es Sábado
+        flag_file = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/last_weekly_backtest.txt"
+        should_run = True
+        if os.path.exists(flag_file):
+            with open(flag_file, 'r') as f:
+                if f.read().strip() == str(today):
+                    should_run = False
+        if should_run:
+            logger.info("📅 ¡Es Sábado! Lanzando el Mantenimiento Semanal en segundo plano...")
+            with open(flag_file, 'w') as f:
+                f.write(str(today))
+            subprocess.Popen(["/bin/bash", "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_maintenance.sh"],
+                             cwd="/Volumes/TimeMachine/ATALAia",
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+
+    
     # Auto-reentrenamiento al iniciar la app (siempre reentrena al inicio)
     from Sentinel.ml.auto_retrain import should_retrain
     from Sentinel.ml import retrain_ml, train_reg_model

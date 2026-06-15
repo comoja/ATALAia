@@ -210,13 +210,9 @@ class SMABot:
 
         return None, None
     
-    def identificarTendencia(self, df, precioActual, sma20):
+    def identificarTendencia(self, df, precioActual, sma20, threshold=0.005):
         # Calculamos la pendiente normalizada como porcentaje (%)
         pendienteSma20 = (self.getPendiente(df["sma20"].tail(10), 10) / sma20) * 100
-        
-        # Umbral mucho más realista (0.005% de inclinación por vela)
-        strat_config = dbManager.getStrategyConfig("SMA20_200") or {}
-        threshold = float(strat_config.get('slope_threshold', 0.005))
         
         if precioActual > sma20 and pendienteSma20 > threshold:
             return "ALCISTA"
@@ -365,8 +361,16 @@ class SMABot:
         if df.index.tzinfo is None: df.index = df.index.tz_localize(cdmx_tz)
         else: df.index = df.index.tz_convert(cdmx_tz)
         
+        # Cargar parámetros dinámicos por símbolo (con soporte camelCase y fallback)
+        stratConfig = dbManager.getSymbolStrategyConfig("SMA20_200", symbol) or {}
+        slopeThreshold = float(stratConfig.get('slopeThreshold') or stratConfig.get('slope_threshold') or 0.005)
+        minRrVal = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or 1.5)
+        minConfidence = float(stratConfig.get('minConfidence') or stratConfig.get('min_confidence') or 70)
+        minUsdProfit = float(stratConfig.get('minUsdProfit') or stratConfig.get('min_usd_profit') or 10.0)
+        riskUsd = float(stratConfig.get('riskUsd') or stratConfig.get('risk_usd') or 100.0)
+        
         close, sma20, sma200, atr = df["close"].iloc[-1], df["sma20"].iloc[-1], df["sma200"].iloc[-1], df["atr"].iloc[-1]
-        tendencia = self.identificarTendencia(df, close, sma20)
+        tendencia = self.identificarTendencia(df, close, sma20, slopeThreshold)
         
         adx = ta.ADX(df['high'].values, df['low'].values, df['close'].values, timeperiod=14)
         adx_series = pd.Series(adx).dropna()
@@ -436,23 +440,17 @@ class SMABot:
             take_profit = max(tp_initial, tp_ml) if tp_initial < tp_ml else tp_initial
 
 
-        strat_config = dbManager.getStrategyConfig("SMA20_200") or {}
-        min_rr_val = float(strat_config.get('min_rr', 1.5))
-
         multiplier = getPipMultiplier(symbol)
-        risk_usd = float(strat_config.get('risk_usd', 100.0))
-        size = (risk_usd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
+        size = (riskUsd / (sl_dist * multiplier)) if (sl_dist > 0 and multiplier > 0) else 0
 
         # --- FILTRO: Ganancia Mínima Est. ---
-        min_usd_profit = float(strat_config.get('min_usd_profit', 10.0))
         rr_ratio = round(abs(take_profit - close) / sl_dist, 2)
         expected_profit = (sl_dist * multiplier * size) * rr_ratio
-        if expected_profit < min_usd_profit:
-            logger.info(f"[{symbol}] SMA20_200: Beneficio Est. ${expected_profit:.2f} < ${min_usd_profit:.2f} - descartando")
+        if expected_profit < minUsdProfit:
+            logger.info(f"[{symbol}] SMA20_200: Beneficio Est. ${expected_profit:.2f} < ${minUsdProfit:.2f} - descartando")
             return None
 
-        min_confidence = float(strat_config.get('min_confidence', 70))
-        take_profit = adjustTPForMinRR(close, stop_loss, take_profit, direction, minRR=min_rr_val)
+        take_profit = adjustTPForMinRR(close, stop_loss, take_profit, direction, minRR=minRrVal)
         
         # Calcular Break Even inteligente
         be_trigger = calculateBEPrice(close, stop_loss, take_profit, direction)
@@ -461,8 +459,8 @@ class SMABot:
         confianza = int(prob * 100) + bb_bonus + momentum_bonus
         
         # Filtrar por confianza mínima
-        if confianza < min_confidence:
-            logger.info(f"[{symbol}] Señal descartada: confidence={confianza} < min_confidence={min_confidence}")
+        if confianza < minConfidence:
+            logger.info(f"[{symbol}] Señal descartada: confidence={confianza} < min_confidence={minConfidence}")
             return None
 
         

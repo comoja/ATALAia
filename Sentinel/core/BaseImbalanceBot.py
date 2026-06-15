@@ -48,9 +48,8 @@ class BaseImbalanceBot:
         self.signal1_enviada = False
         self.signal2_enviada = False
         
-        strategyConfig = dbManager.getStrategyConfig(self.strategy_name)
-        self.maxMinutosFvg = strategyConfig.get('max_minutos_fvg', 20) if strategyConfig else 20
-        self.maxMinutosSignal = strategyConfig.get('max_minutos_signal', 20) if strategyConfig else 20
+        self.maxMinutosFvg = 20
+        self.maxMinutosSignal = 20
     
     def getMexicoTime(self) -> datetime:
         return datetime.now(self.MEXICO_TZ)
@@ -101,7 +100,8 @@ class BaseImbalanceBot:
         if precioMaximo is None or precioMinimo is None:
             return []
         
-        strat_config = dbManager.getStrategyConfig(self.strategy_name) or {}
+        stratConfig = dbManager.getSymbolStrategyConfig(self.strategy_name, symbol) or {}
+        maxMinutosFvg = stratConfig.get('maxMinutosFvg') or stratConfig.get('max_minutos_fvg') or 20
         
         if self.velaCorte is None:
             velaCorte = self.findVelaCorte(datos5min, precioMaximo, precioMinimo)
@@ -173,8 +173,8 @@ class BaseImbalanceBot:
             if signalKey in self._sent_signals:
                 continue
                 
-            minutos_desde_fvg = (ahora - fvg_time).total_seconds() / 60
-            if minutos_desde_fvg > self.maxMinutosFvg:
+            minutosDesdeFvg = (ahora - fvg_time).total_seconds() / 60
+            if minutosDesdeFvg > maxMinutosFvg:
                 continue
             
             # Validar mitigación ICT (50% rule): descartar si el precio ya cerró
@@ -202,43 +202,40 @@ class BaseImbalanceBot:
                 zona_high_fvg = datos5min['high'].iloc[fvg['idx']:fvg['idx']+2].max() if (fvg['idx']+2 < len(datos5min)) else datos5min['high'].iloc[fvg['idx']]
                 stop_ref = max(zona_high_fvg, levels['swing_high'])
                 stopLoss = stop_ref + padding_pips
-                tp_structural = levels['low_zone']
+                tpStructural = levels['low_zone']
                 # Cap de TP: máximo 3.0 ATR desde la entrada (estrategia 5min)
                 from Sentinel.analysis.technical import capTpByAtr
-                tp_structural = capTpByAtr(tp_structural, entryPrice, float(atr), "CORTO", maxAtrMult=3.0)
-                min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "CORTO", minRR=min_rr_val)
+                tpStructural = capTpByAtr(tpStructural, entryPrice, float(atr), "CORTO", maxAtrMult=3.0)
+                minRrVal = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or 1.5)
+                tpFinal = adjustTPForMinRR(entryPrice, stopLoss, tpStructural, "CORTO", minRR=minRrVal)
                 signalDirection = "CORTO"
             else:
                 setupType = "LIQUIDATION_BUY"
                 zona_low_fvg = datos5min['low'].iloc[fvg['idx']:fvg['idx']+2].min() if (fvg['idx']+2 < len(datos5min)) else datos5min['low'].iloc[fvg['idx']]
                 stop_ref = min(zona_low_fvg, levels['swing_low'])
                 stopLoss = stop_ref - padding_pips
-                tp_structural = levels['high_zone']
+                tpStructural = levels['high_zone']
                 # Cap de TP: máximo 3.0 ATR desde la entrada (estrategia 5min)
                 from Sentinel.analysis.technical import capTpByAtr
-                tp_structural = capTpByAtr(tp_structural, entryPrice, float(atr), "LARGO", maxAtrMult=3.0)
-                min_rr_val = float(dbManager.getStrategyConfig(self.strategy_name).get('min_rr', 1.5)) if dbManager.getStrategyConfig(self.strategy_name) else 1.5
-                tp_final = adjustTPForMinRR(entryPrice, stopLoss, tp_structural, "LARGO", minRR=min_rr_val)
+                tpStructural = capTpByAtr(tpStructural, entryPrice, float(atr), "LARGO", maxAtrMult=3.0)
+                minRrVal = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or 1.5)
+                tpFinal = adjustTPForMinRR(entryPrice, stopLoss, tpStructural, "LARGO", minRR=minRrVal)
                 signalDirection = "LARGO"
             
             distancia_sl = abs(entryPrice - stopLoss)
             multiplier = getPipMultiplier(symbol)
             
             # Exhaustion Filter
-            vela_origen_idx = len(datos5min) - 5
-            is_valid, _, mensaje = check_tp_exhaustion(datos5min, vela_origen_idx, entryPrice, tp_final, stopLoss, signalDirection, threshold=0.75, timeframe="5min")
-            if not is_valid:
+            velaOrigenIdx = len(datos5min) - 5
+            isValid, _, mensaje = check_tp_exhaustion(datos5min, velaOrigenIdx, entryPrice, tpFinal, stopLoss, signalDirection, threshold=0.75, timeframe="5min")
+            if not isValid:
                 continue
             
             # Signal Health Filter (precio actual vs SL y progreso)
-            current_price = float(datos5min['close'].iloc[-1])
-            is_valid, _, mensaje = check_signal_health(entryPrice, tp_final, stopLoss, signalDirection, current_price, threshold=0.65, candle_time=last_closed_str)
-            if not is_valid:
+            currentPrice = float(datos5min['close'].iloc[-1])
+            isValid, _, mensaje = check_signal_health(entryPrice, tpFinal, stopLoss, signalDirection, currentPrice, threshold=0.65, candle_time=last_closed_str)
+            if not isValid:
                 continue
-            
-            momentum_estado = symbolInfo.get('momentum', '☁️ SIN DATOS')
-            momentum_bonus, _ = momentum.getMomentumBonus(momentum_estado, signalDirection)
             
             # --- FILTRO HTF: Solo operar a favor de la tendencia macro ---
             weeklyTrend = str(symbolInfo.get('weekly_trend', 'NEUTRAL')).upper()
@@ -249,7 +246,7 @@ class BaseImbalanceBot:
                 logger.info(f"[{symbol}] {self.strategy_name}: Señal CORTO bloqueada - Tendencia macro ALCISTA ({weeklyTrend})")
                 continue
 
-            base_confidence = 75 + momentum_bonus
+            base_confidence = 75
             
             # --- Cálculo de Tamaño de Posición Real (Centralizado) ---
             from Sentinel.analysis import risk
@@ -269,21 +266,21 @@ class BaseImbalanceBot:
                 logger.info(f"[{symbol}] {self.strategy_name}: Tamaño de posición inválido o margen insuficiente - descartando")
                 continue
                 
-            minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
-            rrRatio = round(abs(tp_final - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
+            minUsdProfit = float(stratConfig.get('minUsdProfit') or stratConfig.get('min_usd_profit') or 10.0)
+            rrRatio = round(abs(tpFinal - realEntry) / realRiskDist, 2) if realRiskDist > 0 else 0
             expectedProfit = riskUsdActual * rrRatio
             
             if expectedProfit < minUsdProfit:
                 logger.info(f"[{symbol}] {self.strategy_name}: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando")
                 continue
 
-            min_confidence = float(strat_config.get('min_confidence', 70))
-            if base_confidence < min_confidence:
-                logger.info(f"[{symbol}] {self.strategy_name}: confidence={base_confidence} < min_confidence={min_confidence} - descartando")
+            minConfidence = float(stratConfig.get('minConfidence') or stratConfig.get('min_confidence') or 70.0)
+            if base_confidence < minConfidence:
+                logger.info(f"[{symbol}] {self.strategy_name}: confidence={base_confidence} < minConfidence={minConfidence} - descartando")
                 continue
             
             # Calcular Break Even inteligente
-            be_trigger = calculateBEPrice(entryPrice, stopLoss, tp_final, signalDirection)
+            be_trigger = calculateBEPrice(entryPrice, stopLoss, tpFinal, signalDirection)
             
             signals.append(Signal(
                 strategy=self.strategy_name,
@@ -291,7 +288,7 @@ class BaseImbalanceBot:
                 direction=signalDirection,
                 entry_price=realEntry,
                 stop_loss=stopLoss,
-                take_profit=tp_final,
+                take_profit=tpFinal,
                 sl_distance=realRiskDist,
                 confidence=base_confidence,
                 setup=setupType,
@@ -300,7 +297,7 @@ class BaseImbalanceBot:
                 intervalo="5min",
                 riesgo_pips=round(realRiskDist * multiplier, 1),
                 rr_ratio=rrRatio,
-                break_even=calculateBEPrice(realEntry, stopLoss, tp_final, signalDirection),
+                break_even=calculateBEPrice(realEntry, stopLoss, tpFinal, signalDirection),
                 size=size,
                 metadata={
                     "riskUsd": round(riskUsdActual, 2),

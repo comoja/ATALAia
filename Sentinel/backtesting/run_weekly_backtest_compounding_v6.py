@@ -163,7 +163,7 @@ def runWeeklyPortfolioBacktestV6() -> None:
         df30m = df5m.resample('30min').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
         df1h = df5m.resample('1h').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
         df4h = df5m.resample('4h').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-        df1d = df5m.resample('1d').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
+        df1d = df5m.resample('1D').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
 
         from Sentinel.analysis import technical as _tech
         df5m = _tech.calculateFeatures(df5m)
@@ -179,6 +179,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'SilverBullet'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len5m >= 40:
             raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True)
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs:
                 if f.get('classification') == 'Rechazo/Baja Probabilidad':
                     continue
@@ -216,7 +218,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'SpeedBot'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 15:
             df15m['atr'] = ta.ATR(df15m['high'], df15m['low'], df15m['close'], 14)
-            for idx in range(1, len15m):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df15m.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 1)
+            for idx in range(startIdx, len15m):
                 t = df15m.index[idx]
                 change = df15m['close'].iloc[idx] - df15m['close'].iloc[idx-1]
                 atrVal = df15m['atr'].iloc[idx]
@@ -229,6 +233,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'Patron4h'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len4h >= 10:
             fvgs = _tech.detect_fvgs(df4h, apply_high_prob_filters=True)
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            fvgs = [f for f in fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in fvgs:
                 if f.get('classification') == 'Rechazo/Baja Probabilidad':
                     continue
@@ -273,7 +279,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 4. ICHIMOKU (30m) ──
         strategy = 'Ichimoku'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len30m >= 5:
-            for idx in range(2, len30m):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df30m.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 2)
+            for idx in range(startIdx, len30m):
                 t = df30m.index[idx]
                 win = df30m['close'].iloc[idx] > df30m['open'].iloc[idx]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
@@ -282,6 +290,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'SesgoBiasHTF'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
             raw_fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs:
                 if f.get('classification') == 'Rechazo/Baja Probabilidad':
                     continue
@@ -318,6 +328,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'GenericFVG'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
             fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            fvgs = [f for f in fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in fvgs:
                 if f.get('classification') == 'Rechazo/Baja Probabilidad':
                     continue
@@ -355,7 +367,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # para que no sean filtradas por el filtro horario operativo (05-16:30)
         strategy = 'FVGDiario'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1d >= 2:
-            for idx in range(1, len1d):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df1d.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 1)
+            for idx in range(startIdx, len1d):
                 t = df1d.index[idx]
                 win = df1d['close'].iloc[idx] > df1d['open'].iloc[idx]
                 # Ajustar hora a 10:00 para que pase el filtro operativo; FVGDiario opera todo el día
@@ -371,6 +385,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         ]:
             if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len5m >= 40:
                 raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True)
+                compoundingCutoff = compoundingStartDate - timedelta(days=2)
+                raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
                 for f in raw_fvgs:
                     if f.get('classification') == 'Rechazo/Baja Probabilidad':
                         continue
@@ -415,6 +431,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
         strategy = 'ImbalancePMNY'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
             raw_fvgs_pmny = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            raw_fvgs_pmny = [f for f in raw_fvgs_pmny if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs_pmny:
                 if f.get('classification') == 'Rechazo/Baja Probabilidad':
                     continue
@@ -456,7 +474,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 11. BREAKOUTNY (1H) ──
         strategy = 'BreakoutNY'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 2:
-            for idx in range(len1h):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df1h.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 0)
+            for idx in range(startIdx, len1h):
                 t = df1h.index[idx]
                 if t.hour == 9:
                     allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5, 'hour': t.hour})
@@ -464,7 +484,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 12. EMA20200 (1H) ──
         strategy = 'EMA20200'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 2:
-            for idx in range(len1h):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df1h.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 0)
+            for idx in range(startIdx, len1h):
                 t = df1h.index[idx]
                 win = df1h['close'].iloc[idx] > df1h['open'].iloc[idx]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
@@ -472,7 +494,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 13. SMA20_200 (1H) ──
         strategy = 'SMA20_200'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 5:
-            for idx in range(1, len1h):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df1h.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 1)
+            for idx in range(startIdx, len1h):
                 t = df1h.index[idx]
                 win = df1h['close'].iloc[idx] > df1h['close'].iloc[idx-1]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
@@ -480,7 +504,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 14. SNIPER (15m) ──
         strategy = 'Sniper'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 5:
-            for idx in range(1, len15m):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df15m.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 1)
+            for idx in range(startIdx, len15m):
                 t = df15m.index[idx]
                 win = df15m['close'].iloc[idx] > df15m['open'].iloc[idx]
                 allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
@@ -501,7 +527,10 @@ def runWeeklyPortfolioBacktestV6() -> None:
             # Calcular volumen promedio para el filtro de breakout
             df1h['vol_avg20'] = df1h['volume'].rolling(window=20).mean()
             
-            for idx in range(100, len1h):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df1h.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 100)
+            startIdx = max(100, startIdx)
+            for idx in range(startIdx, len1h):
                 t = df1h.index[idx]
                 
                 # Validar nulos
@@ -629,7 +658,9 @@ def runWeeklyPortfolioBacktestV6() -> None:
             ema9 = pd.Series(ema9).ffill().bfill().values
             ema21 = pd.Series(ema21).ffill().bfill().values
             
-            for idx in range(2, len15m):
+            compoundingCutoff = compoundingStartDate - timedelta(days=2)
+            startIdx = next((i for i, indexVal in enumerate(df15m.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 2)
+            for idx in range(startIdx, len15m):
                 t = df15m.index[idx]
                 
                 supertrendBullish = stTrend[idx] == 1

@@ -232,7 +232,7 @@ class FvgAnalyzer:
                     if penetration > 0.3 * gapTeorico and v3Close < v2High:
                         isDeepPenetration = True
 
-            if isDeepPenetration or mechaPct3 > 0.50:
+            if isDeepPenetration or mechaPct3 > 0.65:
                 rejectionLowProbability = True
                 classification = 'Rechazo/Baja Probabilidad'
                 highProbability = False

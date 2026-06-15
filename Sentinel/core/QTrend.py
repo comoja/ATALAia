@@ -63,29 +63,41 @@ class QTrendBot:
             logger.info(f"[{symbol}] Datos insuficientes para QTrend")
             return None
 
-        # Cargar parámetros de configuración de la BD
-        stratConfig = dbManager.getStrategyConfig("QTrend") or {}
+        # Cargar parámetros de configuración de la BD (con soporte para parámetros dinámicos por símbolo)
+        stratConfig = dbManager.getSymbolStrategyConfig("QTrend", symbol) or {}
         
         # Parámetros del SuperTrend
-        supertrendPeriod = int(stratConfig.get('max_minutos_fvg', 10))
+        supertrendPeriod = int(stratConfig.get('supertrendPeriod') or stratConfig.get('supertrend_period') or 
+                               stratConfig.get('max_minutos_fvg', 10))
         if supertrendPeriod > 100 or supertrendPeriod <= 0:
             supertrendPeriod = 10
             
-        supertrendMultiplier = float(stratConfig.get('min_rr', 3.0))
+        supertrendMultiplier = float(stratConfig.get('supertrendMultiplier') or stratConfig.get('supertrend_multiplier') or 
+                                     stratConfig.get('min_rr', 3.0))
         if supertrendMultiplier <= 0:
             supertrendMultiplier = 3.0
             
         # Parámetros de Q-Trend (EMAs)
-        qtrendFast = int(stratConfig.get('start_hour', 9))
+        qtrendFast = int(stratConfig.get('qtrendFast') or stratConfig.get('qtrend_fast') or 
+                         stratConfig.get('start_hour', 9))
         if qtrendFast <= 0:
             qtrendFast = 9
             
-        qtrendSlow = int(stratConfig.get('max_minutos_signal', 21))
+        qtrendSlow = int(stratConfig.get('qtrendSlow') or stratConfig.get('qtrend_slow') or 
+                         stratConfig.get('max_minutos_signal', 21))
         if qtrendSlow <= 0:
             qtrendSlow = 21
             
         # Parámetro de Take Profit (guardado como 2.5% -> 2.5 en la base de datos)
-        tpPercent = float(stratConfig.get('max_rr', 2.5)) / 100.0
+        tpPercentVal = float(stratConfig.get('tpPercent') or stratConfig.get('tp_percent') or 
+                             stratConfig.get('max_rr', 2.5))
+        # Si viene de la configuración global anterior (max_rr), suele dividirse por 100
+        if 'tpPercent' not in stratConfig and 'tp_percent' not in stratConfig:
+            tpPercent = tpPercentVal / 100.0
+        else:
+            # Si el valor de tpPercent está en formato porcentual (ej. 2.5), lo dividimos por 100.0
+            tpPercent = tpPercentVal / 100.0 if tpPercentVal > 0.5 else tpPercentVal
+            
         if tpPercent <= 0:
             tpPercent = 0.025
 

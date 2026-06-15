@@ -762,4 +762,30 @@ def buildBreakoutProbabilityAlertMessage(signal: dict, trade: dict) -> str:
         extraFields=extraFields
     )
 
+def buildPremiumConfluenceAlertMessage(signal: dict, trade: dict) -> str:
+    """Mensaje para la estrategia PremiumConfluence."""
+    metadata = signal.get('metadata', {})
+    
+    riesgoUsd = safe_float(signal.get('profit'))
+    rrRatio = safe_float(signal.get('rr_ratio'))
+    expectedProfit = safe_float(signal.get('expectedProfit'), (riesgoUsd or 0) * (rrRatio or 0))
+    momentumState = metadata.get('momentum', '☁️ NEUTRAL')
+    
+    extraFields = {
+        'Estado': signal.get('status', 'EN ZONA ✅'),
+        'Riesgo Pips': safe_float(signal.get('riesgo_pips')),
+        'RR Ratio': rrRatio,
+        'Riesgo Máx:': f"${riesgoUsd:.2f} USD" if riesgoUsd is not None else "N/A",
+        'Beneficio Est:': f"${expectedProfit:.2f} USD" if expectedProfit is not None else "N/A",
+        'SuperTrend': f"{metadata.get('supertrendPeriod', 10)}p / {metadata.get('supertrendMultiplier', 3.0)}x",
+        'HA Periodos': f"{metadata.get('haPeriod1', 10)} / {metadata.get('haPeriod2', 10)}",
+        'Momentum': momentumState,
+        'TF': trade.get('intervalo', '15min')
+    }
 
+    return buildAlertMessage(
+        signal=signal,
+        trade=trade,
+        strategyName="PREMIUM CONFLUENCE",
+        extraFields=extraFields
+    )

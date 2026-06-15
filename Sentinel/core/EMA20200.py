@@ -23,6 +23,7 @@ logger = logging.getLogger("sentinel")
 
 class EMA20200Bot:
     def __init__(self):
+        self.strategy_name = "EMA20200"
         self.waitingPullback = {}
         self.pullbackTolerance = 0.0015
         self.model_clf = mlModel.loadModel(config.MODEL_FILE_PATH)
@@ -86,14 +87,22 @@ class EMA20200Bot:
 
         if df is None or len(df) < 200: return None
         
-        # Ya no recalculamos EMA/ATR si ya vienen en el DF (Punto 3)
-        if "ema20" not in df.columns or "ema200" not in df.columns:
-            df = df.copy()
-            df["ema20"] = self.ema(df, 20)
-            df["ema200"] = self.ema(df, 200)
-            df["atr"] = self.atr(df)
-
+        # Cargar parametros dinamicamente
+        globalConfig = dbManager.getStrategyConfig(self.strategy_name) or {}
+        stratConfig = dbManager.getSymbolStrategyConfig(self.strategy_name, symbol) or {}
         
+        emaFast = int(stratConfig.get("emaFast", globalConfig.get("emaFast", 20)))
+        emaSlow = int(stratConfig.get("emaSlow", globalConfig.get("emaSlow", 200)))
+        pullbackToleranceVal = float(stratConfig.get("pullbackTolerance", globalConfig.get("pullbackTolerance", self.pullbackTolerance)))
+        minRrVal = float(stratConfig.get("minRr", globalConfig.get("min_rr", 1.5)))
+        minConfidence = float(stratConfig.get("minConfidence", globalConfig.get("min_confidence", 70))) / 100.0
+
+        # Recalcular EMA/ATR en base a los periodos dinámicos
+        df = df.copy()
+        df["ema20"] = self.ema(df, emaFast)
+        df["ema200"] = self.ema(df, emaSlow)
+        df["atr"] = self.atr(df)
+
         cross = self.detectCross(df["ema20"], df["ema200"])
         if cross:
             self.waitingPullback[symbol] = {"direction": cross}
@@ -106,23 +115,18 @@ class EMA20200Bot:
         # Tolerancia de pullback adaptativa basada en la volatilidad real (ATR)
         # Permite hasta 1.5x el ATR actual de distancia a la EMA20, previniendo descartes injustificados en expansiones
         atr_last = df['atr'].iloc[-1] if 'atr' in df.columns else None
-        pullback_limit = atr_last * 1.5 if (atr_last and not pd.isna(atr_last)) else (ema20_last * self.pullbackTolerance)
+        pullback_limit = atr_last * 1.5 if (atr_last and not pd.isna(atr_last)) else (ema20_last * pullbackToleranceVal)
         
         if abs(price - ema20_last) > pullback_limit: return None
         
-
-        strat_config = dbManager.getStrategyConfig("EMA20200") or {}
-        min_conf_val = float(strat_config.get('min_confidence', 70)) / 100.0
-        
         prob = self.evaluateML(df)
-        if prob < min_conf_val: return None
+        if prob < minConfidence: return None
         
         # Lookback estructural más ajustado (20 velas) para optimizar la distancia del Stop Loss (mayor R:R)
         levels = technical.get_structural_levels(df, lookback=20)
         sl_price = (levels['swing_low'] - df['atr'].iloc[-1]*0.2) if direction=="LARGO" else (levels['swing_high'] + df['atr'].iloc[-1]*0.2)
         sl_dist = abs(price - sl_price)
-        min_rr_val = float(strat_config.get('min_rr', 1.5))
-        tp_price = adjustTPForMinRR(price, sl_price, (levels['high_zone'] if direction=="LARGO" else levels['low_zone']), direction, minRR=min_rr_val)
+        tp_price = adjustTPForMinRR(price, sl_price, (levels['high_zone'] if direction=="LARGO" else levels['low_zone']), direction, minRR=minRrVal)
         
         if not check_tp_exhaustion(df, len(df)-5, price, tp_price, sl_price, direction, threshold=0.60, timeframe="5min")[0]: return None
         
@@ -152,7 +156,7 @@ class EMA20200Bot:
         rrVal = round(abs(tp_price - price) / sl_dist, 2) if sl_dist > 0 else 0
         expectedProfit = riskUsdActual * rrVal
         
-        minUsdProfit = float(strat_config.get('min_usd_profit', 10.0))
+        minUsdProfit = float(stratConfig.get('minUsdProfit', globalConfig.get('min_usd_profit', 10.0)))
         # Piso absoluto de $6.00 USD para evitar órdenes de centavos en producción
         if minUsdProfit < 6.0:
             minUsdProfit = 6.0

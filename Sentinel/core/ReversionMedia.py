@@ -124,12 +124,25 @@ class ReversionMediaBot:
         # Copiar DataFrame para cálculos
         df = df.copy()
         
+        # Cargar parámetros de configuración de la BD (con soporte para parámetros dinámicos por símbolo)
+        stratConfig = dbManager.getSymbolStrategyConfig("ReversionMedia", symbol) or {}
+        
+        # Parámetros técnicos dinámicos
+        lrcPeriod = int(stratConfig.get('lrcPeriod') or stratConfig.get('lrc_period') or 100)
+        lrcDev = float(stratConfig.get('lrcDev') or stratConfig.get('lrc_dev') or 2.0)
+        minRrVal = float(stratConfig.get('minRr') or stratConfig.get('min_rr') or 2.5)
+        rsiPeriodVal = int(stratConfig.get('rsiPeriod') or stratConfig.get('rsi_period') or 14)
+        atrPeriodVal = int(stratConfig.get('atrPeriod') or stratConfig.get('atr_period') or 14)
+        
+        minConfVal = float(stratConfig.get('minConfidence') or stratConfig.get('min_confidence', 70)) / 100.0
+        minUsdProfit = float(stratConfig.get('minUsdProfit') or stratConfig.get('min_usd_profit', 10.0))
+        
         # 1. Indicadores técnicos
-        df["rsi"] = self.rsi(df, 14)
-        df["atr"] = self.atr(df, 14)
+        df["rsi"] = self.rsi(df, rsiPeriodVal)
+        df["atr"] = self.atr(df, atrPeriodVal)
         
         closePrices = df['close'].values
-        centerChannel, upperChannel, lowerChannel, slopeChannel = self.calculateLrc(closePrices, period=100, dev=2.0)
+        centerChannel, upperChannel, lowerChannel, slopeChannel = self.calculateLrc(closePrices, period=lrcPeriod, dev=lrcDev)
         
         df["lrcCenter"] = centerChannel
         df["lrcUpper"] = upperChannel
@@ -214,15 +227,8 @@ class ReversionMediaBot:
         if slDist <= 0:
             return None
 
-        # Relación Riesgo:Beneficio mínima de 1:2.5
-        minRrVal = 2.5
-        
-        # El take profit final se calcula a partir del min R:R de 2.5
+        # El take profit final se calcula a partir del min R:R dinámico
         tpPrice = adjustTPForMinRR(currentClose, slPrice, (currentClose + (slDist * minRrVal) if direction == "LARGO" else currentClose - (slDist * minRrVal)), direction, minRR=minRrVal)
-
-        # Validación de configuración de estrategia en base de datos
-        stratConfig = dbManager.getStrategyConfig("ReversionMedia") or {}
-        minConfVal = float(stratConfig.get('min_confidence', 70)) / 100.0
         
         # La confianza se estima a partir de la confluencia (RSI y divergencia aumentan confianza)
         baseConfidence = 0.70
@@ -269,7 +275,6 @@ class ReversionMediaBot:
         expectedProfit = riskUsdActual * rrVal
 
         # Criterio mínimo de USD Profit
-        minUsdProfit = float(stratConfig.get('min_usd_profit', 10.0))
         if expectedProfit < minUsdProfit:
             logger.info(f"[{symbol}] ReversionMedia: Beneficio Est. ${expectedProfit:.2f} < ${minUsdProfit:.2f} - descartando por devaluación de ganancia")
             return None
