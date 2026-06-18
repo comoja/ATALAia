@@ -10,7 +10,7 @@ from middleware.config.constants import TIMEZONE, MAX_SIGNAL_AGE_MINUTES
 from middleware.utils.alertBuilder import (
     buildEMAAlertMessage, 
     buildSniperAlertMessage, 
-    buildSMAAlertMessage, 
+    buildCruceEMAAlertMessage, 
     buildImbalanceNYAlertMessage, 
     buildImbalanceLDNAlertMessage, 
     buildPatron4HAlertMessage,
@@ -232,6 +232,52 @@ class BrokerGateway:
                 logger.warning(f"❌ Orden RECHAZADA por Seguridad: Spread muy alto para {trade_data['symbol']}")
                 return False, "drawdown_superado"
 
+        # 0.4 Filtro de Seguridad: Slippage y Riesgo Dinámico en Real Time
+        if self.mode == "live" and symbolConfig.get('broker'):
+            try:
+                import MetaTrader5 as mt5
+                mt5Symbol = self.findMt5Symbol(symbolName)
+                tickInfo = mt5.symbol_info_tick(mt5Symbol)
+                if tickInfo:
+                    direction = trade_data['direction'].upper()
+                    currentPrice = float(tickInfo.ask if direction == "BUY" else tickInfo.bid)
+                    intendedPrice = float(trade_data.get('entryPrice', 0))
+                    
+                    sl = float(trade_data.get('stopLoss', 0))
+                    tp = float(trade_data.get('takeProfit', 0))
+                    
+                    if sl > 0 and tp > 0 and intendedPrice > 0:
+                        realRisk = (currentPrice - sl) if direction == "BUY" else (sl - currentPrice)
+                        realReward = (tp - currentPrice) if direction == "BUY" else (currentPrice - tp)
+                            
+                        if realRisk > 0:
+                            realRR = realReward / realRisk
+                            intendedRR = float(signal.get('rr_ratio', 1.0))
+                            
+                            min_rr_allowed = 0.80
+                            if realRR < min_rr_allowed or realReward <= 0:
+                                logger.warning(f"❌ Orden RECHAZADA por Slippage: Precio MT5 {currentPrice} arruina el RR. (Real RR: {realRR:.2f} < {min_rr_allowed})")
+                                return False, "slippage_rr_ruined"
+                            
+                            # Si el deslizamiento es aceptable, ajustamos los valores ANTES de enviar a Telegram
+                            trade_data['entryPrice'] = currentPrice
+                            signal['entryPrice'] = currentPrice
+                            signal['entrada'] = currentPrice
+                            signal['entry_price'] = currentPrice
+                            signal['rr_ratio'] = realRR
+                            
+                            from middleware.utils.alertBuilder import getPipMultiplier
+                            pip_mult = getPipMultiplier(symbolName)
+                            signal['riesgo_pips'] = realRisk * pip_mult
+                            
+                            oldRiskPips = abs(intendedPrice - sl) * pip_mult
+                            if oldRiskPips > 0:
+                                riskIncreaseRatio = (realRisk * pip_mult) / oldRiskPips
+                                signal['profit'] = float(signal.get('profit', 0)) * riskIncreaseRatio
+                                trade_data['margin_used'] = float(trade_data.get('margin_used', 0)) * riskIncreaseRatio
+            except Exception as e:
+                logger.error(f"Error evaluando Slippage en real-time: {e}")
+
         # -- NUEVO FLUJO OPTIMIZADO (07/04/2026) --
         
         # 1. Construir mensaje PRIMERO (por si falla la lógica de construcción)
@@ -291,16 +337,8 @@ class BrokerGateway:
         logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
         logger.info(f"[TELEGRAM] Mensaje a enviar: \n{message[:500]}...")
         logger.info(f"[TELEGRAM] 🔐 Token: {account['TokenMsg'][:15]}... | 💬 ChatId: {account['idGrupoMsg']}")
-        try:
-            msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message, photoBytes=photoBytes)
-            if not msg_id:
-                logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
-            else:
-                logger.info(f"✅ Alerta enviada con éxito (ID: {msg_id})")
-        except Exception as e:
-            logger.error(f"❌ Excepción al enviar alerta de Telegram: {e}")
-
-        # 5. Registro en Base de Datos
+        # 4. Registro en Base de Datos
+        trade_inserted = False
         try:
             if is_adjustment and trade_data.get('idTrade'):
                 dbManager.updateTradeLevels(
@@ -308,10 +346,30 @@ class BrokerGateway:
                     trade_data['stopLoss'], 
                     trade_data['takeProfit']
                 )
+                trade_inserted = True
             else:
                 dbManager.buscaTrade(trade_data)
+                trade_inserted = True
         except Exception as e:
-            logger.error(f"⚠️ Error al registrar/actualizar trade en DB: {e}")
+            if "Duplicate entry" in str(e):
+                logger.warning(f"⚠️ Trade duplicado bloqueado por DB (misma vela): {trade_data['symbol']}")
+                return # Detener aquí para no enviar alerta duplicada
+            else:
+                logger.error(f"❌ Error al registrar/actualizar trade en DB: {e}")
+                # Aunque haya otro tipo de error, podríamos intentar enviar alerta, o detener. 
+                # Dejamos que pase la alerta si no es un duplicado, para que el usuario sepa de la señal.
+                trade_inserted = True 
+
+        # 5. Enviar Alerta de Telegram solo si no es duplicado
+        if trade_inserted:
+            try:
+                msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message, photoBytes=photoBytes)
+                if not msg_id:
+                    logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
+                else:
+                    logger.info(f"✅ Alerta enviada con éxito (ID: {msg_id})")
+            except Exception as e:
+                logger.error(f"❌ Excepción al enviar alerta de Telegram: {e}")
 
         return exec_success, msg_id
 
@@ -324,8 +382,8 @@ class BrokerGateway:
             return buildEMAAlertMessage(signal, trade_data)
         elif strategy_name == "Sniper":
             return buildSniperAlertMessage(signal, trade_data)
-        elif strategy_name == "SMA20_200":
-            return buildSMAAlertMessage(signal, trade_data)
+        elif strategy_name in ("SMA20_200", "CruceEMA"):
+            return buildCruceEMAAlertMessage(signal, trade_data)
         elif strategy_name == "ImbalanceNY":
             return buildImbalanceNYAlertMessage(signal, trade_data)
         elif strategy_name == "ImbalanceLDN":
@@ -413,6 +471,52 @@ class BrokerGateway:
                     
         logger.warning(f"⚠️ No se encontró coincidencia exacta ni sufijo para {baseSymbol}. Se usará {cleanSymbol}")
         return cleanSymbol
+
+    def updateLiveSLTP(self, ticketId: int, new_sl: float, mt5Symbol: str = None) -> bool:
+        """
+        Actualiza el Stop Loss y (opcionalmente Take Profit) de una posición abierta en MT5.
+        """
+        if mt5 is None:
+            logger.error("❌ Módulo MT5 no disponible para actualizar SL/TP.")
+            return False
+            
+        if not self.connectMt5():
+            return False
+            
+        logger.info(f"Actualizando SL de la posición {ticketId} a {new_sl} en MT5...")
+        
+        # Validar si existe la posición
+        positions = mt5.positions_get(ticket=ticketId)
+        if not positions:
+            logger.warning(f"⚠️ Posición con ticket {ticketId} no encontrada en MT5 al intentar actualizar SL.")
+            mt5.shutdown()
+            return False
+            
+        pos = positions[0]
+        symbol = mt5Symbol if mt5Symbol else pos.symbol
+        
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": symbol,
+            "position": ticketId,
+            "sl": float(new_sl),
+            "tp": float(pos.tp), # Mantener TP actual
+        }
+        
+        result = mt5.order_send(request)
+        if result is None:
+            logger.error(f"❌ Error enviando actualización SLTP a MT5: {mt5.last_error()}")
+            mt5.shutdown()
+            return False
+            
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"❌ Actualización SLTP rechazada por MT5. Código: {result.retcode}, Error: {result.comment}")
+            mt5.shutdown()
+            return False
+            
+        logger.info(f"✅ Stop Loss actualizado exitosamente en MT5 (Ticket: {ticketId}).")
+        mt5.shutdown()
+        return True
 
     def _closeLive(self, tradeData: dict) -> bool:
         """

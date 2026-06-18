@@ -85,7 +85,7 @@ class TestGenericFVG(unittest.TestCase):
             "candle_time": df15m.index[-1],
             "classification": "Alta Probabilidad"
         }
-        GenericFVGModule.technical.detect_fvgs = lambda df, apply_high_prob_filters: [fvgMock]
+        GenericFVGModule.technical.detect_fvgs = lambda *args, **kwargs: [fvgMock]
         
         # Mock de niveles HTF y Sweep
         GenericFVGModule.technical.get_prev_day_high_low = lambda df: {"pdh": 1.0820, "pdl": 1.0780}

@@ -75,8 +75,8 @@ def runBreakoutProbabilityGridSearch() -> None:
     print("  INICIANDO GRID SEARCH OPTIMIZER (BREAKOUTPROBABILITY)   ")
     print("==========================================================")
     
-    startDateStr = '2026-05-18 00:00:00' # Cargamos un poco más de datos para lookback
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00' # Dos meses de datos
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
     channelLens = [15, 20, 25, 30]

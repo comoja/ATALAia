@@ -475,7 +475,7 @@ def is_spread_safe(df: pd.DataFrame, max_spread_atr_percent: float = 20.0) -> bo
         return False
     return True
 
-def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 0, validate_mitigation: bool = True, apply_high_prob_filters: bool = False) -> list:
+def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 0, validate_mitigation: bool = True, apply_high_prob_filters: bool = False, use_impulse_macd_filter: bool = False, macd_slow: int = 34, macd_signal: int = 9) -> list:
     """
     Detecta Fair Value Gaps (FVG) delegando la lógica a la clase centralizada FvgAnalyzer,
     manteniendo total compatibilidad con las firmas y tipos de retorno existentes.
@@ -496,7 +496,7 @@ def detect_fvgs(df: pd.DataFrame, min_gap_pct: float = 0.0001, min_adx: float = 
 
     analyzer = FvgAnalyzer(minGapPct=min_gap_pct)
     rawFvgs = analyzer.detectFvg(df)
-    filteredFvgs = analyzer.applyFilters(df, rawFvgs, applyHighProbFilters=apply_high_prob_filters, validateMitigation=validate_mitigation)
+    filteredFvgs = analyzer.applyFilters(df, rawFvgs, applyHighProbFilters=apply_high_prob_filters, validateMitigation=validate_mitigation, useImpulseMacdFilter=use_impulse_macd_filter, macd_slow=macd_slow, macd_signal=macd_signal)
     return filteredFvgs
 
 

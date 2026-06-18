@@ -74,8 +74,8 @@ def runSpeedBotGridSearch() -> None:
     print("       INICIANDO GRID SEARCH OPTIMIZER (SPEEDBOT)         ")
     print("==========================================================")
     
-    startDateStr = '2026-05-21 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros de Desplazamiento
     atrMults = [1.2, 1.4, 1.6]

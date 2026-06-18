@@ -316,6 +316,15 @@ class SniperBot:
         ml_confidence = confianza
         logger.info(f"[{symbol}] ML proba_largo={proba:.2f} -> {direction} ({ml_confidence:.1f}% base, thresholds {thresh_short:.2f}/{thresh_long:.2f})")
 
+        # --- 2.1 Filtro de Tendencia Macro (Bias HTF) ---
+        weekly_trend = symbolInfo.get('weekly_trend', 'NEUTRAL') if symbolInfo else 'NEUTRAL'
+        if direction == "LARGO" and weekly_trend == "BAJISTA":
+            logger.info(f"[{symbol}] Sniper: Señal LARGO filtrada/vetada por tendencia macro BAJISTA.")
+            return None
+        elif direction == "CORTO" and weekly_trend == "ALCISTA":
+            logger.info(f"[{symbol}] Sniper: Señal CORTO filtrada/vetada por tendencia macro ALCISTA.")
+            return None
+
         # --- 3. Momentum Check ---
         momentumEstado = symbolInfo.get('momentum', '☁️ SIN DATOS') if symbolInfo else '☁️ SIN DATOS'
         if momentumEstado == '☁️ SIN DATOS':

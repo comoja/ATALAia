@@ -75,8 +75,8 @@ def runFVGDiarioGridSearch() -> None:
     print("       INICIANDO GRID SEARCH OPTIMIZER (FVGDIARIO)        ")
     print("==========================================================")
     
-    startDateStr = '2026-05-15 00:00:00' # Extra para inicialización
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00' # Extra para inicialización
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
     minRrCombos = [1.5, 2.0, 2.5, 3.0]

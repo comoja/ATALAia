@@ -248,48 +248,67 @@ class DatabaseManager:
 
     def cleanupWeekendData(self, symbol: str = None) -> int:
         from zoneinfo import ZoneInfo
+        tzMX = ZoneInfo("America/Mexico_City")
         tzNY = ZoneInfo("America/New_York")
         deleted = 0
         
         try:
             with self.engine.begin() as conn:
+                # 1. Traer solo filas que podrian ser fines de semana (1=Domingo, 6=Viernes, 7=Sabado)
+                #    Ignorando crypto (ej. BTC) que opera 24/7.
+                query = """
+                    SELECT symbol, timeframe, timestamp 
+                    FROM candles 
+                    WHERE symbol NOT LIKE '%BTC%' 
+                    AND DAYOFWEEK(timestamp) IN (1, 6, 7)
+                """
+                params = {}
                 if symbol:
-                    result = conn.execute(
-                        text("SELECT symbol, timeframe, timestamp FROM candles WHERE symbol = :symbol"),
-                        {"symbol": symbol}
-                    )
-                else:
-                    result = conn.execute(
-                        text("SELECT symbol, timeframe, timestamp FROM candles")
-                    )
+                    query += " AND symbol = :symbol"
+                    params["symbol"] = symbol
                 
+                result = conn.execute(text(query), params)
                 rows = result.fetchall()
                 
+                candlesToDelete = []
                 for row in rows:
                     sym, tf, ts = row
-                    if tf not in ["5min", "15min", "1h"]:
-                        continue
                     
-                    tsNY = ts.astimezone(tzNY)
+                    # MySQL lo devuelve naive. Asumimos America/Mexico_City como viene de TwelveData
+                    tsLocal = ts.replace(tzinfo=tzMX)
+                    tsNY = tsLocal.astimezone(tzNY)
                     weekday = tsNY.weekday()
                     
-                    if weekday == 5:
+                    # Eliminar Viernes despues de 17:00 NY, Sabado entero, Domingo antes de 17:00 NY
+                    is_weekend = False
+                    if weekday == 4 and tsNY.hour >= 17:  # Viernes NY >= 17:00
+                        is_weekend = True
+                    elif weekday == 5:                    # Sábado entero
+                        is_weekend = True
+                    elif weekday == 6 and tsNY.hour < 17: # Domingo NY < 17:00
+                        is_weekend = True
+                        
+                    if is_weekend:
+                        candlesToDelete.append({"symbol": sym, "timeframe": tf, "ts": ts})
+                
+                # 2. Borrar en lotes masivos (Bulk Delete)
+                if candlesToDelete:
+                    batch_size = 5000
+                    for i in range(0, len(candlesToDelete), batch_size):
+                        batch = candlesToDelete[i:i+batch_size]
                         conn.execute(
                             text("DELETE FROM candles WHERE symbol = :symbol AND timeframe = :timeframe AND timestamp = :ts"),
-                            {"symbol": sym, "timeframe": tf, "ts": ts}
+                            batch
                         )
-                        deleted += 1
-                    elif weekday == 6:
-                        if tsNY.hour < 17:
-                            conn.execute(
-                                text("DELETE FROM candles WHERE symbol = :symbol AND timeframe = :timeframe AND timestamp = :ts"),
-                                {"symbol": sym, "timeframe": tf, "ts": ts}
-                            )
-                            deleted += 1
+                        deleted += len(batch)
         
         except Exception as e:
             logger.error(f"Error en cleanupWeekendData: {e}")
+            import traceback
+            traceback.print_exc()
         
         if deleted > 0:
-            logger.info(f"Eliminadas {deleted} velas de fin de semana")
+            logger.info(f"Eliminadas {deleted} velas de fin de semana (Forex)")
+        else:
+            logger.info("No se encontraron velas de fin de semana para eliminar.")
         return deleted

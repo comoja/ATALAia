@@ -113,9 +113,13 @@ class BaseImbalanceBot:
         direction = velaCorte['type']
         startSearch = velaCorte['idx'] + 1
         
+        useImpulseMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+        macdSlow = int(stratConfig.get('macdSlow', 34))
+        macdSignal = int(stratConfig.get('macdSignal', 9))
+        
         # Centralizar lógica: Usar detect_fvgs de alta probabilidad y descartar trampas de mecha (Rechazo/Baja Probabilidad)
         from Sentinel.analysis import technical as _technical
-        raw_fvgs = _technical.detect_fvgs(datos5min, apply_high_prob_filters=True)
+        raw_fvgs = _technical.detect_fvgs(datos5min, apply_high_prob_filters=True, use_impulse_macd_filter=useImpulseMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
         
         fvgs = []
         for f in raw_fvgs:

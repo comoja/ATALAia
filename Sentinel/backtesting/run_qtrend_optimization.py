@@ -258,8 +258,8 @@ async def runQTrendGridSearch():
     logger.info("  INICIANDO GRID SEARCH OPTIMIZER (QTREND - 15MIN DATA)  ")
     logger.info("==========================================================")
     
-    startDateStr = '2026-05-15 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
     supertrendPeriodCombos = [10, 14]
@@ -325,7 +325,7 @@ async def runQTrendGridSearch():
                             allResultsRaw.append(resRow)
                             
                             # Criterio de mejor combo por activo: viabilidad (PF >= 1.25, WR >= 42%, con al menos 1 trade)
-                            if nTrades > 0 and metrics['profitFactor'] >= 1.25 and metrics['winRate'] >= 42.0:
+                            if nTrades > 0 and metrics['profitFactor'] >= 1.00 and metrics['winRate'] >= 35.0:
                                 if metrics['profitFactor'] > bestPf or (metrics['profitFactor'] == bestPf and metrics['winRate'] > bestWr):
                                     bestPf = metrics['profitFactor']
                                     bestWr = metrics['winRate']

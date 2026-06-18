@@ -85,7 +85,8 @@ class TestBreakoutProbability(unittest.TestCase):
             "channelLen": 20,
             "targetAtrMult": 1.5,
             "minProbThreshold": 50.0,
-            "minRr": 1.5
+            "minRr": 1.5,
+            "useImpulseMacdFilter": 0
         }
         dbManager.getStrategyConfig = lambda s: {
             "start_hour": 20,

@@ -20,10 +20,9 @@ if rutaRaiz not in sys.path:
 # --- Module Imports ---
 from Sentinel.utils.loggerConfig import setupLoggingSentinel as setupLogging
 from Sentinel.core.Sniper import SniperBot
-from Sentinel.core.SMA20_200 import SMABot
 from Sentinel.core.ImbalanceNY import ImbalanceNYBot
 from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
-from Sentinel.core.EMA20200 import EMA20200Bot
+from Sentinel.core.CruceEMA import CruceEMABot
 from Sentinel.core.Patron4h import Patron4HBot
 from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
 from Sentinel.core.SilverBullet import SilverBulletBot
@@ -37,6 +36,7 @@ from Sentinel.core.ReversionMedia import ReversionMediaBot
 from Sentinel.core.QTrend import QTrendBot
 from Sentinel.core.BreakoutProbability import BreakoutProbabilityBot
 from Sentinel.core.PremiumConfluence import PremiumConfluenceBot
+from Sentinel.core.TradeManager import TradeManager
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis.technical import calculateFeatures, resample_to_interval
 from Sentinel.analysis import risk
@@ -237,7 +237,7 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
             logger.warning(f"[{symbol}] Datos insuficientes ({len(df) if df is not None else 0} velas).")
     return preloaded_data
 
-async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, reversion_media_bot, qtrend_bot, breakout_probability_bot, premium_confluence_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
+async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot, cruceema_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, reversion_media_bot, qtrend_bot, breakout_probability_bot, premium_confluence_bot, symbolsToScan, apiKey, interval, nVelas, marketSentiment=0.0, marketSentiment_crypto=0.0, imminentNews=None):
     """
     Ejecuta el análisis de forma secuencial y centraliza la ejecución vía ExecutionEngine.
     """
@@ -246,11 +246,10 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
     all_signals = []
     strategy_configs = _load_enabled_strategy_configs([
         "Sniper",
-        "SMA20_200",
         "ImbalanceNY",
         "ImbalanceLDN",
         "ImbalancePMNY",
-        "EMA20200",
+        "CruceEMA",
         "Patron4h",
         "SesgoBiasHTF",
         "SilverBullet",
@@ -288,6 +287,8 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
     
     refCapital = float(refAccount['Capital']) if refAccount and refAccount.get('Capital') else 10000.0
     refRiskPct = float(refAccount['riesgoPorOperacion']) if refAccount and refAccount.get('riesgoPorOperacion') else 1.0
+
+    master_data_dict = {}
 
     for idx, symbolInfo in enumerate(symbolsToScan):
         symbol = symbolInfo['symbol']
@@ -376,6 +377,8 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             '4h':    df_4h,
             '1d':    df_1d
         }
+        
+        master_data_dict[symbol] = preloaded_master
 
         # Momentum calculation (usando el master)
         try:
@@ -407,8 +410,6 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         # 1. Sniper & SMA (15min)
         if _is_strategy_enabled(strategy_configs, "Sniper") and (symbol, "Sniper") not in exclusions:
             tasks.append(sniper_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
-        if _is_strategy_enabled(strategy_configs, "SMA20_200") and (symbol, "SMA20_200") not in exclusions:
-            tasks.append(sma_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}, symbolApiKey))
 
         # 2. Imbalances (Pre-cálculo de niveles para seguridad en paralelo)
         ahoraMX = datetime.now(pytz.timezone(TIMEZONE))
@@ -431,8 +432,8 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
             tasks.append(imbalance_pm_bot.runAnalysisCycleForSymbol(symbolInfo_PMNY, {symbol: preloaded_master}, symbolApiKey))
 
         # 3. EMA, Patron4H, Sesgo, SB, FVGs
-        if _is_strategy_enabled(strategy_configs, "EMA20200") and (symbol, "EMA20200") not in exclusions:
-            tasks.append(ema20200_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
+        if _is_strategy_enabled(strategy_configs, "CruceEMA") and (symbol, "CruceEMA") not in exclusions:
+            tasks.append(cruceema_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         if _is_strategy_enabled(strategy_configs, "Patron4h") and (symbol, "Patron4h") not in exclusions:
             tasks.append(patron4_h_bot.runAnalysisCycleForSymbol(symbolInfo, {symbol: preloaded_master}))
         if _is_strategy_enabled(strategy_configs, "SesgoBiasHTF") and (symbol, "SesgoBiasHTF") not in exclusions:
@@ -484,6 +485,13 @@ async def run_sequential_analysis(engine, sniper_bot, sma_bot, imbalance_ny_bot,
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
         if wait_time > 0: await asyncio.sleep(wait_time)
+
+    # --- Ejecutar TradeManager (Trailing Stop & ML Smart Exits) ---
+    if master_data_dict:
+        try:
+            await trade_manager.manageOpenPositions(master_data_dict)
+        except Exception as e:
+            logger.error(f"Error executing TradeManager: {e}")
 
 
     # --- Procesamiento Centralizado de Señales ---
@@ -584,12 +592,13 @@ async def main():
         logger.error("No se pudo cargar el modelo ML.")
         return
 
+    # Instanciar el motor de ejecución y el trade manager central
     engine = ExecutionEngine()
+    trade_manager = TradeManager()
     sniper_bot = SniperBot(mlModelInstance=model)
-    sma_bot = SMABot()
     imbalance_ny_bot = ImbalanceNYBot()
     imbalance_ldn_bot = ImbalanceLDNBot()
-    ema20200_bot = EMA20200Bot()
+    cruceema_bot = CruceEMABot()
     patron4_h_bot = Patron4HBot()
     sesgo_bias_htf_bot = SesgoBiasHTFBot()
     silver_bullet_bot = SilverBulletBot()
@@ -669,8 +678,8 @@ async def main():
                 
                 # 2. Ejecutar análisis (Centralizado)
                 await run_sequential_analysis(
-                    engine, sniper_bot, sma_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
-                    ema20200_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
+                    engine, trade_manager, sniper_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
+                    cruceema_bot, patron4_h_bot, sesgo_bias_htf_bot, silver_bullet_bot, 
                     generic_fvg_bot, fvg_diario_bot, speed_bot, breakout_ny_bot, ichimoku_bot, reversion_media_bot, qtrend_bot, breakout_probability_bot, premium_confluence_bot, symbolsToScan, 
                     apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
                 )

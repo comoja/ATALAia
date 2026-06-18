@@ -10,6 +10,8 @@ from Sentinel.analysis import technical
 from middleware.database import dbManager
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from middleware.utils.alertBuilder import getPipMultiplier, calculateBEPrice, adjustTPForMinRR
+from middleware.config.constants import MODEL_FEATURES
+from Sentinel.ml.model import loadModel, predictProba
 
 logger = logging.getLogger('sentinel')
 
@@ -22,6 +24,7 @@ class GenericFVGBot:
         self.strategy_name = "GenericFVG"
         self.intervals = intervals
         self._sent_signals = {}
+        self.ml_model = loadModel()
         
     def _now_mx(self):
         return datetime.now(pytz.timezone('America/Mexico_City'))
@@ -55,8 +58,12 @@ class GenericFVGBot:
                 continue
             
             fvgMinPct = float(stratConfig.get('fvgMinPct') or stratConfig.get('fvg_min_pct') or 0.0001)
+            useImpulseMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+            
             # 1. Detectar FVGs con filtros de alta probabilidad activos (tendencia EMA 200 y MSS de Vela 2)
-            fvgs = technical.detect_fvgs(df, apply_high_prob_filters=True, min_gap_pct=fvgMinPct)
+            fvgs = technical.detect_fvgs(df, apply_high_prob_filters=True, min_gap_pct=fvgMinPct, use_impulse_macd_filter=useImpulseMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             if not fvgs:
                 logger.info(f"[{symbol}] No se detecto FVG de alta probabilidad en {interval}")
                 continue
@@ -245,7 +252,18 @@ class GenericFVGBot:
                 logger.info(f"[{symbol}] {interval}: confidence={baseConfidence} < minConfidence={minConfidence} - descartando")
                 continue
             
-            # 5. Filtrar por tendencia HTF (Ya validada al inicio del ciclo de forma unificada)
+            # --- FILTRO 5: Inteligencia Predictiva (Machine Learning) ---
+            probaML = 0.0
+            minMlProb = float(stratConfig.get('minMlProb') or stratConfig.get('min_ml_prob') or 0.55)
+            if self.ml_model is not None and all(f in df.columns for f in MODEL_FEATURES):
+                X_feats = df[MODEL_FEATURES].dropna()
+                if not X_feats.empty:
+                    probaML = predictProba(self.ml_model, X_feats) or 0.0
+                    if probaML < minMlProb:
+                        logger.info(f"[{symbol}] {interval}: FVG descartado por predicción ML baja ({probaML*100:.1f}% < {minMlProb*100:.1f}%)")
+                        continue
+            
+            # 6. Filtrar por tendencia HTF (Ya validada al inicio del ciclo de forma unificada)
             signalDirection = "LARGO" if latestFvgRef['type'] == 'Bullish_FVG' else "CORTO"
             
             # Marcar como enviada en RAM
@@ -289,7 +307,8 @@ class GenericFVGBot:
                     "expected_profit": round(expectedProfit, 2),
                     "margin_used": round(marginUsed, 2),
                     "fvg": latestFvgRef.get('type', 'N/A'),
-                    "fvgTime": latestFvgRef.get('timestamp', 'N/A')
+                    "fvgTime": latestFvgRef.get('timestamp', 'N/A'),
+                    "ml_probability": round(probaML, 3)
                 }
             )
             signals.append(sig)

@@ -99,7 +99,7 @@ class TestImbalanceBots(unittest.TestCase):
             "candle_time": df5m.index[-1],
             "classification": "Alta Probabilidad"
         }
-        technical_mod.detect_fvgs = lambda df, apply_high_prob_filters: [fvgMock]
+        technical_mod.detect_fvgs = lambda *args, **kwargs: [fvgMock]
 
         
         # Mock de no mitigado

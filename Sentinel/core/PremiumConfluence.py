@@ -76,8 +76,8 @@ class PremiumConfluenceBot:
         haPeriod1 = int(stratConfig.get('ha_period1', 10))
         haPeriod2 = int(stratConfig.get('ha_period2', 10))
         
-        macdLength = int(stratConfig.get('macd_length', 20))
-        macdSignal = int(stratConfig.get('macd_signal', 9))
+        macdLength = int(stratConfig.get('macd_length') or stratConfig.get('macdSlow') or 20)
+        macdSignal = int(stratConfig.get('macd_signal') or stratConfig.get('macdSignal') or 9)
         
         minRrVal = float(stratConfig.get('min_rr', 1.5))
         if minRrVal <= 0: minRrVal = 1.5

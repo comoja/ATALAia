@@ -96,29 +96,22 @@ class SilverBulletBot:
         else: return float(c[-1]) < float(np.min(l[-6:-1]))
 
     def _detect_fvg(self, df: pd.DataFrame, direction: str) -> Optional[Dict]:
-        for i in range(len(df)-1, max(2, len(df)-15), -1):
-            if i > len(df)-2: continue
-            h2, l2, h, l, c = df["high"].iloc[i-2], df["low"].iloc[i-2], df["high"].iloc[i], df["low"].iloc[i], df["close"].iloc[i]
-            if direction == "LARGO" and l > h2 and (l-h2)/c >= self.fvg_min_pct:
-                fvg_candidate = {"type": "LARGO_FVG", "mid": (h2+l)/2, "idx": i, "candle_time": df.index[i]}
-                # Regla ICT 50%: verificar que el gap no haya sido mitigado
-                fvg_for_check = {
-                    "type": "Bullish_FVG",
-                    "top": float(l), "bottom": float(h2),
-                    "mid": float((h2 + l) / 2)
-                }
-                if not technical._is_fvg_mitigated(df, i, fvg_for_check):
-                    return fvg_candidate
-            if direction == "CORTO" and h < l2 and (l2-h)/c >= self.fvg_min_pct:
-                fvg_candidate = {"type": "CORTO_FVG", "mid": (h+l2)/2, "idx": i, "candle_time": df.index[i]}
-                # Regla ICT 50%: verificar que el gap no haya sido mitigado
-                fvg_for_check = {
-                    "type": "Bearish_FVG",
-                    "top": float(l2), "bottom": float(h),
-                    "mid": float((h + l2) / 2)
-                }
-                if not technical._is_fvg_mitigated(df, i, fvg_for_check):
-                    return fvg_candidate
+        fvgs = technical.detect_fvgs(df, min_gap_pct=self.fvg_min_pct, validate_mitigation=True, apply_high_prob_filters=True)
+        if not fvgs: 
+            return None
+            
+        target_type = "Bullish_FVG" if direction == "LARGO" else "Bearish_FVG"
+        # ICT Rule: Buscamos el FVG más reciente dentro de las últimas 15 velas
+        valid_fvgs = [f for f in fvgs if f['type'] == target_type and f['idx'] >= len(df) - 15]
+        
+        if valid_fvgs:
+            latest_fvg = valid_fvgs[-1] # El último en la lista es el cronológicamente más reciente
+            return {
+                "type": f"{direction}_FVG",
+                "mid": latest_fvg["mid"],
+                "idx": latest_fvg["idx"],
+                "candle_time": df.index[latest_fvg["idx"]]
+            }
         return None
 
     async def runAnalysisCycleForSymbol(self, symbolInfo: Dict, preloadedData: Dict = None, apiKey: str = None) -> Optional[Signal]:

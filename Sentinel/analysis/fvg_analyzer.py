@@ -120,7 +120,7 @@ class FvgAnalyzer:
 
         return fvgs
 
-    def applyFilters(self, df, fvgs, applyHighProbFilters=False, validateMitigation=True):
+    def applyFilters(self, df: pd.DataFrame, fvgs: list, applyHighProbFilters: bool = False, validateMitigation: bool = True, useImpulseMacdFilter: bool = False, macd_slow: int = 34, macd_signal: int = 9) -> list:
         """
         Applies high probability and mitigation filters to detected FVGs.
         
@@ -129,6 +129,7 @@ class FvgAnalyzer:
             fvgs: list of detected FVGs from detectFvg.
             applyHighProbFilters: If True, applies EMA 200 and MSS filters.
             validateMitigation: If True, filters out traditionally mitigated FVGs.
+            useImpulseMacdFilter: If True, applies LazyBear's Impulse MACD direction filter.
             
         Returns:
             list: List of filtered FVG dictionaries.
@@ -148,6 +149,13 @@ class FvgAnalyzer:
         # Calculate ATR 14 and ffill/bfill to handle nulls
         atr14Series = ta.ATR(highs, lows, closes, timeperiod=self.atrPeriod)
         atr14Series = pd.Series(atr14Series).ffill().bfill().values
+
+        if useImpulseMacdFilter:
+            from Sentinel.analysis.technical import calculateImpulseMacd
+            impulseMacdSeries, _ = calculateImpulseMacd(df, lengthMa=macd_slow, lengthSignal=macd_signal)
+            impulseMacdValues = impulseMacdSeries.values
+        else:
+            impulseMacdValues = None
 
         fvgsFiltered = []
 
@@ -177,6 +185,14 @@ class FvgAnalyzer:
                     continue
                 if isBearish and closeVal >= ema200Val:
                     continue
+
+            # A2. Impulse MACD Filter
+            if useImpulseMacdFilter and impulseMacdValues is not None:
+                macdVal = impulseMacdValues[i]
+                if isBullish and macdVal <= 0:
+                    continue  # FVG Alcista requiere inercia alcista
+                if isBearish and macdVal >= 0:
+                    continue  # FVG Bajista requiere inercia bajista
 
             # B. Market Structure Shift (MSS) local of Vela 2 (Vela 2 breaks local high/low)
             if applyHighProbFilters and i >= 7:

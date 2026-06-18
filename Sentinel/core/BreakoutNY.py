@@ -77,6 +77,9 @@ class BreakoutNYBot:
         # O 10:00 si se refiere a Equities (9:30 AM + 30 min)
         nyStartHour = int(stratConfig.get("start_hour", 8))
         nyStartMinute = int(stratConfig.get("start_minute", 30))
+        useImpulseMacdFilter = bool(int(stratConfig.get("useImpulseMacdFilter", 1)))
+        macdSlow = int(stratConfig.get("macdSlow", 34))
+        macdSignal = int(stratConfig.get("macdSignal", 9))
         minRr = 1.0  # Forzado a 1:1 (User Rule 5)
         confidence = float(stratConfig.get("min_confidence", 75))
         rangeDuration = 15  # Forzado a 15 min (User Rule 1)
@@ -174,6 +177,18 @@ class BreakoutNYBot:
         if body_pct < 0.60:
             logger.info(f"[{symbol}] BreakoutNY descartada: Vela debil (Cuerpo {body_pct*100:.1f}% < 60%)")
             return []
+
+        # --- FILTRO DE SEGURIDAD 5: Impulse MACD (Momentum) ---
+        if useImpulseMacdFilter:
+            impulse_macd, _ = technical.calculateImpulseMacd(df5m, lengthMa=macdSlow, lengthSignal=macdSignal)
+            current_imacd = float(impulse_macd.iloc[-1])
+            
+            if closePrice > rangeHigh and current_imacd < 0:
+                logger.info(f"[{symbol}] BreakoutNY descartada: Ruptura alcista pero Impulse MACD bajista ({current_imacd:.5f})")
+                return []
+            if closePrice < rangeLow and current_imacd > 0:
+                logger.info(f"[{symbol}] BreakoutNY descartada: Ruptura bajista pero Impulse MACD alcista ({current_imacd:.5f})")
+                return []
 
         if closePrice > rangeHigh:
             direction = "LARGO"

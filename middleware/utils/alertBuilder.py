@@ -316,11 +316,17 @@ def buildImbalanceLDNAlertMessage(signal: dict, trade: dict) -> str:
     )
 
 
-def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
+def buildCruceEMAAlertMessage(signal: dict, trade: dict) -> str:
     momentum = signal.get('momentum', '☁️ NEUTRAL')
-    riesgoUsd = safe_float(signal.get('profit'))
+    riesgoUsd = safe_float(signal.get('risk_usd', signal.get('profit', 0)))
     rrRatio = safe_float(signal.get('rr_ratio'))
-    expectedProfit = safe_float(signal.get('expectedProfit'), riesgoUsd * rrRatio)
+    expectedProfit = safe_float(signal.get('expected_profit', signal.get('expectedProfit', riesgoUsd * rrRatio)))
+    
+    metadata = signal.get('metadata', {})
+    emaFastPeriod = metadata.get('emaFastPeriod', signal.get('emaFastPeriod', 'Fast'))
+    emaSlowPeriod = metadata.get('emaSlowPeriod', signal.get('emaSlowPeriod', 'Slow'))
+    macdSlow = metadata.get('imacd_slow', signal.get('imacd_slow', 34))
+    macdSignal = metadata.get('imacd_signal', signal.get('imacd_signal', 9))
     
     extraFields = {
         'Estado': signal.get('status', 'ACTIVA ✅'),
@@ -328,8 +334,10 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
         'RR Ratio': rrRatio,
         'Riesgo Máx:': f"${riesgoUsd:.2f} USD",
         'Beneficio Est:': f"${expectedProfit:.2f} USD",
-        'SMA20': f"{signal.get('sma20', 0):,.4f}",
-        'SMA200': f"{signal.get('sma200', 0):,.4f}",
+        f"EMA ({emaFastPeriod}/{emaSlowPeriod}) Fast": f"{signal.get('emaFast', metadata.get('emaFast', signal.get('sma20', 0))):,.4f}",
+        f"EMA ({emaFastPeriod}/{emaSlowPeriod}) Slow": f"{signal.get('emaSlow', metadata.get('emaSlow', signal.get('sma200', 0))):,.4f}",
+        f"IMACD ({macdSlow}/{macdSignal}) Main": f"{signal.get('imacd_md', metadata.get('imacd_md', 0)):,.6f}",
+        f"IMACD ({macdSlow}/{macdSignal}) Signal": f"{signal.get('imacd_sb', metadata.get('imacd_sb', 0)):,.6f}",
         'Tendencia': signal.get('tendencia', 'N/A'),
         'Momentum': momentum
     }
@@ -337,7 +345,7 @@ def buildSMAAlertMessage(signal: dict, trade: dict) -> str:
     return buildAlertMessage(
         signal=signal,
         trade=trade,
-        strategyName="TENDENCIA SMA 20-200",
+        strategyName="CRUCE EMA",
         extraFields=extraFields
     )
 
@@ -738,6 +746,12 @@ def buildBreakoutProbabilityAlertMessage(signal: dict, trade: dict) -> str:
     channelMax = metadata.get('channel_max', 0.0)
     channelMin = metadata.get('channel_min', 0.0)
     
+    symbol = trade.get('symbol', '')
+    stratConfig = dbManager.getSymbolStrategyConfig("BreakoutProbability", symbol) if symbol else {}
+    channelLen = stratConfig.get('channelLen', 20)
+    macdSlow = stratConfig.get('macdSlow', 34)
+    macdSignal = stratConfig.get('macdSignal', 9)
+    
     riesgoUsd = safe_float(signal.get('profit'))
     rrRatio = safe_float(signal.get('rr_ratio'))
     expectedProfit = safe_float(signal.get('expectedProfit'), (riesgoUsd or 0) * (rrRatio or 0))
@@ -749,9 +763,9 @@ def buildBreakoutProbabilityAlertMessage(signal: dict, trade: dict) -> str:
         'Riesgo Máx:': f"${riesgoUsd:.2f} USD" if riesgoUsd is not None else "N/A",
         'Beneficio Est:': f"${expectedProfit:.2f} USD" if expectedProfit is not None else "N/A",
         'Prob. Ruptura': f"<b>{breakoutProbability:.1f}%</b>",
-        'Impulse MACD': f"{impulseMacd:.5f}",
-        'Canal Máx': f"{channelMax:,.5f}",
-        'Canal Mín': f"{channelMin:,.5f}",
+        f'Impulse MACD ({macdSlow}/{macdSignal})': f"{impulseMacd:.5f}",
+        f'Canal Máx ({channelLen}p)': f"{channelMax:,.5f}",
+        f'Canal Mín ({channelLen}p)': f"{channelMin:,.5f}",
         'TF': trade.get('intervalo', '15min')
     }
 

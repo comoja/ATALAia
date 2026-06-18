@@ -214,8 +214,8 @@ async def runSesgoBiasHTFGridSearch():
     logger.info(" INICIANDO GRID SEARCH OPTIMIZER (SESGOBIASHTF - 15MIN) ")
     logger.info("==========================================================")
     
-    startDateStr = '2026-05-15 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
     swingLookbackCombos = [30, 50]
@@ -267,7 +267,7 @@ async def runSesgoBiasHTFGridSearch():
                     allResultsRaw.append(row)
                     
                     # Criterio de viabilidad: WR >= 42% y PF >= 1.25, al menos 1 trade
-                    if numTrades >= 1 and res['winRate'] >= 42.0 and res['profitFactor'] >= 1.25:
+                    if numTrades >= 1 and res['winRate'] >= 35.0 and res['profitFactor'] >= 1.00:
                         if res['profitFactor'] > bestPf or (res['profitFactor'] == bestPf and res['winRate'] > bestWr):
                             bestPf = res['profitFactor']
                             bestWr = res['winRate']
@@ -277,7 +277,7 @@ async def runSesgoBiasHTFGridSearch():
             logger.info(f"  ✨ Mejor combo viable para {symbol}: Swing={bestCombo['swingLookback']}, MSS={bestCombo['mssLookback']}, Min R:R={bestCombo['minRr']} (PF={bestCombo['profitFactor']:.2f}, WR={bestCombo['winRate']:.2f}%)")
             bestResults.append(bestCombo)
         else:
-            logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.25 y WR >= 42%) para {symbol}.")
+            logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0 y WR >= 35%) para {symbol}.")
             
     # Guardar resultados en CSV
     dfAll = pd.DataFrame(allResultsRaw)

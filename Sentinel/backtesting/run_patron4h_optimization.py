@@ -156,8 +156,8 @@ async def runPatron4HGridSearch() -> None:
     print("  INICIANDO GRID SEARCH OPTIMIZER (PATRON4H - FAST CACHED) ")
     print("==========================================================")
     
-    startDateStr = '2026-05-15 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
     minRrCombos = [1.5, 2.0]

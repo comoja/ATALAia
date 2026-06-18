@@ -294,13 +294,13 @@ def runSilverBulletGridSearch():
     logger.info(" INICIANDO GRID SEARCH OPTIMIZER (SILVERBULLET - 5MIN) ")
     logger.info("==========================================================")
     
-    startDateStr = '2026-05-15 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
-    # Grid de Parámetros
-    fvgMinPctCombos = [0.00005, 0.0001]
-    minRrCombos = [1.5, 2.0]
-    minAdxCombos = [15.0, 20.0]
+    # Grid de Parámetros Extendido (Deep Grid Search)
+    fvgMinPctCombos = [0.00005, 0.0001, 0.00015]
+    minRrCombos = [1.0, 1.2, 1.5, 2.0, 2.5]
+    minAdxCombos = [10.0, 15.0, 20.0, 25.0]
     
     bestResults = []
     allResultsRaw = []
@@ -337,8 +337,8 @@ def runSilverBulletGridSearch():
                     }
                     allResultsRaw.append(row)
                     
-                    # Criterio de viabilidad: WR >= 42% y PF >= 1.25, al menos 1 trade
-                    if numTrades >= 1 and res['winRate'] >= 42.0 and res['profitFactor'] >= 1.25:
+                    # Criterio de viabilidad: WR >= 35% y PF >= 1.00, al menos 1 trade
+                    if numTrades >= 1 and res['winRate'] >= 35.0 and res['profitFactor'] >= 1.00:
                         if res['profitFactor'] > bestPf or (res['profitFactor'] == bestPf and res['winRate'] > bestWr):
                             bestPf = res['profitFactor']
                             bestWr = res['winRate']
@@ -348,7 +348,7 @@ def runSilverBulletGridSearch():
             logger.info(f"  ✨ Mejor combo viable para {symbol}: FVG Min={bestCombo['fvgMinPct']}, Min R:R={bestCombo['minRr']}, Min ADX={bestCombo['minAdx']} (PF={bestCombo['profitFactor']:.2f}, WR={bestCombo['winRate']:.2f}%)")
             bestResults.append(bestCombo)
         else:
-            logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.25 y WR >= 42%) para {symbol}.")
+            logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0 y WR >= 35%) para {symbol}.")
             
     # Guardar resultados en CSV
     dfAll = pd.DataFrame(allResultsRaw)

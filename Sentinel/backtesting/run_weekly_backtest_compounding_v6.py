@@ -22,8 +22,16 @@ from middleware.database import dbConnection
 from middleware.database import dbManager
 from middleware.utils.communications import alertaInmediata
 
-initialPortfolio = 418.19
-portfolioRiskPct = 0.01
+# Cargar datos de la Cuenta 2 (Principal)
+cuenta_base = dbManager.getAccountById(2)
+if cuenta_base:
+    initialPortfolio = float(cuenta_base.get('Capital', 418.19))
+    # Limitar el riesgo al 1.5% máximo para el simulador, evitando compounding logarítmico irreal
+    portfolioRiskPct = min(float(cuenta_base.get('riesgoPorOperacion', 1.0)) / 100.0, 0.015)
+else:
+    initialPortfolio = 418.19
+    portfolioRiskPct = 0.01
+
 rewardRatio = 1.5
 
 def loadEnabledStrategies() -> list:
@@ -178,7 +186,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 1. SILVERBULLET (M5) ──
         strategy = 'SilverBullet'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len5m >= 40:
-            raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True)
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+            useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+
+            raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
             raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs:
@@ -232,7 +246,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 3. PATRON4H (4H) ──
         strategy = 'Patron4h'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len4h >= 10:
-            fvgs = _tech.detect_fvgs(df4h, apply_high_prob_filters=True)
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+            useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+
+            fvgs = _tech.detect_fvgs(df4h, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
             fvgs = [f for f in fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in fvgs:
@@ -289,7 +309,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 5. SESGOBIASHTF (M15) ──
         strategy = 'SesgoBiasHTF'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
-            raw_fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+            useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+
+            raw_fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
             raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs:
@@ -327,7 +353,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # ── 6. GENERICFVG (M15) ──
         strategy = 'GenericFVG'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
-            fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+            useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+
+            fvgs = _tech.detect_fvgs(df15m, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
             fvgs = [f for f in fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in fvgs:
@@ -384,7 +416,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
             ('ImbalanceLDN', 2, 5, 6),
         ]:
             if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len5m >= 40:
-                raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True)
+                stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+                useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+                macdSlow = int(stratConfig.get('macdSlow', 34))
+                macdSignal = int(stratConfig.get('macdSignal', 9))
+
+                raw_fvgs = _tech.detect_fvgs(df5m, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
                 compoundingCutoff = compoundingStartDate - timedelta(days=2)
                 raw_fvgs = [f for f in raw_fvgs if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
                 for f in raw_fvgs:
@@ -430,7 +468,13 @@ def runWeeklyPortfolioBacktestV6() -> None:
         # (NY PM Silver Bullet window + apertura NYSE extendida)
         strategy = 'ImbalancePMNY'
         if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
-            raw_fvgs_pmny = _tech.detect_fvgs(df15m, apply_high_prob_filters=True)
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+
+            useMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 0)))
+            macdSlow = int(stratConfig.get('macdSlow', 34))
+            macdSignal = int(stratConfig.get('macdSignal', 9))
+
+            raw_fvgs_pmny = _tech.detect_fvgs(df15m, apply_high_prob_filters=True, use_impulse_macd_filter=useMacdFilter, macd_slow=macdSlow, macd_signal=macdSignal)
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
             raw_fvgs_pmny = [f for f in raw_fvgs_pmny if pd.to_datetime(f['timestamp']).replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)]
             for f in raw_fvgs_pmny:

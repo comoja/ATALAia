@@ -134,8 +134,8 @@ def runIchimokuGridSearch() -> None:
     print("       INICIANDO GRID SEARCH OPTIMIZER (ICHIMOKU)        ")
     print("==========================================================")
     
-    startDateStr = '2026-05-21 00:00:00'
-    endDateStr = '2026-06-11 14:00:00'
+    startDateStr = '2026-04-16 00:00:00'
+    endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros Ichimoku
     # (tenkan, kijun, senkou, displacement)

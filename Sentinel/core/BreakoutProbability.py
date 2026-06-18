@@ -10,9 +10,10 @@ from middleware.database import dbManager
 from Sentinel.analysis import technical
 from Sentinel.analysis.technical import check_signal_health
 from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR, calculateBEPrice
-from middleware.config.constants import TIMEZONE
+from middleware.config.constants import TIMEZONE, MODEL_FEATURES
 from dataSymbol.mainOrchestrator import get_last_closed_candle
 from Sentinel.core.models import Signal
+from Sentinel.ml.model import loadModel, predictProba
 
 logger = logging.getLogger("sentinel")
 
@@ -24,6 +25,7 @@ class BreakoutProbabilityBot:
     """
     def __init__(self):
         self.strategy_name = "BreakoutProbability"
+        self.ml_model = loadModel()
         logger.info("Bot Breakout Probability iniciado")
 
     def calculateBreakoutProbability(
@@ -166,6 +168,10 @@ class BreakoutProbabilityBot:
         if minProbThreshold <= 0:
             minProbThreshold = 60.0
 
+        useImpulseMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 1)))
+        macdSlow = int(stratConfig.get('macdSlow', 34))
+        macdSignal = int(stratConfig.get('macdSignal', 9))
+
         # Calcular canal dinámico del rango previo (excluyendo la vela actual cerrándose)
         currentMax = df['high'].iloc[-channelLen - 1 : -1].max()
         currentMin = df['low'].iloc[-channelLen - 1 : -1].min()
@@ -180,15 +186,53 @@ class BreakoutProbabilityBot:
         if not (isBullishBreak or isBearishBreak):
             return None
 
+        # --- FILTRO 1: Fuerza de Vela (Candle Momentum) ---
+        currentOpen = float(df['open'].iloc[-1])
+        currentHigh = float(df['high'].iloc[-1])
+        currentLow = float(df['low'].iloc[-1])
+        candleBody = abs(currentClose - currentOpen)
+        candleRange = currentHigh - currentLow
+        if candleRange > 0 and (candleBody / candleRange) < 0.5:
+            logger.info(f"[{symbol}] Ruptura descartada: Vela débil (cuerpo < 50% del rango)")
+            return None
+
+        # --- FILTRO 2: Macro-Tendencia (EMA 200) ---
+        if 'ema200' not in df.columns:
+            df['ema200'] = ta.EMA(df['close'].values, timeperiod=200)
+        
+        currentEma200 = float(df['ema200'].iloc[-1]) if not pd.isna(df['ema200'].iloc[-1]) else currentClose
+        
+        if isBullishBreak and currentClose < currentEma200:
+            logger.info(f"[{symbol}] Ruptura LARGA descartada: Precio por debajo de EMA 200")
+            return None
+        if isBearishBreak and currentClose > currentEma200:
+            logger.info(f"[{symbol}] Ruptura CORTA descartada: Precio por encima de EMA 200")
+            return None
+            
+        # --- FILTRO 3: Machine Learning ---
+        probaML = 0.0
+        minMlProb = float(stratConfig.get('minMlProb') or stratConfig.get('min_ml_prob') or 0.55)
+        if self.ml_model is not None and all(f in df.columns for f in MODEL_FEATURES):
+            X_feats = df[MODEL_FEATURES].dropna()
+            if not X_feats.empty:
+                probaML = predictProba(self.ml_model, X_feats) or 0.0
+                if probaML < minMlProb:
+                    logger.info(f"[{symbol}] Ruptura descartada: Predicción ML baja ({probaML*100:.1f}% < {minMlProb*100:.1f}%)")
+                    return None
+
         # Confluencia con Impulse MACD
-        currentImpulse = df["impulseMacd"].iloc[-1] if "impulseMacd" in df.columns else 0.0
-        currentSignal = df["impulseSignal"].iloc[-1] if "impulseSignal" in df.columns else 0.0
-        macdAlcista = currentImpulse > currentSignal
+        macdAlcista = None
+        currentImpulse = 0.0
+        if useImpulseMacdFilter:
+            imp_macd, imp_signal = technical.calculateImpulseMacd(df, lengthMa=macdSlow, lengthSignal=macdSignal)
+            currentImpulse = float(imp_macd.iloc[-1])
+            currentSignal = float(imp_signal.iloc[-1])
+            macdAlcista = currentImpulse > currentSignal
 
         direction = None
-        if isBullishBreak and macdAlcista:
+        if isBullishBreak and (not useImpulseMacdFilter or macdAlcista):
             direction = "LARGO"
-        elif isBearishBreak and not macdAlcista:
+        elif isBearishBreak and (not useImpulseMacdFilter or not macdAlcista):
             direction = "CORTO"
 
         if not direction:
@@ -286,6 +330,7 @@ class BreakoutProbabilityBot:
             size=size,
             metadata={
                 "breakout_probability": currentProb,
+                "ml_probability": round(probaML, 3),
                 "impulse_macd": round(currentImpulse, 5),
                 "channel_max": round(currentMax, 5),
                 "channel_min": round(currentMin, 5),

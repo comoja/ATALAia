@@ -89,7 +89,6 @@ async def getTiempoEspera(intervaloMinutos):
             logger.debug(mensajeDescanso + f" (durmiendo ciclo de {int(tiempoSueñoParcial)}s)")
             
         await asyncio.sleep(tiempoSueñoParcial)
-    return
 
     # 3. Cálculo de Sincronización
     proximo_escaneo = get_next_sync_time(intervaloMinutos)

@@ -20,16 +20,16 @@ class TestSilverBullet(unittest.TestCase):
         """Verifica que runAnalysisCycleForSymbol procese señales y genere un objeto Signal en SilverBullet."""
         bot = SilverBulletBot()
         
-        # Generar datos de prueba para timeframe 5min (100 velas)
-        dates5m = pd.date_range(start="2026-06-01 08:00:00", periods=100, freq="5min", tz="America/Mexico_City")
-        prices5m = np.ones(100) * 1.0800
+        # Generar datos de prueba para timeframe 5min (52 velas, para superar min de 50)
+        dates5m = pd.date_range(start="2026-06-01 03:00:00", periods=52, freq="5min", tz="America/Mexico_City")
+        prices5m = np.ones(52) * 1.0800
         
         df5m = pd.DataFrame({
             "open": prices5m,
             "high": prices5m + 0.0001,
             "low": prices5m - 0.0001,
             "close": prices5m,
-            "volume": np.random.randint(100, 500, 100)
+            "volume": np.random.randint(100, 500, 52)
         }, index=dates5m)
         
         symbolInfo = {
@@ -84,7 +84,7 @@ class TestSilverBullet(unittest.TestCase):
         bot._get_reference_range = lambda symbol, df, window_start_ny, ref_min=15: {"high": 1.0805, "low": 1.0795, "open": 1.0800, "n_candles": 3}
         bot._detect_sweep = lambda symbol, df, ref, window_start_ny: {"type": "LARGO", "swept_level": 1.0795, "sweep_low": 1.0790, "candle_idx": df.index[-1]}
         bot._detect_mss = lambda df, sweep: True
-        bot._detect_fvg = lambda df, direction: {"type": "LARGO_FVG", "mid": 1.0800, "idx": 95, "candle_time": df.index[-1]}
+        bot._detect_fvg = lambda df, direction: {"type": "LARGO_FVG", "mid": 1.0800, "idx": 45, "candle_time": df.index[-1]}
         
         import Sentinel.core.SilverBullet as SBModule
         orig_check_tp = SBModule.technical.check_tp_exhaustion

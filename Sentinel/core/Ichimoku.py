@@ -152,6 +152,7 @@ class IchimokuBot:
         senkouPeriod: int = 52,
         displacement: int = 26,
         minRrVal: float = 1.5,
+        stratConfig: Dict = None,
     ) -> Optional[Signal]:
         """
         Ejecuta el analisis Ichimoku SMC completo sobre un DataFrame y timeframe dados.
@@ -215,8 +216,18 @@ class IchimokuBot:
         bb_width_prev = prev_bb_upper - prev_bb_lower
 
         # Impulse MACD
-        macdHist_val = df["impulseMacd"].iloc[-1] if "impulseMacd" in df.columns else 0.0
-        macdhist_anterior = df["impulseMacd"].iloc[-2] if "impulseMacd" in df.columns else 0.0
+        if stratConfig is None: stratConfig = {}
+        useImpulseMacdFilter = bool(int(stratConfig.get('useImpulseMacdFilter', 1)))
+        macdSlow = int(stratConfig.get('macdSlow', 34))
+        macdSignal = int(stratConfig.get('macdSignal', 9))
+        
+        if useImpulseMacdFilter:
+            impulse_macd, _ = technical.calculateImpulseMacd(df, lengthMa=macdSlow, lengthSignal=macdSignal)
+            macdHist_val = float(impulse_macd.iloc[-1])
+            macdhist_anterior = float(impulse_macd.iloc[-2])
+        else:
+            macdHist_val = df["impulseMacd"].iloc[-1] if "impulseMacd" in df.columns else 0.0
+            macdhist_anterior = df["impulseMacd"].iloc[-2] if "impulseMacd" in df.columns else 0.0
 
         if macdHist_val > 0:
             impulso = "Alcista Ganando Fuerza" if macdHist_val > macdhist_anterior else "Alcista Perdiendo Fuerza"

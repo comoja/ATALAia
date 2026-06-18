@@ -40,7 +40,7 @@ def init_alerts_table():
         
         # Tabla de Configuración de Estrategias (Asegurar columnas)
         strategies = [
-            ('EMA20200', 1.5, 70), ('Sniper', 2.0, 80), ('SMA20_200', 1.5, 70),
+            ('CruceEMA', 1.5, 70), ('Sniper', 2.0, 80), 
             ('ImbalanceNY', 1.5, 75), ('ImbalanceLDN', 1.5, 75), ('Patron4h', 1.5, 70),
             ('SesgoBiasHTF', 1.5, 70), ('SilverBullet', 1.5, 75), ('GenericFVG', 0.5, 60),
             ('FVGDiario', 2.0, 70), ('SpeedBot', 1.5, 70), ('ImbalancePMNY', 1.5, 75),
@@ -197,6 +197,7 @@ def init_alerts_table():
                 symbol VARCHAR(20) NOT NULL,
                 enabled BOOLEAN DEFAULT TRUE,
                 parametersJson JSON DEFAULT NULL,
+                jsonIMACD JSON DEFAULT NULL,
                 updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (strategy, symbol),
                 FOREIGN KEY (strategy) REFERENCES strategyConfig(strategy) ON DELETE CASCADE,
@@ -204,6 +205,11 @@ def init_alerts_table():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
         
+        try:
+            dbCursor.execute("ALTER TABLE symbolStrategyConfig ADD COLUMN jsonIMACD JSON DEFAULT NULL")
+        except:
+            pass
+            
         dbConn.commit()
     except Exception as e:
         logger.error(f"❌ Error al inicializar tablas: {e}")
@@ -275,7 +281,7 @@ def is_alert_sent(symbol, strategy, candle_time, id_cuenta=None):
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
 
-def is_trade_duplicate(symbol, strategy, intervalo, direction, size, id_cuenta=None):
+def is_trade_duplicate(symbol, strategy, intervalo, direction, size=None, id_cuenta=None):
     """Verifica si ya existe un trade con los mismos parámetros y status=OPEN."""
     try:
         dbConn = dbConnection.getConnection()
@@ -287,18 +293,17 @@ def is_trade_duplicate(symbol, strategy, intervalo, direction, size, id_cuenta=N
               AND strategy = %s 
               AND intervalo = %s 
               AND direction = %s 
-              AND size = %s 
               AND status = 'OPEN'
         """
-        params = (symbol, strategy, intervalo, direction, size)
+        params = [symbol, strategy, intervalo, direction]
         
         if id_cuenta:
             sql += " AND idCuenta = %s"
-            params = (symbol, strategy, intervalo, direction, size, id_cuenta)
+            params.append(id_cuenta)
         
         sql += " LIMIT 1"
         
-        dbCursor.execute(sql, params)
+        dbCursor.execute(sql, tuple(params))
         result = dbCursor.fetchone()
         return result is not None
     except Exception as e:
@@ -662,25 +667,58 @@ def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
-        # 1. Intentar obtener la configuración específica del símbolo
+        # 1. Intentar obtener la configuración específica del símbolo y combinarla con la configuración global de la estrategia
         cursor.execute("""
-            SELECT parametersJson FROM symbolStrategyConfig 
-            WHERE strategy = %s AND symbol = %s AND enabled = TRUE
+            SELECT ssc.parametersJson, ssc.jsonIMACD, sc.min_confidence, sc.min_rr
+            FROM symbolStrategyConfig ssc
+            JOIN strategyConfig sc ON ssc.strategy = sc.strategy
+            WHERE ssc.strategy = %s AND ssc.symbol = %s AND ssc.enabled = TRUE
         """, (strategyName, symbol))
         result = cursor.fetchone()
         
-        # 2. Si existe el JSON de parámetros, decodificarlo y retornarlo
-        if result and result.get('parametersJson'):
+        # 2. Si existe el registro, decodificar JSON y retornar
+        if result:
             import json
-            params = result['parametersJson']
-            if isinstance(params, str):
-                params = json.loads(params)
+            params = {}
+            if result.get('parametersJson'):
+                rawParams = result['parametersJson']
+                params = json.loads(rawParams) if isinstance(rawParams, str) else rawParams
+            
+            # Decodificar jsonIMACD
+            imacd_params = {}
+            if result.get('jsonIMACD'):
+                raw_imacd = result['jsonIMACD']
+                imacd_params = json.loads(raw_imacd) if isinstance(raw_imacd, str) else raw_imacd
+            
+            # Integrar los parámetros de IMACD
+            params['useImpulseMacdFilter'] = imacd_params.get('useImpulseMacdFilter', 0)
+            params['macdFast'] = imacd_params.get('macdFast', 12)
+            params['macdSlow'] = imacd_params.get('macdSlow', 26)
+            params['macdSignal'] = imacd_params.get('macdSignal', 9)
+            
+            # Unificar min_confidence y min_rr con los de la tabla global (si no vienen en params)
+            global_min_conf = result.get('min_confidence', 70)
+            global_min_rr = result.get('min_rr', 1.5)
+            
+            # El minConfidence toma el valor global de strategyConfig.min_confidence para evitar redundancias
+            params['minConfidence'] = global_min_conf
+            params['min_confidence'] = global_min_conf
+            
+            if 'minRr' not in params:
+                params['minRr'] = global_min_rr
+            if 'min_rr' not in params:
+                params['min_rr'] = global_min_rr
+                
             return params
             
         # 3. Fallback: Obtener la configuración global de la estrategia
         cursor.execute("SELECT * FROM strategyConfig WHERE strategy = %s AND enabled = TRUE", (strategyName,))
         globalConfig = cursor.fetchone()
-        return globalConfig or {}
+        if globalConfig:
+            globalConfig['useImpulseMacdFilter'] = 0 # Default global
+            globalConfig['minConfidence'] = globalConfig.get('min_confidence', 70)
+            return globalConfig
+        return {}
     except Exception as e:
         logger.error(f"Error en getSymbolStrategyConfig para {strategyName} - {symbol}: {e}", exc_info=True)
         return {}
@@ -741,6 +779,7 @@ def buscaTrade(tradeData):
 
         if tradeExistente:
             logger.info(f"⚠️ Trade ya existente {tradeExistente['idTrade']} para {tradeData['symbol']} - se omite actualización")
+            return False
         else:
             if strategy in ['ImbalanceLDN', 'ImbalanceNY']:
                 sqlCount = """
@@ -755,13 +794,15 @@ def buscaTrade(tradeData):
                 result = dbCursor.fetchone()
                 if result and result['total'] >= 2:
                     logger.info(f"⚠️ Límite de 2 trades alcanzado para {strategy} en {tradeData['symbol']} - se omite")
-                    return
+                    return False
             
             insertarTrade(tradeData)
             logger.info(f"🆕 Nuevo trade insertado para {tradeData['symbol']}")
+            return True
 
     except Exception as error:
         logger.error(f"❌ Error en buscaTrade: {error}")
+        raise error
     finally:
         if dbCursor:
             dbCursor.close()
@@ -825,7 +866,7 @@ def insertarTrade(data):
 
         if existing:
             logger.warning(f"⚠️ Trade duplicado omitido: {symbol} | {strategy} | {intervalo} | {direction} | size={size}")
-            return None
+            return False
 
         cursor = conn.cursor()
         marginUsedVal = float(data.get('margin_used', 0))
@@ -856,10 +897,12 @@ def insertarTrade(data):
         
         conn.commit()
         logger.info(f"🚀 Nuevo trade insertado: {data['symbol']} | Margen reservado: {marginUsedVal}")
+        return True
 
     except Exception as e:
         logger.error(f"❌ Error al insertarTrade: {e}")
         if conn: conn.rollback()
+        raise e
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
