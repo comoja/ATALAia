@@ -22,8 +22,14 @@ from middleware.database import dbConnection
 from middleware.database import dbManager
 from middleware.utils.communications import alertaInmediata
 
-# Cargar datos de la Cuenta 2 (Principal)
-cuenta_base = dbManager.getAccountById(2)
+# Cargar datos de la cuenta cuyo nombre = 'MT5' (para el backtesting de 1 semana)
+cuentas = dbManager.getAccount()
+cuenta_base = next((acc for acc in cuentas if acc.get('Nombre') == 'MT5'), None)
+if not cuenta_base:
+    cuenta_base = dbManager.getAccountById(5) # Fallback al ID 5
+if not cuenta_base:
+    cuenta_base = dbManager.getAccountById(2) # Segundo fallback al ID 2 si no existiera la cuenta MT5
+
 if cuenta_base:
     initialPortfolio = float(cuenta_base.get('Capital', 418.19))
     # Limitar el riesgo al 1.5% máximo para el simulador, evitando compounding logarítmico irreal
@@ -35,13 +41,13 @@ else:
 rewardRatio = 1.5
 
 def loadEnabledStrategies() -> list:
-    """Carga las estrategias que están marcadas como enabled = TRUE en la DB."""
+    """Carga todas las estrategias registradas en la DB (para evaluación del reporte semanal)."""
     try:
         conn = dbConnection.getConnection()
         if conn is None:
             return []
         cur = conn.cursor()
-        cur.execute("SELECT strategy FROM strategyConfig WHERE enabled = TRUE")
+        cur.execute("SELECT strategy FROM strategyConfig")
         strategies = [r[0] for r in cur.fetchall()]
         cur.close()
         conn.close()
@@ -128,10 +134,26 @@ def checkDivergence(df: pd.DataFrame, rsiSeries: pd.Series, lookback: int = 5) -
                 divergences["bearish"] = True
     return divergences
 
+def limpiarExclusiones() -> None:
+    """Borra todo el contenido de la tabla symbolNotStrategia en MySQL."""
+    try:
+        conn = dbConnection.getConnection()
+        if conn is None:
+            return
+        cur = conn.cursor()
+        cur.execute("DELETE FROM symbolNotStrategia")
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("🗑️ Contenido de la tabla symbolNotStrategia borrado con éxito.")
+    except Exception as e:
+        print(f"❌ Error al borrar symbolNotStrategia: {e}")
+
 def runWeeklyPortfolioBacktestV6() -> None:
     print("==========================================================")
     print("  BACKTESTING SEMANAL COMPUESTO V6 - LISTO PARA PRODUCCIÓN ")
     print("==========================================================")
+    limpiarExclusiones()
 
     rawSymbols = dbManager.getSymbols()
     # Usar estrictamente los símbolos activos en DB
@@ -139,7 +161,8 @@ def runWeeklyPortfolioBacktestV6() -> None:
     
     # Cargar dinámicamente de la DB
     enabledStrategies = loadEnabledStrategies()
-    exclusions = loadExclusions()
+    realExclusions = loadExclusions()
+    exclusions = set() # No aplicar exclusiones durante el backtest para evaluar todos los combos
     
     # 365 días de historial para que EMA200 en 15min y 4H converja correctamente.
     # Con 40 días la EMA200 tiene un valor diferente al de largo plazo, lo que
@@ -525,15 +548,127 @@ def runWeeklyPortfolioBacktestV6() -> None:
                 if t.hour == 9:
                     allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5, 'hour': t.hour})
 
-        # ── 12. EMA20200 (1H) ──
-        strategy = 'EMA20200'
-        if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len1h >= 2:
+        # ── 12. CruceEMA (15m) ──
+        strategy = 'CruceEMA'
+        if strategy in enabledStrategies and (symbol, strategy) not in exclusions and len15m >= 40:
+            stratConfig = dbManager.getSymbolStrategyConfig(strategy, symbol) or {}
+            globalConfig = dbManager.getStrategyConfig(strategy) or {}
+            
+            emaFastPeriod = int(stratConfig.get("emaFast", globalConfig.get("emaFast", 15)))
+            emaSlowPeriod = int(stratConfig.get("emaSlow", globalConfig.get("emaSlow", 20)))
+            minRrVal = float(stratConfig.get("minRr", globalConfig.get("min_rr", 1.2)))
+            macdSlow = int(stratConfig.get("macdSlow", globalConfig.get("macdSlow", 34)))
+            macdSignal = int(stratConfig.get("macdSignal", globalConfig.get("macdSignal", 9)))
+            
+            df15mCopy = df15m.copy()
+            df15mCopy["emaFast"] = ta.EMA(df15mCopy['close'].values, timeperiod=emaFastPeriod)
+            df15mCopy["emaSlow"] = ta.EMA(df15mCopy['close'].values, timeperiod=emaSlowPeriod)
+            df15mCopy["atr14"] = ta.ATR(df15mCopy['high'].values, df15mCopy['low'].values, df15mCopy['close'].values, timeperiod=14)
+            
+            impMacd, impSig = _tech.calculateImpulseMacd(df15mCopy, lengthMa=macdSlow, lengthSignal=macdSignal)
+            df15mCopy["imacd_md"] = impMacd
+            df15mCopy["imacd_sb"] = impSig
+            
             compoundingCutoff = compoundingStartDate - timedelta(days=2)
-            startIdx = next((i for i, indexVal in enumerate(df1h.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), 0)
-            for idx in range(startIdx, len1h):
-                t = df1h.index[idx]
-                win = df1h['close'].iloc[idx] > df1h['open'].iloc[idx]
-                allTrades.append({'datetime': t, 'symbol': symbol, 'strategy': strategy, 'pnl_mult': 1.5 if win else -1.0, 'hour': t.hour})
+            startIdx = next((i for i, indexVal in enumerate(df15mCopy.index) if indexVal.replace(tzinfo=None) >= compoundingCutoff.replace(tzinfo=None)), emaSlowPeriod + 20)
+            startIdx = max(startIdx, emaSlowPeriod + 20)
+            
+            for idx in range(startIdx, len15m):
+                t = df15mCopy.index[idx]
+                vCurr = df15mCopy.iloc[idx]
+                vPrev = df15mCopy.iloc[idx-1]
+                
+                if pd.isna(vCurr["emaSlow"]) or pd.isna(vCurr["imacd_sb"]):
+                    continue
+                    
+                emaF = vCurr["emaFast"]
+                emaS = vCurr["emaSlow"]
+                
+                direction = None
+                bodyCurr = abs(vCurr['close'] - vCurr['open'])
+                bodyPrev = abs(vPrev['close'] - vPrev['open'])
+                
+                imacdMd = vCurr['imacd_md']
+                imacdSb = vCurr['imacd_sb']
+                
+                imacdHistCurr = imacdMd - imacdSb
+                imacdHistPrev = vPrev['imacd_md'] - vPrev['imacd_sb']
+                
+                if emaF > emaS:
+                    inZone = vCurr['low'] <= (emaF + (vCurr['atr14']*0.1))
+                    lowerWick = min(vCurr['open'], vCurr['close']) - vCurr['low']
+                    isPinbar = (lowerWick > (bodyCurr * 1.5)) and (vCurr['close'] > vCurr['open']) and bodyCurr > 0
+                    isEngulfing = (vPrev['close'] < vPrev['open']) and (vCurr['close'] > vCurr['open']) and (vCurr['close'] > vPrev['open']) and (vCurr['open'] < vPrev['close'])
+                    
+                    emaPointingUp = vCurr['emaFast'] >= vPrev['emaFast']
+                    notCrashing = imacdHistCurr >= (imacdHistPrev * 0.5)
+                    imacdBullish = (imacdMd > imacdSb) and (imacdMd > 0)
+                    
+                    if inZone and (isPinbar or isEngulfing) and imacdBullish and emaPointingUp and notCrashing:
+                        direction = "LARGO"
+                        
+                elif emaF < emaS:
+                    inZone = vCurr['high'] >= (emaF - (vCurr['atr14']*0.1))
+                    upperWick = vCurr['high'] - max(vCurr['open'], vCurr['close'])
+                    isPinbar = (upperWick > (bodyCurr * 1.5)) and (vCurr['close'] < vCurr['open']) and bodyCurr > 0
+                    isEngulfing = (vPrev['close'] > vPrev['open']) and (vCurr['close'] < vCurr['open']) and (vCurr['close'] < vPrev['open']) and (vCurr['open'] > vPrev['close'])
+                    
+                    emaPointingDown = vCurr['emaFast'] <= vPrev['emaFast']
+                    notCrashing = imacdHistCurr <= (imacdHistPrev * 0.5)
+                    imacdBearish = (imacdMd < imacdSb) and (imacdMd < 0)
+                    
+                    if inZone and (isPinbar or isEngulfing) and imacdBearish and emaPointingDown and notCrashing:
+                        direction = "CORTO"
+                        
+                if direction:
+                    levels = _tech.get_structural_levels(df15mCopy.iloc[:idx+1], lookback=20)
+                    slPrice = (levels['swing_low'] - vCurr['atr14']*0.2) if direction=="LARGO" else (levels['swing_high'] + vCurr['atr14']*0.2)
+                    slDist = abs(vCurr['close'] - slPrice)
+                    
+                    if slDist <= 0:
+                        continue
+                        
+                    from middleware.utils.alertBuilder import adjustTPForMinRR
+                    tpPrice = adjustTPForMinRR(
+                        vCurr['close'], 
+                        slPrice, 
+                        (levels['high_zone'] if direction=="LARGO" else levels['low_zone']), 
+                        direction, 
+                        minRR=minRrVal
+                    )
+                    
+                    dfPost = df5m[df5m.index > t]
+                    win = None
+                    lastClose = None
+                    for _, rowP in dfPost.iterrows():
+                        lastClose = rowP['close']
+                        if direction == 'LARGO':
+                            if rowP['low'] <= slPrice:
+                                win = False
+                                break
+                            if rowP['high'] >= tpPrice:
+                                win = True
+                                break
+                        else:
+                            if rowP['high'] >= slPrice:
+                                win = False
+                                break
+                            if rowP['low'] <= tpPrice:
+                                win = True
+                                break
+                                
+                    if win is None and lastClose is not None:
+                        win = (lastClose > vCurr['close']) if direction == 'LARGO' else (lastClose < vCurr['close'])
+                        
+                    if win is not None:
+                        rrVal = round(abs(tpPrice - vCurr['close']) / slDist, 2)
+                        allTrades.append({
+                            'datetime': t, 
+                            'symbol': symbol, 
+                            'strategy': 'CruceEMA', 
+                            'pnl_mult': rrVal if win else -1.0, 
+                            'hour': t.hour
+                        })
 
         # ── 13. SMA20_200 (1H) ──
         strategy = 'SMA20_200'
@@ -869,6 +1004,15 @@ def runWeeklyPortfolioBacktestV6() -> None:
     # Persistir la Matriz de Rendimiento EstrategiaSymbol en MySQL
     persistirMatrizRendimiento(dfCompiledTrades, compoundingStartDate)
 
+    # Auto-corregir la tabla symbolNotStrategia en la base de datos
+    actualizarExclusionesSemanal(dfComboPerf, activeSymbols, enabledStrategies)
+
+    # Actualizar la configuración de broker para los 4 mejores combos
+    actualizarBrokerMejoresCombos(dfComboPerf)
+
+    # Restaurar exclusiones originales para el reporte PDF y Telegram
+    exclusions = realExclusions
+
     # Generar Reporte PDF Semanal V6 Premium (Verde Esmeralda y Oro)
     pdfPath = generateWeeklyReportPdfV6(dfCompiledTrades, dfComboPerf, dfStratPerf, portfolioBalance, activeSymbols, enabledStrategies, len(exclusions))
 
@@ -1059,8 +1203,8 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
             f"2. **Efectividad del Bloqueo Dinamico:** Al tomar en cuenta las 23 exclusiones activas registradas en `symbolNotStrategia`, "
             f"el bot evito participar en las parejas de divisas que mostraron comportamiento negativo en el backtesting, "
             f"maximizando el capital disponible para lógicas de alto impacto como Sniper e Ichimoku.\n\n"
-            f"3. **Configuracion Limpia de Estrategias:** La inhabilitacion de `Patron4h`, `EMA20200` y `SpeedBot` elimino de "
-            f"raiz las fugas de capital a nivel global, dejando al core con las 11 estrategias rentables restantes.\n\n"
+            f"3. **Evaluación Integral del Portafolio:** La simulación evalúa la totalidad de las estrategias registradas en `strategyConfig`, "
+            f"permitiendo observar el aporte de rendimiento y la sinergia de cada una bajo las reglas de blindaje dinámico.\n\n"
             f"Este backtesting simula de manera 100% fiel como operara el bot a partir de manana."
         )
         pdf.multi_cell(0, 5, comparativaText.encode('latin-1', 'replace').decode('latin-1'), 0, 'L')
@@ -1079,8 +1223,8 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
         pdf.set_text_color(180, 220, 200)
         pdf.cell(0, 5, "   Todo configurado en MySQL y listo para iniciar operaciones mañana temprano.", 0, 1, 'L')
 
-        dateStr = datetime.now().strftime('%Y_%m_%d')
-        pdfPath = f"/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/reporte_semanal_optimizacion_{dateStr}.pdf"
+        dateStr = datetime.now().strftime('%Y%m%d')
+        pdfPath = f"/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/AuditoriaSemanal_{dateStr}.pdf"
         pdf.output(name=pdfPath)
         print(f"✅ Reporte Semanal PDF generado en: {pdfPath}")
         return pdfPath
@@ -1090,6 +1234,113 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
         import traceback
         traceback.print_exc()
         return None
+
+
+def actualizarExclusionesSemanal(dfComboPerf: pd.DataFrame, activeSymbols: list, enabledStrategies: list) -> None:
+    """
+    Auto-corrige la tabla symbolNotStrategia basándose en los resultados reales del backtesting semanal:
+    - Si una combinación símbolo-estrategia tuvo un PnL Neto negativo (< 0), la excluye (REPLACE INTO symbolNotStrategia).
+    - Si una combinación tuvo un PnL Neto positivo o neutro (>= 0), remueve su exclusión (DELETE FROM symbolNotStrategia).
+    """
+    try:
+        conn = dbConnection.getConnection()
+        if conn is None:
+            return
+        cur = conn.cursor()
+        
+        # Convertir dfComboPerf a un diccionario indexado para búsquedas rápidas: (symbol, strategy) -> PnL_Total
+        perfMap = {}
+        if not dfComboPerf.empty:
+            for _, row in dfComboPerf.iterrows():
+                perfMap[(row['symbol'], row['strategy'])] = float(row['PnL_Total'])
+        
+        deletedCount = 0
+        insertedCount = 0
+        
+        for symbol in activeSymbols:
+            for strategy in enabledStrategies:
+                pnlVal = perfMap.get((symbol, strategy))
+                
+                if pnlVal is not None:
+                    if pnlVal < 0:
+                        # PnL negativo: excluir
+                        reasonText = f"Filtro Aut. Semanal: PnL negativo (${pnlVal:.2f}) en backtest."
+                        cur.execute("""
+                            REPLACE INTO symbolNotStrategia (symbol, strategy, reason)
+                            VALUES (%s, %s, %s)
+                        """, (symbol, strategy, reasonText))
+                        insertedCount += 1
+                    else:
+                        # PnL positivo o cero: quitar exclusión para que opere
+                        cur.execute("""
+                            DELETE FROM symbolNotStrategia 
+                            WHERE symbol = %s AND strategy = %s
+                        """, (symbol, strategy))
+                        deletedCount += 1
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"🔄 Sincronización symbolNotStrategia: {insertedCount} nuevas exclusiones (PnL < 0), {deletedCount} exclusiones removidas (PnL >= 0).")
+    except Exception as e:
+        print(f"❌ Error al auto-corregir symbolNotStrategia: {e}")
+
+
+def actualizarBrokerMejoresCombos(dfComboPerf: pd.DataFrame) -> None:
+    """
+    Apaga el broker (broker = 0) para todos los combos símbolo-estrategia en la base de datos
+    y habilita el broker (broker = 1) únicamente para las 3 mejores combinaciones rentables (PnL >= 100)
+    de cada estrategia individual según los resultados del backtesting semanal.
+    """
+    try:
+        conn = dbConnection.getConnection()
+        if conn is None:
+            return
+        cur = conn.cursor()
+        
+        # 1. Apagar todos los combos en symbolStrategyConfig
+        cur.execute("UPDATE symbolStrategyConfig SET broker = 0")
+        conn.commit()
+        print("🔌 Broker desactivado (broker = 0) globalmente en symbolStrategyConfig.")
+        
+        # 2. Filtrar y ordenar los mejores combos rentables por estrategia (PnL >= 100, max 3 de cada una)
+        if dfComboPerf.empty:
+            print("⚠️ No hay combinaciones de rendimiento para actualizar broker.")
+            cur.close()
+            conn.close()
+            return
+            
+        bestCombosList = []
+        for strategy, group in dfComboPerf.groupby('strategy'):
+            best_strat_combos = group[group['PnL_Total'] >= 100.0].sort_values(by='PnL_Total', ascending=False).head(3)
+            bestCombosList.append(best_strat_combos)
+            
+        if bestCombosList:
+            bestCombos = pd.concat(bestCombosList)
+        else:
+            bestCombos = pd.DataFrame()
+            
+        updatedCount = 0
+        if not bestCombos.empty:
+            for _, row in bestCombos.iterrows():
+                symbol = row['symbol']
+                strategy = row['strategy']
+                pnlVal = float(row['PnL_Total'])
+                
+                cur.execute("""
+                    UPDATE symbolStrategyConfig 
+                    SET broker = 1 
+                    WHERE symbol = %s AND strategy = %s
+                """, (symbol, strategy))
+                updatedCount += 1
+                print(f"🌟 Habilitando broker para: {symbol} - {strategy} (PnL: ${pnlVal:.2f})")
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"✅ Sincronización de broker finalizada: {updatedCount} combinaciones habilitadas (broker = 1).")
+    except Exception as e:
+        print(f"❌ Error al actualizar broker de mejores combos: {e}")
 
 
 def persistirMatrizRendimiento(dfCompiledTrades: pd.DataFrame, startDate: datetime) -> None:

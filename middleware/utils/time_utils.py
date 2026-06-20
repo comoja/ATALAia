@@ -1,7 +1,7 @@
 import pytz
 from datetime import datetime, timedelta
 import logging
-from middleware.config.constants import TIMEZONE
+from middleware.config.constants import TIMEZONE, DATA_SOURCE, bypassRestTime
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,9 @@ def isRestTime(dt=None):
     Es la función central utilizada por Sentinel y DataSymbol para decidir si operar.
     Incluye el descanso obligatorio de madrugada (00:00 - 06:00 MX).
     """
+    if bypassRestTime:
+        return False
+        
     local_tz = pytz.timezone(TIMEZONE)
     if dt is None:
         now_local = datetime.now(local_tz)
@@ -83,8 +86,10 @@ def isRestTime(dt=None):
             now_local = dt.astimezone(local_tz)
             
     # 1. Descanso obligatorio de madrugada (00:20 a 05:00 AM Mexico City)
-    if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
-        return True
+    # Se omite en modo Forex (MT5) a petición del usuario
+    if DATA_SOURCE != "forex":
+        if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
+            return True
         
     return is_market_closed(dt)
 
@@ -103,8 +108,10 @@ def get_sleep_minutes(dt=None):
             now_local = dt.astimezone(local_tz)
             
     # Si estamos en la ventana de madrugada (00:20 - 05:00), dormir más tiempo
-    if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
-        return 15
+    # Se omite en modo Forex (MT5)
+    if DATA_SOURCE != "forex":
+        if (now_local.hour == 0 and now_local.minute >= 20) or (1 <= now_local.hour < 5):
+            return 15
     return 5
 
 def get_seconds_to_next_sync(intervaloMinutos: int) -> float:
@@ -183,6 +190,9 @@ def get_seconds_until_market_opens(dt=None) -> float:
     Calcula exactamente cuántos segundos faltan para que termine el periodo de descanso (isRestTime = False)
     y el mercado/sesión abra de nuevo.
     """
+    if bypassRestTime:
+        return 0.0
+        
     localTz = pytz.timezone(TIMEZONE)
     nyTz = pytz.timezone('America/New_York')
     
@@ -197,12 +207,13 @@ def get_seconds_until_market_opens(dt=None) -> float:
     nowNy = nowLocal.astimezone(nyTz)
     
     # Caso 1: Madrugada local (00:20 a 05:00 AM Mexico City)
-    # Abre a las 05:00 AM local
-    if (nowLocal.hour == 0 and nowLocal.minute >= 20) or (1 <= nowLocal.hour < 5):
-        targetLocal = nowLocal.replace(hour=5, minute=0, second=0, microsecond=0)
-        diff = (targetLocal - nowLocal).total_seconds()
-        if diff > 0:
-            return diff
+    # Abre a las 05:00 AM local. Se omite en modo Forex (MT5)
+    if DATA_SOURCE != "forex":
+        if (nowLocal.hour == 0 and nowLocal.minute >= 20) or (1 <= nowLocal.hour < 5):
+            targetLocal = nowLocal.replace(hour=5, minute=0, second=0, microsecond=0)
+            diff = (targetLocal - nowLocal).total_seconds()
+            if diff > 0:
+                return diff
             
     # Caso 2: Cierre fin de semana (Viernes 17:00 NY a Domingo 17:00 NY)
     # Abre el Domingo a las 17:00 NY

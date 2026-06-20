@@ -3,10 +3,11 @@ import logging
 from typing import Optional
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
+import pytz
 
 logger = logging.getLogger(__name__)
 
-from middleware.config.constants import dbConfig
+from middleware.config.constants import dbConfig, TIMEZONE
 
 
 class DatabaseManager:
@@ -18,10 +19,11 @@ class DatabaseManager:
 
     def getLastTimestamp(self, symbol: str, timeframe: str = "5min") -> Optional[pd.Timestamp]:
         try:
+            nowCdmx = datetime.now(pytz.timezone(TIMEZONE)).replace(tzinfo=None)
             with self.engine.connect() as conn:
                 result = conn.execute(
-                    text("SELECT MAX(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe and timestamp <= NOW()"),
-                    {"symbol": symbol, "timeframe": timeframe}
+                    text("SELECT MAX(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe and timestamp <= :nowCdmx"),
+                    {"symbol": symbol, "timeframe": timeframe, "nowCdmx": nowCdmx}
                 )
                 row = result.fetchone()
             return pd.Timestamp(row[0]) if row and row[0] else None

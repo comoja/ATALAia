@@ -23,7 +23,7 @@ class MockDatetime(real_datetime.datetime):
 import Sentinel.core.BaseImbalanceBot as BImb
 import Sentinel.core.BreakoutNY as BNY
 import Sentinel.core.BreakoutProbability as BProb
-import Sentinel.core.EMA20200 as EMA
+import Sentinel.core.CruceEMA as CruceEMA
 import Sentinel.core.FVGDiario as FVGD
 import Sentinel.core.GenericFVG as GFVG
 import Sentinel.core.Ichimoku as Ichimoku
@@ -31,7 +31,6 @@ import Sentinel.core.Patron4h as Patron
 import Sentinel.core.PremiumConfluence as Premium
 import Sentinel.core.QTrend as QTrend
 import Sentinel.core.ReversionMedia as Rev
-import Sentinel.core.SMA20_200 as SMA
 import Sentinel.core.SesgoBiasHTF as Sesgo
 import Sentinel.core.SilverBullet as Silver
 import Sentinel.core.SpeedBot as Speed
@@ -41,7 +40,7 @@ import dataSymbol.mainOrchestrator as mainOrch
 BImb.datetime = MockDatetime
 BNY.datetime = MockDatetime
 BProb.datetime = MockDatetime
-EMA.datetime = MockDatetime
+CruceEMA.datetime = MockDatetime
 FVGD.datetime = MockDatetime
 GFVG.datetime = MockDatetime
 Ichimoku.datetime = MockDatetime
@@ -49,7 +48,6 @@ Patron.datetime = MockDatetime
 Premium.datetime = MockDatetime
 QTrend.datetime = MockDatetime
 Rev.datetime = MockDatetime
-SMA.datetime = MockDatetime
 Sesgo.datetime = MockDatetime
 Silver.datetime = MockDatetime
 Speed.datetime = MockDatetime
@@ -124,10 +122,9 @@ dbManager.getSymbolTypeConfig = mock_getSymbolTypeConfig
 
 # Import all strategy bots
 from Sentinel.core.Sniper import SniperBot
-from Sentinel.core.SMA20_200 import SMABot
 from Sentinel.core.ImbalanceNY import ImbalanceNYBot
 from Sentinel.core.ImbalanceLDN import ImbalanceLDNBot
-from Sentinel.core.EMA20200 import EMA20200Bot
+from Sentinel.core.CruceEMA import CruceEMABot
 from Sentinel.core.Patron4h import Patron4HBot
 from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
 from Sentinel.core.SilverBullet import SilverBulletBot
@@ -360,12 +357,12 @@ async def runTwoWeekGlobalBacktest() -> None:
     rawSymbols = dbManager.getSymbols()
     activeSymbols = [s['symbol'] for s in rawSymbols if s.get('Activo') == 1]
     
-    # 2. Definir las 18 estrategias core
+    # 2. Definir las 17 estrategias core
     allStrategies = [
-        'BreakoutNY', 'BreakoutProbability', 'EMA20200', 'FVGDiario', 'GenericFVG',
+        'BreakoutNY', 'BreakoutProbability', 'CruceEMA', 'FVGDiario', 'GenericFVG',
         'Ichimoku', 'ImbalanceLDN', 'ImbalanceNY', 'ImbalancePMNY', 'Patron4h',
         'PremiumConfluence', 'QTrend', 'ReversionMedia', 'SesgoBiasHTF', 'SilverBullet',
-        'SMA20_200', 'Sniper', 'SpeedBot'
+        'Sniper', 'SpeedBot'
     ]
 
     # Periodo de backtesting (últimos 14 días)
@@ -386,10 +383,9 @@ async def runTwoWeekGlobalBacktest() -> None:
     # Instanciar bots
     bots = {
         'Sniper': SniperBot(mlModelInstance=model),
-        'SMA20_200': SMABot(),
+        'CruceEMA': CruceEMABot(),
         'ImbalanceNY': ImbalanceNYBot(),
         'ImbalanceLDN': ImbalanceLDNBot(),
-        'EMA20200': EMA20200Bot(),
         'Patron4h': Patron4HBot(),
         'SesgoBiasHTF': SesgoBiasHTFBot(),
         'SilverBullet': SilverBulletBot(),

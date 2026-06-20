@@ -232,51 +232,69 @@ class BrokerGateway:
                 logger.warning(f"❌ Orden RECHAZADA por Seguridad: Spread muy alto para {trade_data['symbol']}")
                 return False, "drawdown_superado"
 
-        # 0.4 Filtro de Seguridad: Slippage y Riesgo Dinámico en Real Time
-        if self.mode == "live" and symbolConfig.get('broker'):
+        # Obtener configuración de estrategia-símbolo para verificar si el broker está habilitado
+        stratConfigSymbol = dbManager.getSymbolStrategyConfig(strategy_name, symbolName) or {}
+        brokerEnabled = bool(stratConfigSymbol.get('broker', 0))
+        
+        # Verificar si la cuenta tiene conexión activa en BrokerCuenta
+        if brokerEnabled:
             try:
-                import MetaTrader5 as mt5
-                mt5Symbol = self.findMt5Symbol(symbolName)
-                tickInfo = mt5.symbol_info_tick(mt5Symbol)
-                if tickInfo:
-                    direction = trade_data['direction'].upper()
-                    currentPrice = float(tickInfo.ask if direction == "BUY" else tickInfo.bid)
-                    intendedPrice = float(trade_data.get('entryPrice', 0))
-                    
-                    sl = float(trade_data.get('stopLoss', 0))
-                    tp = float(trade_data.get('takeProfit', 0))
-                    
-                    if sl > 0 and tp > 0 and intendedPrice > 0:
-                        realRisk = (currentPrice - sl) if direction == "BUY" else (sl - currentPrice)
-                        realReward = (tp - currentPrice) if direction == "BUY" else (currentPrice - tp)
-                            
-                        if realRisk > 0:
-                            realRR = realReward / realRisk
-                            intendedRR = float(signal.get('rr_ratio', 1.0))
-                            
-                            min_rr_allowed = 0.80
-                            if realRR < min_rr_allowed or realReward <= 0:
-                                logger.warning(f"❌ Orden RECHAZADA por Slippage: Precio MT5 {currentPrice} arruina el RR. (Real RR: {realRR:.2f} < {min_rr_allowed})")
-                                return False, "slippage_rr_ruined"
-                            
-                            # Si el deslizamiento es aceptable, ajustamos los valores ANTES de enviar a Telegram
-                            trade_data['entryPrice'] = currentPrice
-                            signal['entryPrice'] = currentPrice
-                            signal['entrada'] = currentPrice
-                            signal['entry_price'] = currentPrice
-                            signal['rr_ratio'] = realRR
-                            
-                            from middleware.utils.alertBuilder import getPipMultiplier
-                            pip_mult = getPipMultiplier(symbolName)
-                            signal['riesgo_pips'] = realRisk * pip_mult
-                            
-                            oldRiskPips = abs(intendedPrice - sl) * pip_mult
-                            if oldRiskPips > 0:
-                                riskIncreaseRatio = (realRisk * pip_mult) / oldRiskPips
-                                signal['profit'] = float(signal.get('profit', 0)) * riskIncreaseRatio
-                                trade_data['margin_used'] = float(trade_data.get('margin_used', 0)) * riskIncreaseRatio
+                cuentasBroker = dbManager.getBrokerCuentas(account.get('idCuenta'))
+                hasActiveBroker = any(bc.get('activo') == 1 for bc in cuentasBroker)
+                if not hasActiveBroker:
+                    logger.info(f"ℹ️ Cuenta ID {account.get('idCuenta')} no tiene configurado ningún Broker activo en BrokerCuenta. Se opera en simulación.")
+                    brokerEnabled = False
             except Exception as e:
-                logger.error(f"Error evaluando Slippage en real-time: {e}")
+                logger.error(f"Error consultando BrokerCuenta para cuenta {account.get('idCuenta')}: {e}")
+
+        # 0.4 Filtro de Seguridad: Slippage y Riesgo Dinámico en Real Time
+        if self.mode == "live" and brokerEnabled:
+            if mt5 is not None:
+                try:
+                    mt5Symbol = self.findMt5Symbol(symbolName)
+                    if self.connectMt5(idCuenta=account.get('idCuenta')):
+                        tickInfo = mt5.symbol_info_tick(mt5Symbol)
+                    else:
+                        tickInfo = None
+                    if tickInfo:
+                        direction = trade_data['direction'].upper()
+                        currentPrice = float(tickInfo.ask if direction == "BUY" else tickInfo.bid)
+                        intendedPrice = float(trade_data.get('entryPrice', 0))
+                        
+                        sl = float(trade_data.get('stopLoss', 0))
+                        tp = float(trade_data.get('takeProfit', 0))
+                        
+                        if sl > 0 and tp > 0 and intendedPrice > 0:
+                            realRisk = (currentPrice - sl) if direction == "BUY" else (sl - currentPrice)
+                            realReward = (tp - currentPrice) if direction == "BUY" else (currentPrice - tp)
+                                
+                            if realRisk > 0:
+                                realRR = realReward / realRisk
+                                intendedRR = float(signal.get('rr_ratio', 1.0))
+                                
+                                min_rr_allowed = 0.80
+                                if realRR < min_rr_allowed or realReward <= 0:
+                                    logger.warning(f"❌ Orden RECHAZADA por Slippage: Precio MT5 {currentPrice} arruina el RR. (Real RR: {realRR:.2f} < {min_rr_allowed})")
+                                    return False, "slippage_rr_ruined"
+                                
+                                # Si el deslizamiento es aceptable, ajustamos los valores ANTES de enviar a Telegram
+                                trade_data['entryPrice'] = currentPrice
+                                signal['entryPrice'] = currentPrice
+                                signal['entrada'] = currentPrice
+                                signal['entry_price'] = currentPrice
+                                signal['rr_ratio'] = realRR
+                                
+                                from middleware.utils.alertBuilder import getPipMultiplier
+                                pip_mult = getPipMultiplier(symbolName)
+                                signal['riesgo_pips'] = realRisk * pip_mult
+                                
+                                oldRiskPips = abs(intendedPrice - sl) * pip_mult
+                                if oldRiskPips > 0:
+                                    riskIncreaseRatio = (realRisk * pip_mult) / oldRiskPips
+                                    signal['profit'] = float(signal.get('profit', 0)) * riskIncreaseRatio
+                                    trade_data['margin_used'] = float(trade_data.get('margin_used', 0)) * riskIncreaseRatio
+                except Exception as e:
+                    logger.error(f"Error evaluando Slippage en real-time: {e}")
 
         # -- NUEVO FLUJO OPTIMIZADO (07/04/2026) --
         
@@ -291,13 +309,18 @@ class BrokerGateway:
         # 2. Ejecución Broker (si aplica)
         exec_success = True
         if self.mode == "live":
-            if symbolConfig.get('broker'):
-                exec_success = await self._execute_live(trade_data)
-                if not exec_success:
-                    logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
-                    message = f"⚠️ <b>[BROKER ERROR]</b> No se pudo ejecutar en el Broker.\n\n{message}"
+            if brokerEnabled:
+                if mt5 is None:
+                    logger.warning(f"ℹ️ Modo 'live' y broker = 1 activos, pero MetaTrader5 no está disponible en esta plataforma. Se omite ejecución real en broker y se procesa como simulación.")
+                    message = f"ℹ️ <b>[PROCESADO EN SIMULACIÓN]</b> MetaTrader5 no disponible en esta plataforma (macOS).\n\n{message}"
+                    exec_success = True
+                else:
+                    exec_success = await self._execute_live(trade_data)
+                    if not exec_success:
+                        logger.error(f"❌ Falló ejecución en BROKER para {trade_data['symbol']}")
+                        message = f"⚠️ <b>[BROKER ERROR]</b> No se pudo ejecutar en el Broker.\n\n{message}"
             else:
-                logger.info(f"ℹ️ Modo 'live' activo pero el símbolo {symbolName} tiene 'broker' = 0. Se omite ejecución en el bróker (se procesa como simulación).")
+                logger.info(f"ℹ️ Modo 'live' activo pero {strategy_name} - {symbolName} tiene 'broker' = 0. Se omite ejecución en el bróker (se procesa como simulación).")
 
         # 3. Verificar TRADE DUPLICADO antes de Telegram (mismo symbol, strategy, intervalo, direction, size)
         is_adjustment = signal.get('is_adjustment', False)
@@ -417,7 +440,7 @@ class BrokerGateway:
         else:
             return f"Señal Generada: {strategy_name} para {trade_data['symbol']}"
 
-    def connectMt5(self) -> bool:
+    def connectMt5(self, idCuenta: int = None) -> bool:
         """
         Inicializa la conexión con la terminal de MetaTrader 5 y realiza el login.
         """
@@ -430,15 +453,36 @@ class BrokerGateway:
             logger.error(f"❌ Error al inicializar MT5: {mt5.last_error()}")
             return False
             
-        # Verificar primero si el terminal ya tiene una sesión activa autorizada
+        # Determinar credenciales a usar
+        mt5_login = mt5Login
+        mt5_password = mt5Password
+        mt5_server = mt5Server
+        
+        if idCuenta is not None:
+            try:
+                # Importar dbManager localmente si es necesario para evitar ciclos
+                from middleware.database import dbManager as _db
+                cuentas_broker = _db.getBrokerCuentas(idCuenta)
+                broker_info = next((bc for bc in cuentas_broker if bc['idBroker'] == 3 or 'metatrader' in bc['nombreBroker'].lower()), None)
+                if broker_info and broker_info.get('activo'):
+                    logger.info(f"🔑 Usando credenciales de BrokerCuenta (DB) para cuenta ID {idCuenta} (Usuario: {broker_info.get('loginUsuario')})")
+                    mt5_login = int(broker_info.get('loginUsuario', 0))
+                    mt5_password = broker_info.get('tokenAcceso', '')
+            except Exception as e:
+                logger.error(f"Error al cargar credenciales de BrokerCuenta para cuenta {idCuenta}: {e}")
+
+        # Verificar primero si el terminal ya tiene una sesión activa autorizada para la misma cuenta
         accountInfo = mt5.account_info()
         if accountInfo is not None:
-            logger.info(f"✅ Usando sesión activa autorizada en el terminal MT5 (Login: {accountInfo.login}, Servidor: {accountInfo.server})")
-            return True
+            if accountInfo.login == mt5_login and accountInfo.server == mt5_server:
+                logger.info(f"✅ Usando sesión activa autorizada en el terminal MT5 (Login: {accountInfo.login}, Servidor: {accountInfo.server})")
+                return True
+            else:
+                logger.info(f"🔄 La cuenta activa en el terminal ({accountInfo.login}) no coincide con la solicitada ({mt5_login}). Re-autenticando...")
             
-        # Si no hay sesión activa, intentamos hacer login programático con las credenciales del .env
-        logger.info(f"Intentando login programático a la cuenta {mt5Login} en el servidor {mt5Server}...")
-        authorized = mt5.login(mt5Login, password=mt5Password, server=mt5Server)
+        # Si no hay sesión activa o es diferente, intentamos hacer login programático
+        logger.info(f"Intentando login programático a la cuenta {mt5_login} en el servidor {mt5_server}...")
+        authorized = mt5.login(mt5_login, password=mt5_password, server=mt5_server)
         if not authorized:
             logger.error(f"❌ Error al autenticar en MT5 con credenciales: {mt5.last_error()}")
             mt5.shutdown()
@@ -471,16 +515,30 @@ class BrokerGateway:
                     
         logger.warning(f"⚠️ No se encontró coincidencia exacta ni sufijo para {baseSymbol}. Se usará {cleanSymbol}")
         return cleanSymbol
-
     def updateLiveSLTP(self, ticketId: int, new_sl: float, mt5Symbol: str = None) -> bool:
         """
         Actualiza el Stop Loss y (opcionalmente Take Profit) de una posición abierta en MT5.
         """
         if mt5 is None:
-            logger.error("❌ Módulo MT5 no disponible para actualizar SL/TP.")
-            return False
-            
-        if not self.connectMt5():
+            logger.info("ℹ️ Módulo MT5 no disponible en esta plataforma (macOS). Omitiendo actualización de SL/TP físico.")
+            return True
+
+        # Buscar idCuenta a partir de ticketId para cargar credenciales de BD
+        idCuenta = None
+        try:
+            from middleware.database import dbConnection
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT idCuenta FROM trades WHERE ticketId = %s", (str(ticketId),))
+            row = cursor.fetchone()
+            if row:
+                idCuenta = row['idCuenta']
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error buscando cuenta para ticketId {ticketId}: {e}")
+
+        if not self.connectMt5(idCuenta=idCuenta):
             return False
             
         logger.info(f"Actualizando SL de la posición {ticketId} a {new_sl} en MT5...")
@@ -523,15 +581,15 @@ class BrokerGateway:
         Cierra una posición abierta en MT5 usando su ticketId.
         """
         if mt5 is None:
-            logger.error("❌ El módulo MetaTrader5 no está disponible o no es compatible con esta plataforma.")
-            return False
+            logger.info("ℹ️ Módulo MT5 no disponible en esta plataforma (macOS). Omitiendo cierre físico de posición.")
+            return True
             
         ticketIdVal = tradeData.get('ticketId')
         if not ticketIdVal:
             logger.warning("⚠️ No se encontró ticketId en los datos del trade para cerrar en MT5.")
             return True
             
-        if not self.connectMt5():
+        if not self.connectMt5(idCuenta=tradeData.get('idCuenta')):
             return False
             
         ticketId = int(ticketIdVal)
@@ -616,7 +674,7 @@ class BrokerGateway:
             logger.error("❌ El módulo MetaTrader5 no está disponible o no es compatible con esta plataforma.")
             return False
             
-        if not self.connectMt5():
+        if not self.connectMt5(idCuenta=trade_data.get('idCuenta')):
             return False
             
         mt5Symbol = self.findMt5Symbol(trade_data['symbol'])

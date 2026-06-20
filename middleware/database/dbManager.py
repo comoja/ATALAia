@@ -196,6 +196,7 @@ def init_alerts_table():
                 strategy VARCHAR(50) NOT NULL,
                 symbol VARCHAR(20) NOT NULL,
                 enabled BOOLEAN DEFAULT TRUE,
+                broker TINYINT(1) NOT NULL DEFAULT 0,
                 parametersJson JSON DEFAULT NULL,
                 jsonIMACD JSON DEFAULT NULL,
                 updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -207,6 +208,11 @@ def init_alerts_table():
         
         try:
             dbCursor.execute("ALTER TABLE symbolStrategyConfig ADD COLUMN jsonIMACD JSON DEFAULT NULL")
+        except:
+            pass
+            
+        try:
+            dbCursor.execute("ALTER TABLE symbolStrategyConfig ADD COLUMN broker TINYINT(1) NOT NULL DEFAULT 0")
         except:
             pass
             
@@ -669,7 +675,7 @@ def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
         cursor = conn.cursor(dictionary=True)
         # 1. Intentar obtener la configuración específica del símbolo y combinarla con la configuración global de la estrategia
         cursor.execute("""
-            SELECT ssc.parametersJson, ssc.jsonIMACD, sc.min_confidence, sc.min_rr
+            SELECT ssc.parametersJson, ssc.jsonIMACD, ssc.broker, sc.min_confidence, sc.min_rr
             FROM symbolStrategyConfig ssc
             JOIN strategyConfig sc ON ssc.strategy = sc.strategy
             WHERE ssc.strategy = %s AND ssc.symbol = %s AND ssc.enabled = TRUE
@@ -709,6 +715,9 @@ def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
             if 'min_rr' not in params:
                 params['min_rr'] = global_min_rr
                 
+            # Agregar el campo broker
+            params['broker'] = result.get('broker', 0)
+            
             return params
             
         # 3. Fallback: Obtener la configuración global de la estrategia
@@ -717,6 +726,7 @@ def getSymbolStrategyConfig(strategyName: str, symbol: str) -> dict:
         if globalConfig:
             globalConfig['useImpulseMacdFilter'] = 0 # Default global
             globalConfig['minConfidence'] = globalConfig.get('min_confidence', 70)
+            globalConfig['broker'] = 0 # Default para broker
             return globalConfig
         return {}
     except Exception as e:
@@ -1197,7 +1207,27 @@ async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
     except ImportError:
         adjustDataframeInplace = lambda df: df
 
-    if DATA_SOURCE == "12data":
+    if DATA_SOURCE == "forex":
+        try:
+            from middleware.api import forex
+            params = {
+                "symbol": symbol,
+                "interval": "5min",
+                "outputSize": n_velas
+            }
+            df = await forex.getTimeSeries(params)
+            if df is not None and not df.empty:
+                return df
+            else:
+                logger.warning(f"forex.getTimeSeries retornó None o vacío para {symbol}. Usando DB como fallback.")
+                df = await getCandlesFromDb(symbol, "5min", n_velas)
+                if not df.empty and "symbol" not in df.columns:
+                    df["symbol"] = symbol
+                return adjustDataframeInplace(df)
+        except Exception as e:
+            logger.error(f"Error en getCandles (Forex MT5): {e}")
+            return pd.DataFrame()
+    elif DATA_SOURCE == "12data":
         api_key = _get_api_key()
         if not api_key:
             logger.error("No hay API keys disponibles para 12Data")
@@ -1223,7 +1253,6 @@ async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
                 df["volume"] = pd.Series(0, index=df.index)
             
             df_cleaned = df.dropna(subset=["close"])
-            # Añadir columna symbol si no existe en el DataFrame para que adjustDataframeInplace lo identifique
             if "symbol" not in df_cleaned.columns:
                 df_cleaned["symbol"] = symbol
             return adjustDataframeInplace(df_cleaned)
@@ -1232,7 +1261,6 @@ async def getCandles(symbol: str, n_velas: int = 500) -> pd.DataFrame:
             return pd.DataFrame()
     else:
         df = await getCandlesFromDb(symbol, "5min", n_velas)
-        # Añadir columna symbol si no existe en el DataFrame para que adjustDataframeInplace lo identifique
         if not df.empty and "symbol" not in df.columns:
             df["symbol"] = symbol
         return adjustDataframeInplace(df)

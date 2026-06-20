@@ -150,7 +150,6 @@ class QTrendBot:
                     break
 
         direction = None
-        isBrokerEnabled = bool(symbolInfo.get('broker', 0))
         maxCrossAge = 3
         
         # --- LÓGICA DE ENTRADA (CONFLUENCIA DE AMBOS INDICADORES CON RESTRICCIÓN TEMPORAL) ---

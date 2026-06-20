@@ -19,8 +19,8 @@ setupLogging(logPara="dataSymbol", projectDir=os.path.dirname(os.path.abspath(__
 
 from middleware.database import dbManager as middlewareDb
 from middleware.scheduler.autoScheduler import isRestTime
-from middleware.utils.time_utils import get_sleep_minutes, get_seconds_to_next_sync, get_seconds_until_market_opens
-from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE
+from middleware.utils.time_utils import get_sleep_minutes, get_seconds_to_next_sync, get_seconds_until_market_opens, is_market_closed
+from middleware.config.constants import API_KEYS, FESTIVOS, TIMEZONE, DATA_SOURCE
 from middleware.api.twelvedata import _callTimeSeriesApi
 from middleware.database.dbManager import DatabaseManager, get_api_usage, update_api_usage
 
@@ -38,7 +38,7 @@ DAYS_PER_CALL = 30
 ACCOUNT_NAMES = ["Jaime", "Raul", "Sebastian", "Ana"]
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 
-MAX_CANDLES_PER_CALL = 5000
+MAX_CANDLES_PER_CALL = 3000 if DATA_SOURCE == "forex" else 5000
 CANDLE_INTERVAL_MINUTES = 5
 MAX_MINUTES_PER_CALL = MAX_CANDLES_PER_CALL * CANDLE_INTERVAL_MINUTES
 
@@ -200,7 +200,7 @@ async def main():
                 continue
             
             # Reset diario basado en el reloj de TwelveData (UTC)
-            if today_api > lastResetDate:
+            if DATA_SOURCE != "forex" and today_api > lastResetDate:
                 logger.info(f"📅 Nuevo día en TwelveData detectado ({today_api}). Reseteando contadores de API.")
                 for name in ACCOUNT_NAMES:
                     update_api_usage(name, 0, reset=True)
@@ -215,7 +215,7 @@ async def main():
                 await asyncio.sleep(60)
                 continue
             
-            if limiter.allExhausted():
+            if DATA_SOURCE != "forex" and limiter.allExhausted():
                 logger.warning("🚨 Todas las cuentas agotadas por hoy. Esperando ciclo de descanso (bucle)...")
                 segundosEspera = 3600.0
                 while segundosEspera > 0 and limiter.allExhausted():
@@ -227,7 +227,8 @@ async def main():
             if symbolIndex >= len(symbols):
                 symbolIndex = 0
                 sleepSeconds, nextTime = seconds_until_next_5min(now_local)
-                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {limiter.getStatus()})")
+                statusStr = "MetaTrader5 Local" if DATA_SOURCE == "forex" else limiter.getStatus()
+                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {statusStr})")
                 while sleepSeconds > 0:
                     tiempoSueñoParcial = min(60.0, sleepSeconds)
                     await asyncio.sleep(tiempoSueñoParcial)
@@ -267,12 +268,17 @@ async def main():
             if endDate < startDate:
                 continue
 
-            # Obtener siguiente cuenta disponible
-            apiKey, accountName = limiter.getNextAccount()
-            if not apiKey:
-                # Si no hay cuenta disponible ahora (límite por minuto alcanzado), esperamos un poco
-                await asyncio.sleep(2)
-                continue
+            # Obtener cuenta o bypass si es forex
+            if DATA_SOURCE == "forex":
+                apiKey = None
+                accountName = "MetaTrader5"
+            else:
+                # Obtener siguiente cuenta disponible para Twelve Data
+                apiKey, accountName = limiter.getNextAccount()
+                if not apiKey:
+                    # Si no hay cuenta disponible ahora (límite por minuto alcanzado), esperamos un poco
+                    await asyncio.sleep(2)
+                    continue
 
             logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%H:%M')} a {endDate.strftime('%H:%M')}")
             
@@ -284,23 +290,28 @@ async def main():
                     "start_date": startDate,
                     "end_date": endDate
                 }
-                df = await _callTimeSeriesApi(params)
                 
-                # Registrar llamada exitosa
-                limiter.recordCall(apiKey, accountName)
+                if DATA_SOURCE == "forex":
+                    from middleware.api import forex
+                    df = await forex.getTimeSeries(params)
+                else:
+                    df = await _callTimeSeriesApi(params)
+                    # Registrar llamada exitosa en Twelve Data
+                    limiter.recordCall(apiKey, accountName)
                 
                 if df is not None and not df.empty:
                     inserted = db.saveBulkData(df, symbol, "5min")
                     if inserted > 0:
-                        logger.info(f"[{symbol}] +{inserted} velas guardadas.")
+                        logger.info(f"[{symbol}] +{inserted} velas guardadas desde {DATA_SOURCE}.")
                 
                 # Espera dinámica entre llamadas
                 await asyncio.sleep(SLEEP_BETWEEN_CALLS)
                 
             except Exception as e:
                 error_msg = str(e).lower()
-                if "rate limit" in error_msg or "too many requests" in error_msg:
-                    limiter.blockAccount(apiKey)
+                if DATA_SOURCE != "forex" and apiKey:
+                    if "rate limit" in error_msg or "too many requests" in error_msg:
+                        limiter.blockAccount(apiKey)
                 logger.error(f"❌ Error API [{symbol}] con {accountName}: {e}")
                 await asyncio.sleep(1)
                 
