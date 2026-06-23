@@ -12,7 +12,11 @@ import numpy as np
 import talib as ta
 from datetime import datetime
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
 # --- Path Setup ---
+
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
@@ -44,10 +48,10 @@ from middleware.utils.momentum import momentum as momentumAnalyzer, _enviar_resu
 from middleware.api.finnhub_client import getLatestMarketNews, getHighImpactEvents
 from middleware.utils.aiManager import getMarketSentiment
 
-try:
-    from middleware.config.constants import DATA_SOURCE
-except ImportError:
-    DATA_SOURCE = "db"
+#try:
+#    from middleware.config.constants import DATA_SOURCE
+#except ImportError:
+#    DATA_SOURCE = "db"
 
 
 from middleware.config import constants as config
@@ -173,8 +177,11 @@ async def _load_monthly_trends(symbolsToScan, apiKey):
         try:
             # Si es DB local, pedimos 15,000 velas de 5min para asegurar >30 días diarios
             # Si es TwelveData, nos limitamos al máximo permitido (MAX_CANDLES_PER_CALL)
-            nVelas = 15000 if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
-            df_5m = await dbManager.getCandles(symbol, n_velas=nVelas)
+            nVelas = 15000 #if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
+            symbolApiKey, _, nombreKey, _, _ = getParametros()
+            params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": nVelas}
+            df_5m = await tdApi.getTimeSeries(params,True)
+            #df_5m = await dbManager.getCandles(symbol, n_velas=nVelas)
             
             if df_5m is not None and len(df_5m) >= 200:
                 # Asegurar columnas minúsculas
@@ -229,8 +236,11 @@ async def preload_time_series_data(symbolsToScan, apiKey, interval, nVelas):
     preloaded_data = {}
     for symbolInfo in symbolsToScan:
         symbol = symbolInfo['symbol']
-        logger.info(f"Obteniendo datos de 12Data para {symbol} (intervalo base 5min)...")
-        df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "apikey": apiKey, "outputSize": nVelas})
+        logger.info(f"Obteniendo datos  para {symbol} (intervalo base 5min)...")
+        symbolApiKey, _, nombreKey, _, _ = getParametros()
+        params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": nVelas}
+        df = await tdApi.getTimeSeries(params,True)
+        #df = await tdApi.getTimeSeries({"symbol": symbol, "interval": "5min", "apikey": apiKey, "outputSize": nVelas})
         if df is not None and len(df) >= 100:
             preloaded_data[symbol] = df
         else:
@@ -299,9 +309,9 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
         logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...", extra={"color": "orange"})
         
         # 1. Descargar datos de forma consistente (local o remota según configuración y aplicando spread de broker)
-        nVelas = 15000 if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
+        nVelas = 15000 # if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
         params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": nVelas}
-        df = await tdApi.getTimeSeries(params)
+        df = await tdApi.getTimeSeries(params,True)
         
         
         if df is None or len(df) < 200:
@@ -312,6 +322,12 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
         # --- Punto 3: Diccionario Maestro de Datos (Optimización Pandas) ---
         # Calculamos resampleos y features UNA SOLA VEZ para todos los bots
         df_5m = df.dropna(subset=['close', 'high', 'low', 'open'])
+        if not isinstance(df_5m.index, pd.DatetimeIndex):
+            if 'datetime' in df_5m.columns:
+                df_5m = df_5m.set_index('datetime')
+            elif 'timestamp' in df_5m.columns:
+                df_5m = df_5m.set_index('timestamp')
+
         
         # --- Revisar trades abiertos para este símbolo ---
         try:
@@ -560,20 +576,52 @@ async def main():
     import subprocess
     today = datetime.now().date()
     if today.weekday() == 5: # 5 es Sábado
-        flag_file = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/last_weekly_backtest.txt"
-        should_run = True
-        if os.path.exists(flag_file):
-            with open(flag_file, 'r') as f:
-                if f.read().strip() == str(today):
-                    should_run = False
-        if should_run:
+        flagFile = os.path.join(rutaRaiz, "Sentinel", "backtesting", "last_weekly_backtest.txt")
+        shouldRun = True
+        if os.path.exists(flagFile):
+            try:
+                with open(flagFile, 'r') as f:
+                    if f.read().strip() == str(today):
+                        shouldRun = False
+            except Exception as e:
+                logger.warning(f"No se pudo leer el archivo flag de mantenimiento: {e}")
+        if shouldRun:
             logger.info("📅 ¡Es Sábado! Lanzando el Mantenimiento Semanal en segundo plano...")
-            with open(flag_file, 'w') as f:
-                f.write(str(today))
-            subprocess.Popen(["/bin/bash", "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_maintenance.sh"],
-                             cwd="/Volumes/TimeMachine/ATALAia",
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+            try:
+                os.makedirs(os.path.dirname(flagFile), exist_ok=True)
+                with open(flagFile, 'w') as f:
+                    f.write(str(today))
+            except Exception as e:
+                logger.error(f"No se pudo crear el archivo flag de mantenimiento: {e}")
+            
+            scriptPath = os.path.join(rutaRaiz, "Sentinel", "backtesting", "run_maintenance.sh")
+            logDir = os.path.join(rutaRaiz, "logs")
+            os.makedirs(logDir, exist_ok=True)
+            logFile = os.path.join(logDir, "cron_maintenance.log")
+            
+            if os.name == 'posix':
+                try:
+                    subprocess.Popen(["/bin/bash", scriptPath],
+                                     cwd=rutaRaiz,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                except Exception as e:
+                    logger.error(f"Error iniciando mantenimiento semanal en Unix: {e}")
+            else:
+                pythonBin = sys.executable
+                scriptOptim = os.path.join(rutaRaiz, "Sentinel", "backtesting", "run_all_optimizations.py")
+                scriptGlobal = os.path.join(rutaRaiz, "Sentinel", "backtesting", "run_two_week_global_backtest.py")
+                scriptCompounding = os.path.join(rutaRaiz, "Sentinel", "backtesting", "run_weekly_backtest_compounding_v6.py")
+                cmdSeq = f'"{pythonBin}" "{scriptOptim}" && "{pythonBin}" "{scriptGlobal}" && "{pythonBin}" "{scriptCompounding}"'
+
+                try:
+                    subprocess.Popen(f'cmd.exe /c "{cmdSeq} >> "{logFile}" 2>&1"',
+                                     shell=True,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                except Exception as e:
+                    logger.error(f"Error iniciando mantenimiento semanal en Windows: {e}")
+
 
     
     # Auto-reentrenamiento al iniciar la app (siempre reentrena al inicio)

@@ -298,9 +298,9 @@ def runSilverBulletGridSearch():
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros Extendido (Deep Grid Search)
-    fvgMinPctCombos = [0.00005, 0.0001, 0.00015]
-    minRrCombos = [1.0, 1.2, 1.5, 2.0, 2.5]
-    minAdxCombos = [10.0, 15.0, 20.0, 25.0]
+    fvgMinPctCombos = [0.00003, 0.00005, 0.00008, 0.0001, 0.00012, 0.00015, 0.0002]
+    minRrCombos = [1.0, 1.2, 1.4, 1.5, 1.7, 1.8, 2.0, 2.3, 2.5, 3.0]
+    minAdxCombos = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
     
     bestResults = []
     allResultsRaw = []

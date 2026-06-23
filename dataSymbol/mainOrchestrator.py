@@ -38,7 +38,7 @@ DAYS_PER_CALL = 30
 ACCOUNT_NAMES = ["Jaime", "Raul", "Sebastian", "Ana"]
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 
-MAX_CANDLES_PER_CALL = 3000 if DATA_SOURCE == "forex" else 5000
+MAX_CANDLES_PER_CALL = 5000
 CANDLE_INTERVAL_MINUTES = 5
 MAX_MINUTES_PER_CALL = MAX_CANDLES_PER_CALL * CANDLE_INTERVAL_MINUTES
 
@@ -51,7 +51,7 @@ def next_5min_time(now):
 
 def seconds_until_next_5min(now, buffer_seconds=120):
     next_time = next_5min_time(now)
-    next_time = next_time + timedelta(seconds=buffer_seconds)
+    next_time = next_time + timedelta(seconds=buffer_seconds if DATA_SOURCE != "forex" else 2)
     sleep_seconds = int((next_time - now).total_seconds())
     return max(0, sleep_seconds), next_time
 
@@ -228,7 +228,7 @@ async def main():
                 symbolIndex = 0
                 sleepSeconds, nextTime = seconds_until_next_5min(now_local)
                 statusStr = "MetaTrader5 Local" if DATA_SOURCE == "forex" else limiter.getStatus()
-                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {statusStr})")
+                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {statusStr}) \n")
                 while sleepSeconds > 0:
                     tiempoSueñoParcial = min(60.0, sleepSeconds)
                     await asyncio.sleep(tiempoSueñoParcial)
@@ -272,6 +272,12 @@ async def main():
             if DATA_SOURCE == "forex":
                 apiKey = None
                 accountName = "MetaTrader5"
+                params = {
+                    "symbol": symbol,
+                    "interval": "5min",
+                    "start_date": startDate,
+                    "end_date": endDate
+                }
             else:
                 # Obtener siguiente cuenta disponible para Twelve Data
                 apiKey, accountName = limiter.getNextAccount()
@@ -279,17 +285,16 @@ async def main():
                     # Si no hay cuenta disponible ahora (límite por minuto alcanzado), esperamos un poco
                     await asyncio.sleep(2)
                     continue
-
-            logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%H:%M')} a {endDate.strftime('%H:%M')}")
-            
-            try:
                 params = {
                     "symbol": symbol,
                     "interval": "5min",
                     "apikey": apiKey,
                     "start_date": startDate,
                     "end_date": endDate
-                }
+                }            
+            
+            
+            try:               
                 
                 if DATA_SOURCE == "forex":
                     from middleware.api import forex
@@ -302,7 +307,7 @@ async def main():
                 if df is not None and not df.empty:
                     inserted = db.saveBulkData(df, symbol, "5min")
                     if inserted > 0:
-                        logger.info(f"[{symbol}] +{inserted} velas guardadas desde {DATA_SOURCE}.")
+                        logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%Y-%m-%d %H:%M')} a {endDate.strftime('%Y-%m-%d %H:%M')} --> {inserted} velas de {DATA_SOURCE}.")
                 
                 # Espera dinámica entre llamadas
                 await asyncio.sleep(SLEEP_BETWEEN_CALLS)

@@ -160,10 +160,10 @@ async def runPatron4HGridSearch() -> None:
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    minRrCombos = [1.5, 2.0]
-    minConfidenceCombos = [70.0]
-    displacementPctCombos = [0.0005]
-    fvgMinPctCombos = [0.00005]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
+    minConfidenceCombos = [60.0, 65.0, 70.0, 75.0, 80.0]
+    displacementPctCombos = [0.0003, 0.0005, 0.0008, 0.0010]
+    fvgMinPctCombos = [0.00003, 0.00005, 0.00008, 0.0001]
     
     bestResults = []
     allResultsRaw = []

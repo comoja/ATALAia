@@ -95,8 +95,25 @@ class DBConnectionPool:
 
 _pool_instance = DBConnectionPool()
 
+_cached_connection = None
+
 def getConnection():
+    global _cached_connection
     try:
+        if _cached_connection is not None:
+            try:
+                if _cached_connection.is_connected():
+                    # Verificar salud
+                    cursor = _cached_connection.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.fetchone()
+                    cursor.close()
+                    return _cached_connection
+                else:
+                    _cached_connection = None
+            except Exception:
+                _cached_connection = None
+
         conn = _pool_instance.get_connection()
         if conn is None:
             return None
@@ -120,6 +137,9 @@ def getConnection():
             else:
                 raise
         
+        # Mockear close para que no cierre la conexión real y se pueda reutilizar
+        conn.close = lambda: None
+        _cached_connection = conn
         return conn
     except MySQLError as e:
         logger.error(f"Error al conectar a la base de datos: {e}")

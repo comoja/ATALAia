@@ -315,9 +315,9 @@ def runReversionMediaGridSearch():
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    lrcPeriodCombos = [75, 100]
-    lrcDevCombos = [2.0, 2.5]
-    minRrCombos = [2.0, 2.5]
+    lrcPeriodCombos = [50, 75, 100, 125, 150]
+    lrcDevCombos = [1.5, 1.8, 2.0, 2.2, 2.5, 3.0]
+    minRrCombos = [1.5, 1.8, 2.0, 2.2, 2.5, 3.0]
     
     bestResults = []
     allResultsRaw = []

@@ -16,11 +16,15 @@ echo "================================================================" >> $LOG_
 echo "🚀 Iniciando Mantenimiento Semanal a $(date)" >> $LOG_FILE
 echo "================================================================" >> $LOG_FILE
 
-echo "⏳ [1/2] Ejecutando Evaluación Global de 2 Semanas (Actualizando Base de Datos)..." >> $LOG_FILE
+echo "⏳ [1/3] Ejecutando Re-optimización de Parámetros en Rejilla Ampliada..." >> $LOG_FILE
+$PYTHON_BIN /Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_all_optimizations.py >> $LOG_FILE 2>&1
+
+echo "⏳ [2/3] Ejecutando Evaluación Global de 2 Semanas (Actualizando Base de Datos)..." >> $LOG_FILE
 $PYTHON_BIN /Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_two_week_global_backtest.py >> $LOG_FILE 2>&1
 
-echo "⏳ [2/2] Ejecutando Reporte Semanal Compuesto V6 (Generando PDF)..." >> $LOG_FILE
+echo "⏳ [3/3] Ejecutando Reporte Semanal Compuesto V6 (Generando PDF)..." >> $LOG_FILE
 $PYTHON_BIN /Volumes/TimeMachine/ATALAia/Sentinel/backtesting/run_weekly_backtest_compounding_v6.py >> $LOG_FILE 2>&1
+
 
 echo "✅ Proceso de mantenimiento semanal finalizado correctamente a $(date)" >> $LOG_FILE
 echo "================================================================" >> $LOG_FILE

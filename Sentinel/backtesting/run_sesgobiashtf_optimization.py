@@ -218,9 +218,9 @@ async def runSesgoBiasHTFGridSearch():
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    swingLookbackCombos = [30, 50]
-    mssLookbackCombos = [3, 5]
-    minRrCombos = [1.5, 2.0]
+    swingLookbackCombos = [20, 30, 40, 50, 60]
+    mssLookbackCombos = [3, 4, 5, 6]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
     
     bestResults = []
     allResultsRaw = []

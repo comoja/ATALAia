@@ -47,7 +47,7 @@ TIMEZONE = "America/Mexico_City"
 DEFAULT_INTERVAL = "15min"
 MAX_INTERVAL = "1h"
 INTERVAL = "15min"
-DATA_SOURCE = "forex"
+DATA_SOURCE = "forex" #"forex" cuando es por twelvedata debe ser "db"
 RISK_REWARD = 1.9
 VELAS_HISTORIAL = 1000
 tiempoEspera = 5
@@ -55,7 +55,7 @@ INTERVALmax = "15min"
 timeZone = TIMEZONE
 
 dbConfig = {
-    "host": os.getenv("DB_HOST", "localhost"),
+    "host": os.getenv("DB_HOST", "192.168.68.54"),
     "user": os.getenv("DB_USER", "root"),
     "password": os.getenv("DB_PASSWORD", "M1x&J34ny"),
     "database": os.getenv("DB_DATABASE", "ATALAia"),
@@ -107,4 +107,5 @@ MAX_SIGNAL_AGE_MINUTES = 45 # Tiempo máximo permitido desde la vela origen hast
 MAX_RISK_PER_TRADE = 10.0 # Riesgo máximo permitido por operación (% del capital)
 
 # --- Temporary Settings ---
-bypassRestTime = True  # Cambiar a False para respetar el descanso de mercado de nuevo
+bypassRestTime = False  # Cambiar a False para respetar el descanso de mercado de nuevo
+

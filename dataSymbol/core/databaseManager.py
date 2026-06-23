@@ -118,7 +118,7 @@ class DatabaseManager:
                     if result.rowcount > 0:
                         inserted += 1
             
-            logger.info(f"[{symbol}] {timeframe}: {inserted} velas insertadas")
+            #logger.info(f"[{symbol}] {timeframe}: {inserted} velas insertadas")
             return inserted
             
         except Exception as e:

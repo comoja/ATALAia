@@ -223,9 +223,9 @@ def adjustDataframeInplace(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-async def getTimeSeries(params: dict) -> pd.DataFrame | None:
+async def getTimeSeries(params: dict, forceDb: bool = False) -> pd.DataFrame | None:
     
-    if  DATA_SOURCE == "db":
+    if forceDb:# DATA_SOURCE == "db":
         return adjustDataframeInplace(await getCandlesFromDb(params.get("symbol"), params.get("interval"), params.get("outputSize", 500)))
     else:
         return await _callTimeSeriesApi(params)

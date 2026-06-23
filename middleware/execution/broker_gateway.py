@@ -34,6 +34,11 @@ try:
 except ImportError:
     mt5 = None
 
+# Constantes de Llenado de Símbolo de MT5 (no provistas en la biblioteca de Python por defecto)
+SYMBOL_FILLING_FOK = 1
+SYMBOL_FILLING_IOC = 2
+
+
 from middleware.database import dbManager as _db
 
 setupLogging("execution")
@@ -515,9 +520,9 @@ class BrokerGateway:
                     
         logger.warning(f"⚠️ No se encontró coincidencia exacta ni sufijo para {baseSymbol}. Se usará {cleanSymbol}")
         return cleanSymbol
-    def updateLiveSLTP(self, ticketId: int, new_sl: float, mt5Symbol: str = None) -> bool:
+    def updateLiveSLTP(self, ticketId: int, new_sl: float = None, new_tp: float = None, mt5Symbol: str = None) -> bool:
         """
-        Actualiza el Stop Loss y (opcionalmente Take Profit) de una posición abierta en MT5.
+        Actualiza el Stop Loss y/o Take Profit de una posición abierta en MT5.
         """
         if mt5 is None:
             logger.info("ℹ️ Módulo MT5 no disponible en esta plataforma (macOS). Omitiendo actualización de SL/TP físico.")
@@ -541,24 +546,27 @@ class BrokerGateway:
         if not self.connectMt5(idCuenta=idCuenta):
             return False
             
-        logger.info(f"Actualizando SL de la posición {ticketId} a {new_sl} en MT5...")
-        
         # Validar si existe la posición
         positions = mt5.positions_get(ticket=ticketId)
         if not positions:
-            logger.warning(f"⚠️ Posición con ticket {ticketId} no encontrada en MT5 al intentar actualizar SL.")
+            logger.warning(f"⚠️ Posición con ticket {ticketId} no encontrada en MT5 al intentar actualizar SL/TP.")
             mt5.shutdown()
             return False
             
         pos = positions[0]
         symbol = mt5Symbol if mt5Symbol else pos.symbol
         
+        slVal = float(new_sl) if new_sl is not None else float(pos.sl)
+        tpVal = float(new_tp) if new_tp is not None else float(pos.tp)
+        
+        logger.info(f"Actualizando niveles en MT5 para posición {ticketId} (Símbolo: {symbol}) -> SL: {slVal}, TP: {tpVal}...")
+        
         request = {
             "action": mt5.TRADE_ACTION_SLTP,
             "symbol": symbol,
             "position": ticketId,
-            "sl": float(new_sl),
-            "tp": float(pos.tp), # Mantener TP actual
+            "sl": slVal,
+            "tp": tpVal,
         }
         
         result = mt5.order_send(request)
@@ -572,7 +580,7 @@ class BrokerGateway:
             mt5.shutdown()
             return False
             
-        logger.info(f"✅ Stop Loss actualizado exitosamente en MT5 (Ticket: {ticketId}).")
+        logger.info(f"✅ Niveles SL/TP actualizados exitosamente en MT5 (Ticket: {ticketId}).")
         mt5.shutdown()
         return True
 
@@ -628,9 +636,9 @@ class BrokerGateway:
             return False
             
         fillingMode = symbolInfo.filling_mode
-        if fillingMode & mt5.SYMBOL_FILLING_FOK:
+        if fillingMode & SYMBOL_FILLING_FOK:
             typeFilling = mt5.ORDER_FILLING_FOK
-        elif fillingMode & mt5.SYMBOL_FILLING_IOC:
+        elif fillingMode & SYMBOL_FILLING_IOC:
             typeFilling = mt5.ORDER_FILLING_IOC
         else:
             typeFilling = mt5.ORDER_FILLING_RETURN
@@ -723,9 +731,9 @@ class BrokerGateway:
             return False
             
         fillingMode = symbolInfo.filling_mode
-        if fillingMode & mt5.SYMBOL_FILLING_FOK:
+        if fillingMode & SYMBOL_FILLING_FOK:
             typeFilling = mt5.ORDER_FILLING_FOK
-        elif fillingMode & mt5.SYMBOL_FILLING_IOC:
+        elif fillingMode & SYMBOL_FILLING_IOC:
             typeFilling = mt5.ORDER_FILLING_IOC
         else:
             typeFilling = mt5.ORDER_FILLING_RETURN
@@ -761,8 +769,8 @@ class BrokerGateway:
             mt5.shutdown()
             return False
             
-        positionTicket = orderResult.position if orderResult.position else orderResult.order
-        trade_data['ticketId'] = str(positionTicket)
+        positionTicket = getattr(orderResult, "position", None) or getattr(orderResult, "order", None)
+        trade_data['ticketId'] = str(positionTicket) if positionTicket else None
         logger.info(f"✅ Orden ejecutada con éxito en MT5. Ticket Posición: {positionTicket}")
         
         mt5.shutdown()

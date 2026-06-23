@@ -78,9 +78,9 @@ def runBreakoutNYGridSearch() -> None:
     endDateStr = '2026-06-11 14:00:00'
     
     # Grid de Parámetros de BreakoutNY
-    rangeDurations = [15, 30, 45, 60]
-    tradingWindows = [120, 150, 180]
-    minRrCombos = [1.5, 2.0, 2.5]
+    rangeDurations = [15, 20, 25, 30, 40, 45, 50, 60]
+    tradingWindows = [90, 120, 150, 180, 210, 240]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5, 3.0]
     
     bestResults = []
     allResultsRaw = []

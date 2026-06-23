@@ -78,10 +78,10 @@ def runSpeedBotGridSearch() -> None:
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros de Desplazamiento
-    atrMults = [1.2, 1.4, 1.6]
-    bodyRatios = [0.75, 0.80]
-    confirmRatios = [0.40, 0.50, 0.60]
-    minRrCombos = [1.5, 2.0]
+    atrMults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0]
+    bodyRatios = [0.65, 0.70, 0.75, 0.80, 0.85]
+    confirmRatios = [0.30, 0.40, 0.50, 0.60, 0.70]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
     
     bestResults = []
     allResultsRaw = []

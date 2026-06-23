@@ -11,11 +11,25 @@ from middleware.database import dbConnection
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+def getActiveSymbols():
+    try:
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error cargando símbolos activos: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0, 'GBP/USD': 10000.0, 'AUD/USD': 10000.0, 'NZD/USD': 10000.0,
@@ -73,19 +87,23 @@ def runCruceEMAGridSearch() -> None:
         print("❌ No se pudo cargar el modelo ML. Saliendo.")
         return
         
-    smaCombos = [
-        (10, 20),
-        (15, 20),
-        (20, 50)
+    fastPeriods = [5, 8, 10, 12, 15, 20]
+    slowPeriods = [20, 25, 35, 50, 80, 100, 150]
+    smaCombos = [(f, s) for f in fastPeriods for s in slowPeriods if f < s]
+
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5, 3.0]
+    minConfidenceCombos = [0.0, 50.0, 60.0, 70.0, 80.0]
+    imacdCombos = [
+        (10, 5),
+        (12, 9),
+        (20, 9),
+        (26, 9),
+        (34, 9),
+        (50, 20)
     ]
-    minRrCombos = [1.2, 1.5, 2.0]
-    minConfidenceCombos = [65.0, 70.0, 75.0]
     
     bestResults = []
     allResultsRaw = []
-    
-    lengthMA = 34
-    lengthSignal = 9
     
     for symbol in ALL_SYMBOLS:
         print(f"⚙️ Analizando combinaciones para {symbol}...")
@@ -110,19 +128,11 @@ def runCruceEMAGridSearch() -> None:
         closes = df15m['close'].values
         n = len(df15m)
         
-        # Calcular IMACD globalmente
         hlc3 = (highs + lows + closes) / 3.0
-        hi_arr = pd.Series(highs).ewm(alpha=1.0/lengthMA, adjust=False).mean().values
-        lo_arr = pd.Series(lows).ewm(alpha=1.0/lengthMA, adjust=False).mean().values
-        ema1 = ta.EMA(hlc3, timeperiod=lengthMA)
-        ema2 = ta.EMA(ema1, timeperiod=lengthMA)
-        mi_arr = ema1 + (ema1 - ema2)
-        md_arr = np.where(mi_arr > hi_arr, mi_arr - hi_arr, np.where(mi_arr < lo_arr, mi_arr - lo_arr, 0.0))
-        sb_arr = ta.SMA(md_arr, timeperiod=lengthSignal)
-        
         
         symbolBestCombo = None
         symbolBestProfit = -9999.0
+        
         for smaFast, smaSlow in smaCombos:
             emaF = ta.EMA(closes, timeperiod=smaFast)
             emaS = ta.EMA(closes, timeperiod=smaSlow)
@@ -135,168 +145,193 @@ def runCruceEMAGridSearch() -> None:
             
             emaSlopes = calculateSlope(emaF)
             
-            validIdx = np.where(~np.isnan(emaF) & ~np.isnan(emaS) & ~np.isnan(atr14) & ~np.isnan(sb_arr))[0]
-            if len(validIdx) < 100: continue
+            for lengthMA, lengthSignal in imacdCombos:
+                # Calcular IMACD específico
+                hi_arr = pd.Series(highs).ewm(alpha=1.0/lengthMA, adjust=False).mean().values
+                lo_arr = pd.Series(lows).ewm(alpha=1.0/lengthMA, adjust=False).mean().values
+                ema1 = ta.EMA(hlc3, timeperiod=lengthMA)
+                ema2 = ta.EMA(ema1, timeperiod=lengthMA)
+                mi_arr = ema1 + (ema1 - ema2)
+                md_arr = np.where(mi_arr > hi_arr, mi_arr - hi_arr, np.where(mi_arr < lo_arr, mi_arr - lo_arr, 0.0))
+                sb_arr = ta.SMA(md_arr, timeperiod=lengthSignal)
                 
-            probs = np.zeros(n)
-            featData = []
-            featIndices = []
-            for i in range(1, n):
-                if i not in validIdx: continue
-                featData.append({
-                    "close": closes[i], "atr": atr14[i], "atr_norm": atr14[i]/closes[i],
-                    "sma20": emaF[i], "sma200": emaS[i],
-                    "dist_sma20": (closes[i] - emaF[i])/closes[i],
-                    "dist_sma200": (closes[i] - emaS[i])/closes[i],
-                    "log_return": np.log(closes[i]/closes[i-1]),
-                    "range": (highs[i]-lows[i])/closes[i],
-                    "sma_slope": emaSlopes[i]
+                validIdx = np.where(~np.isnan(emaF) & ~np.isnan(emaS) & ~np.isnan(atr14) & ~np.isnan(sb_arr))[0]
+                if len(validIdx) < 100: continue
+                    
+                probs = np.zeros(n)
+                
+                closes_rolled = np.roll(closes, 1)
+                closes_rolled[0] = closes[0]
+                log_ret = np.log(closes / closes_rolled)
+                log_ret[0] = 0.0
+                
+                dfFeatAll = pd.DataFrame({
+                    "close": closes,
+                    "atr": atr14,
+                    "atr_norm": atr14 / closes,
+                    "sma20": emaF,
+                    "sma200": emaS,
+                    "dist_sma20": (closes - emaF) / closes,
+                    "dist_sma200": (closes - emaS) / closes,
+                    "log_return": log_ret,
+                    "range": (highs - lows) / closes,
+                    "sma_slope": emaSlopes
                 })
-                featIndices.append(i)
                 
-            if featData:
-                dfFeat = pd.DataFrame(featData)
-                try:
-                    predProbs = modelClf.predict_proba(dfFeat)[:, 1]
-                    for idx_feat, i in enumerate(featIndices): probs[i] = predProbs[idx_feat]
-                except:
-                    for i in featIndices: probs[i] = 0.55
-            
-            for minRr in minRrCombos:
-                for minConfidence in minConfidenceCombos:
-                    minConfVal = minConfidence / 100.0
+                valid_mask = np.zeros(n, dtype=bool)
+                valid_mask[validIdx] = True
+                valid_mask[0] = False
+                
+                if valid_mask.any():
+                    dfFeatValid = dfFeatAll.iloc[valid_mask]
+                    try:
+                        predProbs = modelClf.predict_proba(dfFeatValid)[:, 1]
+                        probs[valid_mask] = predProbs
+                    except:
+                        probs[valid_mask] = 0.55
+                
+                # Precalcular candidatos de señales
+                candidates = []
+                idx = smaSlow + 20
+                while idx < n:
+                    direction = None
+                    v_curr_close = closes[idx]
+                    v_curr_open = opens[idx]
+                    v_curr_high = highs[idx]
+                    v_curr_low = lows[idx]
+                    v_prev_close = closes[idx-1]
+                    v_prev_open = opens[idx-1]
                     
-                    trades = []
-                    activeTrade = None
+                    body_curr = abs(v_curr_close - v_curr_open)
                     
-                    idx = smaSlow + 20
-                    while idx < n:
-                        price = closes[idx]
-                        if activeTrade:
-                            vHigh = highs[idx]
-                            vLow = lows[idx]
-                            tradeClosed = False
-                            
-                            if False:
-                                pass
- 
-                            if not tradeClosed:
-                                if activeTrade['direction'] == 'LARGO':
-                                    lowAdj = vLow - (spreadPrice / 2.0)
-                                    highAdj = vHigh + (spreadPrice / 2.0)
-                                    if lowAdj <= activeTrade['sl']:
-                                        trades.append(-100.0)
-                                        activeTrade = None
-                                    elif highAdj >= activeTrade['tp']:
-                                        trades.append(100.0 * minRr)
-                                        activeTrade = None
-                                else:
-                                    highAdj = vHigh + (spreadPrice / 2.0)
-                                    lowAdj = vLow - (spreadPrice / 2.0)
-                                    if highAdj >= activeTrade['sl']:
-                                        trades.append(-100.0)
-                                        activeTrade = None
-                                    elif lowAdj <= activeTrade['tp']:
-                                        trades.append(100.0 * minRr)
-                                        activeTrade = None
-                                    
-                            idx += 1
-                            continue
-                            
-                        direction = None
-                        v_curr_close = closes[idx]
-                        v_curr_open = opens[idx]
-                        v_curr_high = highs[idx]
-                        v_curr_low = lows[idx]
-                        v_prev_close = closes[idx-1]
-                        v_prev_open = opens[idx-1]
+                    md_val = md_arr[idx]
+                    sb_val = sb_arr[idx]
+                    
+                    if emaF[idx] > emaS[idx]:
+                        in_zone = v_curr_low <= (emaF[idx] + (atr14[idx]*0.1))
+                        lower_wick = min(v_curr_open, v_curr_close) - v_curr_low
+                        is_pinbar = (lower_wick > (body_curr * 1.5)) and (v_curr_close > v_curr_open) and body_curr > 0
+                        is_engulfing = (v_prev_close < v_prev_open) and (v_curr_close > v_curr_open) and (v_curr_close > v_prev_open) and (v_curr_open < v_prev_close)
                         
-                        body_curr = abs(v_curr_close - v_curr_open)
+                        imacd_bullish = (md_val > sb_val) and (md_val > 0)
                         
-                        md_val = md_arr[idx]
-                        sb_val = sb_arr[idx]
+                        if in_zone and (is_pinbar or is_engulfing) and imacd_bullish: direction = "LARGO"
+                            
+                    elif emaF[idx] < emaS[idx]:
+                        in_zone = v_curr_high >= (emaF[idx] - (atr14[idx]*0.1))
+                        upper_wick = v_curr_high - max(v_curr_open, v_curr_close)
+                        is_pinbar = (upper_wick > (body_curr * 1.5)) and (v_curr_close < v_curr_open) and body_curr > 0
+                        is_engulfing = (v_prev_close > v_prev_open) and (v_curr_close < v_curr_open) and (v_curr_close < v_prev_open) and (v_curr_open > v_prev_close)
                         
-                        if emaF[idx] > emaS[idx]:
-                            in_zone = v_curr_low <= (emaF[idx] + (atr14[idx]*0.1))
-                            lower_wick = min(v_curr_open, v_curr_close) - v_curr_low
-                            is_pinbar = (lower_wick > (body_curr * 1.5)) and (v_curr_close > v_curr_open) and body_curr > 0
-                            is_engulfing = (v_prev_close < v_prev_open) and (v_curr_close > v_curr_open) and (v_curr_close > v_prev_open) and (v_curr_open < v_prev_close)
+                        imacd_bearish = (md_val < sb_val) and (md_val < 0)
+                        
+                        if in_zone and (is_pinbar or is_engulfing) and imacd_bearish: direction = "CORTO"
+                        
+                    if direction:
+                        candidates.append({
+                            'idx': idx,
+                            'direction': direction,
+                            'price': closes[idx],
+                            'prob': probs[idx],
+                            'atrVal': atr14[idx],
+                            'swingHigh': sHighs[idx],
+                            'swingLow': sLows[idx],
+                            'hZone': hZones[idx],
+                            'lZone': lZones[idx]
+                        })
+                    idx += 1
+
+                for minRr in minRrCombos:
+                    for minConfidence in minConfidenceCombos:
+                        minConfVal = minConfidence / 100.0
+                        
+                        trades = []
+                        last_exit_idx = -1
+                        
+                        for cand in candidates:
+                            if cand['idx'] <= last_exit_idx:
+                                continue
                             
-                            imacd_bullish = (md_val > sb_val) and (md_val > 0)
-                            
-                            if in_zone and (is_pinbar or is_engulfing) and imacd_bullish: direction = "LARGO"
+                            if cand['prob'] < minConfVal:
+                                continue
                                 
-                        elif emaF[idx] < emaS[idx]:
-                            in_zone = v_curr_high >= (emaF[idx] - (atr14[idx]*0.1))
-                            upper_wick = v_curr_high - max(v_curr_open, v_curr_close)
-                            is_pinbar = (upper_wick > (body_curr * 1.5)) and (v_curr_close < v_curr_open) and body_curr > 0
-                            is_engulfing = (v_prev_close > v_prev_open) and (v_curr_close < v_curr_open) and (v_curr_close < v_prev_open) and (v_curr_open > v_prev_close)
+                            direction = cand['direction']
+                            price = cand['price']
+                            atrVal = cand['atrVal']
+                            swingHigh = cand['swingHigh']
+                            swingLow = cand['swingLow']
+                            hZone = cand['hZone']
+                            lZone = cand['lZone']
+                            idx_entry = cand['idx']
                             
-                            imacd_bearish = (md_val < sb_val) and (md_val < 0)
-                            
-                            if in_zone and (is_pinbar or is_engulfing) and imacd_bearish: direction = "CORTO"
-                        
-                        if direction:
-                            prob = probs[idx]
-                            if prob >= minConfVal:
-                                atrVal = atr14[idx]
-                                swingHigh = sHighs[idx]
-                                swingLow = sLows[idx]
-                                hZone = hZones[idx]
-                                lZone = lZones[idx]
+                            if direction == "LARGO":
+                                sl = swingLow - atrVal * 0.2
+                                tpStruct = hZone
+                            else:
+                                sl = swingHigh + atrVal * 0.2
+                                tpStruct = lZone
                                 
-                                if direction == "LARGO":
-                                    sl = swingLow - atrVal * 0.2
-                                    tpStruct = hZone
-                                else:
-                                    sl = swingHigh + atrVal * 0.2
-                                    tpStruct = lZone
-                                    
-                                slDist = abs(price - sl)
-                                if slDist > 0:
-                                    tpDist = max(abs(tpStruct - price), slDist * minRr)
-                                    tp = price + tpDist if direction == "LARGO" else price - tpDist
-                                    
-                                    activeTrade = {
-                                        'direction': direction,
-                                        'entry': price + (spreadPrice / 2.0) if direction == "LARGO" else price - (spreadPrice / 2.0),
-                                        'sl': sl,
-                                        'tp': tp,
-                                        'sl_dist': slDist
-                                    }
-                                    
-                        idx += 1
-                        
-                    tCount = len(trades)
-                    if tCount > 3:
-                        wCount = len([t for t in trades if t > 0])
-                        wRate = (wCount / tCount) * 100
-                        pnlNet = sum(trades)
-                        
-                        profitCount = sum([t for t in trades if t > 0])
-                        lossCount = abs(sum([t for t in trades if t <= 0]))
-                        profFactor = profitCount / lossCount if lossCount > 0 else float('inf')
-                        
-                        comboData = {
-                            'Símbolo': symbol,
-                            'EMA Fast': smaFast,
-                            'EMA Slow': smaSlow,
-                            'Min RR': minRr,
-                            'Min Conf': minConfidence,
-                            'Trades': tCount,
-                            'Win Rate': f"{wRate:.1f}%",
-                            'Profit Factor': round(profFactor, 2),
-                            'PnL USD': pnlNet
-                        }
-                        allResultsRaw.append(comboData)
-                        
-                        if pnlNet > symbolBestProfit and profFactor >= 1.0:
-                            symbolBestProfit = pnlNet
-                            symbolBestCombo = comboData
+                            slDist = abs(price - sl)
+                            if slDist <= 0:
+                                continue
+                                
+                            tpDist = max(abs(tpStruct - price), slDist * minRr)
+                            tp = price + tpDist if direction == "LARGO" else price - tpDist
                             
+                            lows_slice = lows[idx_entry:]
+                            highs_slice = highs[idx_entry:]
+                            
+                            if direction == "LARGO":
+                                sl_hits = np.where(lows_slice - (spreadPrice / 2.0) <= sl)[0]
+                                tp_hits = np.where(highs_slice + (spreadPrice / 2.0) >= tp)[0]
+                            else:
+                                sl_hits = np.where(highs_slice + (spreadPrice / 2.0) >= sl)[0]
+                                tp_hits = np.where(lows_slice - (spreadPrice / 2.0) <= tp)[0]
+                                
+                            first_sl = sl_hits[0] if len(sl_hits) > 0 else n
+                            first_tp = tp_hits[0] if len(tp_hits) > 0 else n
+                            
+                            if first_sl < first_tp:
+                                trades.append(-100.0)
+                                last_exit_idx = idx_entry + first_sl
+                            elif first_tp < first_sl:
+                                trades.append(100.0 * minRr)
+                                last_exit_idx = idx_entry + first_tp
+                            else:
+                                last_exit_idx = n
+                                
+                        tCount = len(trades)
+                        if tCount > 3:
+                            wCount = len([t for t in trades if t > 0])
+                            wRate = (wCount / tCount) * 100
+                            pnlNet = sum(trades)
+                            
+                            profitCount = sum([t for t in trades if t > 0])
+                            lossCount = abs(sum([t for t in trades if t <= 0]))
+                            profFactor = profitCount / lossCount if lossCount > 0 else float('inf')
+                            
+                            comboData = {
+                                'Símbolo': symbol,
+                                'EMA Fast': smaFast,
+                                'EMA Slow': smaSlow,
+                                'IMACD Slow': lengthMA,
+                                'IMACD Signal': lengthSignal,
+                                'Min RR': minRr,
+                                'Min Conf': minConfidence,
+                                'Trades': tCount,
+                                'Win Rate': f"{wRate:.1f}%",
+                                'Profit Factor': round(profFactor, 2),
+                                'PnL USD': pnlNet
+                            }
+                            allResultsRaw.append(comboData)
+                            
+                            if pnlNet > symbolBestProfit and profFactor >= 1.0:
+                                symbolBestProfit = pnlNet
+                                symbolBestCombo = comboData
+                                
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            print(f"  🏆 Mejor combo para {symbol}: Fast={symbolBestCombo['EMA Fast']} | Slow={symbolBestCombo['EMA Slow']} | RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
+            print(f"  🏆 Mejor combo para {symbol}: Fast={symbolBestCombo['EMA Fast']} | Slow={symbolBestCombo['EMA Slow']} | IMACD={symbolBestCombo['IMACD Slow']}/{symbolBestCombo['IMACD Signal']} | RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
             print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")
 
@@ -328,8 +363,8 @@ def runCruceEMAGridSearch() -> None:
                 imacd_params = {
                     "useImpulseMacdFilter": 1,
                     "macdFast": 12,
-                    "macdSlow": 26,
-                    "macdSignal": 9
+                    "macdSlow": combo['IMACD Slow'],
+                    "macdSignal": combo['IMACD Signal']
                 }
                 imacdJson = json.dumps(imacd_params)
                 
@@ -350,3 +385,4 @@ def runCruceEMAGridSearch() -> None:
 
 if __name__ == '__main__':
     runCruceEMAGridSearch()
+

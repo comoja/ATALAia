@@ -79,10 +79,10 @@ def runBreakoutProbabilityGridSearch() -> None:
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    channelLens = [15, 20, 25, 30]
-    targetAtrMults = [1.2, 1.5, 1.8, 2.0]
-    minProbThresholds = [50.0, 55.0, 60.0]
-    minRrCombos = [1.5, 2.0]
+    channelLens = [10, 15, 20, 25, 30, 35, 40]
+    targetAtrMults = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0, 2.2, 2.5]
+    minProbThresholds = [45.0, 50.0, 55.0, 60.0, 65.0]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
     
     bestResults = []
     allResultsRaw = []

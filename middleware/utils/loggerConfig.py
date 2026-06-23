@@ -1,6 +1,33 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import os
+import warnings
+
+# Silenciar advertencia ruidosa de scikit-learn sobre parallel.delayed en entornos Windows/multi-hilo
+warnings.filterwarnings(
+    "ignore",
+    message=".*sklearn.utils.parallel.delayed.*"
+)
+
+
+class SafeTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """
+    Manejador de archivos con rotación temporal que evita errores de permiso
+    en Windows si el archivo de log está bloqueado por otro proceso.
+    """
+    def rotate(self, source: str, dest: str) -> None:
+        try:
+            if os.path.exists(source):
+                os.rename(source, dest)
+        except PermissionError:
+            import shutil
+            try:
+                shutil.copy(source, dest)
+                with open(source, 'w', encoding='utf-8') as fileObj:
+                    fileObj.truncate(0)
+            except Exception:
+                pass
+
 
 class ColorFormatter(logging.Formatter):
     """
@@ -65,7 +92,7 @@ def setupLogging(logPara: str = "app", projectDir: str | None = None, enableCons
     logger.handlers.clear()
     
     # Manejador para archivo diario
-    fileHandler = TimedRotatingFileHandler(
+    fileHandler = SafeTimedRotatingFileHandler(
         logFilename, when="midnight", interval=1, backupCount=30, encoding='utf-8'
     )
     fileHandler.suffix = "%Y-%m-%d"

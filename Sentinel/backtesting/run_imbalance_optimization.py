@@ -90,9 +90,9 @@ def runImbalanceGridSearch(strategyName: str, sessionTzName: str, refStartH: int
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    minRrCombos = [1.5, 2.0, 2.5]
-    maxMinutosFvgCombos = [15, 20, 30]
-    minConfidenceCombos = [70.0, 80.0]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5, 3.0]
+    maxMinutosFvgCombos = [10, 15, 20, 25, 30, 45, 60]
+    minConfidenceCombos = [60.0, 65.0, 70.0, 75.0, 80.0, 85.0]
     
     bestResults = []
     allResultsRaw = []

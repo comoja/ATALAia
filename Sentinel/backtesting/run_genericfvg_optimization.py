@@ -16,11 +16,25 @@ from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR
 # Silenciar logs para que no saturen la pantalla
 logging.getLogger('sentinel').setLevel(logging.ERROR)
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+def getActiveSymbols():
+    try:
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error cargando símbolos activos: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0,
@@ -84,8 +98,8 @@ def runGenericFVGGridSearch() -> None:
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    minRrCombos = [1.5, 2.0, 2.5]
-    minConfidenceCombos = [70.0, 80.0, 90.0]
+    minRrCombos = [1.0, 1.2, 1.4, 1.5, 1.7, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0, 3.5]
+    minConfidenceCombos = [0.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0]
     requireHtfSweepCombos = [True, False]
     
     bestResults = []
@@ -153,82 +167,67 @@ def runGenericFVGGridSearch() -> None:
         symbolBestCombo = None
         symbolBestProfit = -9999.0
         
+        # Precalcular candidatos de señales
+        precomputed_signals = []
+        for idx_fvg in sorted(fvgMap.keys()):
+            latestFvg = fvgMap[idx_fvg]
+            classification = latestFvg.get('classification', 'Alta Probabilidad')
+            if classification == 'Rechazo/Baja Probabilidad':
+                continue
+                
+            fvgDirection = "LARGO" if latestFvg['type'] == 'Bullish_FVG' else "CORTO"
+            
+            # Filtro Sweep HTF
+            sweepLookback = 150
+            hasSweep = False
+            sweepType = None
+            startK = max(0, idx_fvg - sweepLookback)
+            
+            for k in range(idx_fvg, startK - 1, -1):
+                kDate = times[k].date()
+                kPdh = pdhMap.get(kDate)
+                kPdl = pdlMap.get(kDate)
+                if kPdh is None or kPdl is None:
+                    continue
+                
+                kHigh = highs[k]
+                kLow = lows[k]
+                kClose = closes[k]
+                
+                if kHigh > kPdh and kClose < kPdh:
+                    sweepType = 'MANIPULATION_UP'
+                    hasSweep = True
+                    break
+                if kLow < kPdl and kClose > kPdl:
+                    sweepType = 'MANIPULATION_DOWN'
+                    hasSweep = True
+                    break
+                    
+            precomputed_signals.append({
+                'idx': idx_fvg,
+                'fvgDirection': fvgDirection,
+                'hasSweep': hasSweep,
+                'sweepType': sweepType,
+                'latestFvg': latestFvg,
+                'currentPrice': float(closes[idx_fvg]),
+                'atrVal': atrs[idx_fvg]
+            })
+
         for minRr in minRrCombos:
             for minConfidence in minConfidenceCombos:
                 for requireHtfSweep in requireHtfSweepCombos:
                     trades = []
-                    activeTrade = None
+                    last_exit_idx = -1
                     
-                    # Simulación
-                    idx = 50
-                    while idx < n:
-                        if activeTrade:
-                            # Evaluar salidas
-                            vHigh = highs[idx]
-                            vLow = lows[idx]
-                            
-                            if activeTrade['direction'] == 'LARGO':
-                                lowAdj = vLow - (spreadPrice / 2.0)
-                                highAdj = vHigh + (spreadPrice / 2.0)
-                                if lowAdj <= activeTrade['sl']:
-                                    trades.append(-100.0)
-                                    activeTrade = None
-                                elif highAdj >= activeTrade['tp']:
-                                    trades.append(100.0 * minRr)
-                                    activeTrade = None
-                            else:
-                                highAdj = vHigh + (spreadPrice / 2.0)
-                                lowAdj = vLow - (spreadPrice / 2.0)
-                                if highAdj >= activeTrade['sl']:
-                                    trades.append(-100.0)
-                                    activeTrade = None
-                                elif lowAdj <= activeTrade['tp']:
-                                    trades.append(100.0 * minRr)
-                                    activeTrade = None
-                                    
-                            idx += 1
+                    for sig in precomputed_signals:
+                        idx_fvg = sig['idx']
+                        if idx_fvg <= last_exit_idx:
                             continue
                             
-                        # Verificar si hay un FVG confirmado en esta vela idx
-                        latestFvg = fvgMap.get(idx)
-                        if not latestFvg:
-                            idx += 1
-                            continue
-                            
-                        classification = latestFvg.get('classification', 'Alta Probabilidad')
-                        if classification == 'Rechazo/Baja Probabilidad':
-                            idx += 1
-                            continue
-                            
-                        fvgDirection = "LARGO" if latestFvg['type'] == 'Bullish_FVG' else "CORTO"
+                        fvgDirection = sig['fvgDirection']
+                        hasSweep = sig['hasSweep']
+                        sweepType = sig['sweepType']
                         
-                        # Filtro Sweep HTF (Numpy rápido)
-                        # Lookback dinámico según el timeframe: para 15min es 150
-                        sweepLookback = 150
-                        hasSweep = False
-                        sweepType = None
-                        startK = max(0, idx - sweepLookback)
-                        
-                        for k in range(idx, startK - 1, -1):
-                            kDate = times[k].date()
-                            kPdh = pdhMap.get(kDate)
-                            kPdl = pdlMap.get(kDate)
-                            if kPdh is None or kPdl is None:
-                                continue
-                            
-                            kHigh = highs[k]
-                            kLow = lows[k]
-                            kClose = closes[k]
-                            
-                            if kHigh > kPdh and kClose < kPdh:
-                                sweepType = 'MANIPULATION_UP'
-                                hasSweep = True
-                                break
-                            if kLow < kPdl and kClose > kPdl:
-                                sweepType = 'MANIPULATION_DOWN'
-                                hasSweep = True
-                                break
-                                
                         skipSignal = False
                         if hasSweep:
                             if sweepType == 'MANIPULATION_UP' and fvgDirection != 'CORTO':
@@ -240,19 +239,17 @@ def runGenericFVGGridSearch() -> None:
                                 skipSignal = True
                                 
                         if skipSignal:
-                            idx += 1
                             continue
                             
-                        # Niveles SMC
-                        currentPrice = float(closes[idx])
-                        atrVal = atrs[idx]
-                        setupFvg = technical.calculate_fvg_setup(latestFvg, currentPrice, atrVal)
+                        currentPrice = sig['currentPrice']
+                        atrVal = sig['atrVal']
+                        latestFvg = sig['latestFvg']
                         
+                        setupFvg = technical.calculate_fvg_setup(latestFvg, currentPrice, atrVal)
                         entryPrice = setupFvg['entry']
                         sl = setupFvg['sl']
                         
-                        # TP Estructural
-                        fvgIdxPrior = latestFvg.get('idx', idx)
+                        fvgIdxPrior = latestFvg.get('idx', idx_fvg)
                         startPrior = max(0, fvgIdxPrior - 19)
                         
                         if fvgDirection == "LARGO":
@@ -260,7 +257,6 @@ def runGenericFVGGridSearch() -> None:
                         else:
                             tpRef = np.min(np.minimum(opens[startPrior:fvgIdxPrior+1], closes[startPrior:fvgIdxPrior+1]))
                             
-                        # Cap de TP por ATR
                         maxAtrMult = 3.0
                         if fvgDirection == "LARGO":
                             maxTp = currentPrice + atrVal * maxAtrMult
@@ -276,48 +272,49 @@ def runGenericFVGGridSearch() -> None:
                         rrRatio = rewardDist / riskDist if riskDist > 0 else 0
                         
                         if rrRatio > 15:
-                            idx += 1
                             continue
                             
-                        # Health Check Simplificado
                         progressPct = (currentPrice - entryPrice) / (entryPrice - sl) if fvgDirection == 'LARGO' else (entryPrice - currentPrice) / (sl - entryPrice)
                         if progressPct > 3.5:
-                            idx += 1
                             continue
                             
-                        # Validar invalidación de SL inmediata
                         if fvgDirection == "LARGO" and currentPrice <= sl:
-                            idx += 1
                             continue
                         if fvgDirection == "CORTO" and currentPrice >= sl:
-                            idx += 1
                             continue
                             
-                        # Validar RR Real
                         realRiskDist = abs(currentPrice - sl)
                         rrVal = round(abs(tp1 - currentPrice) / realRiskDist, 2) if realRiskDist > 0 else 0
                         minRealRr = minRr * 0.70
                         if rrVal < minRealRr:
-                            idx += 1
                             continue
                             
-                        # Confianza
                         baseConfidence = 85
                         if baseConfidence < minConfidence:
-                            idx += 1
                             continue
                             
-                        # Entrar al trade
-                        activeTrade = {
-                            'direction': fvgDirection,
-                            'entry': currentPrice + (spreadPrice / 2.0) if fvgDirection == "LARGO" else currentPrice - (spreadPrice / 2.0),
-                            'sl': sl,
-                            'tp': tp1
-                        }
+                        lows_slice = lows[idx_fvg:]
+                        highs_slice = highs[idx_fvg:]
                         
-                        idx += 1
+                        if fvgDirection == "LARGO":
+                            sl_hits = np.where(lows_slice - (spreadPrice / 2.0) <= sl)[0]
+                            tp_hits = np.where(highs_slice + (spreadPrice / 2.0) >= tp1)[0]
+                        else:
+                            sl_hits = np.where(highs_slice + (spreadPrice / 2.0) >= sl)[0]
+                            tp_hits = np.where(lows_slice - (spreadPrice / 2.0) <= tp1)[0]
+                            
+                        first_sl = sl_hits[0] if len(sl_hits) > 0 else n
+                        first_tp = tp_hits[0] if len(tp_hits) > 0 else n
                         
-                    # Métricas finales del combo
+                        if first_sl < first_tp:
+                            trades.append(-100.0)
+                            last_exit_idx = idx_fvg + first_sl
+                        elif first_tp < first_sl:
+                            trades.append(100.0 * minRr)
+                            last_exit_idx = idx_fvg + first_tp
+                        else:
+                            last_exit_idx = n
+                            
                     tCount = len(trades)
                     if tCount > 3:
                         wCount = len([t for t in trades if t > 0])
@@ -362,6 +359,31 @@ def runGenericFVGGridSearch() -> None:
         bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/genericfvg_grid_results_best.csv"
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
+        
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            for combo in bestResults:
+                sym = combo['Símbolo']
+                params = {
+                    "minRr": combo['Min RR'],
+                    "minConfidence": combo['Min Conf'],
+                    "requireHtfSweep": combo['Require Sweep']
+                }
+                paramsJson = json.dumps(params)
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
+                    VALUES ('GenericFVG', %s, TRUE, %s, '{"macdFast": 12, "macdSlow": 26, "macdSignal": 9, "useImpulseMacdFilter": 1}')
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (sym, paramsJson))
+            conn.commit()
+            print("✅ Parámetros rentables guardados automáticamente en la BD por símbolo (symbolStrategyConfig).")
+        except Exception as e:
+            print(f"❌ Error guardando parámetros en BD: {e}")
+        finally:
+            if 'cursor' in locals(): cursor.close()
+            if 'conn' in locals(): conn.close()
 
 if __name__ == '__main__':
     runGenericFVGGridSearch()

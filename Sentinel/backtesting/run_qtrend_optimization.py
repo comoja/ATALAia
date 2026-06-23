@@ -5,6 +5,7 @@ import numpy as np
 import talib as ta
 import logging
 import asyncio
+import json
 from datetime import datetime
 import pytz
 
@@ -18,11 +19,25 @@ from Sentinel.analysis import technical
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+def getActiveSymbols():
+    try:
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error cargando símbolos activos: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0,
@@ -262,14 +277,14 @@ async def runQTrendGridSearch():
     endDateStr = '2026-06-16 23:59:59'
     
     # Grid de Parámetros
-    supertrendPeriodCombos = [10, 14]
-    supertrendMultiplierCombos = [2.0, 3.0]
-    qtrendFastCombos = [9, 12]
-    qtrendSlowCombos = [21, 26]
+    supertrendPeriodCombos = [8, 10, 12, 14, 16]
+    supertrendMultiplierCombos = [1.5, 2.0, 2.5, 3.0, 3.5]
+    qtrendFastCombos = [7, 9, 11, 12, 14]
+    qtrendSlowCombos = [18, 21, 24, 26, 30]
     
     # Parámetro de Take Profit (tpParam): representa minRR para Forex, y tpPercent (porcentual, ej. 2.0%) para Cripto/Oro
-    tpParamCombosMoneda = [1.5, 2.0]
-    tpParamCombosExotic = [1.5, 2.5]
+    tpParamCombosMoneda = [1.2, 1.5, 1.8, 2.0, 2.5, 3.0]
+    tpParamCombosExotic = [1.0, 1.5, 2.0, 2.5, 3.0]
     
     allResultsRaw = []
     bestResults = []

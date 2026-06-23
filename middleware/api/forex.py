@@ -7,7 +7,7 @@ import logging
 import asyncio
 import pandas as pd
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from middleware.config.constants import TIMEZONE, mt5Login, mt5Password, mt5Server
 from middleware.database import dbManager, dbConnection
@@ -46,25 +46,41 @@ async def _ensureMt5Initialized() -> bool:
         return False
         
     try:
-        logger.info("[ForexAPI] Intentando conectar con el terminal de MetaTrader 5...")
-        # Intentar conectar/inicializar directamente con las credenciales parametrizadas y un timeout de 15 segundos
-        if mt5Login > 0:
-            logger.info(f"[ForexAPI] Inicializando MT5 con cuenta {mt5Login} y servidor {mt5Server}...")
-            initialized = await asyncio.to_thread(
-                mt5.initialize,
-                login=mt5Login,
-                password=mt5Password,
-                server=mt5Server,
-                timeout=15000
-            )
-        else:
-            logger.info("[ForexAPI] Inicializando MT5 sin credenciales explícitas...")
-            initialized = await asyncio.to_thread(mt5.initialize, timeout=15000)
+        # Verificar si ya está inicializado y conectado a la cuenta correcta
+        terminalInfo = mt5.terminal_info()
+        if terminalInfo is not None:
+            if mt5Login > 0:
+                accountInfo = mt5.account_info()
+                if accountInfo is not None and accountInfo.login == mt5Login and accountInfo.server == mt5Server:
+                    logger.debug(f"[ForexAPI] MT5 ya está inicializado y conectado a la cuenta {mt5Login}.")
+                    return True
+            else:
+                logger.debug("[ForexAPI] MT5 ya está inicializado con sesión activa.")
+                return True
 
-        if not initialized:
+        logger.info("[ForexAPI] Intentando conectar con el terminal de MetaTrader 5...")
+        
+        # Inicializar MT5 sin credenciales directamente en initialize para evitar IPC timeout
+        isInitialized = await asyncio.to_thread(mt5.initialize)
+        if not isInitialized:
             errorCode = mt5.last_error()
             logger.error(f"[ForexAPI] Falló inicialización de MetaTrader5. Código de error: {errorCode}")
             return False
+
+        # Si tenemos credenciales parametrizadas, realizamos el login por separado
+        if mt5Login > 0:
+            logger.info(f"[ForexAPI] Realizando login programático a la cuenta {mt5Login}...")
+            isLogged = await asyncio.to_thread(
+                mt5.login,
+                mt5Login,
+                password=mt5Password,
+                server=mt5Server
+            )
+            if not isLogged:
+                errorCode = mt5.last_error()
+                logger.error(f"[ForexAPI] Falló login en MetaTrader5. Código de error: {errorCode}")
+                await asyncio.to_thread(mt5.shutdown)
+                return False
             
         logger.info("[ForexAPI] Conexión e inicialización exitosa con MetaTrader 5.")
         return True
@@ -142,6 +158,12 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
 
     # Normalizar el símbolo para MT5 (remover barra, ej: EUR/USD -> EURUSD)
     symbol = symbolRaw.replace("/", "").upper()
+    
+    # Mapeo de símbolos personalizados para MT5
+    symbolMap = {
+        "BTCUSD": "Bitcoin"
+    }
+    symbol = symbolMap.get(symbol, symbol)
 
     # Mapear el intervalo
     mt5Timeframe = TIMEFRAME_MAP.get(interval)
@@ -226,7 +248,7 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
             # Solo validar la vela más antigua si el inicio solicitado es anterior a hace 30 días (para evitar consultas históricas innecesarias)
             limitTs = int((datetime.now(pytz.timezone(TIMEZONE)) - timedelta(days=30)).timestamp())
             if tsFrom < limitTs:
-                oldestRates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, datetime(1970, 1, 1), 1)
+                oldestRates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, datetime(1990, 1, 1), 1)
                 if oldestRates is not None and len(oldestRates) > 0:
                     oldestTs = int(oldestRates[0]['time'])
                     if tsFrom < oldestTs:
@@ -251,7 +273,7 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
                 rates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, tsFrom, min(outputSize, 3000))
         else:
             # Por defecto obtener las últimas outputSize velas terminadas
-            rates = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 0, outputSize)
+            rates = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 1, outputSize)
 
         if rates is None or len(rates) == 0:
             logger.warning(f"[ForexAPI] No se pudieron obtener velas para {symbol} desde MT5.")
@@ -259,6 +281,16 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
 
         # Convertir a DataFrame
         df = pd.DataFrame(rates)
+        
+        # Excluir la vela en desarrollo actual (vela 0) para asegurar solo velas terminadas
+        currentBar = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 0, 1)
+        if currentBar is not None and len(currentBar) > 0:
+            currentBarTime = int(currentBar[0]['time'])
+            df = df[df['time'] < currentBarTime]
+
+        if df.empty:
+            logger.warning(f"[ForexAPI] No quedaron velas terminadas para {symbol} después de filtrar la vela actual.")
+            return None
         
         # MT5 retorna time en segundos Unix (UTC). Convertimos a datetime con timezone local (TIMEZONE)
         df['datetime'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert(pytz.timezone(TIMEZONE))

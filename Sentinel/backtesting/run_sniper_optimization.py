@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import logging
 import asyncio
+import json
 
 # Asegurar path del proyecto en sys.path
 sys.path.append("/Volumes/TimeMachine/ATALAia")
@@ -17,11 +18,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 logging.getLogger("sentinel").setLevel(logging.ERROR)
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+def getActiveSymbols():
+    try:
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error cargando símbolos activos: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0, 'GBP/USD': 10000.0, 'AUD/USD': 10000.0, 'NZD/USD': 10000.0,
@@ -188,9 +203,9 @@ async def runSniperGridSearch():
     endDateStr = '2026-06-16 23:59:59'
     
     # Deep Grid
-    probaThresholdLongCombos = [0.55, 0.60, 0.65, 0.70]
-    minConfidenceCombos = [60, 70, 80]
-    minRrCombos = [1.0, 1.2, 1.5, 1.8, 2.0, 2.5]
+    probaThresholdLongCombos = [0.53, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70, 0.75]
+    minConfidenceCombos = [45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+    minRrCombos = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0, 3.5]
     
     bestResults = []
     allResultsRaw = []
@@ -221,7 +236,33 @@ async def runSniperGridSearch():
     if not dfAll.empty: dfAll.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_all.csv", index=False)
     
     dfBest = pd.DataFrame(bestResults)
-    if not dfBest.empty: dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_best.csv", index=False)
+    if not dfBest.empty:
+        dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_best.csv", index=False)
+        
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            for combo in bestResults:
+                sym = combo['symbol']
+                params = {
+                    "minRr": combo['minRr'],
+                    "minConfidence": combo['minConfidence'],
+                    "probaThresholdLong": combo['probaThresholdLong']
+                }
+                paramsJson = json.dumps(params)
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
+                    VALUES ('Sniper', %s, TRUE, %s, '{"macdFast": 12, "macdSlow": 26, "macdSignal": 9, "useImpulseMacdFilter": 0}')
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (sym, paramsJson))
+            conn.commit()
+            logger.info("✅ Parámetros rentables guardados automáticamente en la BD por símbolo (symbolStrategyConfig) para Sniper.")
+        except Exception as e:
+            logger.error(f"❌ Error guardando parámetros en BD para Sniper: {e}")
+        finally:
+            if 'cursor' in locals(): cursor.close()
+            if 'conn' in locals(): conn.close()
     logger.info("==========================================================")
 
 if __name__ == "__main__":

@@ -140,11 +140,14 @@ def runIchimokuGridSearch() -> None:
     # Grid de Parámetros Ichimoku
     # (tenkan, kijun, senkou, displacement)
     ichimokuCombos = [
-        (7, 22, 44, 22),   # Corta / Rápida
-        (9, 26, 52, 26),   # Estándar
-        (10, 30, 60, 30)   # Lenta / Filtrada
+        (6, 18, 36, 18),
+        (7, 22, 44, 22),
+        (9, 26, 52, 26),
+        (10, 30, 60, 30),
+        (12, 36, 72, 36),
+        (15, 45, 90, 45)
     ]
-    minRrCombos = [1.5, 2.0]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5, 3.0]
     
     bestResults = []
     allResultsRaw = []
