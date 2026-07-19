@@ -11,11 +11,27 @@ sys.path.append("/Volumes/TimeMachine/ATALAia")
 from middleware.database import dbConnection
 from Sentinel.analysis import technical
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+
+def getActiveSymbols():
+    try:
+        from middleware.database import dbConnection
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error fetching active symbols: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0,
@@ -336,6 +352,29 @@ def runFVGDiarioGridSearch() -> None:
                             
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                combo = symbolBestCombo
+                params = {"min_rr": combo["Min RR"]}
+                paramsJson = json.dumps(params)
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                    VALUES ('FvgDiario', %s, TRUE, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
             print(f"  🏆 Mejor combo para {symbol}: RR={symbolBestCombo['Min RR']} | Min FVG Pips={symbolBestCombo['Min FVG Pips']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
             print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")

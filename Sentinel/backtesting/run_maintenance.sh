@@ -7,6 +7,7 @@
 # ==============================================================================
 
 export PYTHONPATH="/Volumes/TimeMachine/ATALAia"
+export PYTHONWARNINGS="ignore"
 PYTHON_BIN="/Volumes/TimeMachine/ATALAia/.venv/bin/python"
 LOG_FILE="/Volumes/TimeMachine/ATALAia/logs/cron_maintenance.log"
 

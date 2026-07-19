@@ -1,6 +1,10 @@
 """
 Module for training, saving, loading, and using the ML model.
 """
+import warnings
+# Silenciar UserWarning molesto de sklearn sobre parallel.delayed en Windows
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+
 import logging
 import pandas as pd
 import numpy as np

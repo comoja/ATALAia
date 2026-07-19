@@ -14,6 +14,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.Serializable;
 import java.util.List;
 import java.util.ArrayList;
+import org.primefaces.model.charts.ChartData;
+import org.primefaces.model.charts.axes.cartesian.CartesianScales;
+import org.primefaces.model.charts.axes.cartesian.linear.CartesianLinearAxes;
+import org.primefaces.model.charts.bar.BarChartDataSet;
+import org.primefaces.model.charts.bar.BarChartModel;
+import org.primefaces.model.charts.bar.BarChartOptions;
 
 @Named("dashboardBean")
 @SessionScoped
@@ -71,6 +77,11 @@ public class DashboardBean implements Serializable {
     // JSON String del historial para alimentar Chart.js
     private String historyJson = "[]";
     private String analysisResult;
+
+    // --- Modelos para Análisis Conductual ---
+    private BarChartModel prob3PasosModel;
+    private BarChartModel velStModel;
+    private BarChartModel velLtModel;
 
     @Value("${atalaia.backend.url:http://localhost:8000}")
     private String backendUrl;
@@ -298,6 +309,10 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
                                 "Error de Procesamiento", errorMsg));
             }
+            
+            // --- Cargar análisis conductual (nueva pestaña)
+            fetchAnalysisData();
+
         } catch (Exception e) {
             log.error("Error al calibrar con el backend holográfico", e);
             analysisResult = "Error conectando al engine de Python: " + e.getMessage();
@@ -583,6 +598,84 @@ public class DashboardBean implements Serializable {
                 }
                 break;
         }
+    }
+
+    private void fetchAnalysisData() {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String sym = this.selectedPair.replace("/", "-");
+            String url = backendUrl + "/api/v1/analisis/conducta/" + sym + "?days=365";
+            String response = restTemplate.getForObject(url, String.class);
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(response);
+            
+            if (root.has("error")) {
+                log.warn("Error en backend para análisis: " + root.get("error").asText());
+                createEmptyModels();
+                return;
+            }
+
+            prob3PasosModel = createBarModel(root.get("probabilidad_3_pasos"), "Probabilidades de Patrones (3 Días)", "rgba(54, 162, 235, 0.6)", "rgb(54, 162, 235)");
+            velStModel = createBarModel(root.get("velocidad_st"), "Histograma Velocidad ST", "rgba(75, 192, 192, 0.6)", "rgb(75, 192, 192)");
+            velLtModel = createBarModel(root.get("velocidad_lt"), "Histograma Velocidad LT", "rgba(153, 102, 255, 0.6)", "rgb(153, 102, 255)");
+            
+        } catch (Exception e) {
+            log.error("Error al obtener datos de análisis conductual: ", e);
+            createEmptyModels();
+        }
+    }
+
+    private void createEmptyModels() {
+        prob3PasosModel = new BarChartModel();
+        velStModel = new BarChartModel();
+        velLtModel = new BarChartModel();
+    }
+
+    private BarChartModel createBarModel(JsonNode dataNode, String label, String bgColor, String borderColor) {
+        BarChartModel model = new BarChartModel();
+        ChartData data = new ChartData();
+        BarChartDataSet barDataSet = new BarChartDataSet();
+        barDataSet.setLabel(label);
+        
+        List<Number> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        
+        if (dataNode != null && dataNode.has("data") && dataNode.has("labels")) {
+            JsonNode valuesNode = dataNode.get("data");
+            for (JsonNode v : valuesNode) {
+                values.add(v.asDouble());
+            }
+            JsonNode labelsNode = dataNode.get("labels");
+            for (JsonNode l : labelsNode) {
+                labels.add(l.asText());
+            }
+        }
+        
+        barDataSet.setData(values);
+        
+        List<String> bgColors = new ArrayList<>();
+        bgColors.add(bgColor);
+        barDataSet.setBackgroundColor(bgColors);
+        
+        List<String> borderColors = new ArrayList<>();
+        borderColors.add(borderColor);
+        barDataSet.setBorderColor(borderColors);
+        barDataSet.setBorderWidth(1);
+        
+        data.addChartDataSet(barDataSet);
+        data.setLabels(labels);
+        model.setData(data);
+        
+        // Options
+        BarChartOptions options = new BarChartOptions();
+        CartesianScales cScales = new CartesianScales();
+        CartesianLinearAxes linearAxes = new CartesianLinearAxes();
+        linearAxes.setOffset(true);
+        cScales.addYAxesData(linearAxes);
+        options.setScales(cScales);
+        
+        model.setOptions(options);
+        return model;
     }
 
     public void onNumeradorChange() {

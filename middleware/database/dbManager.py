@@ -1379,4 +1379,83 @@ def getRiesgoSugerido(symbol: str, strategy: str) -> float:
         if 'dbCursor' in locals(): dbCursor.close()
         if 'dbConn' in locals(): dbConn.close()
 
+def getLastStockPriceDate(symbol: str):
+    """Obtiene la fecha más reciente registrada para un símbolo en StockPrices."""
+    try:
+        dbConn = dbConnection.getConnection()
+        if not dbConn: return None
+        dbCursor = dbConn.cursor()
+        dbCursor.execute("SELECT MAX(priceDate) FROM StockPrices WHERE symbol = %s", (symbol,))
+        res = dbCursor.fetchone()
+        if res and res[0]:
+            return pd.to_datetime(res[0])
+        return None
+    except Exception as e:
+        logger.error(f"Error en getLastStockPriceDate para {symbol}: {e}")
+        return None
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
 
+def saveStockPrices(df: pd.DataFrame, symbol: str) -> int:
+    """Guarda o actualiza masivamente precios diarios en StockPrices."""
+    if df is None or df.empty: return 0
+    try:
+        dbConn = dbConnection.getConnection()
+        if not dbConn: return 0
+        dbCursor = dbConn.cursor()
+        sql = """
+            INSERT INTO StockPrices (symbol, priceDate, closePrice)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                closePrice = VALUES(closePrice)
+        """
+        data_to_insert = []
+        for idx, row in df.iterrows():
+            dt = row['datetime'].date() if isinstance(row['datetime'], pd.Timestamp) else row['datetime']
+            price = float(row['close'])
+            data_to_insert.append((symbol, dt, price))
+        
+        dbCursor.executemany(sql, data_to_insert)
+        dbConn.commit()
+        return dbCursor.rowcount
+    except Exception as e:
+        logger.error(f"Error guardando StockPrices para {symbol}: {e}")
+        return 0
+
+async def getStockPricesFromDb(symbol: str, limit: int = 365) -> pd.DataFrame:
+    """
+    Obtiene los precios de cierre diarios de la tabla 'StockPrices' como DataFrame.
+    """
+    def query():
+        conn = None
+        cursor = None
+        try:
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT priceDate, closePrice FROM StockPrices "
+                "WHERE symbol=%s ORDER BY priceDate DESC LIMIT %s",
+                (symbol, limit)
+            )
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(rows, columns=['priceDate', 'closePrice'])
+            df['priceDate'] = pd.to_datetime(df['priceDate'])
+            df = df.sort_values('priceDate').set_index('priceDate')
+            
+            df['closePrice'] = pd.to_numeric(df['closePrice'], errors='coerce')
+            
+            return df.dropna(subset=['closePrice'])
+        except Exception as e:
+            logger.error(f"Error en getStockPricesFromDb: {e}", exc_info=True)
+            return pd.DataFrame()
+        finally:
+            if cursor: cursor.close()
+            if conn: conn.close()
+
+    import asyncio
+    return await asyncio.to_thread(query)

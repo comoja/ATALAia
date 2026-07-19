@@ -83,7 +83,6 @@ CREATE TABLE IF NOT EXISTS StockPrices (
     symbol VARCHAR(10) NOT NULL,
     priceDate DATE NOT NULL,
     closePrice DECIMAL(20, 8) NOT NULL,
-    volume BIGINT,
     PRIMARY KEY (symbol, priceDate)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

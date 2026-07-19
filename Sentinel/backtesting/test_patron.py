@@ -92,27 +92,7 @@ def mock_detectFvg(self, df):
 FvgAnalyzer.detectFvg = mock_detectFvg
 # -----------------------------------------------------
 
-
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
+ALL_SYMBOLS = ['EUR/USD']
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0,
@@ -501,29 +481,6 @@ async def runPatron4HGridSearch() -> None:
 
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = symbolBestCombo
-                params = {"fvgMinPct": combo["FVG Min Pct"], "displacementPct": combo["Displacement Pct"], "rrRatioMin": combo["Min RR"], "maxMinutosFvg": 240.0, "minConfidence": combo["Min Conf"], "lookback": 50}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('Patron4h', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
             print(f"  🏆 Mejor combo para {symbol}: RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Disp={symbolBestCombo['Displacement Pct']} | FVG={symbolBestCombo['FVG Min Pct']} | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
             print(f"  ❌ No se encontró ninguna combinación rentable y viable para {symbol}.")
@@ -542,6 +499,42 @@ async def runPatron4HGridSearch() -> None:
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
     else:
         print("\n⚠️ Ningún activo tuvo combinaciones rentables viables (PF >= 1.25, WR >= 42%).")
+
+        try:
+            import json
+            from middleware.database import dbConnection
+            conn = dbConnection.getConnection()
+            cursor = conn.cursor()
+            
+            successful_symbols = {combo['Símbolo'] for combo in bestResults}
+            
+            for sym in ALL_SYMBOLS:
+                if sym in successful_symbols:
+                    combo = next(c for c in bestResults if c['Símbolo'] == sym)
+                    params = {"min_rr": combo["Min RR"]}
+                    paramsJson = json.dumps(params)
+                    
+                    sql = """
+                        INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                        VALUES ('Patron4H', %s, TRUE, %s)
+                        ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                    """
+                    cursor.execute(sql, (sym, paramsJson))
+                else:
+                    sql = """
+                        INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                        VALUES ('Patron4H', %s, FALSE, '{{}}')
+                        ON DUPLICATE KEY UPDATE enabled = FALSE
+                    """
+                    cursor.execute(sql, (sym,))
+                    
+            conn.commit()
+            print("✅ Parámetros guardados/desactivados automáticamente en la BD por símbolo (symbolStrategyConfig).")
+        except Exception as e:
+            print(f"❌ Error guardando parámetros en BD: {{e}}")
+        finally:
+            if 'cursor' in locals(): cursor.close()
+            if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
 
 if __name__ == '__main__':
     asyncio.run(runPatron4HGridSearch())

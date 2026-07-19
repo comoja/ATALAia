@@ -229,6 +229,34 @@ async def runSniperGridSearch():
             best = max(results, key=lambda x: (x['profitFactor'], x['winRate']))
             logger.info(f"  ✨ Mejor combo para {symbol}: PF={best['profitFactor']}, MinConf={best['minConfidence']}, R:R={best['minRr']}")
             bestResults.append(best)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                
+                params = {
+                    "minRr": best['minRr'],
+                    "minConfidence": best['minConfidence'],
+                    "probaThresholdLong": best['probaThresholdLong']
+                }
+                paramsJson = json.dumps(params)
+                
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                    VALUES ('Sniper', %s, TRUE, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
         else:
             logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0) para {symbol}.")
             
@@ -238,32 +266,7 @@ async def runSniperGridSearch():
     dfBest = pd.DataFrame(bestResults)
     if not dfBest.empty:
         dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_best.csv", index=False)
-        
-        try:
-            conn = dbConnection.getConnection()
-            cursor = conn.cursor()
-            for combo in bestResults:
-                sym = combo['symbol']
-                params = {
-                    "minRr": combo['minRr'],
-                    "minConfidence": combo['minConfidence'],
-                    "probaThresholdLong": combo['probaThresholdLong']
-                }
-                paramsJson = json.dumps(params)
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
-                    VALUES ('Sniper', %s, TRUE, %s, '{"macdFast": 12, "macdSlow": 26, "macdSignal": 9, "useImpulseMacdFilter": 0}')
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (sym, paramsJson))
-            conn.commit()
-            logger.info("✅ Parámetros rentables guardados automáticamente en la BD por símbolo (symbolStrategyConfig) para Sniper.")
-        except Exception as e:
-            logger.error(f"❌ Error guardando parámetros en BD para Sniper: {e}")
-        finally:
-            if 'cursor' in locals(): cursor.close()
-            if 'conn' in locals(): conn.close()
-    logger.info("==========================================================")
+
 
 if __name__ == "__main__":
     asyncio.run(runSniperGridSearch())

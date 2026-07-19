@@ -331,6 +331,41 @@ def runCruceEMAGridSearch() -> None:
                                 
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                
+                params = {
+                    "emaFast": symbolBestCombo['EMA Fast'],
+                    "emaSlow": symbolBestCombo['EMA Slow'],
+                    "minRr": symbolBestCombo['Min RR']
+                }
+                paramsJson = json.dumps(params)
+                
+                imacd_params = {
+                    "useImpulseMacdFilter": 1,
+                    "macdFast": 12,
+                    "macdSlow": symbolBestCombo['IMACD Slow'],
+                    "macdSignal": symbolBestCombo['IMACD Signal']
+                }
+                imacdJson = json.dumps(imacd_params)
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
+                    VALUES ('CruceEMA', %s, TRUE, %s, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), jsonIMACD = VALUES(jsonIMACD), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson, imacdJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
             print(f"  🏆 Mejor combo para {symbol}: Fast={symbolBestCombo['EMA Fast']} | Slow={symbolBestCombo['EMA Slow']} | IMACD={symbolBestCombo['IMACD Slow']}/{symbolBestCombo['IMACD Signal']} | RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
             print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")
@@ -346,42 +381,7 @@ def runCruceEMAGridSearch() -> None:
         bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/cruceema_grid_results_best.csv"
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
-        
-        try:
-            conn = dbConnection.getConnection()
-            cursor = conn.cursor()
-            
-            for combo in bestResults:
-                sym = combo['Símbolo']
-                params = {
-                    "emaFast": combo['EMA Fast'],
-                    "emaSlow": combo['EMA Slow'],
-                    "minRr": combo['Min RR']
-                }
-                paramsJson = json.dumps(params)
-                
-                imacd_params = {
-                    "useImpulseMacdFilter": 1,
-                    "macdFast": 12,
-                    "macdSlow": combo['IMACD Slow'],
-                    "macdSignal": combo['IMACD Signal']
-                }
-                imacdJson = json.dumps(imacd_params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
-                    VALUES ('CruceEMA', %s, TRUE, %s, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), jsonIMACD = VALUES(jsonIMACD), enabled = TRUE
-                """
-                cursor.execute(sql, (sym, paramsJson, imacdJson))
-                
-            conn.commit()
-            print("✅ Parámetros rentables guardados automáticamente en la BD por símbolo (symbolStrategyConfig).")
-        except Exception as e:
-            print(f"❌ Error guardando parámetros en BD: {e}")
-        finally:
-            if 'cursor' in locals(): cursor.close()
-            if 'conn' in locals(): conn.close()
+
 
 if __name__ == '__main__':
     runCruceEMAGridSearch()

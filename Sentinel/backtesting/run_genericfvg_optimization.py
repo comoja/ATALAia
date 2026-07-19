@@ -343,6 +343,34 @@ def runGenericFVGGridSearch() -> None:
                             
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                
+                params = {
+                    "minRr": symbolBestCombo['Min RR'],
+                    "minConfidence": symbolBestCombo['Min Conf'],
+                    "requireHtfSweep": symbolBestCombo['Require Sweep']
+                }
+                paramsJson = json.dumps(params)
+                
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                    VALUES ('GenericFVG', %s, TRUE, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
             print(f"  🏆 Mejor combo para {symbol}: RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Sweep={symbolBestCombo['Require Sweep']} | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
             print(f"  ❌ No se encontró ninguna combinación rentable y viable para {symbol}.")
@@ -359,31 +387,7 @@ def runGenericFVGGridSearch() -> None:
         bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/genericfvg_grid_results_best.csv"
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
-        
-        try:
-            conn = dbConnection.getConnection()
-            cursor = conn.cursor()
-            for combo in bestResults:
-                sym = combo['Símbolo']
-                params = {
-                    "minRr": combo['Min RR'],
-                    "minConfidence": combo['Min Conf'],
-                    "requireHtfSweep": combo['Require Sweep']
-                }
-                paramsJson = json.dumps(params)
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
-                    VALUES ('GenericFVG', %s, TRUE, %s, '{"macdFast": 12, "macdSlow": 26, "macdSignal": 9, "useImpulseMacdFilter": 1}')
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (sym, paramsJson))
-            conn.commit()
-            print("✅ Parámetros rentables guardados automáticamente en la BD por símbolo (symbolStrategyConfig).")
-        except Exception as e:
-            print(f"❌ Error guardando parámetros en BD: {e}")
-        finally:
-            if 'cursor' in locals(): cursor.close()
-            if 'conn' in locals(): conn.close()
+
 
 if __name__ == '__main__':
     runGenericFVGGridSearch()

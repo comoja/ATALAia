@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from backend.api.routes import router as correlation_router
 from backend.api.auth import router as auth_router
+from middleware.api import analysisRouter
 from middleware.utils.loggerConfig import setupLogging
 import logging
 
@@ -45,6 +46,7 @@ app.add_middleware(
 
 app.include_router(correlation_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(analysisRouter.router, prefix="/api/v1", tags=["Analysis"])
 
 @app.get("/")
 def read_root():

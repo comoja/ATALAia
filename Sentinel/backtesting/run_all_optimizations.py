@@ -36,15 +36,15 @@ optimizationScripts = [
     "run_sniper_optimization.py",
     "run_qtrend_optimization.py",
     "run_reversionmedia_optimization.py",
-    "run_sesgobiashtf_optimization.py",
-    "run_patron4h_optimization.py",
+    "run_sesgobiashtf_optimization.py",    
     "run_ichimoku_optimization.py",
     "run_breakoutprobability_optimization.py",
     "run_breakoutny_optimization.py",
     "run_fvgdiario_optimization.py",
     "run_imbalance_optimization.py",
     "run_silverbullet_optimization.py",
-    "run_speedbot_optimization.py"
+    "run_speedbot_optimization.py",
+    "run_patron4h_optimization.py"
 ]
 
 def runAllOptimizations() -> None:
@@ -69,13 +69,17 @@ def runAllOptimizations() -> None:
         startTime = datetime.now()
         
         try:
-            # Ejecutar el script usando el mismo entorno de python actual
+            # Ejecutar el script usando el mismo entorno de python actual y silenciando warnings
+            env = os.environ.copy()
+            env["PYTHONWARNINGS"] = "ignore"
+            
             result = subprocess.run(
                 [pythonBin, scriptPath],
                 cwd=rutaRaiz,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env,
                 check=True
             )
             
@@ -103,6 +107,8 @@ def runAllOptimizations() -> None:
     logger.info("================================================================")
     logger.info(f"🏁 PROCESO COMPLETADO: {successCount} exitosos, {failureCount} fallidos.")
     logger.info("================================================================")
+    # Nota: Los scripts de optimización ahora guardan directamente en la base de datos de manera dinámica,
+    # y también desactivan los símbolos que no tengan optimizaciones rentables.
 
 if __name__ == '__main__':
     runAllOptimizations()

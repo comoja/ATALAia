@@ -20,11 +20,27 @@ logger = logging.getLogger(__name__)
 # Silenciar los logs internos del bot de sentinel para evitar I/O masivo
 logging.getLogger("sentinel").setLevel(logging.WARNING)
 
-ALL_SYMBOLS = [
-    'EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD',
-    'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD',
-    'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD'
-]
+
+def getActiveSymbols():
+    try:
+        from middleware.database import dbConnection
+        connection = dbConnection.getConnection()
+        if connection is None:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        cursor = connection.cursor()
+        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
+        rows = cursor.fetchall()
+        cursor.close()
+        connection.close()
+        symbolsList = [row[0] for row in rows]
+        if not symbolsList:
+            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+        return symbolsList
+    except Exception as e:
+        print(f"Error fetching active symbols: {e}")
+        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
+
+ALL_SYMBOLS = getActiveSymbols()
 
 PIP_MULTIPLIERS = {
     'EUR/USD': 10000.0,
@@ -276,6 +292,29 @@ async def runSesgoBiasHTFGridSearch():
         if bestCombo:
             logger.info(f"  ✨ Mejor combo viable para {symbol}: Swing={bestCombo['swingLookback']}, MSS={bestCombo['mssLookback']}, Min R:R={bestCombo['minRr']} (PF={bestCombo['profitFactor']:.2f}, WR={bestCombo['winRate']:.2f}%)")
             bestResults.append(bestCombo)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                combo = bestCombo
+                params = {"timeframe_htf": "D1", "sma_period": combo.get("SMA Period", 14), "min_rr": combo["Min RR"]}
+                paramsJson = json.dumps(params)
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                    VALUES ('SesgoBiasHTF', %s, TRUE, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
         else:
             logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0 y WR >= 35%) para {symbol}.")
             
@@ -285,6 +324,59 @@ async def runSesgoBiasHTFGridSearch():
     
     dfBest = pd.DataFrame(bestResults)
     dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sesgobiashtf_grid_results_best.csv", index=False)
+    
+    # NUEVO: Guardar en base de datos inmediatamente
+    if bestResults:
+        import json
+        from middleware.database import dbConnection
+        try:
+            conn = dbConnection.getConnection()
+            if conn:
+                cursor = conn.cursor()
+                strategy_name = "SesgoBiasHTF"
+                
+                # Deshabilitar los que no fueron rentables
+                successful_symbols = {r['symbol'] for r in bestResults}
+                for s in ALL_SYMBOLS:
+                    if s not in successful_symbols:
+                        cursor.execute("""
+                            INSERT INTO symbolStrategyConfig (strategy, symbol, enabled)
+                            VALUES (%s, %s, FALSE)
+                            ON DUPLICATE KEY UPDATE enabled = FALSE
+                        """, (strategy_name, s))
+                
+                for combo in bestResults:
+                    symbol = combo['symbol']
+                    params_dict = {
+                        "swingLookback": int(combo['swingLookback']),
+                        "mssLookback": int(combo['mssLookback']),
+                        "minRr": float(combo['minRr']),
+                        "fvgMinPct": 0.0001,
+                        "minDistancePips": 10.0,
+                        "maxSignalAgeMinutes": 60,
+                        "useKillzones": True,
+                        "volatilityThreshold": 0.5,
+                        "useOteFilter": True,
+                        "oteFibMin": 0.62,
+                        "oteFibMax": 0.79,
+                        "oteReduceConf": 15,
+                        "minConfidence": 70,
+                        "minUsdProfit": 10.0,
+                        "winRate": float(combo['winRate']),
+                        "profitFactor": float(combo['profitFactor'])
+                    }
+                    params_json = json.dumps(params_dict)
+                    cursor.execute("""
+                        INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                        VALUES (%s, %s, TRUE, %s)
+                        ON DUPLICATE KEY UPDATE enabled = TRUE, parametersJson = %s
+                    """, (strategy_name, symbol, params_json, params_json))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                logger.info(f"💾 Se guardaron en BD los resultados de {strategy_name}")
+        except Exception as e:
+            logger.error(f"❌ Error al guardar en BD: {e}")
     
     logger.info("==========================================================")
     logger.info(" GRID SEARCH COMPLETADO. Archivos CSV generados con éxito.")

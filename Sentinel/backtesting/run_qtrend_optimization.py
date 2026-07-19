@@ -348,6 +348,29 @@ async def runQTrendGridSearch():
         
         if bestCombo:
             bestResults.append(bestCombo)
+            try:
+                import json
+                from middleware.database import dbConnection
+                conn = dbConnection.getConnection()
+                cursor = conn.cursor()
+                combo = bestCombo
+                params = {"min_rr": combo["Min RR"]}
+                paramsJson = json.dumps(params)
+                
+                sql = """
+                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
+                    VALUES ('QTrend', %s, TRUE, %s)
+                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
+                """
+                cursor.execute(sql, (symbol, paramsJson))
+                conn.commit()
+                print(f"✅ DB: Guardado {symbol} (TRUE)")
+            except Exception as e:
+                print(f"❌ Error DB {symbol}: {e}")
+            finally:
+                if 'cursor' in locals(): cursor.close()
+                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
+
             logger.info(f"  🏆 Mejor combo viable para {symbol}: ST_P={bestCombo['supertrendPeriod']}, ST_M={bestCombo['supertrendMultiplier']}, QF={bestCombo['qtrendFast']}, QS={bestCombo['qtrendSlow']}, TP={bestCombo['tpParam']} | PF={bestCombo['profitFactor']}, WR={bestCombo['winRate']}%, PnL={bestCombo['pnl']:.2f}")
         else:
             logger.info(f"  ❌ Ningún combo cumplió con el umbral de viabilidad para {symbol}.")
