@@ -14,7 +14,11 @@ class DatabaseManager:
     def __init__(self, config: dict = None):
         cfg = config or dbConfig
         self.engine = create_engine(
-            f"mysql+mysqlconnector://{cfg['user']}:{cfg['password']}@{cfg['host']}/{cfg['database']}"
+            f"mysql+mysqlconnector://{cfg['user']}:{cfg['password']}@{cfg['host']}/{cfg['database']}",
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=1800,
+            pool_pre_ping=True
         )
 
     def getLastTimestamp(self, symbol: str, timeframe: str = "5min") -> Optional[pd.Timestamp]:

@@ -241,6 +241,7 @@ class BrokerGateway:
         stratConfigSymbol = dbManager.getSymbolStrategyConfig(strategy_name, symbolName) or {}
         brokerEnabled = bool(stratConfigSymbol.get('broker', 0))
         
+        cuentasBroker = []
         # Verificar si la cuenta tiene conexión activa en BrokerCuenta
         if brokerEnabled:
             try:
@@ -315,9 +316,62 @@ class BrokerGateway:
         exec_success = True
         if self.mode == "live":
             if brokerEnabled:
-                if mt5 is None:
+                # -- INICIO ENVÍO WEBHOOK (SOPORTE MULTI-CUENTA) --
+                active_brokers = [bc for bc in cuentasBroker if bc.get('activo') == 1 and bc.get('idCuenta') == 2]
+                webhook_sent = False
+                if active_brokers:
+                    import requests
+                    import os
+                    webhook_url = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
+                    for bc in active_brokers:
+                        logger.info(f"Enviando orden vía Webhook para cuenta {bc.get('loginUsuario')} (Broker: {bc.get('nombreBroker')})")
+                        
+                        direction_str = str(trade_data.get('direction', '')).upper()
+                        action_val = "buy" if direction_str in ["COMPRA", "BUY"] else "sell"
+                        
+                        payload = {
+                            "action": action_val,
+                            "ticker": trade_data.get('symbol'),
+                            "quantity": trade_data.get('size'),
+                            "tp": float(trade_data.get('takeProfit', 0) or 0),
+                            "sl": float(trade_data.get('stopLoss', 0) or 0),
+                            "FOREX_USERNAME": bc.get('loginUsuario'),
+                            "FOREX_PASSWORD": bc.get('tokenAcceso'),
+                            "FOREX_APP_KEY": bc.get('Apikey'),
+                            "FOREX_API_URL": bc.get('Servidor')
+                        }
+                        
+                        try:
+                            resp = requests.post(webhook_url, json=payload, timeout=30)
+                            if resp.status_code == 200:
+                                try:
+                                    resp_data = resp.json()
+                                    order_id = resp_data.get("order_id")
+                                    if order_id:
+                                        trade_data['ticketId'] = str(order_id)
+                                except Exception:
+                                    pass
+                                logger.info(f"✅ Webhook enviado correctamente para {bc.get('loginUsuario')}: {resp.text}")
+                                webhook_sent = True
+                            else:
+                                logger.error(f"❌ Error webhook {resp.status_code} para {bc.get('loginUsuario')}: {resp.text}")
+                        except Exception as e:
+                            logger.error(f"❌ Excepción enviando webhook para {bc.get('loginUsuario')}: {e}")
+                # -- FIN ENVÍO WEBHOOK --
+
+                # -- FIN ENVÍO WEBHOOK --
+
+                if active_brokers:
+                    if webhook_sent:
+                        logger.info("ℹ️ Orden ejecutada vía Webhook correctamente. Se omite ejecución en MT5 local.")
+                        exec_success = True
+                    else:
+                        logger.error(f"❌ Falló la ejecución vía Webhook para {trade_data['symbol']}")
+                        message = f"⚠️ <b>[WEBHOOK ERROR]</b> Falló el envío al Webhook.\n\n{message}"
+                        exec_success = False
+                elif mt5 is None:
                     logger.warning(f"ℹ️ Modo 'live' y broker = 1 activos, pero MetaTrader5 no está disponible en esta plataforma. Se omite ejecución real en broker y se procesa como simulación.")
-                    message = f"ℹ️ <b>[PROCESADO EN SIMULACIÓN]</b> MetaTrader5 no disponible en esta plataforma (macOS).\n\n{message}"
+                    message = f"ℹ️ <b>[PROCESADO EN SIMULACIÓN / WEBHOOK]</b> MetaTrader5 no disponible en esta plataforma (macOS).\n\n{message}"
                     exec_success = True
                 else:
                     exec_success = await self._execute_live(trade_data)

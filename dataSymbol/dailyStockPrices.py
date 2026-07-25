@@ -44,8 +44,8 @@ async def syncDailyStockPrices():
         lastDate = dbManager.getLastStockPriceDate(symbol)
         
         if lastDate:
-            # Empezamos desde el día siguiente a la última fecha guardada
-            startDate = tzLocal.localize(datetime.combine(lastDate.date() + timedelta(days=1), datetime.min.time()))
+            # Empezamos desde la hora siguiente a la última fecha guardada
+            startDate = tzLocal.localize(lastDate.replace(tzinfo=None) + timedelta(hours=1))
         else:
             # Si no hay datos, traer un buen historial (por ejemplo, desde 2020)
             startDateRaw = symbolInfo.get('startDate')
@@ -56,16 +56,18 @@ async def syncDailyStockPrices():
             else:
                 startDate = tzLocal.localize(datetime(2020, 1, 1))
 
-        # Asegurar que start_date no sea hoy o futuro (ya que queremos solo velas completas)
-        if startDate.date() >= nowLocal.date():
-            logger.info(f"[{symbol}] Ya está actualizado hasta ayer.")
+        current_hour_localized = nowLocal.replace(minute=0, second=0, microsecond=0)
+        
+        # Asegurar que start_date no sea la hora actual o futuro
+        if startDate >= current_hour_localized:
+            logger.info(f"[{symbol}] Ya está actualizado hasta la última hora cerrada.")
             continue
             
-        endDate = tzLocal.localize(datetime.combine(nowLocal.date(), datetime.min.time()))
+        endDate = current_hour_localized
 
         params = {
             "symbol": symbol,
-            "interval": "1day",  # Para MT5 se traduce a TIMEFRAME_D1, para 12Data a '1day'
+            "interval": "1h",
             "start_date": startDate,
             "end_date": endDate
         }
@@ -82,16 +84,17 @@ async def syncDailyStockPrices():
                 df = await twelvedata._callTimeSeriesApi(params)
             
             if df is not None and not df.empty:
-                # Filtrar cualquier vela que sea igual a la fecha actual (vela incompleta)
-                df['dateOnly'] = df['datetime'].apply(lambda x: x.date() if isinstance(x, pd.Timestamp) else datetime.strptime(str(x)[:10], '%Y-%m-%d').date())
-                dfClosed = df[df['dateOnly'] < nowLocal.date()].copy()
+                # Filtrar la vela actual (incompleta)
+                df['datetimeOnly'] = df['datetime'].apply(lambda x: x if isinstance(x, pd.Timestamp) else datetime.strptime(str(x)[:19], '%Y-%m-%d %H:%M:%S'))
+                current_hour_naive = current_hour_localized.replace(tzinfo=None)
+                dfClosed = df[df['datetimeOnly'] < current_hour_naive].copy()
                 
                 if not dfClosed.empty:
                     inserted = dbManager.saveStockPrices(dfClosed, symbol)
-                    logger.info(f"[{symbol}] Se insertaron/actualizaron {inserted} registros de precios diarios.")
+                    logger.info(f"[{symbol}] Se insertaron/actualizaron {inserted} registros de precios (1h).")
                     totalInserted += inserted
                 else:
-                    logger.info(f"[{symbol}] No hay velas diarias nuevas y cerradas para procesar.")
+                    logger.info(f"[{symbol}] No hay velas de 1h nuevas y cerradas para procesar.")
             else:
                 logger.info(f"[{symbol}] Sin datos nuevos en la API.")
 

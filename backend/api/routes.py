@@ -10,7 +10,7 @@ import subprocess
 from urllib.parse import unquote
 import logging
 from middleware.database import dbConnection
-from middleware.database.dbManager import getCandlesFromDb
+from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
 from sqlalchemy.orm import Session
@@ -50,19 +50,14 @@ async def get_pair_correlation(
     pair_name = unquote(pair_name)
     
     try:
-        # Extraemos un histórico amplio (ej. 200000 velas de 5m equivalen a más de 2 años)
-        df = await getCandlesFromDb(symbol=pair_name, timeframe="5min", limit=200000)
+        # Extraemos un histórico amplio (ej. 5000 velas = ~20 años)
+        df_daily = await getStockPricesFromDb(symbol=pair_name, limit=5000)
         
-        if df.empty:
-            raise HTTPException(status_code=404, detail="No se encontraron velas para este par en la tabla 'candles'.")
+        if df_daily.empty:
+            raise HTTPException(status_code=404, detail="No se encontraron velas para este par en la tabla 'StockPrices'.")
 
-        # MAGIA PANDAS: Agrupamos todas las operaciones de intradía y nos quedamos
-        # con el último 'close' de cada día. 
-        # Asi emulamos el comportamiento histórico diario del 'HIST PRICES ATALAIA.xlsm'
-        df_daily = df.resample('D').agg({'close': 'last'}).dropna()
-        
-        # Renombramos 'close' a 'price' que es lo que espera el engine
-        df_daily = df_daily.rename(columns={'close': 'price'})
+        # Renombramos 'closePrice' a 'price' que es lo que espera el engine
+        df_daily = df_daily.rename(columns={'closePrice': 'price'})
         
         # Mandamos el DataFrame reconstruido a que nuestro motor matemático haga lo suyo
         resultadosMatematicos = engine.process_pair(
@@ -86,10 +81,27 @@ async def get_pair_correlation(
 @router.get("/catalogo")
 def get_catalogo_pares(db: Session = Depends(get_db)):
     """
-    Devuelve la lista de pares configurados exclusivamente para este módulo.
+    Devuelve la lista de todos los símbolos disponibles en la BD (SentinelSymbol / RatioSymbol).
     """
-    pares = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
-    return [{"id": p.symbol, "pair_name": p.symbol, "desc": p.symbol, "tipo": p.tipo} for p in pares]
+    ratio_map = {r.symbol: r.tipo for r in db.query(RatioSymbol).all()}
+    sentinel_symbols = db.query(SentinelSymbol).filter(SentinelSymbol.Activo == 1).all()
+    
+    if not sentinel_symbols:
+        pares = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
+        return [{"id": p.symbol, "pair_name": p.symbol, "desc": p.symbol, "tipo": p.tipo or "MONEDA"} for p in pares]
+
+    resultado = []
+    seen = set()
+    for s in sentinel_symbols:
+        seen.add(s.symbol)
+        tipo = ratio_map.get(s.symbol, "MONEDA")
+        resultado.append({"id": s.symbol, "pair_name": s.symbol, "desc": s.symbol, "tipo": tipo})
+        
+    for r_sym, r_tipo in ratio_map.items():
+        if r_sym not in seen:
+            resultado.append({"id": r_sym, "pair_name": r_sym, "desc": r_sym, "tipo": r_tipo or "MONEDA"})
+            
+    return resultado
 
 
 @router.get("/ratio/{pairA:path}")
@@ -103,8 +115,12 @@ async def get_ratio_correlation(
     r: float = 0.05,
     tYears: float = 30 / 252,
     sigmaWindow: int = 7,
+    smaPeriod: int = 3,
+    emaSlowPeriod: int = 20,
+    histogramBins: int = 50,
     tf: str = "1d",
-    days: int = 365
+    start_date: str = "",
+    end_date: str = ""
 ) -> Dict[str, Any]:
     """
     Calcula el ratio sintético (Par A / Par B) y aplica el modelo completo.
@@ -119,43 +135,30 @@ async def get_ratio_correlation(
     pairB = unquote(pairB)
 
     try:
-        # Asegurar suficientes datos para el cálculo (mínimo 20 velas tras agrupación)
-        min_days_required = 0
-        if tf == "1month":
-            min_days_required = 20 * 30
-        elif tf == "1week":
-            min_days_required = 20 * 7
-            
-        days_to_load = max(days, min_days_required) if days > 0 else 0
-        candle_limit = 2000000 if days_to_load == 0 else ((days_to_load + 30) * 288)
+        candle_limit = 100000
 
         # Cargar todo el historial posible según el request
-        df_a = await getCandlesFromDb(symbol=pairA, timeframe="5min", limit=candle_limit)
-        df_b = await getCandlesFromDb(symbol=pairB, timeframe="5min", limit=candle_limit)
+        df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+        df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
 
         if df_a.empty:
-            raise HTTPException(status_code=404, detail=f"Sin velas para Par A: {pairA}")
+            raise HTTPException(status_code=404, detail=f"Sin precios para Par A: {pairA}")
         if df_b.empty:
-            raise HTTPException(status_code=404, detail=f"Sin velas para Par B: {pairB}")
+            raise HTTPException(status_code=404, detail=f"Sin precios para Par B: {pairB}")
 
         # Lógica de Agrupación (Resample)
-        resample_rule = 'D'
+        resample_rule = None
         if tf == "1month":
             resample_rule = 'ME'  # Monthly End
         elif tf == "1week":
             resample_rule = 'W'   # Weekly
-        elif tf == "1h":
-            resample_rule = '1h'
-        elif tf == "30m":
-            resample_rule = '30min'
-        elif tf == "15m":
-            resample_rule = '15min'
-        elif tf == "5m":
-            resample_rule = None
+        elif tf == "1d":
+            resample_rule = 'D'   # Daily
+        # Para "1h", resample_rule = None (ya que StockPrices es horario por defecto)
 
         if resample_rule:
-            df_a_daily = df_a.resample(resample_rule).agg({'close': 'last'}).dropna()
-            df_b_daily = df_b.resample(resample_rule).agg({'close': 'last'}).dropna()
+            df_a_daily = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+            df_b_daily = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
             # Omitir la última vela incompleta (en desarrollo) para trabajar con velas terminadas
             if len(df_a_daily) > 1:
                 df_a_daily = df_a_daily.iloc[:-1]
@@ -164,6 +167,22 @@ async def get_ratio_correlation(
         else:
             df_a_daily = df_a
             df_b_daily = df_b
+
+        if start_date or end_date:
+            try:
+                import pandas as pd
+                dt_start_filter = pd.to_datetime(start_date).tz_localize(None) if start_date else pd.Timestamp.min
+                dt_end_filter = pd.to_datetime(end_date).tz_localize(None) if end_date else pd.Timestamp.max
+                
+                df_a_daily.index = df_a_daily.index.tz_localize(None)
+                df_b_daily.index = df_b_daily.index.tz_localize(None)
+                
+                df_a_daily = df_a_daily.loc[dt_start_filter:dt_end_filter]
+                df_b_daily = df_b_daily.loc[dt_start_filter:dt_end_filter]
+            except Exception as e:
+                logger.warning(f"Error parseando fechas en optimize: {e}")
+        df_a_daily = df_a_daily.rename(columns={'closePrice': 'close'})
+        df_b_daily = df_b_daily.rename(columns={'closePrice': 'close'})
 
         # Motor de 2 pares: calcula ratio sintético y aplica todo el modelo
         resultado = engine.process_two_pairs(
@@ -175,7 +194,9 @@ async def get_ratio_correlation(
             offset=offset,
             r=r,
             tYears=tYears,
-            sigmaWindow=sigmaWindow
+            sigmaWindow=sigmaWindow,
+            smaPeriod=smaPeriod,
+            emaSlowPeriod=emaSlowPeriod
         )
 
         # Añadir metadata del ratio al response para el frontend
@@ -195,23 +216,26 @@ async def get_ratio_correlation(
                 resultado["arbitrageSignal"] = f"COMPRA {pairA} - VENTA {pairB}"
                 resultado["arbitrageType"] = "LONG"
 
-            # Recortar el historial para devolver únicamente la ventana de tiempo solicitada
-            if days > 0 and "history" in resultado:
-                points_to_keep = days
-                if tf == "1month":
-                    points_to_keep = max(1, (days + 29) // 30)
-                elif tf == "1week":
-                    points_to_keep = max(1, (days + 6) // 7)
-                elif tf == "1h":
-                    points_to_keep = days * 24
-                elif tf == "30m":
-                    points_to_keep = days * 48
-                elif tf == "15m":
-                    points_to_keep = days * 96
-                elif tf == "5m":
-                    points_to_keep = days * 288
+            # Recortar el historial para devolver únicamente la ventana de tiempo solicitada por fechas
+            if "history" in resultado and resultado["history"]:
+                history_real = resultado["history"]
                 
-                history_real = resultado["history"][-points_to_keep:]
+                if start_date or end_date:
+                    import pandas as pd
+                    filtered_history = []
+                    
+                    try:
+                        dt_start_filter = pd.to_datetime(start_date, utc=True).tz_localize(None) if start_date else pd.Timestamp.min
+                        dt_end_filter = pd.to_datetime(end_date, utc=True).tz_localize(None) if end_date else pd.Timestamp.max
+                        
+                        for item in history_real:
+                            item_dt = pd.to_datetime(item["datetime"], utc=True).tz_localize(None)
+                            if dt_start_filter <= item_dt <= dt_end_filter:
+                                filtered_history.append(item)
+                                
+                        history_real = filtered_history
+                    except Exception as e:
+                        logger.warning(f"Error parseando fechas para el filtro: {e}")
                 
                 # --- PROYECCIÓN FUTURA ---
                 if history_real:
@@ -248,9 +272,10 @@ async def get_ratio_correlation(
                         else:
                             dt_futuro = dt_start + pd.DateOffset(days=k)
                             
-                        # El índice secuencial del punto futuro es total_puntos_original + k
-                        index_seq_futuro = total_puntos_original + k
-                        ciclo_st_futuro = amplitude * np.sin(freq * index_seq_futuro + phase) + offset
+                        # Utilizar el precio del último punto real conocido para mantener la continuidad
+                        last_price = history_real[-1].get("price", 0) if history_real else 0
+                        # Opcionalmente se podría proyectar el precio, pero de forma base usamos el último
+                        ciclo_st_futuro = amplitude * np.sin(freq * last_price + phase) + offset
                         
                         item_futuro = {
                             "datetime": str(dt_futuro),
@@ -269,6 +294,87 @@ async def get_ratio_correlation(
                     resultado["history"] = history_real + history_proyeccion
                 else:
                     resultado["history"] = history_real
+                    
+            # --- DISTRIBUCIÓN ESTADÍSTICA (PRECIOS NORMALIZADOS 0-1) ---
+            try:
+                import numpy as np
+                import scipy.stats as stats
+                
+                # Normalización Min-Max (0 a 1) igual a la gráfica principal
+                min_a, max_a = df_a_daily['close'].min(), df_a_daily['close'].max()
+                min_b, max_b = df_b_daily['close'].min(), df_b_daily['close'].max()
+                
+                norm_series_a = (df_a_daily['close'] - min_a) / (max_a - min_a) if max_a != min_a else 0
+                norm_series_b = (df_b_daily['close'] - min_b) / (max_b - min_b) if max_b != min_b else 0
+                
+                latest_norm_a = float(norm_series_a.iloc[-1]) if len(norm_series_a) > 0 else 0.0
+                latest_norm_b = float(norm_series_b.iloc[-1]) if len(norm_series_b) > 0 else 0.0
+                latest_diff = latest_norm_a - latest_norm_b
+                
+                diff_series = (norm_series_a - norm_series_b).dropna()
+                
+                # histogramBins Bloques fijos de -1.0 a 1.0 con ancho variable según bins
+                bins = np.linspace(-1.0, 1.0, histogramBins + 1)
+                
+                def get_tf_mins(t: str):
+                    t = t.lower().strip()
+                    try:
+                        if t.endswith('m'): return float(t[:-1])
+                        elif t.endswith('h'): return float(t[:-1]) * 60
+                        elif t.endswith('d'): return float(t[:-1]) * 1440
+                        elif t.endswith('w'): return float(t[:-1]) * 10080
+                        return float(t)
+                    except:
+                        return 1440.0
+                
+                tf_mins = get_tf_mins(tf)
+                
+                histogram_data = []
+                for i in range(histogramBins):
+                    low = bins[i]
+                    high = bins[i+1]
+                    # Incluir límite superior en el último bin
+                    if i == histogramBins - 1:
+                        count = int(((diff_series >= low) & (diff_series <= high)).sum())
+                        is_current = (low <= latest_diff <= high)
+                    else:
+                        count = int(((diff_series >= low) & (diff_series < high)).sum())
+                        is_current = (low <= latest_diff < high)
+                    
+                    total_mins = count * tf_mins
+                    days = int(total_mins // 1440)
+                    hours = int((total_mins % 1440) // 60)
+                    mins = int(total_mins % 60)
+                    
+                    time_parts = []
+                    if days > 0: time_parts.append(f"{days}d")
+                    if hours > 0: time_parts.append(f"{hours}h")
+                    if mins > 0 or not time_parts: time_parts.append(f"{mins}m")
+                    time_str = " ".join(time_parts)
+                    
+                    label_str = f"{low:.2f} a {high:.2f} ({time_str})"
+                    
+                    histogram_data.append({
+                        "range": label_str,
+                        "count": count,
+                        "isCurrent": bool(is_current)
+                    })
+                
+                # Curva de Gauss teórica
+                x_vals = np.linspace(-4, 4, 100)
+                y_vals = stats.norm.pdf(x_vals, 0, 1)
+                bell_curve = [{"x": round(float(x), 4), "y": round(float(y), 4)} for x, y in zip(x_vals, y_vals)]
+                
+                resultado["stats"] = {
+                    "zA": latest_norm_a,
+                    "zB": latest_norm_b,
+                    "zDiff": latest_diff,
+                    "bellCurve": bell_curve,
+                    "histogram": histogram_data
+                }
+            except Exception as ex:
+                logger.warning(f"Error al calcular stats de Gauss: {ex}")
+                resultado["stats"] = {"zA": 0, "zB": 0, "zDiff": 0, "bellCurve": [], "histogram": []}
 
         return resultado
     except HTTPException:
@@ -283,7 +389,8 @@ async def get_ratio_optimization(
     pairA: str,
     pairB: str,
     tf: str = "1h",
-    days: int = 365
+    start_date: str = "",
+    end_date: str = ""
 ) -> Dict[str, Any]:
     """
     Endpoint de optimización cuantitativa para encontrar los parámetros senoidales
@@ -294,18 +401,10 @@ async def get_ratio_optimization(
     pairB = unquote(pairB)
 
     try:
-        # Usar el mismo calentamiento que en el cálculo normal del ratio
-        min_days_required = 0
-        if tf == "1month":
-            min_days_required = 20 * 30
-        elif tf == "1week":
-            min_days_required = 20 * 7
-            
-        days_to_load = max(days, min_days_required) if days > 0 else 0
-        candle_limit = 2000000 if days_to_load == 0 else ((days_to_load + 30) * 288)
-
-        df_a = await getCandlesFromDb(symbol=pairA, timeframe="5min", limit=candle_limit)
-        df_b = await getCandlesFromDb(symbol=pairB, timeframe="5min", limit=candle_limit)
+        # Extraer todo el histórico para calcular la optimización
+        candle_limit = 100000
+        df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+        df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
 
         if df_a.empty or df_b.empty:
             raise HTTPException(status_code=404, detail="Datos de velas no encontrados en la base de datos.")
@@ -351,21 +450,21 @@ async def get_ratio_optimization(
             raise HTTPException(status_code=400, detail="Historial insuficiente tras aplicar ventanas móviles.")
 
         # Recortar la serie a la ventana histórica especificada
-        points_to_keep = days
-        if tf == "1month":
-            points_to_keep = max(1, (days + 29) // 30)
-        elif tf == "1week":
-            points_to_keep = max(1, (days + 6) // 7)
-        elif tf == "1h":
-            points_to_keep = days * 24
-        elif tf == "30m":
-            points_to_keep = days * 48
-        elif tf == "15m":
-            points_to_keep = days * 96
-        elif tf == "5m":
-            points_to_keep = days * 288
+        if start_date or end_date:
+            try:
+                import pandas as pd
+                dt_start_filter = pd.to_datetime(start_date).tz_localize(None) if start_date else pd.Timestamp.min
+                dt_end_filter = pd.to_datetime(end_date).tz_localize(None) if end_date else pd.Timestamp.max
+                
+                df_ratio.index = df_ratio.index.tz_localize(None)
+                df_ratio = df_ratio.loc[dt_start_filter:dt_end_filter]
+            except Exception as e:
+                logger.warning(f"Error parseando fechas para optimización: {e}")
+                
+        if len(df_ratio) < 10:
+            raise HTTPException(status_code=400, detail="Historial insuficiente para optimizar.")
 
-        df_target = df_ratio.iloc[-points_to_keep:] if days > 0 else df_ratio
+        df_target = df_ratio
 
         price_list = df_target['price'].tolist()
         sma20_list = df_target['sma_20'].tolist()
@@ -403,15 +502,10 @@ async def get_correlations_for_base(base_pair: str, db: Session = Depends(get_db
         series = {}
         for p in pares_compatibles:
             try:
-                # Cargar unas 5000 velas de 5m
-                df = await getCandlesFromDb(symbol=p.symbol, timeframe="5min", limit=5000)
+                # Cargar unas 90 velas diarias (aproximadamente 3 meses para correlación)
+                df = await getStockPricesFromDb(symbol=p.symbol, limit=90)
                 if not df.empty:
-                    # Agrupar por hora para estabilidad y velocidad
-                    df_hourly = df.resample('1h').agg({'close': 'last'}).dropna()
-                    # Omitir la última vela incompleta
-                    if len(df_hourly) > 1:
-                        df_hourly = df_hourly.iloc[:-1]
-                    series[p.symbol] = df_hourly['close']
+                    series[p.symbol] = df['closePrice']
             except Exception as e:
                 logger.error(f"Error cargando serie temporal para correlación de {p.symbol}: {e}")
                 continue
@@ -421,18 +515,6 @@ async def get_correlations_for_base(base_pair: str, db: Session = Depends(get_db
             
         # 4. Combinar series en un único DataFrame para alinear por fechas
         df_combined = pd.DataFrame(series).dropna()
-        if df_combined.empty or len(df_combined) < 5:
-            # Fallback a alineación directa de 5min sin resample
-            series_5m = {}
-            for p in pares_compatibles:
-                try:
-                    df = await getCandlesFromDb(symbol=p.symbol, timeframe="5min", limit=1000)
-                    if not df.empty:
-                        series_5m[p.symbol] = df['close']
-                except Exception as e:
-                    continue
-            df_combined = pd.DataFrame(series_5m).dropna()
-            
         if df_combined.empty:
             return {}
             

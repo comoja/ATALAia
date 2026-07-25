@@ -73,7 +73,7 @@ class CorrelationEngine:
             
         return price
 
-    def process_pair(self, df: pd.DataFrame, amplitude: float = 1.0, freq: float = 0.1, phase: float = 0.0, offset: float = 0.0, r: float = 0.05, tYears: float = 30 / 252, sigmaWindow: int = 7) -> dict:
+    def process_pair(self, df: pd.DataFrame, amplitude: float = 1.0, freq: float = 0.1, phase: float = 0.0, offset: float = 0.0, r: float = 0.05, tYears: float = 30 / 252, sigmaWindow: int = 7, smaPeriod: int = 20, emaSlowPeriod: int = 50) -> dict:
         """
         Función principal que orquesta todos los cálculos equivalentes a la hoja 'EURGBPUSD'
         utilizando parámetros dinámicos y fórmulas financieras precisas.
@@ -90,7 +90,11 @@ class CorrelationEngine:
         df = self.calculate_log_returns(df, 'price')
         df = self.calculate_volatility(df, 7)
         df = self.calculate_volatility(df, 60) # Equivalente a 2M
-        df = self.calculate_moving_average(df, 'price', 20)
+        df = self.calculate_moving_average(df, 'price', smaPeriod)
+        df = self.calculate_moving_average(df, 'price', emaSlowPeriod)
+        
+        sma_fast_col = f'sma_{smaPeriod}'
+        sma_slow_col = f'sma_{emaSlowPeriod}'
         
         # Eliminar NaNs generados por los shifts y rollings
         df = df.dropna()
@@ -98,17 +102,36 @@ class CorrelationEngine:
         if df.empty:
             return {"error": "Datos insuficientes tras aplicar ventanas móviles.", "success": False}
 
-        # Generar un índice secuencial para alimentar el cálculo del ciclo senoidal
+        # Generar el ciclo senoidal utilizando el precio como input
         df['indexSeq'] = np.arange(1, len(df) + 1)
-        df = self.compute_cycles(df, 'indexSeq', amplitude, freq, phase, offset)
+        df = self.compute_cycles(df, 'price', amplitude, freq, phase, offset)
 
         # Calcular las primas teóricas de opciones Call y Put de Black-Scholes para cada día
         volCol = f'vol_{sigmaWindow}D'
         if volCol not in df.columns:
             volCol = 'vol_7D' # Fallback seguro
             
-        df['bsCall'] = df.apply(lambda row: self.black_scholes(row['price'], row['sma_20'], tYears, r, row[volCol], "call"), axis=1)
-        df['bsPut']  = df.apply(lambda row: self.black_scholes(row['price'], row['sma_20'], tYears, r, row[volCol], "put"), axis=1)
+        df['bsCall'] = df.apply(lambda row: self.black_scholes(row['price'], row[sma_fast_col], tYears, r, row[volCol], "call"), axis=1)
+        df['bsPut']  = df.apply(lambda row: self.black_scholes(row['price'], row[sma_fast_col], tYears, r, row[volCol], "put"), axis=1)
+
+        # Si existen ambos pares (close_a y close_b), calcular iMACD sobre la Media de Precios Normalizados [0, 1]
+        if 'close_a' in df.columns and 'close_b' in df.columns:
+            min_a, max_a = df['close_a'].min(), df['close_a'].max()
+            min_b, max_b = df['close_b'].min(), df['close_b'].max()
+            range_a = (max_a - min_a) if (max_a - min_a) != 0 else 1.0
+            range_b = (max_b - min_b) if (max_b - min_b) != 0 else 1.0
+            norm_a = (df['close_a'] - min_a) / range_a
+            norm_b = (df['close_b'] - min_b) / range_b
+            price_target = (norm_a + norm_b) / 2.0
+        else:
+            price_target = df['price']
+
+        # Calcular iMACD (12, 26, 9) sobre la serie objetivo (Media de Precios Normalizados)
+        ema_12 = price_target.ewm(span=12, adjust=False).mean()
+        ema_26 = price_target.ewm(span=26, adjust=False).mean()
+        df['macd_line'] = ema_12 - ema_26
+        df['macd_signal'] = df['macd_line'].ewm(span=9, adjust=False).mean()
+        df['macd_hist'] = df['macd_line'] - df['macd_signal']
 
         # Retorno de ultimos cálculos y el historial completo para visualización
         latestRow = df.iloc[-1]
@@ -118,10 +141,14 @@ class CorrelationEngine:
             "logReturnLatest": float(latestRow['log_return']),
             "vol7DAnnualized": float(latestRow['vol_7D']),
             "vol60DAnnualized": float(latestRow['vol_60D']),
-            "strikeAvg20": float(latestRow['sma_20']),
+            "strikeAvg20": float(latestRow[sma_fast_col]),
+            "smaSlow": float(latestRow[sma_slow_col]),
             "cicloStLatest": float(latestRow['ciclo_st']),
             "bsCallLatest": float(latestRow['bsCall']),
-            "bsPutLatest": float(latestRow['bsPut'])
+            "bsPutLatest": float(latestRow['bsPut']),
+            "macdLineLatest": float(latestRow['macd_line']),
+            "macdSignalLatest": float(latestRow['macd_signal']),
+            "macdHistLatest": float(latestRow['macd_hist'])
         }
 
         # Estructurar historial completo formateado para gráficas en PrimeFaces
@@ -132,10 +159,14 @@ class CorrelationEngine:
                 "price": float(row['price']),
                 "vol7D": float(row['vol_7D']),
                 "vol60D": float(row['vol_60D']),
-                "sma20": float(row['sma_20']),
+                "sma20": float(row[sma_fast_col]),
+                "smaSlow": float(row[sma_slow_col]),
                 "cicloSt": float(row['ciclo_st']),
                 "bsCall": float(row['bsCall']),
-                "bsPut": float(row['bsPut'])
+                "bsPut": float(row['bsPut']),
+                "macdLine": float(row['macd_line']),
+                "macdSignal": float(row['macd_signal']),
+                "macdHist": float(row['macd_hist'])
             }
             if 'close_a' in row:
                 item["priceA"] = float(row['close_a'])
@@ -185,7 +216,9 @@ class CorrelationEngine:
         offset: float = 0.0,
         r: float = 0.05,
         tYears: float = 30 / 252,
-        sigmaWindow: int = 7
+        sigmaWindow: int = 7,
+        smaPeriod: int = 20,
+        emaSlowPeriod: int = 50
     ) -> dict:
         """
         Flujo completo de correlación cruzada de dos pares.
@@ -204,7 +237,7 @@ class CorrelationEngine:
         except ValueError as e:
             return {"error": str(e), "success": False}
 
-        # Reutilizamos process_pair() sobre el ratio — sin modificar nada
+        # Reutilizamos process_pair() sobre el ratio
         return self.process_pair(
             df=df_ratio,
             amplitude=amplitude,
@@ -213,7 +246,9 @@ class CorrelationEngine:
             offset=offset,
             r=r,
             tYears=tYears,
-            sigmaWindow=sigmaWindow
+            sigmaWindow=sigmaWindow,
+            smaPeriod=smaPeriod,
+            emaSlowPeriod=emaSlowPeriod
         )
 
 

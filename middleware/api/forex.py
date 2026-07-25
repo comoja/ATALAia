@@ -161,7 +161,9 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
     
     # Mapeo de símbolos personalizados para MT5
     symbolMap = {
-        "BTCUSD": "Bitcoin"
+        "BTCUSD": "Bitcoin",
+        "XTIUSD": "US Oil - Cash",
+        "XBRUSD": "UK Oil - Cash"
     }
     symbol = symbolMap.get(symbol, symbol)
 

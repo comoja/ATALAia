@@ -43,7 +43,7 @@ function startServices() {
     cd "$scriptDir" || exit 1
 
     # 3. Levantar el Backend (FastAPI)
-    echo "⚡ Iniciando Backend en puerto 8000..."
+    echo "⚡ Iniciando Backend en puerto 8004..."
     "$scriptDir/.venv/bin/python" "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
     backendPid=$!
     echo "$backendPid" > "$backendPidFile"
@@ -58,7 +58,7 @@ function startServices() {
 
     echo "----------------------------------------------------------"
     echo "🎉 ¡Servicios iniciados con éxito!"
-    echo "🌐 FastAPI Backend:   http://localhost:8000"
+    echo "🌐 FastAPI Backend:   http://localhost:8004"
     echo "🌐 PrimeFaces Visual: http://localhost:8080/ATALA.ia/login.xhtml"
     echo "=========================================================="
 
@@ -118,14 +118,14 @@ function stopServices() {
         rm -f "$backendPidFile"
         echo "✅ Backend detenido."
     else
-        # Búsqueda preventiva por puerto 8000 si el pidfile no existe
-        portPid=$(lsof -t -i:8000)
+        # Búsqueda preventiva por puerto 8004 si el pidfile no existe
+        portPid=$(lsof -t -i:8004)
         if [ -n "$portPid" ]; then
-            echo "⚡ Deteniendo proceso huérfano en puerto 8000 (PID: $portPid)..."
+            echo "⚡ Deteniendo proceso huérfano en puerto 8004 (PID: $portPid)..."
             kill "$portPid" 2>/dev/null
             sleep 1
             kill -9 "$portPid" 2>/dev/null
-            echo "✅ Proceso en puerto 8000 detenido."
+            echo "✅ Proceso en puerto 8004 detenido."
         else
             echo "ℹ️  No hay registros de Backend activo."
         fi
@@ -144,7 +144,7 @@ function showStatus() {
     if [ -f "$backendPidFile" ]; then
         backendPid=$(cat "$backendPidFile")
         if kill -0 "$backendPid" 2>/dev/null; then
-            echo "🟢 Backend (FastAPI):  ACTIVO (PID: $backendPid) | http://localhost:8000"
+            echo "🟢 Backend (FastAPI):  ACTIVO (PID: $backendPid) | http://localhost:8004"
         else
             echo "🔴 Backend (FastAPI):  INACTIVO (PID muerto)"
         fi

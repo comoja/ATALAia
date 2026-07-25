@@ -44,7 +44,8 @@ optimizationScripts = [
     "run_imbalance_optimization.py",
     "run_silverbullet_optimization.py",
     "run_speedbot_optimization.py",
-    "run_patron4h_optimization.py"
+    "run_patron4h_optimization.py",
+    "run_premiumconfluence_optimization.py"
 ]
 
 def runAllOptimizations() -> None:

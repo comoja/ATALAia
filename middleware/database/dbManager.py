@@ -131,8 +131,7 @@ def init_alerts_table():
             "sniper_min_confidence_adjust_pct": "DOUBLE NULL",
             "sniper_extra_confirmations": "INT NULL",
             "sniper_max_rr": "DOUBLE NULL",
-            "priceOffset": "DOUBLE DEFAULT 0.0",
-            "broker": "TINYINT(1) DEFAULT 0"
+            "priceOffset": "DOUBLE DEFAULT 0.0"
         }
         for col, definition in symbol_cols.items():
             try:
@@ -1184,6 +1183,13 @@ async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 50
         except Exception as e:
             logger.error(f"Error en getCandlesFromDb: {e}", exc_info=True)
             return pd.DataFrame()
+        finally:
+            if cursor:
+                try: cursor.close()
+                except: pass
+            if conn:
+                try: conn.close()
+                except: pass
 
     return await asyncio.to_thread(query)
 
@@ -1312,7 +1318,8 @@ def getBrokerCuentas(idCuenta: int = None) -> list:
         
         sql = """
             SELECT bc.idBrokerCuenta, bc.idCuenta, bc.idBroker, b.nombre AS nombreBroker, 
-                   bc.tipoConexion, bc.loginUsuario, bc.tokenAcceso, bc.activo, bc.createdAt 
+                   bc.tipoConexion, bc.loginUsuario, bc.tokenAcceso, bc.activo, bc.createdAt,
+                   bc.Apikey, bc.Servidor
             FROM BrokerCuenta bc
             JOIN broker b ON bc.idBroker = b.idBroker
         """
@@ -1422,6 +1429,10 @@ def saveStockPrices(df: pd.DataFrame, symbol: str) -> int:
     except Exception as e:
         logger.error(f"Error guardando StockPrices para {symbol}: {e}")
         return 0
+    finally:
+        if 'dbCursor' in locals(): dbCursor.close()
+        if 'dbConn' in locals(): dbConn.close()
+
 
 async def getStockPricesFromDb(symbol: str, limit: int = 365) -> pd.DataFrame:
     """

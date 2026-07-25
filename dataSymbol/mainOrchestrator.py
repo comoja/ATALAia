@@ -174,12 +174,45 @@ async def main():
     lastResetDate = datetime.now(api_tz).date()
     symbolIndex = 0
     ultimoLogMinuto = -1
+    _last_hourly_stockprices_sync = None
     
     while True:
         try:
             now_local = datetime.now(TIMEZONE_LOCAL)
             now_api = datetime.now(api_tz)
             today_api = now_api.date()
+
+            # --- Sincronización de StockPrices cada hora ---
+            current_hour_str = now_local.strftime("%Y-%m-%d %H:00:00")
+            if _last_hourly_stockprices_sync != current_hour_str:
+                logger.info("⏳ Detectada nueva hora, sincronizando StockPrices desde candles...")
+                import subprocess
+                import sys, os
+                scriptPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fill_stockprices.py"))
+                try:
+                    subprocess.Popen([sys.executable, scriptPath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    _last_hourly_stockprices_sync = current_hour_str
+                    logger.info("✅ Sincronización de StockPrices iniciada en background.")
+                except Exception as e:
+                    logger.error(f"Error iniciando sincronización de StockPrices: {e}")
+
+            # --- Optimización Semanal (Viernes 00:15) ---
+            # Se ejecuta a las 00:15 de cada viernes (weekday 4 = Viernes)
+            current_minute_str = now_local.strftime("%Y-%m-%d %H:%M")
+            if now_local.weekday() == 4 and now_local.hour == 0 and now_local.minute == 15:
+                global _last_weekly_optimization
+                if '_last_weekly_optimization' not in globals():
+                    _last_weekly_optimization = None
+                
+                if _last_weekly_optimization != current_minute_str:
+                    logger.info("⏳ Detectado Viernes 00:15, iniciando run_all_optimizations en background...")
+                    optScriptPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Sentinel", "backtesting", "run_all_optimizations.py"))
+                    try:
+                        subprocess.Popen([sys.executable, optScriptPath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        _last_weekly_optimization = current_minute_str
+                        logger.info("✅ Optimización semanal iniciada en background.")
+                    except Exception as e:
+                        logger.error(f"Error iniciando optimización semanal: {e}")
 
             if isRestTime():
                 segundosSueño = get_seconds_until_market_opens()

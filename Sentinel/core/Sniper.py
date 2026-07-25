@@ -145,8 +145,12 @@ class SniperBot:
 
         df = technical.filter_to_closed_candles(df)
         
-        # 2. Calculate features
-        dfFeatured = technical.calculateFeatures(df)
+        # 2. Calculate features (skip if already pre-calculated by main)
+        if 'rsi' not in df.columns or 'macd' not in df.columns:
+            dfFeatured = technical.calculateFeatures(df)
+        else:
+            dfFeatured = df
+            
         if dfFeatured is None:
             logger.error(f"[{symbol}] Error crítico: calculateFeatures devolvió None")
             return None

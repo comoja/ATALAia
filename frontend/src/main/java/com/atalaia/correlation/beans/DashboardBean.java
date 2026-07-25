@@ -20,6 +20,10 @@ import org.primefaces.model.charts.axes.cartesian.linear.CartesianLinearAxes;
 import org.primefaces.model.charts.bar.BarChartDataSet;
 import org.primefaces.model.charts.bar.BarChartModel;
 import org.primefaces.model.charts.bar.BarChartOptions;
+import org.primefaces.model.charts.line.LineChartDataSet;
+import org.primefaces.model.charts.line.LineChartModel;
+import org.primefaces.model.charts.line.LineChartOptions;
+import org.primefaces.model.charts.data.NumericPoint;
 
 @Named("dashboardBean")
 @SessionScoped
@@ -43,10 +47,30 @@ public class DashboardBean implements Serializable {
     private Double r = 0.06;
     private Double tYears = 45.0 / 252.0;
     private Integer sigmaWindow = 30;
+    private Integer smaPeriodParam = 3;
+    private Integer emaSlowPeriodParam = 15;
+    private Integer histogramBins = 50;
 
     // --- Temporada y Periodo Histórico ---
-    private String timeframe = "1h";
-    private Integer historyDays = 1;
+    private String timeframe = "1d";
+    private java.util.Date startDate;
+    private java.util.Date endDate;
+
+    public java.util.Date getStartDate() {
+        return startDate;
+    }
+
+    public void setStartDate(java.util.Date startDate) {
+        this.startDate = startDate;
+    }
+
+    public java.util.Date getEndDate() {
+        return endDate;
+    }
+
+    public void setEndDate(java.util.Date endDate) {
+        this.endDate = endDate;
+    }
 
     public Double gettYears() {
         return this.tYears;
@@ -83,114 +107,45 @@ public class DashboardBean implements Serializable {
     private BarChartModel velStModel;
     private BarChartModel velLtModel;
 
-    @Value("${atalaia.backend.url:http://localhost:8000}")
+    // --- Distribución Estadística (Campana de Gauss) ---
+    private Double zScoreA = 0.0;
+    private Double zScoreB = 0.0;
+    private Double zScoreDiff = 0.0;
+    private LineChartModel gaussianModel;
+    private BarChartModel histogramModel;
+    private Double macdLineLatest = 0.0;
+    private Double macdSignalLatest = 0.0;
+    private Double macdHistLatest = 0.0;
+    private LineChartModel macdModel;
+
+    @Value("${atalaia.backend.url:http://localhost:8004}")
     private String backendUrl;
 
     @PostConstruct
     public void init() {
         log.info("Inicializando DashboardBean Holográfico (Aether UI)...");
+        // Por defecto, fecha fin = hoy, fecha inicio = hace 1 año (365 días)
+        this.endDate = new java.util.Date();
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTime(this.endDate);
+        cal.add(java.util.Calendar.DAY_OF_YEAR, -365);
+        this.startDate = cal.getTime();
+
         loadCatalogo();
         analyzePair(); // Cargar datos iniciales
     }
 
-    private double timeframeToDays(String tf) {
-        if (tf == null)
-            return 0.0;
-        switch (tf) {
-            case "1month":
-                return 30.0;
-            case "1week":
-                return 7.0;
-            case "1d":
-                return 1.0;
-            case "1h":
-                return 1.0 / 24.0;
-            case "30m":
-                return 30.0 / 1440.0;
-            case "15m":
-                return 15.0 / 1440.0;
-            case "5m":
-                return 5.0 / 1440.0;
-            default:
-                return 0.0;
+    public void onDatesOrTimeframeChange() {
+        if (startDate == null) {
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -365);
+            startDate = cal.getTime();
         }
-    }
-
-    private String getPeriodLabel(int days) {
-        switch (days) {
-            case 1:
-                return "1 Día";
-            case 7:
-                return "7 Días";
-            case 30:
-                return "30 Días";
-            case 90:
-                return "90 Días";
-            case 180:
-                return "180 Días";
-            case 365:
-                return "1 Año";
-            default:
-                return "Todo el Histórico";
-        }
-    }
-
-    private String getTimeframeLabel(String tf) {
-        if (tf == null)
-            return "";
-        switch (tf) {
-            case "1month":
-                return "1 Mes";
-            case "1week":
-                return "1 Semana";
-            case "1d":
-                return "1 Día";
-            case "1h":
-                return "1 Hora";
-            case "30m":
-                return "30 Minutos";
-            case "15m":
-                return "15 Minutos";
-            case "5m":
-                return "5 Minutos";
-            default:
-                return tf;
-        }
-    }
-
-    @SuppressWarnings("null")
-    public void onPeriodOrTimeframeChange() {
-        if (historyDays == null) {
-            historyDays = 7;
+        if (endDate == null) {
+            endDate = new java.util.Date();
         }
         if (timeframe == null) {
             timeframe = "1h";
-        }
-
-        double tfDays = timeframeToDays(timeframe);
-        double histDaysVal = historyDays == 0 ? 99999.0 : historyDays.doubleValue();
-
-        if (tfDays >= histDaysVal) {
-            log.info("Ajustando temporalidad porque {} es mayor o igual al periodo de {} días", timeframe, historyDays);
-            String oldTimeframe = timeframe;
-
-            if (historyDays == 1) {
-                timeframe = "1h";
-            } else if (historyDays == 7) {
-                timeframe = "1d";
-            } else if (historyDays == 30) {
-                timeframe = "1week";
-            } else {
-                timeframe = "1month";
-            }
-
-            String msg = "Ajuste automático: Para un período de " + getPeriodLabel(historyDays)
-                    + ", la temporalidad se ajustó de " + getTimeframeLabel(oldTimeframe)
-                    + " a " + getTimeframeLabel(timeframe) + " para mantener la coherencia.";
-
-            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
-                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
-                            "Ajuste de Rango", msg));
         }
     }
 
@@ -236,7 +191,7 @@ public class DashboardBean implements Serializable {
     }
 
     public void analyzePair() {
-        onPeriodOrTimeframeChange();
+        onDatesOrTimeframeChange();
         if (selectedPair == null || selectedPair.isEmpty()) {
             analysisResult = "Por favor, seleccione un par válido.";
             return;
@@ -249,21 +204,22 @@ public class DashboardBean implements Serializable {
             return;
         }
 
-        loadCorrelationsForSelectedPair();
-
         try {
             log.info("Analizando ratio sintético: {} / {} con calibración en RAM...", selectedPair, selectedPair2);
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startStr = (startDate != null) ? sdf.format(startDate) : "";
+            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+
             // Construir URL para el endpoint de ratio de 2 pares
-            // Formato: /api/v1/ratio/{pairA}?pairB={pairB}&amplitude=...&
             String url = String.format(
-                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&tf=%s&days=%d",
+                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&smaPeriod=%d&emaSlowPeriod=%d&histogramBins=%d&tf=%s&start_date=%s&end_date=%s",
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, timeframe, historyDays);
+                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, smaPeriodParam, emaSlowPeriodParam, histogramBins, timeframe, startStr, endStr);
 
             log.info("Llamando a FastAPI (ratio 2 pares): {}", url);
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -285,6 +241,11 @@ public class DashboardBean implements Serializable {
                 this.cicloStLatest = latestNode.get("cicloStLatest").asDouble();
                 this.bsCallLatest = latestNode.get("bsCallLatest").asDouble();
                 this.bsPutLatest = latestNode.get("bsPutLatest").asDouble();
+                if (latestNode.has("macdLineLatest")) {
+                    this.macdLineLatest = latestNode.get("macdLineLatest").asDouble();
+                    this.macdSignalLatest = latestNode.get("macdSignalLatest").asDouble();
+                    this.macdHistLatest = latestNode.get("macdHistLatest").asDouble();
+                }
 
                 // Label del ratio activo que viene desde el backend
                 if (rootNode.has("ratioLabel")) {
@@ -300,6 +261,23 @@ public class DashboardBean implements Serializable {
 
                 // Obtener historial de velas serializado
                 this.historyJson = mapper.writeValueAsString(rootNode.get("history"));
+
+                // --- Procesar Estadísticas de la Campana de Gauss ---
+                if (rootNode.has("stats")) {
+                    JsonNode statsNode = rootNode.get("stats");
+                    this.zScoreA = statsNode.get("zA").asDouble();
+                    this.zScoreB = statsNode.get("zB").asDouble();
+                    this.zScoreDiff = statsNode.get("zDiff").asDouble();
+                    
+                    createGaussianModel(statsNode.get("bellCurve"));
+                    if (statsNode.has("histogram")) {
+                        createHistogramModel(statsNode.get("histogram"));
+                    }
+                }
+
+                if (rootNode.has("history")) {
+                    createMacdModel(rootNode.get("history"));
+                }
 
                 analysisResult = "Ratio sintético calculado: " + this.ratioLabel;
             } else {
@@ -340,12 +318,16 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startStr = (startDate != null) ? sdf.format(startDate) : "";
+            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+
             String url = String.format(
-                    "%s/api/v1/optimize/ratio/%s?pairB=%s&tf=%s&days=%d",
+                    "%s/api/v1/optimize/ratio/%s?pairB=%s&tf=%s&start_date=%s&end_date=%s",
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    timeframe, historyDays);
+                    timeframe, startStr, endStr);
 
             log.info("Llamando a FastAPI para optimización: {}", url);
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -402,19 +384,9 @@ public class DashboardBean implements Serializable {
         if (selectedPair == null || availablePairs == null) {
             return list;
         }
-        RatioSymbolDto numeradorDto = findDtoByPairName(selectedPair);
-        if (numeradorDto == null || numeradorDto.getTipo() == null) {
-            return availablePairs;
-        }
         for (RatioSymbolDto p : availablePairs) {
-            if (p.getTipo() != null && numeradorDto.getTipo().equalsIgnoreCase(p.getTipo())
-                    && !p.getPairName().equals(selectedPair)) {
-                Double score = p.getCorrelationScore();
-                // Permitir nulos o si es el denominador actualmente seleccionado para evitar que JSF lo limpie
-                // o si la correlación absoluta es >= 0.50
-                if (score == null || p.getPairName().equals(selectedPair2) || Math.abs(score) >= 0.50) {
-                    list.add(p);
-                }
+            if (!p.getPairName().equals(selectedPair)) {
+                list.add(p);
             }
         }
         return list;
@@ -424,11 +396,7 @@ public class DashboardBean implements Serializable {
         if (p == null || selectedPair == null) {
             return false;
         }
-        RatioSymbolDto numeradorDto = findDtoByPairName(selectedPair);
-        if (numeradorDto == null || numeradorDto.getTipo() == null || p.getTipo() == null) {
-            return false;
-        }
-        return !numeradorDto.getTipo().equalsIgnoreCase(p.getTipo());
+        return p.getPairName().equals(selectedPair);
     }
 
     @SuppressWarnings("unchecked")
@@ -489,7 +457,7 @@ public class DashboardBean implements Serializable {
         if (p == null)
             return "";
         if (selectedPair != null && selectedPair.equals(p.getPairName())) {
-            return "background: rgba(44, 53, 57, 0.45); color: #ffffff; padding: 3px 8px; border-radius: 4px; border-left: 3px solid #7E8C92;";
+            return "color: #7E8C92; opacity: 0.5; text-decoration: line-through; padding: 3px 8px;";
         }
         if (isDenominadorIncompatible(p)) {
             return "color: #7E8C92; opacity: 0.5; text-decoration: line-through; padding: 3px 8px;";
@@ -499,15 +467,15 @@ public class DashboardBean implements Serializable {
             r = 0.0;
 
         if (r >= 0.75) {
-            return "background: rgba(28, 59, 36, 0.55); color: #80ffaa; border-left: 3px solid #80ffaa; padding: 3px 8px; border-radius: 4px; font-weight: bold;";
+            return "color: #059669; padding: 3px 8px; font-weight: bold;";
         } else if (r >= 0.40) {
-            return "background: rgba(45, 59, 28, 0.45); color: #c4ff80; padding: 3px 8px; border-radius: 4px;";
+            return "color: #65a30d; padding: 3px 8px;";
         } else if (r > -0.40) {
-            return "background: rgba(45, 45, 45, 0.35); color: #b0b0b0; padding: 3px 8px; border-radius: 4px;";
+            return "color: #6b7280; padding: 3px 8px;";
         } else if (r > -0.75) {
-            return "background: rgba(59, 45, 28, 0.45); color: #ffb880; padding: 3px 8px; border-radius: 4px;";
+            return "color: #d97706; padding: 3px 8px;";
         } else {
-            return "background: rgba(59, 28, 28, 0.55); color: #ff8080; border-left: 3px solid #ff8080; padding: 3px 8px; border-radius: 4px; font-weight: bold;";
+            return "color: #dc2626; padding: 3px 8px; font-weight: bold;";
         }
     }
 
@@ -688,16 +656,14 @@ public class DashboardBean implements Serializable {
         // Cargar las nuevas correlaciones del numerador
         loadCorrelationsForSelectedPair();
 
-        RatioSymbolDto denominadorDto = findDtoByPairName(selectedPair2);
         // Si el denominador actual es incompatible o es el mismo par, reajustar automáticamente
-        if (selectedPair.equals(selectedPair2)
-                || (denominadorDto != null && !numeradorDto.getTipo().equalsIgnoreCase(denominadorDto.getTipo()))) {
+        if (selectedPair2 == null || selectedPair2.equals(selectedPair)) {
             // Encontrar el primer denominador compatible y diferente al numerador
             for (RatioSymbolDto p : availablePairs) {
-                if (!p.getPairName().equals(selectedPair) && numeradorDto.getTipo().equalsIgnoreCase(p.getTipo())) {
+                if (!p.getPairName().equals(selectedPair)) {
                     selectedPair2 = p.getPairName();
                     String msg = "Denominador ajustado dinámicamente a " + selectedPair2
-                            + " por compatibilidad de tipo (" + numeradorDto.getTipo() + ").";
+                            + ".";
                     javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                             new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                     "Alineación de Correlación", msg));
@@ -708,9 +674,6 @@ public class DashboardBean implements Serializable {
         
         // Auto-calibrar fase y parámetros basados en correlación
         resetCalibrationDefaults();
-        
-        // Recalcular análisis con el nuevo par seleccionado
-        analyzePair();
     }
 
     public void onDenominadorChange() {
@@ -738,5 +701,268 @@ public class DashboardBean implements Serializable {
         private String desc;
         private String tipo;
         private Double correlationScore = 0.0;
+    }
+
+    private void createGaussianModel(JsonNode bellCurveNode) {
+        gaussianModel = new LineChartModel();
+        ChartData data = new ChartData();
+
+        // Dataset 1: Campana de Gauss
+        LineChartDataSet bellDataSet = new LineChartDataSet();
+        bellDataSet.setLabel("Distribución Normal");
+        bellDataSet.setBorderColor("rgba(75, 192, 192, 0.8)");
+        bellDataSet.setBackgroundColor("rgba(75, 192, 192, 0.2)");
+        bellDataSet.setShowLine(true);
+        bellDataSet.setTension(0.4);
+        bellDataSet.setPointRadius(0); // Ocultar puntos de la curva
+        
+        List<Object> bellPoints = new ArrayList<>();
+        if (bellCurveNode != null && bellCurveNode.isArray()) {
+            for (JsonNode pt : bellCurveNode) {
+                bellPoints.add(new NumericPoint(pt.get("x").asDouble(), pt.get("y").asDouble()));
+            }
+        }
+        bellDataSet.setData(bellPoints);
+        data.addChartDataSet(bellDataSet);
+
+        // Dataset 2: Par A
+        LineChartDataSet pairADataSet = new LineChartDataSet();
+        pairADataSet.setLabel("Par A (" + this.selectedPair + ")");
+        pairADataSet.setBackgroundColor("rgba(54, 162, 235, 1)");
+        pairADataSet.setBorderColor("rgba(54, 162, 235, 1)");
+        pairADataSet.setPointRadius(6);
+        
+        // Calcular Y usando Math para la altura del punto
+        double yA = (1.0 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * Math.pow(this.zScoreA, 2));
+        List<Object> pointsA = new ArrayList<>();
+        pointsA.add(new NumericPoint(this.zScoreA, yA));
+        pairADataSet.setData(pointsA);
+        data.addChartDataSet(pairADataSet);
+
+        // Dataset 3: Par B
+        LineChartDataSet pairBDataSet = new LineChartDataSet();
+        pairBDataSet.setLabel("Par B (" + this.selectedPair2 + ")");
+        pairBDataSet.setBackgroundColor("rgba(255, 159, 64, 1)");
+        pairBDataSet.setBorderColor("rgba(255, 159, 64, 1)");
+        pairBDataSet.setPointRadius(6);
+        
+        double yB = (1.0 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * Math.pow(this.zScoreB, 2));
+        List<Object> pointsB = new ArrayList<>();
+        pointsB.add(new NumericPoint(this.zScoreB, yB));
+        pairBDataSet.setData(pointsB);
+        data.addChartDataSet(pairBDataSet);
+
+        gaussianModel.setData(data);
+
+        // Opciones del gráfico
+        LineChartOptions options = new LineChartOptions();
+        CartesianScales cScales = new CartesianScales();
+        CartesianLinearAxes linearAxes = new CartesianLinearAxes();
+        linearAxes.setType("linear");
+        linearAxes.setPosition("bottom");
+        cScales.addXAxesData(linearAxes);
+        options.setScales(cScales);
+
+        gaussianModel.setOptions(options);
+    }
+
+    public Double getzScoreA() {
+        return zScoreA;
+    }
+
+    public void setzScoreA(Double zScoreA) {
+        this.zScoreA = zScoreA;
+    }
+
+    public Double getzScoreB() {
+        return zScoreB;
+    }
+
+    public void setzScoreB(Double zScoreB) {
+        this.zScoreB = zScoreB;
+    }
+
+    public Double getzScoreDiff() {
+        return zScoreDiff;
+    }
+
+    public void setzScoreDiff(Double zScoreDiff) {
+        this.zScoreDiff = zScoreDiff;
+    }
+
+    public LineChartModel getGaussianModel() {
+        return gaussianModel;
+    }
+
+    public void setGaussianModel(LineChartModel gaussianModel) {
+        this.gaussianModel = gaussianModel;
+    }
+
+    public BarChartModel getHistogramModel() {
+        return histogramModel;
+    }
+
+    public void setHistogramModel(BarChartModel histogramModel) {
+        this.histogramModel = histogramModel;
+    }
+
+    public Double getMacdLineLatest() {
+        return macdLineLatest;
+    }
+
+    public void setMacdLineLatest(Double macdLineLatest) {
+        this.macdLineLatest = macdLineLatest;
+    }
+
+    public Double getMacdSignalLatest() {
+        return macdSignalLatest;
+    }
+
+    public void setMacdSignalLatest(Double macdSignalLatest) {
+        this.macdSignalLatest = macdSignalLatest;
+    }
+
+    public Double getMacdHistLatest() {
+        return macdHistLatest;
+    }
+
+    public void setMacdHistLatest(Double macdHistLatest) {
+        this.macdHistLatest = macdHistLatest;
+    }
+
+    public LineChartModel getMacdModel() {
+        return macdModel;
+    }
+
+    public void setMacdModel(LineChartModel macdModel) {
+        this.macdModel = macdModel;
+    }
+
+    private void createMacdModel(JsonNode historyNode) {
+        if (historyNode == null || !historyNode.isArray()) return;
+
+        macdModel = new LineChartModel();
+        ChartData data = new ChartData();
+
+        List<Object> macdValues = new ArrayList<>();
+        List<Object> signalValues = new ArrayList<>();
+        List<Number> histValues = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        List<String> histBgColors = new ArrayList<>();
+        List<String> histBorderColors = new ArrayList<>();
+
+        for (JsonNode item : historyNode) {
+            String dt = item.has("datetime") ? item.get("datetime").asText() : "";
+            labels.add(dt);
+
+            double macd = item.has("macdLine") ? item.get("macdLine").asDouble() : 0.0;
+            double signal = item.has("macdSignal") ? item.get("macdSignal").asDouble() : 0.0;
+            double hist = item.has("macdHist") ? item.get("macdHist").asDouble() : 0.0;
+
+            macdValues.add(macd);
+            signalValues.add(signal);
+            histValues.add(hist);
+
+            if (hist >= 0) {
+                histBgColors.add("rgba(75, 192, 192, 0.65)");
+                histBorderColors.add("rgba(75, 192, 192, 1.0)");
+            } else {
+                histBgColors.add("rgba(255, 99, 132, 0.65)");
+                histBorderColors.add("rgba(255, 99, 132, 1.0)");
+            }
+        }
+
+        // Dataset 1: Histograma MACD (Barras)
+        BarChartDataSet histDataSet = new BarChartDataSet();
+        histDataSet.setLabel("Histograma MACD");
+        histDataSet.setData(histValues);
+        histDataSet.setBackgroundColor(histBgColors);
+        histDataSet.setBorderColor(histBorderColors);
+        histDataSet.setBorderWidth(1);
+        data.addChartDataSet(histDataSet);
+
+        // Dataset 2: Línea MACD (12, 26)
+        LineChartDataSet macdDataSet = new LineChartDataSet();
+        macdDataSet.setLabel("Línea MACD (12,26)");
+        macdDataSet.setData(macdValues);
+        macdDataSet.setBorderColor("rgba(54, 162, 235, 1.0)");
+        macdDataSet.setBackgroundColor("rgba(54, 162, 235, 0.1)");
+        macdDataSet.setPointRadius(1);
+        macdDataSet.setFill(false);
+        data.addChartDataSet(macdDataSet);
+
+        // Dataset 3: Línea de Señal (9)
+        LineChartDataSet signalDataSet = new LineChartDataSet();
+        signalDataSet.setLabel("Señal (9)");
+        signalDataSet.setData(signalValues);
+        signalDataSet.setBorderColor("rgba(255, 159, 64, 1.0)");
+        signalDataSet.setBackgroundColor("rgba(255, 159, 64, 0.1)");
+        signalDataSet.setPointRadius(1);
+        signalDataSet.setFill(false);
+        data.addChartDataSet(signalDataSet);
+
+        data.setLabels(labels);
+
+        LineChartOptions options = new LineChartOptions();
+        CartesianScales cScales = new CartesianScales();
+        CartesianLinearAxes linearAxes = new CartesianLinearAxes();
+        linearAxes.setType("linear");
+        linearAxes.setOffset(true);
+        cScales.addYAxesData(linearAxes);
+        options.setScales(cScales);
+
+        macdModel.setData(data);
+        macdModel.setOptions(options);
+    }
+
+    private void createHistogramModel(JsonNode histogramNode) {
+        if (histogramNode == null || !histogramNode.isArray()) return;
+
+        histogramModel = new BarChartModel();
+        ChartData data = new ChartData();
+
+        BarChartDataSet dataSet = new BarChartDataSet();
+        dataSet.setLabel("Frecuencia Histórica");
+
+        List<Number> values = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        List<Object> currentMarkerValues = new ArrayList<>();
+        List<String> bgColors = new ArrayList<>();
+        List<String> borderColors = new ArrayList<>();
+
+        for (JsonNode item : histogramNode) {
+            labels.add(item.get("range").asText());
+            int count = item.get("count").asInt();
+            values.add(count);
+
+            boolean isCurrent = item.has("isCurrent") && item.get("isCurrent").asBoolean();
+            if (isCurrent) {
+                bgColors.add("rgba(255, 51, 102, 0.8)"); // Rojo para el bloque actual
+                borderColors.add("rgba(255, 51, 102, 1.0)");
+            } else {
+                bgColors.add("rgba(54, 162, 235, 0.65)"); // Azul para los demás
+                borderColors.add("rgba(54, 162, 235, 1.0)");
+            }
+        }
+
+        dataSet.setData(values);
+        dataSet.setBackgroundColor(bgColors);
+        dataSet.setBorderColor(borderColors);
+        dataSet.setBorderWidth(1);
+
+        data.addChartDataSet(dataSet);
+
+        data.setLabels(labels);
+
+        BarChartOptions options = new BarChartOptions();
+        CartesianScales cScales = new CartesianScales();
+        CartesianLinearAxes linearAxes = new CartesianLinearAxes();
+        linearAxes.setType("linear");
+        linearAxes.setOffset(true);
+        cScales.addYAxesData(linearAxes);
+        options.setScales(cScales);
+
+        histogramModel.setData(data);
+        histogramModel.setOptions(options);
     }
 }

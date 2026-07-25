@@ -45,7 +45,7 @@ public class SecurityBean implements Serializable {
     private List<UsuarioComboItem> usuariosCombo = new ArrayList<>();
     private Integer selectedUserId;
 
-    private final String backendApiUrl = "http://127.0.0.1:8000/api/v1";
+    private final String backendApiUrl = "http://127.0.0.1:8004/api/v1";
 
     public String login() {
         log.info("Intento de login para usuario: {}", username);

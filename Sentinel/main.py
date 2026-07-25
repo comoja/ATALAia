@@ -276,17 +276,24 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
 
     # Cargar exclusiones dinámicas de symbolNotStrategia de la base de datos
     exclusions = set()
+    _conn = None
+    _cur = None
     try:
         from middleware.database import dbConnection as _dbConnection
         _conn = _dbConnection.getConnection()
         _cur = _conn.cursor()
         _cur.execute("SELECT symbol, strategy FROM symbolNotStrategia")
         exclusions = {(r[0], r[1]) for r in _cur.fetchall()}
-        _cur.close()
-        _conn.close()
         logger.info(f"🛡️  [Exclusiones] Cargadas {len(exclusions)} exclusiones desde la tabla symbolNotStrategia")
     except Exception as e:
         logger.error(f"⚠️  Error cargando exclusiones desde symbolNotStrategia: {e}")
+    finally:
+        if _cur:
+            try: _cur.close()
+            except: pass
+        if _conn:
+            try: _conn.close()
+            except: pass
 
     # Cargar cuenta de referencia para sizing de señales
     
@@ -682,9 +689,6 @@ async def main():
                 # if isDailyDrawdownLimitReached(refAccountId, maxDrawdownPercent=20.0):
                 #     logger.warning(f"⚠️ BLOQUEO OPERACIONAL: Límite de Drawdown Diario del 20% alcanzado para la cuenta {refAccountId}. Ciclo omitido.", extra={"color": "red"})
                 #     await sendTelegramAlert(f"⚠️ <b>Alerta de Drawdown Diario (20%)</b>\nEl portafolio ha alcanzado el límite de pérdida diario del 20%. Se suspenden las operaciones intradiarias de forma automática por seguridad para proteger la integridad del capital. Las operaciones se reanudarán de forma automática mañana.")
-                #     await asyncio.sleep(3600) # Dormir 1 hora antes de volver a evaluar
-                #     continue
-                
                 # --- Tareas de Nuevo Día (Solo al abrir el ciclo) ---
                 today_str = datetime.now(TIMEZONE_LOCAL).strftime("%Y-%m-%d")
                 if _weekly_trends_loaded_today != today_str:

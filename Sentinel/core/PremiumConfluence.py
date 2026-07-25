@@ -183,8 +183,8 @@ class PremiumConfluenceBot:
                 logger.info(f"[{symbol}] PremiumConfluence: Señal descartada por vela de disparo gigante (Spike). Rango: {triggerCandleRange:.5f} > {maxTriggerAtrMult} * ATR")
                 return []
                 
-            maxSlAtrMult = float(stratConfig.get('max_sl_atr_mult', 2.0))
-            if maxSlAtrMult <= 0: maxSlAtrMult = 2.0
+            maxSlAtrMult = float(stratConfig.get('max_sl_atr_mult', 2.5))
+            if maxSlAtrMult <= 0: maxSlAtrMult = 2.5
                 
             if slDist > maxSlAtrMult * atrVal:
                 logger.info(f"[{symbol}] PremiumConfluence: Señal descartada por Stop Loss sobre-extendido. Distancia SL: {slDist:.5f} > {maxSlAtrMult} * ATR")

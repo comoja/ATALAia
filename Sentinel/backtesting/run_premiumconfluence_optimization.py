@@ -164,8 +164,23 @@ def test_combination(st_period, st_mult, min_rr):
     return total_trades, total_pnl
 
 print("Evaluando combinaciones de PremiumConfluence (PULLBACK LOGIC - 30 dias - 15min tf)...")
+results = []
 for st_mult in [1.0, 1.5, 2.0]:
     for min_rr in [1.0, 1.5, 2.0]:
         t, p = test_combination(10, st_mult, min_rr)
         print(f"ST(10,{st_mult}) RR:{min_rr} | Trades: {t:3d} | PNL: {p:5.2f} R")
+        results.append({
+            "Estrategia": "PremiumConfluence",
+            "Símbolo": "GLOBAL",
+            "st_mult": st_mult,
+            "min_rr": min_rr,
+            "Trades": t,
+            "PnL USD": p
+        })
 
+df_res = pd.DataFrame(results)
+best = df_res[df_res['PnL USD'] > 0].sort_values(by="PnL USD", ascending=False).head(1)
+
+df_res.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/premiumconfluence_grid_results_all.csv", index=False)
+if not best.empty:
+    best.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/premiumconfluence_grid_results_best.csv", index=False)

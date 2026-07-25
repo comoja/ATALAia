@@ -37,7 +37,7 @@ public class ConfiguracionBean implements Serializable {
     private boolean running = false;
     private Integer activePid = null;
 
-    private final String backendApiUrl = "http://127.0.0.1:8000/api/v1";
+    private final String backendApiUrl = "http://127.0.0.1:8004/api/v1";
 
     public void init() {
         log.info("Inicializando ConfiguracionBean...");
