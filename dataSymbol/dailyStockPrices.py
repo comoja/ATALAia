@@ -85,7 +85,7 @@ async def syncDailyStockPrices():
             
             if df is not None and not df.empty:
                 # Filtrar la vela actual (incompleta)
-                df['datetimeOnly'] = df['datetime'].apply(lambda x: x if isinstance(x, pd.Timestamp) else datetime.strptime(str(x)[:19], '%Y-%m-%d %H:%M:%S'))
+                df['datetimeOnly'] = pd.to_datetime(df['datetime']).apply(lambda x: x.replace(tzinfo=None))
                 current_hour_naive = current_hour_localized.replace(tzinfo=None)
                 dfClosed = df[df['datetimeOnly'] < current_hour_naive].copy()
                 

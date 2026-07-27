@@ -341,6 +341,9 @@ class BrokerGateway:
                             "FOREX_API_URL": bc.get('Servidor')
                         }
                         
+                        import json
+                        logger.info(f"Payload JSON a enviar al Webhook: {json.dumps(payload)}")
+                        
                         try:
                             resp = requests.post(webhook_url, json=payload, timeout=30)
                             if resp.status_code == 200:
