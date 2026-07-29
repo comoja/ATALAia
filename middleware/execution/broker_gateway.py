@@ -237,6 +237,13 @@ class BrokerGateway:
                 logger.warning(f"❌ Orden RECHAZADA por Seguridad: Spread muy alto para {trade_data['symbol']}")
                 return False, "drawdown_superado"
 
+        # 0.4 Filtro de Seguridad: SL y TP Obligatorios
+        tp_val = float(trade_data.get('takeProfit', 0) or 0)
+        sl_val = float(trade_data.get('stopLoss', 0) or 0)
+        if tp_val <= 0 or sl_val <= 0:
+            logger.warning(f"❌ Orden RECHAZADA por Seguridad: La señal de {trade_data.get('symbol')} no tiene SL y TP válidos (TP: {tp_val}, SL: {sl_val}).")
+            return False, "sin_sl_tp"
+
         # Obtener configuración de estrategia-símbolo para verificar si el broker está habilitado
         stratConfigSymbol = dbManager.getSymbolStrategyConfig(strategy_name, symbolName) or {}
         brokerEnabled = bool(stratConfigSymbol.get('broker', 0))
@@ -317,22 +324,29 @@ class BrokerGateway:
         if self.mode == "live":
             if brokerEnabled:
                 # -- INICIO ENVÍO WEBHOOK (SOPORTE MULTI-CUENTA) --
-                active_brokers = [bc for bc in cuentasBroker if bc.get('activo') == 1 and bc.get('idCuenta') == 2]
+                active_brokers = [bc for bc in cuentasBroker if bc.get('activo') == 1]
                 webhook_sent = False
                 if active_brokers:
                     import requests
                     import os
                     webhook_url = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
+                    
                     for bc in active_brokers:
                         logger.info(f"Enviando orden vía Webhook para cuenta {bc.get('loginUsuario')} (Broker: {bc.get('nombreBroker')})")
                         
                         direction_str = str(trade_data.get('direction', '')).upper()
-                        action_val = "buy" if direction_str in ["COMPRA", "BUY"] else "sell"
+                        if any(w in direction_str for w in ["COMPRA", "BUY", "LONG", "LARGO"]):
+                            action_val = "buy"
+                        elif any(w in direction_str for w in ["CLOSE", "CIERRE"]):
+                            action_val = "close"
+                        else:
+                            action_val = "sell"
                         
                         payload = {
+                            "strategy": strategy_name,
                             "action": action_val,
                             "ticker": trade_data.get('symbol'),
-                            "quantity": trade_data.get('size'),
+                            "quantity": float(trade_data.get('size', 0) or 0),
                             "tp": float(trade_data.get('takeProfit', 0) or 0),
                             "sl": float(trade_data.get('stopLoss', 0) or 0),
                             "FOREX_USERNAME": bc.get('loginUsuario'),

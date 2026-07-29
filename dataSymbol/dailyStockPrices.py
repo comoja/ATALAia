@@ -73,15 +73,41 @@ async def syncDailyStockPrices():
         }
 
         try:
-            # Llamar al API (MT5 o TwelveData)
-            df = None
-            if DATA_SOURCE == "forex":
-                df = await forex.getTimeSeries(params)
+            # Obtener datos desde la tabla 'candles' (local) en lugar de APIs externas
+            def get_candles_query():
+                conn = None
+                try:
+                    conn = dbManager.dbConnection.getConnection()
+                    query = """
+                        SELECT timestamp as datetime, close 
+                        FROM candles 
+                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp < %s
+                        ORDER BY timestamp ASC
+                    """
+                    return pd.read_sql(query, conn, params=(
+                        symbol, 
+                        startDate.replace(tzinfo=None), 
+                        endDate.replace(tzinfo=None)
+                    ))
+                except Exception as e:
+                    logger.error(f"[{symbol}] Error leyendo bd candles: {e}")
+                    return pd.DataFrame()
+                finally:
+                    if conn:
+                        try: conn.close()
+                        except: pass
             
-            # Fallback a TwelveData si MT5 no está disponible o falla
-            if (df is None or df.empty) and API_KEYS:
-                params["apikey"] = random.choice(API_KEYS)
-                df = await twelvedata._callTimeSeriesApi(params)
+            df = await asyncio.to_thread(get_candles_query)
+            
+            if not df.empty:
+                # Resample de 5min a 1h
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    df['datetime'] = pd.to_datetime(df['datetime'])
+                    df.set_index('datetime', inplace=True)
+                    df_1h = df.resample('1h').last().dropna()
+                    df = df_1h.reset_index()
             
             if df is not None and not df.empty:
                 # Filtrar la vela actual (incompleta)

@@ -728,6 +728,9 @@ async def main():
                     _ml_retrained_today = today_str
                     asyncio.create_task(_auto_retrain_ml())
                 
+                import time
+                inicio_analisis = time.time()
+                
                 # 2. Ejecutar análisis (Centralizado)
                 await run_sequential_analysis(
                     engine, trade_manager, sniper_bot, imbalance_ny_bot, imbalance_ldn_bot, imbalance_pm_bot,
@@ -736,7 +739,12 @@ async def main():
                     apiKey, "5min", nVelas, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews
                 )
                 
-                await getTiempoEspera(5)
+                fin_analisis = time.time()
+                duracion_analisis = fin_analisis - inicio_analisis
+                if duracion_analisis >= 300:
+                    logger.warning(f"⚠️ El análisis tardó {duracion_analisis:.2f}s (más de 5 minutos). Se omite el tiempo de espera y se reinicia el ciclo inmediatamente.")
+                else:
+                    await getTiempoEspera(5)
             else:
                 segundosSueño = get_seconds_until_market_opens()
                 # Margen de seguridad de 10 segundos
