@@ -346,6 +346,7 @@ class BrokerGateway:
                             "strategy": strategy_name,
                             "action": action_val,
                             "ticker": trade_data.get('symbol'),
+                            "entry": float(trade_data.get('entryPrice', 0) or 0),
                             "quantity": float(trade_data.get('size', 0) or 0),
                             "tp": float(trade_data.get('takeProfit', 0) or 0),
                             "sl": float(trade_data.get('stopLoss', 0) or 0),

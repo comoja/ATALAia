@@ -163,7 +163,8 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
     symbolMap = {
         "BTCUSD": "Bitcoin",
         "XTIUSD": "US Oil - Cash",
-        "XBRUSD": "UK Oil - Cash"
+        "XBRUSD": "UK Oil - Cash",
+        "XAGUSD001": "XAU/USD (per 0.01)"
     }
     symbol = symbolMap.get(symbol, symbol)
 

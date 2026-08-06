@@ -30,17 +30,20 @@ mss_cache = {}
 def cached_detect_fvgs(df, min_gap_pct=0.00005, validate_mitigation=True, apply_high_prob_filters=True):
     if df is None or len(df) == 0:
         return []
-    key = (df.index[-1], len(df), min_gap_pct, validate_mitigation, apply_high_prob_filters)
+    # Pasar solo las últimas 200 velas reduce enormemente el tiempo de cálculo en backtesting
+    df_tail = df.tail(200)
+    key = (df_tail.index[-1], len(df_tail), min_gap_pct, validate_mitigation, apply_high_prob_filters)
     if key not in fvg_cache:
-        fvg_cache[key] = orig_detect_fvgs(df, min_gap_pct, validate_mitigation, apply_high_prob_filters)
+        fvg_cache[key] = orig_detect_fvgs(df_tail, min_gap_pct, validate_mitigation, apply_high_prob_filters)
     return fvg_cache[key]
 
 def cached_detect_mss(df, direction, lookback=15):
     if df is None or len(df) == 0:
         return False
-    key = (df.index[-1], len(df), direction, lookback)
+    df_tail = df.tail(lookback + 20)
+    key = (df_tail.index[-1], len(df_tail), direction, lookback)
     if key not in mss_cache:
-        mss_cache[key] = orig_detect_mss(df, direction, lookback)
+        mss_cache[key] = orig_detect_mss(df_tail, direction, lookback)
     return mss_cache[key]
 
 technical.detect_fvgs = cached_detect_fvgs
@@ -84,9 +87,9 @@ def mock_detectFvg(self, df):
     # Usamos la fecha en lugar del idx directamente para evitar desajustes en el re-slicing
     res = []
     for f in global_raw_fvgs[tf]:
-        fvg_time = pd.to_datetime(f['timestamp']).tz_localize(t_last.tzinfo)
-        if fvg_time <= t_last:
-            res.append(f.copy())
+        # Usamos la fecha precalculada en lugar de parsearla dentro del loop en cada vela
+        if f.get('_parsed_time') and f['_parsed_time'] <= t_last:
+            res.append(f)
     return res
 
 FvgAnalyzer.detectFvg = mock_detectFvg
@@ -250,10 +253,10 @@ async def runPatron4HGridSearch() -> None:
         # Precalcular FVGs globales usando el método original sobre el dataset completo
         print(f"  ⚡ Precalculando FVGs de forma global para {symbol}...")
         analyzer = FvgAnalyzer(minGapPct=0.00005)
-        global_raw_fvgs['15min'] = orig_detectFvg(analyzer, df_15m_global)
-        global_raw_fvgs['1h'] = orig_detectFvg(analyzer, df_1h_global)
-        global_raw_fvgs['4h'] = orig_detectFvg(analyzer, df_4h_global)
-        global_raw_fvgs['1d'] = orig_detectFvg(analyzer, df_1d_global)
+        for tf, df_glob in [('15min', df_15m_global), ('1h', df_1h_global), ('4h', df_4h_global), ('1d', df_1d_global)]:
+            global_raw_fvgs[tf] = orig_detectFvg(analyzer, df_glob)
+            for f in global_raw_fvgs[tf]:
+                f['_parsed_time'] = pd.to_datetime(f['timestamp']).tz_localize(df_glob.index.tzinfo)
         
         # Precalcular mapeo de índices
         idx1h_map = df_1h_global.index.get_indexer(df_15m_global.index, method='pad')
