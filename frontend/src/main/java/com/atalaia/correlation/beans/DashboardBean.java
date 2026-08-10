@@ -78,7 +78,7 @@ public class DashboardBean implements Serializable {
 
     public void settYears(Double tYears) {
         this.tYears = tYears;
-    }
+    } 
 
     // --- KPIs del Último Registro (Resultados de Salida) ---
     private Double currentPrice = 0.0; // Precio del ratio sintético (Par A / Par B)

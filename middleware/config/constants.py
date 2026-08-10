@@ -55,7 +55,7 @@ INTERVALmax = "15min"
 timeZone = TIMEZONE
 
 dbConfig = {
-    "host": os.getenv("DB_HOST", "192.168.68.54"),
+    "host": os.getenv("DB_HOST", "192.168.68.65"),
     "user": os.getenv("DB_USER", "root"),
     "password": os.getenv("DB_PASSWORD", "M1x&J34ny"),
     "database": os.getenv("DB_DATABASE", "ATALAia"),

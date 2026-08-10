@@ -23,7 +23,7 @@ async def update_symbols():
         print("Final Login Failed")
         return
         
-    db_host = os.getenv("DB_HOST", "192.168.68.54")
+    db_host = os.getenv("DB_HOST", "192.168.68.65")
     db_user = os.getenv("DB_USER", "root")
     db_password = os.getenv("DB_PASSWORD", "M1x&J34ny")
     db_name = os.getenv("DB_DATABASE", "ATALAia")

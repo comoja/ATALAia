@@ -154,7 +154,7 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
 
     if not symbolRaw:
         logger.error("[ForexAPI] Símbolo no proporcionado.")
-        return None
+        return None 
 
     # Normalizar el símbolo para MT5 (remover barra, ej: EUR/USD -> EURUSD)
     symbol = symbolRaw.replace("/", "").upper()
