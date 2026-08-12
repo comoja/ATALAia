@@ -570,13 +570,17 @@ class BrokerGateway:
 
     def findMt5Symbol(self, baseSymbol: str) -> str:
         """
-        Busca el símbolo correspondiente en MT5 manejando posibles sufijos.
+        Busca el símbolo correspondiente en MT5 consultando primero la BD (columna MT5) y manejando posibles sufijos.
         """
+        symbolInfoDb = dbManager.getSymbol(baseSymbol)
+        if symbolInfoDb and symbolInfoDb.get('MT5'):
+            cleanSymbol = symbolInfoDb['MT5']
+        else:
+            cleanSymbol = baseSymbol.replace("/", "")
+
         if mt5 is None:
-            return baseSymbol.replace("/", "")
+            return cleanSymbol
             
-        cleanSymbol = baseSymbol.replace("/", "")
-        
         # Primero intentamos coincidencia exacta
         symbolInfo = mt5.symbol_info(cleanSymbol)
         if symbolInfo is not None:

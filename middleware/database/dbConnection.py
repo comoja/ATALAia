@@ -80,6 +80,15 @@ class DBConnectionPool:
 
     def health_check(self):
         try:
+            import requests
+            from middleware.config.constants import CONNECTION_POOL_URL
+            try:
+                res = requests.get(f"{CONNECTION_POOL_URL}/health", timeout=2)
+                if res.status_code == 200 and res.json().get("status") == "online":
+                    return True
+            except Exception:
+                pass
+
             conn = self.get_connection()
             if conn:
                 cursor = conn.cursor()
@@ -117,10 +126,12 @@ def getConnection():
                     cursor.execute("SELECT 1")
                     cursor.fetchone()
                     cursor.close()
-            else:
                 raise
         
         return conn
     except MySQLError as e:
         logger.error(f"Error al conectar a la base de datos: {e}")
         return None
+
+def health_check():
+    return _pool_instance.health_check()

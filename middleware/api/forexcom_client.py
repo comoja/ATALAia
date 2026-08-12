@@ -24,6 +24,15 @@ async def getForexComCandles(symbol: str, interval: str, nVelas: int = 200) -> p
     if not FOREXCOM_USERNAME or not FOREXCOM_PASSWORD or not FOREXCOM_APP_KEY:
         logger.error("Credenciales de Forex.com no configuradas en configConstants")
         return None
+
+    # Resolver símbolo para FOREX.com desde la BD
+    try:
+        from middleware.database import dbManager
+        sym_db = dbManager.getSymbol(symbol)
+        if sym_db and sym_db.get('FOREX'):
+            symbol = sym_db['FOREX']
+    except Exception as e:
+        logger.warning(f"No se pudo consultar FOREX symbol desde la BD para {symbol}: {e}")
     
     interval_map = {
         "5min": "M5",

@@ -156,17 +156,12 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
         logger.error("[ForexAPI] Símbolo no proporcionado.")
         return None 
 
-    # Normalizar el símbolo para MT5 (remover barra, ej: EUR/USD -> EURUSD)
-    symbol = symbolRaw.replace("/", "").upper()
-    
-    # Mapeo de símbolos personalizados para MT5
-    symbolMap = {
-        "BTCUSD": "Bitcoin",
-        "XTIUSD": "US Oil - Cash",
-        "XBRUSD": "UK Oil - Cash",
-        "XAGUSD001": "XAU/USD (per 0.01)"
-    }
-    symbol = symbolMap.get(symbol, symbol)
+    # Obtener el símbolo correspondiente para MT5 desde la tabla máster `symbols` en la BD
+    symbolData = dbManager.getSymbol(symbolRaw)
+    if symbolData and symbolData.get('MT5'):
+        symbol = symbolData['MT5']
+    else:
+        symbol = symbolRaw.replace("/", "").upper()
 
     # Mapear el intervalo
     mt5Timeframe = TIMEFRAME_MAP.get(interval)

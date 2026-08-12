@@ -39,11 +39,13 @@ async def update_symbols():
     headers = {"UserName": client.username, "Session": client.session_token}
     
     with conn.cursor() as cursor:
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        symbols = [row['symbol'] for row in cursor.fetchall()]
+        cursor.execute("SELECT symbol, FOREX FROM symbols WHERE activoSentinel = 1")
+        symbols_data = cursor.fetchall()
         
         async with httpx.AsyncClient() as c:
-            for sym in symbols:
+            for row in symbols_data:
+                sym = row['symbol']
+                forex_name = row.get('FOREX') or sym
                 query = sym.replace("/", "")
                 url = f"{client.api_url}/market/searchwithtags"
                 resp = await c.get(url, params={"Query": query, "MaxResults": 10}, headers=headers)
@@ -52,11 +54,9 @@ async def update_symbols():
                     markets = data.get("Markets", [])
                     found = False
                     for m in markets:
-                        if m.get("Name") == sym:
+                        if m.get("Name") == sym or m.get("Name") == forex_name:
                             print(f"Found {sym} -> MarketId: {m.get('MarketId')}")
-                            # ACTUALLY UPDATE DB
-                            cursor.execute("UPDATE SentinelSymbol SET idForex = %s WHERE symbol = %s", (m.get('MarketId'), sym))
-                            # ALSO update availableSymbols, RatioSymbol if needed? The user said "todos los instrumentos en SentinelSymbol"
+                            cursor.execute("UPDATE symbols SET idForex = %s WHERE symbol = %s", (m.get('MarketId'), sym))
                             found = True
                             break
                     if not found:

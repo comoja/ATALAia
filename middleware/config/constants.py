@@ -54,6 +54,8 @@ tiempoEspera = 5
 INTERVALmax = "15min"
 timeZone = TIMEZONE
 
+CONNECTION_POOL_URL = os.getenv("CONNECTION_POOL_URL", "http://127.0.0.1:8000/api/v1")
+
 dbConfig = {
     "host": os.getenv("DB_HOST", "192.168.68.65"),
     "user": os.getenv("DB_USER", "root"),

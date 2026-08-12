@@ -18,7 +18,7 @@ def generateLongIntervals(symbol: str = None):
     if symbol:
         symbols = [{'symbol': symbol}]
     else:
-        symbols = dbManager.getSymbols()
+        symbols = dbManager.getDataSymbols()
     
     if not symbols:
         logger.warning("No se encontraron símbolos")

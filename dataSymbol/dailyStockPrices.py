@@ -22,8 +22,8 @@ from middleware.config.constants import TIMEZONE, DATA_SOURCE
 async def syncDailyStockPrices():
     logger.info("Iniciando sincronización de StockPrices diarios (D1)...")
     
-    # 1. Obtener todos los símbolos activos
-    symbolsData = dbManager.getSymbols()
+    # 1. Obtener todos los símbolos activos de dataSymbol (Ratio + Sentinel)
+    symbolsData = dbManager.getDataSymbols()
     if not symbolsData:
         logger.warning("No se encontraron símbolos activos en la base de datos.")
         return
@@ -73,31 +73,18 @@ async def syncDailyStockPrices():
         }
 
         try:
-            # Obtener datos desde la tabla 'candles' (local) en lugar de APIs externas
-            def get_candles_query():
-                conn = None
-                try:
-                    conn = dbManager.dbConnection.getConnection()
-                    query = """
-                        SELECT timestamp as datetime, close 
-                        FROM candles 
-                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp < %s
-                        ORDER BY timestamp ASC
-                    """
-                    return pd.read_sql(query, conn, params=(
-                        symbol, 
-                        startDate.replace(tzinfo=None), 
-                        endDate.replace(tzinfo=None)
-                    ))
-                except Exception as e:
-                    logger.error(f"[{symbol}] Error leyendo bd candles: {e}")
-                    return pd.DataFrame()
-                finally:
-                    if conn:
-                        try: conn.close()
-                        except: pass
-            
-            df = await asyncio.to_thread(get_candles_query)
+            # Obtener datos desde la tabla 'candles' mediante ConnectionPool microservicio
+            df = await dbManager.getCandlesFromDb(symbol, timeframe="5min", limit=5000)
+            if df is not None and not df.empty:
+                df = df.reset_index()
+                if 'timestamp' in df.columns:
+                    df.rename(columns={'timestamp': 'datetime'}, inplace=True)
+                start_naive = startDate.replace(tzinfo=None)
+                end_naive = endDate.replace(tzinfo=None)
+                df['dt_naive'] = pd.to_datetime(df['datetime']).dt.tz_localize(None)
+                df = df[(df['dt_naive'] >= start_naive) & (df['dt_naive'] < end_naive)][['datetime', 'close']]
+            else:
+                df = pd.DataFrame()
             
             if not df.empty:
                 # Resample de 5min a 1h

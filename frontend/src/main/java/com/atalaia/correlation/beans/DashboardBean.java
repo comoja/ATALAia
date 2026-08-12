@@ -34,6 +34,9 @@ public class DashboardBean implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    @javax.inject.Inject
+    private SecurityBean securityBean;
+
     // --- Catalogo de Simbolos desde BD ---
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
 
@@ -367,6 +370,146 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    public void guardarRatio() {
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("numerador", selectedPair);
+            payload.put("denominador", selectedPair2);
+            payload.put("periodo", timeframe != null ? timeframe : "1d");
+            payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 3);
+            payload.put("EMALenta", emaSlowPeriodParam != null ? emaSlowPeriodParam : 20);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+
+            String url = backendUrl + "/api/v1/user-ratios/guardar";
+            log.info("Guardando ratio para idUsuario {}: {}/{} ({}) [EMARapida={}, EMALenta={}] en {}", userId, selectedPair, selectedPair2, timeframe, smaPeriodParam, emaSlowPeriodParam, url);
+
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Ratio Guardado Exitosamente", "Se guardó la selección " + selectedPair + " / " + selectedPair2 + " (" + timeframe + ") con EMARapida=" + smaPeriodParam + ", EMALenta=" + emaSlowPeriodParam + "."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Guardar", "No se pudo registrar el ratio."));
+            }
+        } catch (Exception e) {
+            log.error("Excepción al guardar ratio: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión", "Fallo al comunicar con el servidor backend: " + e.getMessage()));
+        }
+    }
+
+    public void fetchUserRatioDetails() {
+        log.info("Consultando BD al seleccionar Denominador para {} / {}", selectedPair, selectedPair2);
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = String.format("%s/api/v1/user-ratios/buscar?idUsuario=%d&numerador=%s&denominador=%s",
+                    backendUrl, userId,
+                    java.net.URLEncoder.encode(selectedPair != null ? selectedPair : "", "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2 != null ? selectedPair2 : "", "UTF-8"));
+
+            log.info("Buscando relación guardada en backend: {}", url);
+            String responseStr = restTemplate.getForObject(url, String.class);
+
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.has("found") && rootNode.get("found").asBoolean()) {
+                    if (rootNode.has("periodo") && !rootNode.get("periodo").isNull()) {
+                        this.timeframe = rootNode.get("periodo").asText();
+                    }
+                    if (rootNode.has("EMARapida") && !rootNode.get("EMARapida").isNull()) {
+                        this.smaPeriodParam = rootNode.get("EMARapida").asInt();
+                    }
+                    if (rootNode.has("EMALenta") && !rootNode.get("EMALenta").isNull()) {
+                        this.emaSlowPeriodParam = rootNode.get("EMALenta").asInt();
+                    }
+                    log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, EMARapida={}, EMALenta={}",
+                            selectedPair, selectedPair2, timeframe, smaPeriodParam, emaSlowPeriodParam);
+
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                    "Configuración Cargada", "Se cargó la calibración guardada para " + selectedPair + " / " + selectedPair2));
+                } else {
+                    log.info("ℹ️ No existe registro en BD para {}/{}. Aplicando valores por defecto.", selectedPair, selectedPair2);
+                    this.smaPeriodParam = 3;
+                    this.emaSlowPeriodParam = 15;
+                    this.timeframe = "1d";
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error al buscar la configuración guardada del ratio: {}", e.getMessage());
+        }
+    }
+
+    public void borrarRatio() {
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("numerador", selectedPair);
+            payload.put("denominador", selectedPair2);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+
+            String url = backendUrl + "/api/v1/user-ratios/borrar";
+            log.info("Eliminando ratio por índice compuesto para idUsuario {}: {}/{} en {}", userId, selectedPair, selectedPair2, url);
+
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Ratio Eliminado Exitosamente", "Se eliminó el ratio " + selectedPair + " / " + selectedPair2 + "."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Borrar", "No se encontró el ratio para eliminar."));
+            }
+        } catch (Exception e) {
+            log.error("Excepción al borrar ratio: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión / Borrado", "No se pudo eliminar el ratio o no existía previamente."));
+        }
+    }
+
     public RatioSymbolDto findDtoByPairName(String pairName) {
         if (pairName == null || availablePairs == null) {
             return null;
@@ -662,8 +805,7 @@ public class DashboardBean implements Serializable {
             for (RatioSymbolDto p : availablePairs) {
                 if (!p.getPairName().equals(selectedPair)) {
                     selectedPair2 = p.getPairName();
-                    String msg = "Denominador ajustado dinámicamente a " + selectedPair2
-                            + ".";
+                    String msg = "Denominador ajustado dinámicamente a " + selectedPair2 + ".";
                     javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                             new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                     "Alineación de Correlación", msg));
@@ -672,17 +814,12 @@ public class DashboardBean implements Serializable {
             }
         }
         
-        // Auto-calibrar fase y parámetros basados en correlación
-        resetCalibrationDefaults();
+        onDenominadorChange();
     }
 
     public void onDenominadorChange() {
-        log.info("Denominador cambiado a: {}", selectedPair2);
-        
-        // Auto-calibrar fase y parámetros basados en correlación
-        resetCalibrationDefaults();
-        
-        // Recalcular análisis con el nuevo par seleccionado
+        log.info("Selección de Denominador cambiada a: {}. Consultando BD...", selectedPair2);
+        fetchUserRatioDetails();
         analyzePair();
     }
 

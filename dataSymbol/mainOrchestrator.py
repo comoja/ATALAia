@@ -242,7 +242,7 @@ async def main():
                 lastResetDate = today_api
                 symbolIndex = 0
             
-            symbols = middlewareDb.getSymbols()
+            symbols = middlewareDb.getDataSymbols()
             if not symbols:
                 logger.warning("No hay símbolos activos. Esperando...")
                 await asyncio.sleep(60)

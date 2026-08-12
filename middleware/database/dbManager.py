@@ -5,13 +5,37 @@ import pandas as pd
 from datetime import datetime
 import logging
 import asyncio
+import functools
+import time
 import requests
+from middleware.database import dbConnection
+from middleware.config.constants import CONNECTION_POOL_URL
 
 logger = logging.getLogger(__name__)
 
-from middleware.database import dbConnection
-import functools
-import time
+def _call_connection_pool(method: str, path: str, json_data: dict = None, params: dict = None, timeout: float = 3.0):
+    """
+    Realiza peticiones HTTP al microservicio ConnectionPool (http://127.0.0.1:8000/api/v1).
+    Retorna respuesta JSON o None si falla/no responde.
+    """
+    try:
+        url = f"{CONNECTION_POOL_URL.rstrip('/')}/{path.lstrip('/')}"
+        m = method.upper()
+        if m == "GET":
+            res = requests.get(url, params=params, timeout=timeout)
+        elif m == "POST":
+            res = requests.post(url, json=json_data, params=params, timeout=timeout)
+        elif m == "PUT":
+            res = requests.put(url, json=json_data, params=params, timeout=timeout)
+        elif m == "DELETE":
+            res = requests.delete(url, params=params, timeout=timeout)
+        else:
+            return None
+        if res.status_code in (200, 201):
+            return res.json()
+    except Exception as e:
+        logger.debug(f"ConnectionPool helper call to {path} failed: {e}")
+    return None
 
 def ttl_cache(seconds=30):
     def decorator(func):
@@ -223,9 +247,20 @@ def init_alerts_table():
         if 'dbConn' in locals(): dbConn.close()
 
 def get_api_usage(account_name):
-    """Obtiene el consumo actual de una cuenta desde la DB."""
+    """Obtiene el consumo actual de una cuenta desde ConnectionPool (o fallback DB)."""
     try:
+        res = _call_connection_pool("GET", f"/api-usage/{account_name}")
+        if res and "calls_today" in res:
+            last_reset = res.get("last_reset_date")
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            if last_reset and str(last_reset) != today_str:
+                update_api_usage(account_name, 0, reset=True)
+                return 0
+            return res.get("calls_today", 0)
+
         dbConn = dbConnection.getConnection()
+        if not dbConn:
+            return 0
         dbCursor = dbConn.cursor(dictionary=True)
         sql = "SELECT calls_today, last_reset_date FROM api_usage WHERE account_name = %s"
         dbCursor.execute(sql, (account_name,))
@@ -234,7 +269,6 @@ def get_api_usage(account_name):
         today = datetime.now().date()
         if result:
             if result['last_reset_date'] != today:
-                # Si es un nuevo día, reseteamos en DB
                 update_api_usage(account_name, 0, reset=True)
                 return 0
             return result['calls_today']
@@ -247,9 +281,16 @@ def get_api_usage(account_name):
         if 'dbConn' in locals(): dbConn.close()
 
 def update_api_usage(account_name, calls, reset=False):
-    """Actualiza o resetea el contador de llamadas en la DB."""
+    """Actualiza o resetea el contador de llamadas en ConnectionPool (o fallback DB)."""
     try:
+        if not reset and calls > 0:
+            res = _call_connection_pool("POST", f"/api-usage/{account_name}/increment")
+            if res and "calls_today" in res:
+                return
+
         dbConn = dbConnection.getConnection()
+        if not dbConn:
+            return
         dbCursor = dbConn.cursor()
         today = datetime.now().date()
         if reset:
@@ -557,20 +598,115 @@ def isTipoHabilitadoParaCuenta(idCuenta: int, tipoSymbol: str) -> bool:
 
 @ttl_cache(30)
 def getSymbols():
+    """Obtiene todos los símbolos activos para Sentinel desde la tabla máster `symbols`."""
+    return getSentinelSymbols()
+
+@ttl_cache(30)
+def getSentinelSymbols():
+    """Obtiene todos los símbolos activos para Sentinel desde ConnectionPool (o fallback MySQL)."""
+    res = _call_connection_pool("GET", "/sentinel-symbols/active")
+    if res is not None and isinstance(res, list):
+        return res
+
     conn = None
     cursor = None
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM SentinelSymbol WHERE Activo=1")
-        
+        cursor.execute("SELECT *, activoSentinel AS Activo FROM symbols WHERE activoSentinel = 1")
         symbols = cursor.fetchall()
-        if symbols:
-            return symbols
-        return []
+        return symbols if symbols else []
     except Exception as e:
-        logger.error(f"Error en la DB: {e}", exc_info=True)
+        logger.error(f"Error en getSentinelSymbols: {e}", exc_info=True)
         return []
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+@ttl_cache(30)
+def getDataSymbols():
+    """
+    Obtiene los símbolos activos para dataSymbol (activoRatio = 1 OR activoSentinel = 1) desde ConnectionPool (o fallback MySQL).
+    """
+    ratio_syms = _call_connection_pool("GET", "/ratio-symbols/active")
+    sentinel_syms = _call_connection_pool("GET", "/sentinel-symbols/active")
+    
+    if ratio_syms is not None or sentinel_syms is not None:
+        combined = {}
+        if ratio_syms and isinstance(ratio_syms, list):
+            for item in ratio_syms:
+                if isinstance(item, dict) and "symbol" in item:
+                    combined[item["symbol"]] = item
+        if sentinel_syms and isinstance(sentinel_syms, list):
+            for item in sentinel_syms:
+                if isinstance(item, dict) and "symbol" in item:
+                    if item["symbol"] not in combined:
+                        combined[item["symbol"]] = item
+        if combined:
+            return sorted(list(combined.values()), key=lambda x: str(x.get("symbol", "")))
+
+    conn = None
+    cursor = None
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM symbols WHERE activoRatio = 1 OR activoSentinel = 1 ORDER BY symbol")
+        symbols = cursor.fetchall()
+        return symbols if symbols else []
+    except Exception as e:
+        logger.error(f"Error en getDataSymbols: {e}", exc_info=True)
+        return []
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+@ttl_cache(30)
+def getRatioSymbols():
+    """Obtiene todos los símbolos activos para el módulo de RATIO (ATALAia) desde ConnectionPool (o fallback MySQL)."""
+    res = _call_connection_pool("GET", "/ratio-symbols/active")
+    if res is not None and isinstance(res, list):
+        return res
+
+    conn = None
+    cursor = None
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT *, activoRatio AS Activo FROM symbols WHERE activoRatio = 1 ORDER BY symbol")
+        symbols = cursor.fetchall()
+        return symbols if symbols else []
+    except Exception as e:
+        logger.error(f"Error en getRatioSymbols: {e}", exc_info=True)
+        return []
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+@ttl_cache(30)
+def getRatioSymbol(symbol: str):
+    """Obtiene la información de un símbolo desde `symbols`."""
+    conn = None
+    cursor = None
+    try:
+        conn = dbConnection.getConnection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT *, activoRatio AS Activo FROM symbols WHERE symbol = %s", (symbol,))
+        return cursor.fetchone()
+    except Exception as e:
+        logger.error(f"Error en getRatioSymbol: {e}", exc_info=True)
+        return None
     finally:
         if cursor:
             try: cursor.close()
@@ -586,7 +722,7 @@ def getSymbol(symbol: str):
     try:
         conn = dbConnection.getConnection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM SentinelSymbol WHERE symbol = %s", (symbol,))
+        cursor.execute("SELECT *, activoSentinel AS Activo FROM symbols WHERE symbol = %s OR MT5 = %s OR FOREX = %s OR TradingView = %s", (symbol, symbol, symbol, symbol))
         
         result = cursor.fetchone()
         return result
@@ -1147,9 +1283,32 @@ async def insertNewCandlesToDb(df, timeframe: str) -> int:
 
 async def getCandlesFromDb(symbol: str, timeframe: str = "5min", limit: int = 500) -> pd.DataFrame:
     """
-    Obtiene velas de la tabla 'candles' como DataFrame.
+    Obtiene velas de la tabla 'candles' como DataFrame usando ConnectionPool (o fallback MySQL).
     """
     def query():
+        from urllib.parse import quote
+        safe_sym = quote(symbol, safe='')
+        safe_tf = quote(timeframe, safe='')
+        cp_res = _call_connection_pool("GET", f"/candles/symbol/{safe_sym}/timeframe/{safe_tf}", params={"limit": limit})
+        if cp_res is not None and isinstance(cp_res, list) and len(cp_res) > 0:
+            try:
+                df = pd.DataFrame(cp_res)
+                if 'timestamp' in df.columns and 'close' in df.columns:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    from middleware.config.constants import TIMEZONE
+                    df['timestamp'] = df['timestamp'].dt.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
+                    df = df.sort_values('timestamp').set_index('timestamp')
+                    for col in ['open', 'high', 'low', 'close']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    if 'volume' in df.columns:
+                        df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
+                    else:
+                        df['volume'] = 0.0
+                    return df[['open', 'high', 'low', 'close', 'volume']].dropna(subset=['close'])
+            except Exception as ex:
+                logger.debug(f"Error parseando candles de ConnectionPool: {ex}")
+
         conn = None
         cursor = None
         try:
@@ -1387,8 +1546,14 @@ def getRiesgoSugerido(symbol: str, strategy: str) -> float:
         if 'dbConn' in locals(): dbConn.close()
 
 def getLastStockPriceDate(symbol: str):
-    """Obtiene la fecha más reciente registrada para un símbolo en StockPrices."""
+    """Obtiene la fecha más reciente registrada para un símbolo en StockPrices mediante ConnectionPool (o fallback DB)."""
     try:
+        from urllib.parse import quote
+        safe_sym = quote(symbol, safe='')
+        res = _call_connection_pool("GET", f"/stock-prices/symbol/{safe_sym}/last-date")
+        if res and res.get("last_date"):
+            return pd.to_datetime(res["last_date"])
+
         dbConn = dbConnection.getConnection()
         if not dbConn: return None
         dbCursor = dbConn.cursor()
@@ -1405,9 +1570,19 @@ def getLastStockPriceDate(symbol: str):
         if 'dbConn' in locals(): dbConn.close()
 
 def saveStockPrices(df: pd.DataFrame, symbol: str) -> int:
-    """Guarda o actualiza masivamente precios diarios en StockPrices."""
+    """Guarda o actualiza masivamente precios diarios en StockPrices mediante ConnectionPool (o fallback DB)."""
     if df is None or df.empty: return 0
     try:
+        payload = []
+        for idx, row in df.iterrows():
+            dt = row['datetime'].date() if isinstance(row['datetime'], pd.Timestamp) else row['datetime']
+            price = float(row['close'])
+            payload.append({"symbol": symbol, "priceDate": str(dt), "closePrice": price})
+
+        res = _call_connection_pool("POST", "/stock-prices/bulk", json_data=payload)
+        if res and "inserted" in res:
+            return res["inserted"]
+
         dbConn = dbConnection.getConnection()
         if not dbConn: return 0
         dbCursor = dbConn.cursor()
@@ -1417,11 +1592,7 @@ def saveStockPrices(df: pd.DataFrame, symbol: str) -> int:
             ON DUPLICATE KEY UPDATE
                 closePrice = VALUES(closePrice)
         """
-        data_to_insert = []
-        for idx, row in df.iterrows():
-            dt = row['datetime'].date() if isinstance(row['datetime'], pd.Timestamp) else row['datetime']
-            price = float(row['close'])
-            data_to_insert.append((symbol, dt, price))
+        data_to_insert = [(item['symbol'], item['priceDate'], item['closePrice']) for item in payload]
         
         dbCursor.executemany(sql, data_to_insert)
         dbConn.commit()

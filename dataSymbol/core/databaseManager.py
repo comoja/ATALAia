@@ -1,80 +1,64 @@
 import pandas as pd
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
+from urllib.parse import quote
 import pytz
 
 logger = logging.getLogger(__name__)
 
-from middleware.config.constants import dbConfig, TIMEZONE
+from middleware.config.constants import TIMEZONE
+from middleware.database.dbManager import _call_connection_pool
 
 
 class DatabaseManager:
+    """
+    Gestor de base de datos para dataSymbol.
+    Todas las operaciones de lectura, escritura y mantenimiento se realizan
+    exclusivamente a través del microservicio ConnectionPool (http://127.0.0.1:8000/api/v1).
+    """
     def __init__(self, config: dict = None):
-        cfg = config or dbConfig
-        self.engine = create_engine(
-            f"mysql+mysqlconnector://{cfg['user']}:{cfg['password']}@{cfg['host']}/{cfg['database']}",
-            pool_size=5,
-            max_overflow=10,
-            pool_recycle=1800,
-            pool_pre_ping=True
-        )
+        pass
 
     def getLastTimestamp(self, symbol: str, timeframe: str = "5min") -> Optional[pd.Timestamp]:
+        """Obtiene la última fecha de vela guardada mediante ConnectionPool microservicio."""
         try:
-            nowCdmx = datetime.now(pytz.timezone(TIMEZONE)).replace(tzinfo=None)
-            with self.engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT MAX(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe and timestamp <= :nowCdmx"),
-                    {"symbol": symbol, "timeframe": timeframe, "nowCdmx": nowCdmx}
-                )
-                row = result.fetchone()
-            return pd.Timestamp(row[0]) if row and row[0] else None
+            res = _call_connection_pool("GET", "/candles/stats/last-timestamp", params={"symbol": symbol, "timeframe": timeframe})
+            if res and res.get("last_timestamp"):
+                return pd.Timestamp(res["last_timestamp"])
+            return None
         except Exception as e:
             logger.error(f"Error en getLastTimestamp: {e}")
             return None
     
     def getCandleCount(self, symbol: str, timeframe: str = "5min") -> int:
+        """Obtiene el número total de velas registradas mediante ConnectionPool microservicio."""
         try:
-            with self.engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT COUNT(*) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"),
-                    {"symbol": symbol, "timeframe": timeframe}
-                )
-                row = result.fetchone()
-            return row[0] if row else 0
+            res = _call_connection_pool("GET", "/candles/stats/count", params={"symbol": symbol, "timeframe": timeframe})
+            if res and "count" in res:
+                return int(res["count"])
+            return 0
         except Exception as e:
             logger.error(f"Error en getCandleCount: {e}")
             return 0
 
     def getFirstTimestamp(self, symbol: str, timeframe: str = "5min") -> Optional[pd.Timestamp]:
+        """Obtiene la fecha más antigua registrada mediante ConnectionPool microservicio."""
         try:
-            with self.engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT MIN(timestamp) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"),
-                    {"symbol": symbol, "timeframe": timeframe}
-                )
-                row = result.fetchone()
-            return pd.Timestamp(row[0]) if row and row[0] else None
+            res = _call_connection_pool("GET", "/candles/stats/first-timestamp", params={"symbol": symbol, "timeframe": timeframe})
+            if res and res.get("first_timestamp"):
+                return pd.Timestamp(res["first_timestamp"])
+            return None
         except Exception as e:
             logger.error(f"Error en getFirstTimestamp: {e}")
             return None
 
     def hasData(self, symbol: str, timeframe: str = "5min") -> bool:
-        try:
-            with self.engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT COUNT(*) FROM candles WHERE symbol=:symbol AND timeframe=:timeframe LIMIT 1"),
-                    {"symbol": symbol, "timeframe": timeframe}
-                )
-                row = result.fetchone()
-            return row[0] > 0 if row else False
-        except Exception as e:
-            logger.error(f"Error en hasData: {e}")
-            return False
+        """Verifica si existen datos para un símbolo y temporalidad."""
+        return self.getCandleCount(symbol, timeframe) > 0
 
     def saveBulkData(self, dataFrame: pd.DataFrame, symbol: str, timeframe: str = "5min") -> int:
+        """Guarda masivamente un DataFrame de velas a través del microservicio ConnectionPool."""
         if dataFrame.empty:
             return 0
         
@@ -100,67 +84,58 @@ class DatabaseManager:
                     df[col] = 0
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            with self.engine.begin() as conn:
-                insertSql = text("""
-                INSERT IGNORE INTO candles 
-                (symbol, timeframe, timestamp, open, high, low, close, volume)
-                VALUES (:symbol, :timeframe, :timestamp, :open, :high, :low, :close, :volume)
-                """)
-                
-                inserted = 0
-                for _, row in df.iterrows():
-                    result = conn.execute(insertSql, {
-                        "symbol": symbol,
-                        "timeframe": timeframe,
-                        "timestamp": row['timestamp'],
-                        "open": float(row['open']),
-                        "high": float(row['high']),
-                        "low": float(row['low']),
-                        "close": float(row['close']),
-                        "volume": float(row['volume'])
-                    })
-                    if result.rowcount > 0:
-                        inserted += 1
+            payload = []
+            for _, row in df.iterrows():
+                payload.append({
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "timestamp": str(row['timestamp']),
+                    "open": float(row['open']),
+                    "high": float(row['high']),
+                    "low": float(row['low']),
+                    "close": float(row['close']),
+                    "volume": float(row['volume'])
+                })
             
-            #logger.info(f"[{symbol}] {timeframe}: {inserted} velas insertadas")
-            return inserted
-            
+            res = _call_connection_pool("POST", "/candles/bulk", json_data=payload, timeout=15.0)
+            if res and res.get("status") == "ok":
+                return res.get("inserted", len(payload))
+            return 0
+
         except Exception as e:
             logger.error(f"Error en saveBulkData: {e}")
             return 0
 
     def resampleAndSave(self, symbol: str, sourceTf: str = "5min", targetTf: str = "15min", fromDate: datetime = None, minVelas: int = None) -> int:
+        """Remuestrea datos de velas mediante ConnectionPool microservicio y los almacena."""
         try:
-            query = "SELECT timestamp, open, high, low, close, volume FROM candles WHERE symbol=:symbol AND timeframe=:timeframe"
-            params = {"symbol": symbol, "timeframe": sourceTf}
+            safeSym = quote(symbol, safe='')
+            safeTf = quote(sourceTf, safe='')
             
+            res = _call_connection_pool("GET", f"/candles/symbol/{safeSym}/timeframe/{safeTf}", params={"limit": 50000})
+            if not res or not isinstance(res, list):
+                return 0
+            
+            df = pd.DataFrame(res)
+            if df.empty or 'timestamp' not in df.columns:
+                return 0
+            
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
             if fromDate:
-                query += " AND timestamp >= :fromDate"
-                params["fromDate"] = fromDate.strftime('%Y-%m-%d %H:%M:%S')
-            
-            query += " ORDER BY timestamp ASC"
-            
-            with self.engine.connect() as conn:
-                df = pd.read_sql(text(query), conn, params=params)
+                from_naive = fromDate.replace(tzinfo=None)
+                df = df[df['timestamp'].dt.tz_localize(None) >= from_naive]
             
             if df.empty:
                 return 0
             
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', errors='coerce')
-            df = df[df['timestamp'] >= pd.Timestamp('2000-01-01')]
-            
-            if df.empty:
-                return 0
-            
-            # Si hay mínimo de velas requerido, limitar a esas primeras
+            df = df.sort_values('timestamp')
             if minVelas:
                 df = df.head(minVelas)
             
             df = df.set_index('timestamp')
             
-            # Limitar a datos hasta ahora
             now = datetime.now()
-            df = df[df.index <= now]
+            df = df[df.index.tz_localize(None) <= now]
             
             if df.empty:
                 return 0
@@ -178,8 +153,7 @@ class DatabaseManager:
             if dfResampled.empty:
                 return 0
             
-            # Filtrar velas futuras
-            dfResampled = dfResampled[dfResampled.index <= now]
+            dfResampled = dfResampled[dfResampled.index.tz_localize(None) <= now]
             
             if dfResampled.empty:
                 return 0
@@ -196,11 +170,11 @@ class DatabaseManager:
     def _isIntervalComplete(self, df: pd.DataFrame, targetTf: str) -> bool:
         if df.empty:
             return False
-        last_ts = df.index[-1]
+        lastTs = df.index[-1]
         if targetTf == "15min":
-            return last_ts.minute == 45 or last_ts.minute >= 50
+            return lastTs.minute == 45 or lastTs.minute >= 50
         elif targetTf == "1h":
-            return last_ts.minute == 45 and (last_ts.second >= 0 or last_ts.minute == 59)
+            return lastTs.minute == 45 and (lastTs.second >= 0 or lastTs.minute == 59)
         return False
 
     def resampleStandardIntervals(self, symbol: str, fromDate: datetime = None) -> dict:
@@ -211,13 +185,11 @@ class DatabaseManager:
         count5 = self.getCandleCount(symbol, "5min")
         
         if last15:
-            # Ya hay 15min - generar desde la última
             fromDate15min = last15 + timedelta(minutes=1)
             inserted = self.resampleAndSave(symbol, "5min", "15min", fromDate15min)
             results["15min"] = inserted
             logger.info(f"[{symbol}] 15min: {inserted} velas generadas desde {last15.strftime('%Y-%m-%d %H:%M')}")
         elif count5 >= 3:
-            # No hay 15min pero hay 5min - generar desde el inicio de 5min disponibles
             inserted = self.resampleAndSave(symbol, "5min", "15min", None)
             results["15min"] = inserted
             logger.info(f"[{symbol}] 15min (inicial): {inserted} velas generadas")
@@ -230,13 +202,11 @@ class DatabaseManager:
         count15 = self.getCandleCount(symbol, "15min")
         
         if last1h:
-            # Ya hay 1h - generar desde la última
             fromDate1h = last1h + timedelta(hours=1)
             inserted = self.resampleAndSave(symbol, "15min", "1h", fromDate1h)
             results["1h"] = inserted
             logger.info(f"[{symbol}] 1h: {inserted} velas generadas desde {last1h.strftime('%Y-%m-%d %H:%M')}")
         elif count15 >= 4:
-            # No hay 1h pero hay 15min - generar desde el inicio de 15min disponibles
             inserted = self.resampleAndSave(symbol, "15min", "1h", None)
             results["1h"] = inserted
             logger.info(f"[{symbol}] 1h (inicial): {inserted} velas generadas")
@@ -253,68 +223,20 @@ class DatabaseManager:
         return results
 
     def cleanupWeekendData(self, symbol: str = None) -> int:
-        from zoneinfo import ZoneInfo
-        tzMX = ZoneInfo("America/Mexico_City")
-        tzNY = ZoneInfo("America/New_York")
-        deleted = 0
-        
+        """Solicita la limpieza de velas de fin de semana al microservicio ConnectionPool."""
         try:
-            with self.engine.begin() as conn:
-                # 1. Traer solo filas que podrian ser fines de semana (1=Domingo, 6=Viernes, 7=Sabado)
-                #    Ignorando crypto (ej. BTC) que opera 24/7.
-                query = """
-                    SELECT symbol, timeframe, timestamp 
-                    FROM candles 
-                    WHERE symbol NOT LIKE '%BTC%' 
-                    AND DAYOFWEEK(timestamp) IN (1, 6, 7)
-                """
-                params = {}
-                if symbol:
-                    query += " AND symbol = :symbol"
-                    params["symbol"] = symbol
-                
-                result = conn.execute(text(query), params)
-                rows = result.fetchall()
-                
-                candlesToDelete = []
-                for row in rows:
-                    sym, tf, ts = row
-                    
-                    # MySQL lo devuelve naive. Asumimos America/Mexico_City como viene de TwelveData
-                    tsLocal = ts.replace(tzinfo=tzMX)
-                    tsNY = tsLocal.astimezone(tzNY)
-                    weekday = tsNY.weekday()
-                    
-                    # Eliminar Viernes despues de 17:00 NY, Sabado entero, Domingo antes de 17:00 NY
-                    is_weekend = False
-                    if weekday == 4 and tsNY.hour >= 17:  # Viernes NY >= 17:00
-                        is_weekend = True
-                    elif weekday == 5:                    # Sábado entero
-                        is_weekend = True
-                    elif weekday == 6 and tsNY.hour < 17: # Domingo NY < 17:00
-                        is_weekend = True
-                        
-                    if is_weekend:
-                        candlesToDelete.append({"symbol": sym, "timeframe": tf, "ts": ts})
-                
-                # 2. Borrar en lotes masivos (Bulk Delete)
-                if candlesToDelete:
-                    batch_size = 5000
-                    for i in range(0, len(candlesToDelete), batch_size):
-                        batch = candlesToDelete[i:i+batch_size]
-                        conn.execute(
-                            text("DELETE FROM candles WHERE symbol = :symbol AND timeframe = :timeframe AND timestamp = :ts"),
-                            batch
-                        )
-                        deleted += len(batch)
-        
+            params = {}
+            if symbol:
+                params["symbol"] = symbol
+            res = _call_connection_pool("DELETE", "/candles/cleanup-weekend", params=params, timeout=30.0)
+            if res and "deleted" in res:
+                deleted = int(res["deleted"])
+                if deleted > 0:
+                    logger.info(f"Eliminadas {deleted} velas de fin de semana (Forex)")
+                else:
+                    logger.info("No se encontraron velas de fin de semana para eliminar.")
+                return deleted
+            return 0
         except Exception as e:
             logger.error(f"Error en cleanupWeekendData: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        if deleted > 0:
-            logger.info(f"Eliminadas {deleted} velas de fin de semana (Forex)")
-        else:
-            logger.info("No se encontraron velas de fin de semana para eliminar.")
-        return deleted
+            return 0

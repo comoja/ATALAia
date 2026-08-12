@@ -1,5 +1,6 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Float, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime
 
 import sys
 import os
@@ -11,7 +12,13 @@ from middleware.config.constants import dbConfig
 # Construimos la URL usando la configuración que ya tienes en middleware
 SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{dbConfig['user']}:{dbConfig['password']}@{dbConfig['host']}/{dbConfig['database']}"
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    pool_size=10,
+    max_overflow=5,
+    pool_recycle=1800,
+    pool_pre_ping=True
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
@@ -74,12 +81,29 @@ class RoleMenu(Base):
     idRole = Column(Integer, primary_key=True)
     idMenu = Column(Integer, primary_key=True)
 
+class Symbol(Base):
+    """
+    Tabla unificada máster de administración de símbolos para ATALAia y Sentinel.
+    """
+    __tablename__ = "symbols"
+
+    symbol = Column(String(10), primary_key=True, index=True)
+    tipo = Column(String(10), nullable=False)
+    activoRatio = Column(Integer, default=1)
+    activoSentinel = Column(Integer, default=1)
+    min_lots = Column(Float, default=1000.0)
+    broker = Column(Integer, default=0)
+    precioMaximo = Column(Float, nullable=True)
+    precioMinimo = Column(Float, nullable=True)
+    FOREX = Column(String(20), nullable=True)
+    MT5 = Column(String(20), nullable=True)
+    TradingView = Column(String(20), nullable=True)
+
 class RatioSymbol(Base):
     """
-    Tabla de administración del catálogo de pares 
-    exclusivos para el modelo de correlación.
+    Vista/Tabla de administración del catálogo de pares de correlación.
     """
-    __tablename__ = "RatioSymbol"
+    __tablename__ = "ratiosymbol"
 
     symbol = Column(String(10), primary_key=True, index=True)
     Activo = Column(Integer, default=1)
@@ -102,9 +126,9 @@ class Cuenta(Base):
 
 class SentinelSymbol(Base):
     """
-    Tabla de configuración de símbolos/instrumentos de Sentinel.
+    Vista/Tabla de configuración de símbolos de Sentinel.
     """
-    __tablename__ = "SentinelSymbol"
+    __tablename__ = "sentinelSymbol"
 
     symbol = Column(String(20), primary_key=True, index=True)
     Activo = Column(Integer, default=1)
@@ -112,6 +136,22 @@ class SentinelSymbol(Base):
     broker = Column(Integer, default=0)
     precioMaximo = Column(Float, nullable=True)
     precioMinimo = Column(Float, nullable=True)
+
+class UserRatio(Base):
+    """
+    Tabla de relación entre usuario y ratios guardados a analizar.
+    """
+    __tablename__ = "user_ratios"
+    __table_args__ = (UniqueConstraint("idUsuario", "numerador", "denominador", name="ukUserRatioPair"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idUsuario = Column(Integer, ForeignKey("Usuario.idUsuario"), nullable=False)
+    numerador = Column(String(20), nullable=False)
+    denominador = Column(String(20), nullable=False)
+    periodo = Column(String(20), nullable=False)
+    EMARapida = Column(Integer, default=3)
+    EMALenta = Column(Integer, default=20)
+    createdAt = Column(DateTime, default=datetime.utcnow)
 
 # Crea las tablas si no existen en la BD "ATALAia"
 Base.metadata.create_all(bind=engine)

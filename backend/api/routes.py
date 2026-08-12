@@ -5,6 +5,7 @@ if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import subprocess
 from urllib.parse import unquote
@@ -14,9 +15,10 @@ from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, RatioSymbol, Cuenta, SentinelSymbol
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -81,27 +83,127 @@ async def get_pair_correlation(
 @router.get("/catalogo")
 def get_catalogo_pares(db: Session = Depends(get_db)):
     """
-    Devuelve la lista de todos los símbolos disponibles en la BD (SentinelSymbol / RatioSymbol).
+    Devuelve la lista de todos los símbolos activos de RATIO desde la tabla máster `symbols`.
     """
-    ratio_map = {r.symbol: r.tipo for r in db.query(RatioSymbol).all()}
-    sentinel_symbols = db.query(SentinelSymbol).filter(SentinelSymbol.Activo == 1).all()
-    
-    if not sentinel_symbols:
-        pares = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
-        return [{"id": p.symbol, "pair_name": p.symbol, "desc": p.symbol, "tipo": p.tipo or "MONEDA"} for p in pares]
+    pares = db.query(Symbol).filter(Symbol.activoRatio == 1).order_by(Symbol.symbol.asc()).all()
+    return [{"id": p.symbol, "pair_name": p.symbol, "desc": p.symbol, "tipo": p.tipo or "MONEDA"} for p in pares]
 
-    resultado = []
-    seen = set()
-    for s in sentinel_symbols:
-        seen.add(s.symbol)
-        tipo = ratio_map.get(s.symbol, "MONEDA")
-        resultado.append({"id": s.symbol, "pair_name": s.symbol, "desc": s.symbol, "tipo": tipo})
-        
-    for r_sym, r_tipo in ratio_map.items():
-        if r_sym not in seen:
-            resultado.append({"id": r_sym, "pair_name": r_sym, "desc": r_sym, "tipo": r_tipo or "MONEDA"})
-            
-    return resultado
+
+class UserRatioCreate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    periodo: str = Field(..., description="Periodo o temporalidad (ej. 1d, 1h)")
+    EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
+    EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
+
+class UserRatioDelete(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+
+@router.post("/user-ratios/guardar")
+def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
+    """
+    Guarda o actualiza (UPSERT) en user_ratios la relación entre idUsuario, numerador y denominador.
+    """
+    try:
+        existingRatio = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        ).first()
+
+        emaRapida = payload.EMARapida if payload.EMARapida is not None else 3
+        emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
+
+        if existingRatio:
+            existingRatio.periodo = payload.periodo
+            existingRatio.EMARapida = emaRapida
+            existingRatio.EMALenta = emaLenta
+            existingRatio.createdAt = datetime.utcnow()
+            db.commit()
+            db.refresh(existingRatio)
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}) [EMA Fast: {emaRapida}, Slow: {emaLenta}]")
+            return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "action": "updated"}
+        else:
+            nuevoRatio = UserRatio(
+                idUsuario=payload.idUsuario,
+                numerador=payload.numerador,
+                denominador=payload.denominador,
+                periodo=payload.periodo,
+                EMARapida=emaRapida,
+                EMALenta=emaLenta,
+                createdAt=datetime.utcnow()
+            )
+            db.add(nuevoRatio)
+            db.commit()
+            db.refresh(nuevoRatio)
+            logger.info(f"Ratio guardado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}) [EMA Fast: {emaRapida}, Slow: {emaLenta}]")
+            return {"status": "success", "message": "Ratio guardado exitosamente", "id": nuevoRatio.id, "action": "created"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al guardar user_ratio: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/user-ratios/buscar")
+def findUserRatio(idUsuario: int, numerador: str, denominador: str, db: Session = Depends(get_db)):
+    """
+    Busca la configuración de un ratio guardado por su clave compuesta (idUsuario, numerador, denominador).
+    """
+    ratio = db.query(UserRatio).filter(
+        UserRatio.idUsuario == idUsuario,
+        UserRatio.numerador == numerador,
+        UserRatio.denominador == denominador
+    ).first()
+
+    if not ratio:
+        return {"found": False}
+    
+    return {
+        "found": True,
+        "id": ratio.id,
+        "idUsuario": ratio.idUsuario,
+        "numerador": ratio.numerador,
+        "denominador": ratio.denominador,
+        "periodo": ratio.periodo,
+        "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
+        "EMALenta": ratio.EMALenta if ratio.EMALenta is not None else 20,
+        "createdAt": ratio.createdAt
+    }
+
+@router.post("/user-ratios/borrar")
+def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
+    """
+    Elimina por el índice compuesto (idUsuario, numerador, denominador) el registro correspondiente.
+    """
+    try:
+        ratioToDelete = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        ).first()
+
+        if not ratioToDelete:
+            raise HTTPException(status_code=404, detail="No se encontró la combinación de ratio especificada para eliminar.")
+
+        db.delete(ratioToDelete)
+        db.commit()
+        logger.info(f"Ratio eliminado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador}")
+        return {"status": "success", "message": "Ratio eliminado exitosamente"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al borrar user_ratio: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/user-ratios/{idUsuario}")
+def getUserRatios(idUsuario: int, db: Session = Depends(get_db)):
+    """
+    Obtiene todos los ratios guardados para un usuario específico.
+    """
+    return db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario).order_by(UserRatio.id.desc()).all()
 
 
 @router.get("/ratio/{pairA:path}")
@@ -590,11 +692,15 @@ async def receive_tradingview_signal(payload: TradingViewSignal) -> Dict[str, An
     
     nowStr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # Normalizar símbolo a la representación estándar de la BD
+    sym_db = dbManager.getSymbol(payload.symbol)
+    canonical_symbol = sym_db['symbol'] if sym_db else payload.symbol
+
     tradeData = {
         "idTrade": None,
         "idCuenta": payload.idCuenta,
         "accountName": account.get('Nombre', 'N/A'),
-        "symbol": payload.symbol,
+        "symbol": canonical_symbol,
         "direction": directionStr,
         "entryPrice": payload.entryPrice,
         "stopLoss": payload.stopLoss,
@@ -611,7 +717,7 @@ async def receive_tradingview_signal(payload: TradingViewSignal) -> Dict[str, An
     
     signalDict = {
         "strategy": payload.strategy,
-        "symbol": payload.symbol,
+        "symbol": canonical_symbol,
         "direction": directionStr,
         "entryPrice": payload.entryPrice,
         "stopLoss": payload.stopLoss,
@@ -694,17 +800,17 @@ def save_cuenta(payload: CuentaUpdate, db: Session = Depends(get_db)):
 
 @router.get("/config/simbolos")
 def get_simbolos(db: Session = Depends(get_db)):
-    """Obtiene la lista de todos los símbolos y sus parámetros."""
-    return db.query(SentinelSymbol).order_by(SentinelSymbol.symbol.asc()).all()
+    """Obtiene la lista de todos los símbolos y sus parámetros desde la tabla máster `symbols`."""
+    return db.query(Symbol).order_by(Symbol.symbol.asc()).all()
 
 @router.post("/config/simbolos/guardar")
 def save_simbolo(payload: SymbolUpdate, db: Session = Depends(get_db)):
-    """Actualiza la configuración operativa de un símbolo."""
-    simbolo = db.query(SentinelSymbol).filter(SentinelSymbol.symbol == payload.symbol).first()
+    """Actualiza la configuración operativa de un símbolo en la tabla máster `symbols`."""
+    simbolo = db.query(Symbol).filter(Symbol.symbol == payload.symbol).first()
     if not simbolo:
         raise HTTPException(status_code=404, detail="Símbolo no encontrado")
     
-    simbolo.Activo = payload.Activo
+    simbolo.activoSentinel = payload.Activo
     simbolo.min_lots = payload.min_lots
     simbolo.broker = payload.broker
     simbolo.precioMaximo = payload.precioMaximo

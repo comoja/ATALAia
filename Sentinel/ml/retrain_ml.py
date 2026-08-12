@@ -35,10 +35,9 @@ async def retrain():
             f"mysql+mysqlconnector://{dbConfig['user']}:{dbConfig['password']}@{dbConfig['host']}/{dbConfig['database']}"
         )
         
-        # Obtener símbolos disponibles
-        # Obtener todos los símbolos de la BD
+        # Obtener únicamente los símbolos activos de Sentinel desde la tabla máster `symbols`
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT DISTINCT symbol FROM candles ORDER BY symbol"))
+            result = conn.execute(text("SELECT symbol FROM symbols WHERE activoSentinel = 1 ORDER BY symbol"))
             symbols = [row[0] for row in result.fetchall()]
         
         print(f"Símbolos encontrados en BD: {symbols}")

@@ -306,6 +306,8 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
     refRiskPct = float(refAccount['riesgoPorOperacion']) if refAccount and refAccount.get('riesgoPorOperacion') else 1.0
 
     master_data_dict = {}
+    cycleSeenKeys = set()
+    executedSignalsCount = 0
 
     for idx, symbolInfo in enumerate(symbolsToScan):
         symbol = symbolInfo['symbol']
@@ -497,13 +499,47 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
         # Ejecutar todas las estrategias en paralelo
         results = await asyncio.gather(*tasks) if tasks else []
 
-        # Recolectar señales
+        # Recolectar e inyectar señales INMEDIATAMENTE para el símbolo actual en tiempo real
+        symbolSignals = []
         for res in results:
             if not res: continue
             if isinstance(res, list):
-                all_signals.extend(res)
+                symbolSignals.extend(res)
             else:
-                all_signals.append(res)
+                symbolSignals.append(res)
+
+        if symbolSignals:
+            uniqueSymbolSignals = []
+            for sig in symbolSignals:
+                key = (sig.strategy, sig.symbol, sig.direction)
+                try:
+                    existing = dbManager.is_trade_duplicate(
+                        sig.symbol, sig.strategy, sig.intervalo, sig.direction, None, None
+                    )
+                except Exception:
+                    existing = False
+                
+                if key not in cycleSeenKeys and not existing:
+                    if executedSignalsCount < 3:
+                        cycleSeenKeys.add(key)
+                        uniqueSymbolSignals.append(sig)
+                        executedSignalsCount += 1
+                    else:
+                        logger.warning(f"⚠️ [Exposición Máxima] Límite de 3 señales por ciclo alcanzado. Omitiendo señal para {sig.symbol} ({sig.strategy})")
+                else:
+                    if existing:
+                        logger.warning(f"⚠️ Trade existente en BD: {sig.strategy} {sig.symbol} {sig.direction}")
+                    else:
+                        logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
+
+            if uniqueSymbolSignals:
+                logger.info(f"⚡ Inyectando INMEDIATAMENTE {len(uniqueSymbolSignals)} señal(es) para [{symbol}] en tiempo real...")
+                await engine.processSignals(
+                    uniqueSymbolSignals,
+                    marketSentiment=marketSentiment,
+                    marketSentiment_crypto=marketSentiment_crypto,
+                    imminentNews=imminentNews
+                )
 
         elapsed = time.time() - start_time
         wait_time = max(0, MIN_WAIT_SECONDS - elapsed)
@@ -515,42 +551,6 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
             await trade_manager.manageOpenPositions(master_data_dict)
         except Exception as e:
             logger.error(f"Error executing TradeManager: {e}")
-
-
-    # --- Procesamiento Centralizado de Señales ---
-    if all_signals:
-        # Deduplicar señales: misma estrategia + símbolo + dirección = una sola ejecución
-        seen_keys = set()
-        unique_signals = []
-        for sig in all_signals:
-            key = (sig.strategy, sig.symbol, sig.direction)
-            
-            # Verificar si ya existe trade en DB (mismo symbol, strategy, direction, status=OPEN)
-            try:
-               
-                existing = dbManager.is_trade_duplicate(
-                    sig.symbol, sig.strategy, sig.intervalo, sig.direction, None, None
-                )
-            except:
-                existing = False
-            
-            if key not in seen_keys and not existing:
-                seen_keys.add(key)
-                unique_signals.append(sig)
-            else:
-                if existing:
-                    logger.warning(f"⚠️ Trade existente en BD: {sig.strategy} {sig.symbol} {sig.direction}")
-                else:
-                    logger.warning(f"⚠️ Señal duplicada descartada: {sig.strategy} {sig.symbol} {sig.direction}")
-        logger.info(f"Enviando {len(unique_signals)} señales únicas al ExecutionEngine (de {len(all_signals)} generadas)...")
-        # --- Control de Exposición Simultánea Máxima ---
-        # Si hay más de 3 señales en el mismo ciclo, las ordenamos por confianza y RR, y nos quedamos con las 3 mejores.
-        if len(unique_signals) > 3:
-            logger.warning(f"⚠️  [Exposición Máxima] Se detectaron {len(unique_signals)} señales únicas. Limitando a un máximo de 3 señales simultáneas por ciclo para evitar riesgos correlacionados.")
-            unique_signals = sorted(unique_signals, key=lambda s: (s.confidence, s.rr_ratio), reverse=True)[:3]
-            logger.info(f"👉 Señales seleccionadas: {[f'{s.strategy} {s.symbol} ({s.direction})' for s in unique_signals]}")
-
-        await engine.processSignals(unique_signals, marketSentiment=marketSentiment, marketSentiment_crypto=marketSentiment_crypto, imminentNews=imminentNews)
 
 setupLogging(enableConsole=True)
 logger = logging.getLogger("sentinel")
