@@ -14,13 +14,9 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from middleware.config.constants import dbConfig
+from middleware.database import dbManager
 
 def regenerate_1h():
-    engine = create_engine(
-        f"mysql+mysqlconnector://{dbConfig['user']}:{dbConfig['password']}@{dbConfig['host']}/{dbConfig['database']}"
-    )
-    
     symbol = "XAU/USD"
     TIMEZONE = "America/Mexico_City"
     cdmx_tz = pytz.timezone(TIMEZONE)
@@ -29,12 +25,7 @@ def regenerate_1h():
     
     # Get 15min data
     print("Obteniendo datos de 15min...")
-    with engine.connect() as conn:
-        df = pd.read_sql(
-            text("SELECT timestamp, open, high, low, close, volume FROM candles WHERE symbol=:symbol AND timeframe=:timeframe ORDER BY timestamp ASC"),
-            conn,
-            params={"symbol": symbol, "timeframe": "15min"}
-        )
+    df = asyncio.run(dbManager.getCandlesFromDb(symbol, timeframe="15min", limit=10000))
     
     print(f"  Velas de 15min: {len(df)}")
     
@@ -71,22 +62,8 @@ def regenerate_1h():
     dfResampled['symbol'] = symbol
     dfResampled['timeframe'] = '1h'
     
-    # Delete existing 1h data first
-    with engine.connect() as conn:
-        conn.execute(text("DELETE FROM candles WHERE symbol=:symbol AND timeframe='1h'"), {"symbol": symbol})
-        conn.commit()
-    
-    print(f"  Datos 1h antiguos eliminados")
-    
-    # Use INSERT IGNORE to skip duplicates
-    with engine.begin() as conn:
-        for _, row in dfResampled.iterrows():
-            conn.execute(
-                text("INSERT IGNORE INTO candles (symbol, timeframe, timestamp, open, high, low, close, volume) VALUES (:symbol, :timeframe, :timestamp, :open, :high, :low, :close, :volume)"),
-                {"symbol": row['symbol'], "timeframe": row['timeframe'], "timestamp": row['timestamp'], "open": row['open'], "high": row['high'], "low": row['low'], "close": row['close'], "volume": row['volume']}
-            )
-    
-    print(f"  Velas de 1h guardadas: {len(dfResampled)}")
+    inserted = asyncio.run(dbManager.insertNewCandlesToDb(dfResampled, timeframe="1h"))
+    print(f"  Velas de 1h guardadas mediante ConnectionPool: {inserted}")
     print("=== Proceso completado ===")
 
 if __name__ == "__main__":

@@ -1,137 +1,32 @@
-import mysql.connector
-from mysql.connector import pooling, Error as MySQLError
-from middleware.config.constants import dbConfig
+"""
+Gestor de conectividad hacia el microservicio ConnectionPool.
+Todas las operaciones con la base de datos se canalizan exclusivamente
+mediante HTTP REST a través de ConnectionPool (http://127.0.0.1:8000/api/v1).
+"""
 import logging
-import time
-import threading
+import requests
+from middleware.config.constants import CONNECTION_POOL_URL
 
 logger = logging.getLogger(__name__)
 
-class DBConnectionPool:
-    _instance = None
-    _pool = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._init_pool()
-        return cls._instance
-
-    def _init_pool(self):
-        try:
-            # Inyectar timeouts de seguridad
-            pool_config = dbConfig.copy()
-            if 'connect_timeout' not in pool_config:
-                pool_config['connect_timeout'] = 10
-            # Forzar liberación de conexiones ociosas en 90s
-            pool_config['connection_timeout'] = 90
-            
-            self._pool = pooling.MySQLConnectionPool(
-                pool_name="atalaia_pool",
-                pool_size=32,       # Aumentado a 16 para soportar corrutinas concurrentes de Sentinel
-                pool_reset_session=True,
-                **pool_config
-            )
-            logger.info("Pool de conexiones MySQL inicializado (size=16)")
-        except MySQLError as e:
-            logger.error(f"Error al crear pool de conexiones: {e}")
-            self._pool = None
-
-    def get_connection(self, retries=3, wait=0.5):
-        if self._pool is None:
-            self._recreate_pool()
-        
-        for attempt in range(retries):
-            try:
-                conn = self._pool.get_connection()
-                if conn and not conn.is_connected():
-                    conn.reconnect()
-                return conn
-            except MySQLError as e:
-                is_pool_exhausted = "pool exhausted" in str(e).lower() or e.errno == 1040
-                if is_pool_exhausted and attempt < retries - 1:
-                    logger.warning(f"Pool exhausted, esperando {wait}s (intento {attempt+1}/{retries})")
-                    time.sleep(wait)
-                    continue
-                logger.warning(f"Error al obtener conexión del pool: {e}")
-                self._recreate_pool()
-                if attempt < retries - 1:
-                    continue
-                return self._direct_connect()
-        
-        return self._direct_connect()
-
-    def _recreate_pool(self):
-        try:
-            self._pool = None
-            self._init_pool()
-        except Exception as e:
-            logger.error(f"Error al recrear pool: {e}")
-
-    def _direct_connect(self):
-        try:
-            return mysql.connector.connect(**dbConfig)
-        except MySQLError as e:
-            logger.error(f"Error al conectar directamente: {e}")
-            return None
-
-    def health_check(self):
-        try:
-            import requests
-            from middleware.config.constants import CONNECTION_POOL_URL
-            try:
-                res = requests.get(f"{CONNECTION_POOL_URL}/health", timeout=2)
-                if res.status_code == 200 and res.json().get("status") == "online":
-                    return True
-            except Exception:
-                pass
-
-            conn = self.get_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1")
-                cursor.fetchone()
-                cursor.close()
-                conn.close()
-                return True
-            return False
-        except Exception as e:
-            logger.warning(f"Health check falló: {e}")
-            return False
-
-_pool_instance = DBConnectionPool()
 
 def getConnection():
-    try:
-        conn = _pool_instance.get_connection()
-        if conn is None:
-            return None
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-            cursor.close()
-        except MySQLError as e:
-            if e.errno in (2006, 2013, 1040, 1042):
-                logger.warning(f"Conexión MySQL perdida, intentando reconectar: {e}")
-                try: conn.close()
-                except: pass
-                conn = _pool_instance.get_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
-                    cursor.close()
-                raise
-        
-        return conn
-    except MySQLError as e:
-        logger.error(f"Error al conectar a la base de datos: {e}")
-        return None
+    """
+    Función de compatibilidad. 
+    ADVERTENCIA: Las conexiones directas a MySQL están desactivadas.
+    Todas las interacciones de BD deben canalizarse mediante `_call_connection_pool` en `dbManager`.
+    """
+    logger.warning("⚠️ ADVERTENCIA: Se intentó abrir una conexión directa a MySQL. Toda operación debe canalizarse mediante ConnectionPool microservicio.")
+    return None
 
-def health_check():
-    return _pool_instance.health_check()
+
+def health_check() -> bool:
+    """Verifica la salud del microservicio ConnectionPool."""
+    try:
+        res = requests.get(f"{CONNECTION_POOL_URL}/health", timeout=3)
+        if res.status_code == 200 and res.json().get("status") == "online":
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Health check a ConnectionPool falló: {e}")
+        return False

@@ -109,10 +109,7 @@ class DatabaseManager:
     def resampleAndSave(self, symbol: str, sourceTf: str = "5min", targetTf: str = "15min", fromDate: datetime = None, minVelas: int = None) -> int:
         """Remuestrea datos de velas mediante ConnectionPool microservicio y los almacena."""
         try:
-            safeSym = quote(symbol, safe='')
-            safeTf = quote(sourceTf, safe='')
-            
-            res = _call_connection_pool("GET", f"/candles/symbol/{safeSym}/timeframe/{safeTf}", params={"limit": 50000})
+            res = _call_connection_pool("GET", "/candles/symbol-query", params={"symbol": symbol, "timeframe": sourceTf, "limit": 50000})
             if not res or not isinstance(res, list):
                 return 0
             

@@ -17,6 +17,7 @@ from middleware.config import constants as config
 from Sentinel.ml import model as mlModel
 from Sentinel.ml.model import MODEL_REG_FILE_PATH
 from Sentinel.analysis.technical import calculateFeatures
+from middleware.database import dbManager
 
 setupLogging()
 
@@ -26,57 +27,56 @@ async def train_reg():
     print("=" * 50)
     
     try:
-        from middleware.config.constants import dbConfig
-        from sqlalchemy import create_engine
-        
-        engine = create_engine(
-            f"mysql+mysqlconnector://{dbConfig['user']}:{dbConfig['password']}@{dbConfig['host']}/{dbConfig['database']}"
-        )
-        
-        # Obtener únicamente los símbolos activos de Sentinel desde la tabla máster `symbols`
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT symbol FROM symbols WHERE activoSentinel = 1 ORDER BY symbol"))
-            symbols = [row[0] for row in result.fetchall()]
-        
-        print(f"Símbolos encontrados en BD: {symbols}")
+        symbols_data = dbManager.getSentinelSymbols()
+        symbols = [s['symbol'] for s in symbols_data if isinstance(s, dict) and 'symbol' in s]
+        print(f"Símbolos activos encontrados en ConnectionPool: {symbols}")
         
         all_data = []
         
         for symbol in symbols:
             print(f"Descargando datos de {symbol}...")
             
-            with engine.connect() as conn:
-                result = conn.execute(
-                    text("""
-                        SELECT timestamp, open, high, low, close, volume 
-                        FROM candles 
-                        WHERE symbol = :symbol AND timeframe = '5min'
-                        ORDER BY timestamp ASC
-                        LIMIT 10000
-                    """),
-                    {"symbol": symbol}
-                )
-                rows = result.fetchall()
+            # Obtener velas via ConnectionPool (limit alto para entrenamiento)
+            rows = dbManager._call_connection_pool(
+                "GET",
+                "/candles/symbol-query",
+                params={"symbol": symbol, "timeframe": "5min", "limit": 10000}
+            )
             
-            if rows:
-                df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                df = df.sort_values('timestamp').reset_index(drop=True)
-                
-                # Resample a 15min
-                df.set_index('timestamp', inplace=True)
-                df_resampled = df.resample('15min').agg({
-                    'open': 'first',
-                    'high': 'max',
-                    'low': 'min',
-                    'close': 'last',
-                    'volume': 'sum'
-                }).dropna()
-                df_resampled.reset_index(inplace=True)
-                
-                if len(df_resampled) > 100:
-                    all_data.append(df_resampled)
-                    print(f"  -> {len(df_resampled)} velas (15min)")
+            if not rows:
+                # Fallback: intentar con 15min si no hay 5min
+                rows = dbManager._call_connection_pool(
+                    "GET",
+                    "/candles/symbol-query",
+                    params={"symbol": symbol, "timeframe": "15min", "limit": 5000}
+                )
+            
+            if rows and isinstance(rows, list):
+                df = pd.DataFrame(rows)
+                if 'timestamp' in df.columns:
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    df = df.sort_values('timestamp').reset_index(drop=True)
+                    
+                    # Convertir columnas numéricas a float ANTES del resample
+                    for col in ['open', 'high', 'low', 'close', 'volume']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # Resample a 15min
+                    df.set_index('timestamp', inplace=True)
+                    df_resampled = df[['open', 'high', 'low', 'close', 'volume']].resample('15min').agg({
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum'
+                    }).dropna()
+                    df_resampled.reset_index(inplace=True)
+                    df_resampled['symbol'] = symbol
+                    
+                    if len(df_resampled) > 100:
+                        all_data.append(df_resampled)
+                        print(f"  -> {len(df_resampled)} velas (15min)")
         
         if not all_data:
             print("❌ Error: No se pudieron obtener datos de la BD")

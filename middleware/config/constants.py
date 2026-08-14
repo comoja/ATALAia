@@ -7,7 +7,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).parent.parent.parent.resolve()
-load_dotenv(dotenv_path=BASE_DIR / ".env")
+
+def _find_and_load_dotenv():
+    """Busca el archivo .env subiendo por los directorios padre hasta encontrarlo."""
+    candidate = Path(__file__).resolve()
+    for _ in range(6):  # Hasta 6 niveles arriba
+        candidate = candidate.parent
+        env_file = candidate / ".env"
+        if env_file.is_file():
+            load_dotenv(dotenv_path=env_file, override=False)
+            return str(env_file)
+    # Fallback: intentar desde BASE_DIR por si acaso
+    load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
+    return None
+
+_found_env = _find_and_load_dotenv()
 
 mt5Login = int(os.getenv("MT5_LOGIN", "0"))
 mt5Password = os.getenv("MT5_PASSWORD", "")
@@ -56,13 +70,9 @@ timeZone = TIMEZONE
 
 CONNECTION_POOL_URL = os.getenv("CONNECTION_POOL_URL", "http://127.0.0.1:8000/api/v1")
 
-dbConfig = {
-    "host": os.getenv("DB_HOST", "192.168.68.65"),
-    "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", "M1x&J34ny"),
-    "database": os.getenv("DB_DATABASE", "ATALAia"),
-    "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
-}
+# Log de diagnóstico al arrancar (visible en consola Windows)
+print(f"[CONFIG] .env cargado desde: {_found_env or 'NO ENCONTRADO (usando defaults)'}")
+print(f"[CONFIG] CONNECTION_POOL_URL = {CONNECTION_POOL_URL}")
 
 MODEL_PARAMS = {
     "n_estimators": 300,

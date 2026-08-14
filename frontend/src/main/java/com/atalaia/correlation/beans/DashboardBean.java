@@ -106,20 +106,34 @@ public class DashboardBean implements Serializable {
     private String analysisResult;
 
     // --- Modelos para Análisis Conductual ---
-    private BarChartModel prob3PasosModel;
-    private BarChartModel velStModel;
-    private BarChartModel velLtModel;
+    private BarChartModel prob3PasosModel = createEmptyBarChartModel();
+    private BarChartModel velStModel = createEmptyBarChartModel();
+    private BarChartModel velLtModel = createEmptyBarChartModel();
 
     // --- Distribución Estadística (Campana de Gauss) ---
     private Double zScoreA = 0.0;
     private Double zScoreB = 0.0;
     private Double zScoreDiff = 0.0;
-    private LineChartModel gaussianModel;
-    private BarChartModel histogramModel;
+    private LineChartModel gaussianModel = createEmptyLineChartModel();
+    private BarChartModel histogramModel = createEmptyBarChartModel();
     private Double macdLineLatest = 0.0;
     private Double macdSignalLatest = 0.0;
     private Double macdHistLatest = 0.0;
-    private LineChartModel macdModel;
+    private LineChartModel macdModel = createEmptyLineChartModel();
+
+    private static LineChartModel createEmptyLineChartModel() {
+        LineChartModel model = new LineChartModel();
+        ChartData data = new ChartData();
+        model.setData(data);
+        return model;
+    }
+
+    private static BarChartModel createEmptyBarChartModel() {
+        BarChartModel model = new BarChartModel();
+        ChartData data = new ChartData();
+        model.setData(data);
+        return model;
+    }
 
     @Value("${atalaia.backend.url:http://localhost:8004}")
     private String backendUrl;
@@ -737,9 +751,9 @@ public class DashboardBean implements Serializable {
     }
 
     private void createEmptyModels() {
-        prob3PasosModel = new BarChartModel();
-        velStModel = new BarChartModel();
-        velLtModel = new BarChartModel();
+        prob3PasosModel = createEmptyBarChartModel();
+        velStModel = createEmptyBarChartModel();
+        velLtModel = createEmptyBarChartModel();
     }
 
     private BarChartModel createBarModel(JsonNode dataNode, String label, String bgColor, String borderColor) {
@@ -928,6 +942,9 @@ public class DashboardBean implements Serializable {
     }
 
     public LineChartModel getGaussianModel() {
+        if (gaussianModel == null) {
+            gaussianModel = createEmptyLineChartModel();
+        }
         return gaussianModel;
     }
 
@@ -936,11 +953,47 @@ public class DashboardBean implements Serializable {
     }
 
     public BarChartModel getHistogramModel() {
+        if (histogramModel == null) {
+            histogramModel = createEmptyBarChartModel();
+        }
         return histogramModel;
     }
 
     public void setHistogramModel(BarChartModel histogramModel) {
         this.histogramModel = histogramModel;
+    }
+
+    public BarChartModel getProb3PasosModel() {
+        if (prob3PasosModel == null) {
+            prob3PasosModel = createEmptyBarChartModel();
+        }
+        return prob3PasosModel;
+    }
+
+    public void setProb3PasosModel(BarChartModel prob3PasosModel) {
+        this.prob3PasosModel = prob3PasosModel;
+    }
+
+    public BarChartModel getVelStModel() {
+        if (velStModel == null) {
+            velStModel = createEmptyBarChartModel();
+        }
+        return velStModel;
+    }
+
+    public void setVelStModel(BarChartModel velStModel) {
+        this.velStModel = velStModel;
+    }
+
+    public BarChartModel getVelLtModel() {
+        if (velLtModel == null) {
+            velLtModel = createEmptyBarChartModel();
+        }
+        return velLtModel;
+    }
+
+    public void setVelLtModel(BarChartModel velLtModel) {
+        this.velLtModel = velLtModel;
     }
 
     public Double getMacdLineLatest() {
@@ -968,6 +1021,9 @@ public class DashboardBean implements Serializable {
     }
 
     public LineChartModel getMacdModel() {
+        if (macdModel == null) {
+            macdModel = createEmptyLineChartModel();
+        }
         return macdModel;
     }
 
@@ -976,9 +1032,9 @@ public class DashboardBean implements Serializable {
     }
 
     private void createMacdModel(JsonNode historyNode) {
+        macdModel = createEmptyLineChartModel();
         if (historyNode == null || !historyNode.isArray()) return;
 
-        macdModel = new LineChartModel();
         ChartData data = new ChartData();
 
         List<Object> macdValues = new ArrayList<>();
@@ -1053,9 +1109,9 @@ public class DashboardBean implements Serializable {
     }
 
     private void createHistogramModel(JsonNode histogramNode) {
+        histogramModel = createEmptyBarChartModel();
         if (histogramNode == null || !histogramNode.isArray()) return;
 
-        histogramModel = new BarChartModel();
         ChartData data = new ChartData();
 
         BarChartDataSet dataSet = new BarChartDataSet();

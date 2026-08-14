@@ -7,10 +7,12 @@ import os
 # Añadimos la raíz del proyecto al sys.path para poder importar el middleware
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from middleware.config.constants import dbConfig
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "M1x&J34ny")
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+DB_DATABASE = os.getenv("DB_DATABASE", "atalaia")
 
-# Construimos la URL usando la configuración que ya tienes en middleware
-SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{dbConfig['user']}:{dbConfig['password']}@{dbConfig['host']}/{dbConfig['database']}"
+SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_DATABASE}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
@@ -38,7 +40,7 @@ class Role(Base):
     """
     Roles institucionales para control de acceso.
     """
-    __tablename__ = "Role"
+    __tablename__ = "role"
 
     idRole = Column(Integer, primary_key=True, autoincrement=True)
     nameRole = Column(String(50), unique=True, nullable=False)
@@ -48,7 +50,7 @@ class Usuario(Base):
     """
     Tabla corporativa de usuarios de ATALAia.
     """
-    __tablename__ = "Usuario"
+    __tablename__ = "usuario"
 
     idUsuario      = Column(Integer, primary_key=True, autoincrement=True)
     username       = Column(String(50), unique=True, nullable=False)
@@ -64,7 +66,7 @@ class Menu(Base):
     """
     Navegación dinámica por roles.
     """
-    __tablename__ = "Menu"
+    __tablename__ = "menu"
 
     idMenu = Column(Integer, primary_key=True, autoincrement=True)
     nameMenu = Column(String(50), nullable=False)
@@ -76,7 +78,7 @@ class RoleMenu(Base):
     """
     Relación de asignación de menús autorizados por rol.
     """
-    __tablename__ = "RoleMenu"
+    __tablename__ = "rolemenu"
 
     idRole = Column(Integer, primary_key=True)
     idMenu = Column(Integer, primary_key=True)
@@ -113,7 +115,7 @@ class Cuenta(Base):
     """
     Tabla corporativa de cuentas de trading en Sentinel/ATALAia.
     """
-    __tablename__ = "Cuenta"
+    __tablename__ = "cuenta"
 
     idCuenta = Column(Integer, primary_key=True, autoincrement=True)
     Nombre = Column(String(100), nullable=False)
@@ -128,7 +130,7 @@ class SentinelSymbol(Base):
     """
     Vista/Tabla de configuración de símbolos de Sentinel.
     """
-    __tablename__ = "sentinelSymbol"
+    __tablename__ = "sentinelsymbol"
 
     symbol = Column(String(20), primary_key=True, index=True)
     Activo = Column(Integer, default=1)
@@ -145,7 +147,7 @@ class UserRatio(Base):
     __table_args__ = (UniqueConstraint("idUsuario", "numerador", "denominador", name="ukUserRatioPair"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    idUsuario = Column(Integer, ForeignKey("Usuario.idUsuario"), nullable=False)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False)
     numerador = Column(String(20), nullable=False)
     denominador = Column(String(20), nullable=False)
     periodo = Column(String(20), nullable=False)

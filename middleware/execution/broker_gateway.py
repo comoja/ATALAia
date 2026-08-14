@@ -434,9 +434,12 @@ class BrokerGateway:
         # except Exception as imgErr:
         #     logger.error(f"❌ Error al generar la tarjeta visual de señal: {imgErr}")
         
-        logger.debug(f"[DEBUG] Telegram - Token: {account['TokenMsg'][:10]}... | ChatId: {account['idGrupoMsg']} | Msg length: {len(message)}")
+        token_msg = account.get('tokenMsg') or account.get('TokenMsg') or ""
+        group_msg = account.get('idGrupoMsg') or account.get('IdGrupoMsg') or ""
+        
+        logger.debug(f"[DEBUG] Telegram - Token: {token_msg[:10]}... | ChatId: {group_msg} | Msg length: {len(message)}")
         logger.info(f"[TELEGRAM] Mensaje a enviar: \n{message[:500]}...")
-        logger.info(f"[TELEGRAM] 🔐 Token: {account['TokenMsg'][:15]}... | 💬 ChatId: {account['idGrupoMsg']}")
+        logger.info(f"[TELEGRAM] 🔐 Token: {token_msg[:15]}... | 💬 ChatId: {group_msg}")
         # 4. Registro en Base de Datos
         trade_inserted = False
         try:
@@ -463,7 +466,7 @@ class BrokerGateway:
         # 5. Enviar Alerta de Telegram solo si no es duplicado
         if trade_inserted:
             try:
-                msg_id = await sendTelegramAlert(account['TokenMsg'], account['idGrupoMsg'], message, photoBytes=photoBytes)
+                msg_id = await sendTelegramAlert(token_msg, group_msg, message, photoBytes=photoBytes)
                 if not msg_id:
                     logger.error(f"❌ No se pudo enviar alerta de Telegram para {trade_data['symbol']} (Token o ID incorrecto)")
                 else:
@@ -605,17 +608,11 @@ class BrokerGateway:
             return True
 
         # Buscar idCuenta a partir de ticketId para cargar credenciales de BD
-        idCuenta = None
         try:
-            from middleware.database import dbConnection
-            conn = dbConnection.getConnection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT idCuenta FROM trades WHERE ticketId = %s", (str(ticketId),))
-            row = cursor.fetchone()
-            if row:
-                idCuenta = row['idCuenta']
-            cursor.close()
-            conn.close()
+            from middleware.database import dbManager
+            res = dbManager._call_connection_pool("GET", f"/trades/{ticketId}")
+            if res and isinstance(res, dict) and "idCuenta" in res:
+                idCuenta = res['idCuenta']
         except Exception as e:
             logger.error(f"Error buscando cuenta para ticketId {ticketId}: {e}")
 
@@ -865,15 +862,8 @@ class BrokerGateway:
             logger.info(f"[DEBUG] close_trade llamado: id={id_trade}, reason={reason}, exit_price={exit_price}")
             logger.debug(f"[DEBUG] Stack trace: {traceback.format_stack()[-5:-1]}")
             
-            conn = dbConnection.getConnection()
-            if conn is None:
-                logger.error(f"Gateway: No se pudo obtener conexión para trade {id_trade}")
-                return
-            
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM trades WHERE idTrade = %s", (id_trade,))
-            trade_data = cursor.fetchone()
-            conn.close()
+            res = dbManager._call_connection_pool("GET", f"/trades/{id_trade}")
+            trade_data = res if (res and isinstance(res, dict)) else None
             
             if not trade_data:
                 logger.error(f"Gateway: No se pudo cerrar trade {id_trade} porque no existe en DB.")

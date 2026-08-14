@@ -20,22 +20,31 @@ warnings.filterwarnings("ignore")
 estadosPorSimbolo = {} 
 
 def _cargar_estados_desde_db():
-    """Carga los estados guardados desde la BD al iniciar."""
+    """Carga los estados guardados desde ConnectionPool microservicio al iniciar."""
     global estadosPorSimbolo
     try:
-        conn = dbManager.dbConnection.getConnection()
-        cursor = conn.cursor(dictionary=True)
-        # Cargar estados de HOY
-        cursor.execute("SELECT symbol, estado FROM momentum_estados WHERE DATE(fecha) = CURDATE()")
-        results = cursor.fetchall()
-        for row in results:
-            estadosPorSimbolo[row['symbol']] = row['estado']
-        conn.close()
-        logger.info(f"[Momentum] Estados cargados desde DB: {len(estadosPorSimbolo)} símbolos")
-        return estadosPorSimbolo
-    except Exception as e:
-        logger.error(f"[Momentum] Error cargando estados desde DB: {e}")
+        res = dbManager._call_connection_pool("GET", "/momentum-estados")
+        if res and isinstance(res, list):
+            for row in res:
+                if isinstance(row, dict) and "symbol" in row and "estado" in row:
+                    estadosPorSimbolo[row['symbol']] = row['estado']
+            logger.info(f"[Momentum] Estados cargados desde ConnectionPool: {len(estadosPorSimbolo)} símbolos")
+            return estadosPorSimbolo
         return {}
+    except Exception as e:
+        logger.error(f"[Momentum] Error cargando estados desde ConnectionPool: {e}")
+        return {}
+
+def _guardar_estado_en_db(symbol: str, estado: str):
+    """Guarda el estado del símbolo en ConnectionPool microservicio."""
+    try:
+        payload = {
+            "symbol": symbol,
+            "estado": estado
+        }
+        dbManager._call_connection_pool("POST", "/momentum-estados", json_data=payload)
+    except Exception as e:
+        logger.error(f"[Momentum] Error guardando estado en ConnectionPool: {e}")
 
 async def _enviar_resumen_inicial(df_dict: dict):
     """Envía resumen de estados actuales al iniciar (a cuenta 1 - Sentinel)."""
@@ -73,17 +82,15 @@ async def _enviar_resumen_inicial(df_dict: dict):
         logger.error(f"[Momentum] Error enviando resumen: {e}")
 
 def _guardar_estado_en_db(symbol: str, estado: str):
-    """Guarda el estado del símbolo en la BD."""
+    """Guarda el estado del símbolo en ConnectionPool microservicio."""
     try:
-        conn = dbManager.dbConnection.getConnection()
-        cursor = conn.cursor()
-        # Usar REPLACE para insertar o actualizar
-        cursor.execute("REPLACE INTO momentum_estados (symbol, estado, fecha) VALUES (%s, %s, NOW())", 
-                    (symbol, estado))
-        conn.commit()
-        conn.close()
+        payload = {
+            "symbol": symbol,
+            "estado": estado
+        }
+        dbManager._call_connection_pool("POST", "/momentum-estados", json_data=payload)
     except Exception as e:
-        logger.error(f"[Momentum] Error guardando estado en DB: {e}")
+        logger.error(f"[Momentum] Error guardando estado en ConnectionPool: {e}")
 
 def calcularAngulos(df, ventana=14):
     # Asegurar que las columnas sean numéricas para evitar el TypeError

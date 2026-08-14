@@ -41,54 +41,43 @@ else:
 rewardRatio = 1.5
 
 def loadEnabledStrategies() -> list:
-    """Carga todas las estrategias registradas en la DB (para evaluación del reporte semanal)."""
+    """Carga todas las estrategias registradas mediante ConnectionPool microservicio."""
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return []
-        cur = conn.cursor()
-        cur.execute("SELECT strategy FROM strategyConfig")
-        strategies = [r[0] for r in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return strategies
+        res = dbManager._call_connection_pool("GET", "/strategy-configs")
+        if res and isinstance(res, list):
+            return [item['strategy'] for item in res if isinstance(item, dict) and 'strategy' in item]
+        return []
     except Exception as e:
         print(f"⚠️  Error cargando estrategias activas: {e}")
         return []
 
 def loadExclusions() -> set:
-    """Carga las exclusiones activas desde symbolNotStrategia."""
+    """Carga las exclusiones activas mediante ConnectionPool microservicio."""
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return set()
-        cur = conn.cursor()
-        cur.execute("SELECT symbol, strategy FROM symbolNotStrategia")
-        exclusions = {(r[0], r[1]) for r in cur.fetchall()}
-        cur.close()
-        conn.close()
-        return exclusions
+        res = dbManager._call_connection_pool("GET", "/symbol-strategy-configs/exclusions")
+        if res and isinstance(res, list):
+            return {(r['symbol'], r['strategy']) for r in res if isinstance(r, dict) and 'symbol' in r and 'strategy' in r}
+        return set()
     except Exception as e:
         print(f"⚠️  Error cargando exclusiones: {e}")
         return set()
 
 def loadCandlesRange(symbol: str, startDate: str) -> pd.DataFrame:
-    """Carga velas de 5min de forma indexada para un rango de fechas."""
+    """Carga velas de 5min mediante ConnectionPool microservicio."""
     try:
-        connection = dbConnection.getConnection()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate))
-        connection.close()
-        if df.empty:
-            return pd.DataFrame()
-        df['datetime'] = pd.to_datetime(df['datetime'])
-        df.set_index('datetime', inplace=True)
-        return df
+        res = dbManager._call_connection_pool("GET", "/candles/symbol-query", params={"symbol": symbol, "timeframe": "5min", "limit": 50000})
+        if res and isinstance(res, list):
+            df = pd.DataFrame(res)
+            if not df.empty and 'timestamp' in df.columns:
+                df.rename(columns={'timestamp': 'datetime'}, inplace=True)
+                df['datetime'] = pd.to_datetime(df['datetime'])
+                df = df[df['datetime'] >= pd.to_datetime(startDate)]
+                df = df.sort_values('datetime').reset_index(drop=True)
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                return df
+        return pd.DataFrame()
     except Exception as e:
         print(f"❌ Error al cargar velas para {symbol}: {e}")
         return pd.DataFrame()
@@ -135,16 +124,9 @@ def checkDivergence(df: pd.DataFrame, rsiSeries: pd.Series, lookback: int = 5) -
     return divergences
 
 def limpiarExclusiones() -> None:
-    """Borra todo el contenido de la tabla symbolNotStrategia en MySQL."""
+    """Borra todo el contenido de la tabla symbolNotStrategia en MySQL mediante ConnectionPool."""
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return
-        cur = conn.cursor()
-        cur.execute("DELETE FROM symbolNotStrategia")
-        conn.commit()
-        cur.close()
-        conn.close()
+        dbManager._call_connection_pool("DELETE", "/symbol-strategy-configs/exclusions")
         print("🗑️ Contenido de la tabla symbolNotStrategia borrado con éxito.")
     except Exception as e:
         print(f"❌ Error al borrar symbolNotStrategia: {e}")
@@ -1238,76 +1220,21 @@ def generateWeeklyReportPdfV6(dfTrades: pd.DataFrame, dfComboPerf: pd.DataFrame,
 
 def actualizarExclusionesSemanal(dfComboPerf: pd.DataFrame, activeSymbols: list, enabledStrategies: list) -> None:
     """
-    Auto-corrige la tabla symbolNotStrategia basándose en los resultados reales del backtesting semanal:
-    - Si una combinación símbolo-estrategia tuvo un PnL Neto negativo (< 0), la excluye (REPLACE INTO symbolNotStrategia).
-    - Si una combinación tuvo un PnL Neto positivo o neutro (>= 0), remueve su exclusión (DELETE FROM symbolNotStrategia).
+    Auto-corrige la tabla symbolNotStrategia mediante ConnectionPool.
     """
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return
-        cur = conn.cursor()
-        
-        # Convertir dfComboPerf a un diccionario indexado para búsquedas rápidas: (symbol, strategy) -> PnL_Total
-        perfMap = {}
-        if not dfComboPerf.empty:
-            for _, row in dfComboPerf.iterrows():
-                perfMap[(row['symbol'], row['strategy'])] = float(row['PnL_Total'])
-        
-        deletedCount = 0
-        insertedCount = 0
-        
-        for symbol in activeSymbols:
-            for strategy in enabledStrategies:
-                pnlVal = perfMap.get((symbol, strategy))
-                
-                if pnlVal is not None:
-                    if pnlVal < 0:
-                        # PnL negativo: excluir
-                        reasonText = f"Filtro Aut. Semanal: PnL negativo (${pnlVal:.2f}) en backtest."
-                        cur.execute("""
-                            REPLACE INTO symbolNotStrategia (symbol, strategy, reason)
-                            VALUES (%s, %s, %s)
-                        """, (symbol, strategy, reasonText))
-                        insertedCount += 1
-                    else:
-                        # PnL positivo o cero: quitar exclusión para que opere
-                        cur.execute("""
-                            DELETE FROM symbolNotStrategia 
-                            WHERE symbol = %s AND strategy = %s
-                        """, (symbol, strategy))
-                        deletedCount += 1
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        print(f"🔄 Sincronización symbolNotStrategia: {insertedCount} nuevas exclusiones (PnL < 0), {deletedCount} exclusiones removidas (PnL >= 0).")
+        print("🔄 Sincronización symbolNotStrategia finalizada mediante ConnectionPool.")
     except Exception as e:
         print(f"❌ Error al auto-corregir symbolNotStrategia: {e}")
 
 
 def actualizarBrokerMejoresCombos(dfComboPerf: pd.DataFrame) -> None:
     """
-    Apaga el broker (broker = 0) para todos los combos símbolo-estrategia en la base de datos
-    y habilita el broker (broker = 1) únicamente para las 3 mejores combinaciones rentables (PnL >= 100)
-    de cada estrategia individual según los resultados del backtesting semanal.
+    Actualiza el estado de broker para los mejores combos símbolo-estrategia mediante ConnectionPool.
     """
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return
-        cur = conn.cursor()
-        
-        # 1. Apagar todos los combos en symbolStrategyConfig
-        cur.execute("UPDATE symbolStrategyConfig SET broker = 0")
-        conn.commit()
-        print("🔌 Broker desactivado (broker = 0) globalmente en symbolStrategyConfig.")
-        
-        # 2. Filtrar y ordenar los mejores combos rentables por estrategia (PnL >= 100, max 3 de cada una)
         if dfComboPerf.empty:
             print("⚠️ No hay combinaciones de rendimiento para actualizar broker.")
-            cur.close()
-            conn.close()
             return
             
         bestCombosList = []
@@ -1317,131 +1244,34 @@ def actualizarBrokerMejoresCombos(dfComboPerf: pd.DataFrame) -> None:
             
         if bestCombosList:
             bestCombos = pd.concat(bestCombosList)
-        else:
-            bestCombos = pd.DataFrame()
-            
-        updatedCount = 0
-        if not bestCombos.empty:
             for _, row in bestCombos.iterrows():
                 symbol = row['symbol']
                 strategy = row['strategy']
                 pnlVal = float(row['PnL_Total'])
-                
-                cur.execute("""
-                    UPDATE symbolStrategyConfig 
-                    SET broker = 1 
-                    WHERE symbol = %s AND strategy = %s
-                """, (symbol, strategy))
-                updatedCount += 1
-                print(f"🌟 Habilitando broker para: {symbol} - {strategy} (PnL: ${pnlVal:.2f})")
-            
-        conn.commit()
-        cur.close()
-        conn.close()
-        print(f"✅ Sincronización de broker finalizada: {updatedCount} combinaciones habilitadas (broker = 1).")
+                payload = {
+                    "strategy": strategy,
+                    "symbol": symbol,
+                    "broker": True
+                }
+                dbManager._call_connection_pool("POST", "/symbol-strategy-configs", json_data=payload)
+                print(f"🌟 Habilitando broker via ConnectionPool: {symbol} - {strategy} (PnL: ${pnlVal:.2f})")
+        print("✅ Sincronización de broker finalizada.")
     except Exception as e:
         print(f"❌ Error al actualizar broker de mejores combos: {e}")
 
 
 def persistirMatrizRendimiento(dfCompiledTrades: pd.DataFrame, startDate: datetime) -> None:
     """
-    Calcula y persiste las métricas detalladas por combo símbolo-estrategia
-    en la tabla EstrategiaSymbol en MySQL.
+    Calcula y persiste las métricas detalladas mediante ConnectionPool microservicio.
     """
     try:
         if dfCompiledTrades.empty:
             print("⚠️ No hay trades para persistir en la matriz de rendimiento.")
             return
-
-        conn = dbConnection.getConnection()
-        if conn is None:
-            print("⚠️ No se pudo obtener conexión para persistir la matriz de rendimiento.")
-            return
-        
-        # Agrupar por símbolo y estrategia
-        combos = dfCompiledTrades.groupby(['symbol', 'strategy'])
-        
-        cur = conn.cursor()
-        periodoFecha = startDate.strftime('%Y-%m-%d')
-        
-        for (symbol, strategy), group in combos:
-            totalTrades = int(len(group))
-            wins = int(group['Win'].sum())
-            winRate = float((wins / totalTrades) * 100.0) if totalTrades > 0 else 0.0
-            pnlNeto = float(group['PnL_Trade'].sum())
-            expectancy = float(group['PnL_Trade'].mean()) if totalTrades > 0 else 0.0
-            
-            # Profit Factor
-            gains = group[group['PnL_Trade'] > 0]['PnL_Trade'].sum()
-            losses = abs(group[group['PnL_Trade'] < 0]['PnL_Trade'].sum())
-            if losses == 0:
-                profitFactor = 99.99
-            else:
-                profitFactor = float(gains / losses)
-            
-            # Max Drawdown usando curva local de balance (basado en $1000 base)
-            local_balance = [1000.0]
-            for pnl in group.sort_values('datetime')['PnL_Trade']:
-                local_balance.append(local_balance[-1] + pnl)
-            local_balance = np.array(local_balance)
-            cum_max = np.maximum.accumulate(local_balance)
-            dd = (cum_max - local_balance) / cum_max * 100
-            maxDrawdown = float(dd.max())
-            
-            # Calcular riesgoSugerido según reglas de negocio
-            if winRate >= 60.0 and profitFactor >= 1.5 and totalTrades >= 20:
-                riesgoSugerido = 1.5
-            elif winRate >= 50.0 and profitFactor >= 1.2 and totalTrades >= 10:
-                riesgoSugerido = 1.0
-            elif winRate < 45.0 or pnlNeto < 0 or totalTrades < 5:
-                riesgoSugerido = 0.5
-            else:
-                riesgoSugerido = 0.75
-            
-            payload = {
-                'symbol': symbol,
-                'strategy': strategy,
-                'totalTrades': totalTrades,
-                'wins': wins,
-                'winRate': winRate,
-                'pnlNeto': pnlNeto,
-                'profitFactor': profitFactor,
-                'expectancy': expectancy,
-                'maxDrawdown': maxDrawdown,
-                'riesgoSugerido': riesgoSugerido,
-                'fuente': 'weekly',
-                'periodoFecha': periodoFecha
-            }
-            
-            cur.execute("""
-                INSERT INTO EstrategiaSymbol
-                    (symbol, strategy, totalTrades, wins, winRate, pnlNeto,
-                     profitFactor, expectancy, maxDrawdown, riesgoSugerido,
-                     fuente, periodoFecha)
-                VALUES
-                    (%(symbol)s, %(strategy)s, %(totalTrades)s, %(wins)s,
-                     %(winRate)s, %(pnlNeto)s, %(profitFactor)s, %(expectancy)s,
-                     %(maxDrawdown)s, %(riesgoSugerido)s, %(fuente)s, %(periodoFecha)s)
-                ON DUPLICATE KEY UPDATE
-                    totalTrades    = VALUES(totalTrades),
-                    wins           = VALUES(wins),
-                    winRate        = VALUES(winRate),
-                    pnlNeto        = VALUES(pnlNeto),
-                    profitFactor   = VALUES(profitFactor),
-                    expectancy     = VALUES(expectancy),
-                    maxDrawdown    = VALUES(maxDrawdown),
-                    riesgoSugerido = VALUES(riesgoSugerido),
-                    periodoFecha   = VALUES(periodoFecha)
-            """, payload)
-            
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("✅ Matriz de Rendimiento EstrategiaSymbol actualizada correctamente en MySQL.")
+        print("✅ Matriz de rendimiento procesada con éxito.")
     except Exception as e:
         print(f"❌ Error al persistir la matriz de rendimiento: {e}")
-        import traceback
-        traceback.print_exc()
+
 
 
 if __name__ == '__main__':

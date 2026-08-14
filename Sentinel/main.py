@@ -274,26 +274,15 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
         "PremiumConfluence",
     ])
 
-    # Cargar exclusiones dinámicas de symbolNotStrategia de la base de datos
+    # Cargar exclusiones dinámicas de symbolNotStrategia mediante ConnectionPool microservicio
     exclusions = set()
-    _conn = None
-    _cur = None
     try:
-        from middleware.database import dbConnection as _dbConnection
-        _conn = _dbConnection.getConnection()
-        _cur = _conn.cursor()
-        _cur.execute("SELECT symbol, strategy FROM symbolNotStrategia")
-        exclusions = {(r[0], r[1]) for r in _cur.fetchall()}
-        logger.info(f"🛡️  [Exclusiones] Cargadas {len(exclusions)} exclusiones desde la tabla symbolNotStrategia")
+        res = dbManager._call_connection_pool("GET", "/symbol-strategy-configs/exclusions")
+        if res and isinstance(res, list):
+            exclusions = {(row['symbol'], row['strategy']) for row in res if isinstance(row, dict) and 'symbol' in row and 'strategy' in row}
+        logger.info(f"🛡️  [Exclusiones] Cargadas {len(exclusions)} exclusiones desde ConnectionPool")
     except Exception as e:
-        logger.error(f"⚠️  Error cargando exclusiones desde symbolNotStrategia: {e}")
-    finally:
-        if _cur:
-            try: _cur.close()
-            except: pass
-        if _conn:
-            try: _conn.close()
-            except: pass
+        logger.error(f"⚠️  Error cargando exclusiones desde ConnectionPool: {e}")
 
     # Cargar cuenta de referencia para sizing de señales
     
@@ -318,7 +307,7 @@ async def run_sequential_analysis(engine, trade_manager, sniper_bot, imbalance_n
         logger.info(f"Procesando {symbol} ({idx+1}/{len(symbolsToScan)}) con cuenta {nombreKey}...", extra={"color": "orange"})
         
         # 1. Descargar datos de forma consistente (local o remota según configuración y aplicando spread de broker)
-        nVelas = 15000 # if DATA_SOURCE == "db" else MAX_CANDLES_PER_CALL
+        nVelas = 5000  # 5,000 velas de 5m = 17.3 días de historial (suficiente para bias de 14 días y EMA 200)
         params = {"symbol": symbol, "interval": "5min", "apikey": symbolApiKey, "outputSize": nVelas}
         df = await tdApi.getTimeSeries(params,True)
         

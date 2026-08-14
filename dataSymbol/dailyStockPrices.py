@@ -58,12 +58,12 @@ async def syncDailyStockPrices():
 
         current_hour_localized = nowLocal.replace(minute=0, second=0, microsecond=0)
         
-        # Asegurar que start_date no sea la hora actual o futuro
-        if startDate >= current_hour_localized:
-            logger.info(f"[{symbol}] Ya está actualizado hasta la última hora cerrada.")
+        # Permitir procesar hasta la hora actual para mantener el precio en tiempo real
+        if startDate > nowLocal:
+            logger.info(f"[{symbol}] Ya está actualizado hasta la fecha/hora actual.")
             continue
             
-        endDate = current_hour_localized
+        endDate = nowLocal + timedelta(hours=1)
 
         params = {
             "symbol": symbol,
@@ -82,7 +82,7 @@ async def syncDailyStockPrices():
                 start_naive = startDate.replace(tzinfo=None)
                 end_naive = endDate.replace(tzinfo=None)
                 df['dt_naive'] = pd.to_datetime(df['datetime']).dt.tz_localize(None)
-                df = df[(df['dt_naive'] >= start_naive) & (df['dt_naive'] < end_naive)][['datetime', 'close']]
+                df = df[(df['dt_naive'] >= start_naive) & (df['dt_naive'] <= end_naive)][['datetime', 'close']]
             else:
                 df = pd.DataFrame()
             
@@ -97,10 +97,9 @@ async def syncDailyStockPrices():
                     df = df_1h.reset_index()
             
             if df is not None and not df.empty:
-                # Filtrar la vela actual (incompleta)
                 df['datetimeOnly'] = pd.to_datetime(df['datetime']).apply(lambda x: x.replace(tzinfo=None))
                 current_hour_naive = current_hour_localized.replace(tzinfo=None)
-                dfClosed = df[df['datetimeOnly'] < current_hour_naive].copy()
+                dfClosed = df[df['datetimeOnly'] <= current_hour_naive].copy()
                 
                 if not dfClosed.empty:
                     inserted = dbManager.saveStockPrices(dfClosed, symbol)

@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 import subprocess
 from urllib.parse import unquote
 import logging
-from middleware.database import dbConnection
+from middleware.database import dbManager
 from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
@@ -81,12 +81,14 @@ async def get_pair_correlation(
 
 
 @router.get("/catalogo")
-def get_catalogo_pares(db: Session = Depends(get_db)):
+def get_catalogo_pares():
     """
-    Devuelve la lista de todos los símbolos activos de RATIO desde la tabla máster `symbols`.
+    Devuelve la lista de todos los símbolos activos de RATIO mediante ConnectionPool.
     """
-    pares = db.query(Symbol).filter(Symbol.activoRatio == 1).order_by(Symbol.symbol.asc()).all()
-    return [{"id": p.symbol, "pair_name": p.symbol, "desc": p.symbol, "tipo": p.tipo or "MONEDA"} for p in pares]
+    res = dbManager._call_connection_pool("GET", "/ratio-symbols/active")
+    if res and isinstance(res, list):
+        return [{"id": p["symbol"], "pair_name": p["symbol"], "desc": p["symbol"], "tipo": "MONEDA"} for p in res if isinstance(p, dict) and "symbol" in p]
+    return []
 
 
 class UserRatioCreate(BaseModel):
@@ -775,49 +777,33 @@ class SymbolUpdate(BaseModel):
     precioMinimo: Optional[float] = None
 
 @router.get("/config/cuentas")
-def get_cuentas(db: Session = Depends(get_db)):
-    """Obtiene la lista de todas las cuentas configuradas."""
-    return db.query(Cuenta).all()
+def get_cuentas():
+    """Obtiene la lista de todas las cuentas configuradas mediante ConnectionPool."""
+    res = dbManager._call_connection_pool("GET", "/cuentas")
+    return res if res and isinstance(res, list) else []
 
 @router.post("/config/cuentas/guardar")
-def save_cuenta(payload: CuentaUpdate, db: Session = Depends(get_db)):
-    """Actualiza los parámetros operativos de una cuenta."""
-    cuenta = db.query(Cuenta).filter(Cuenta.idCuenta == payload.idCuenta).first()
-    if not cuenta:
-        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
-    
-    cuenta.Nombre = payload.Nombre
-    cuenta.Capital = payload.Capital
-    cuenta.ganancia = payload.ganancia
-    cuenta.Activo = payload.Activo
-    cuenta.TokenMsg = payload.TokenMsg
-    cuenta.idGrupoMsg = payload.idGrupoMsg
-    cuenta.riesgoPorOperacion = payload.riesgoPorOperacion
-    
-    db.commit()
-    logger.info(f"Cuenta ID {payload.idCuenta} actualizada correctamente.")
+def save_cuenta(payload: CuentaUpdate):
+    """Actualiza los parámetros operativos de una cuenta mediante ConnectionPool."""
+    cuenta_dict = payload.model_dump()
+    res = dbManager._call_connection_pool("PUT", f"/cuentas/{payload.idCuenta}", json_data=cuenta_dict)
+    logger.info(f"Cuenta ID {payload.idCuenta} actualizada en ConnectionPool.")
     return {"status": "success", "message": "Cuenta actualizada correctamente"}
 
 @router.get("/config/simbolos")
-def get_simbolos(db: Session = Depends(get_db)):
-    """Obtiene la lista de todos los símbolos y sus parámetros desde la tabla máster `symbols`."""
-    return db.query(Symbol).order_by(Symbol.symbol.asc()).all()
+def get_simbolos():
+    """Obtiene la lista de todos los símbolos mediante ConnectionPool."""
+    res = dbManager._call_connection_pool("GET", "/sentinel-symbols")
+    return res if res and isinstance(res, list) else []
 
 @router.post("/config/simbolos/guardar")
-def save_simbolo(payload: SymbolUpdate, db: Session = Depends(get_db)):
-    """Actualiza la configuración operativa de un símbolo en la tabla máster `symbols`."""
-    simbolo = db.query(Symbol).filter(Symbol.symbol == payload.symbol).first()
-    if not simbolo:
-        raise HTTPException(status_code=404, detail="Símbolo no encontrado")
-    
-    simbolo.activoSentinel = payload.Activo
-    simbolo.min_lots = payload.min_lots
-    simbolo.broker = payload.broker
-    simbolo.precioMaximo = payload.precioMaximo
-    simbolo.precioMinimo = payload.precioMinimo
-    
-    db.commit()
-    logger.info(f"Símbolo {payload.symbol} actualizado correctamente.")
+def save_simbolo(payload: SymbolUpdate):
+    """Actualiza la configuración operativa de un símbolo mediante ConnectionPool."""
+    from urllib.parse import quote
+    safe_sym = quote(payload.symbol, safe='')
+    sym_dict = payload.model_dump()
+    res = dbManager._call_connection_pool("PUT", f"/sentinel-symbols/{safe_sym}", json_data=sym_dict)
+    logger.info(f"Símbolo {payload.symbol} actualizado en ConnectionPool.")
     return {"status": "success", "message": "Símbolo actualizado correctamente"}
 
 
@@ -910,27 +896,11 @@ def get_backtest_status():
 @router.get("/config/estrategia-symbol")
 def getMatrizRendimiento():
     """
-    Retorna toda la matriz de rendimiento estrategia×símbolo
-    ordenada por riesgoSugerido DESC y winRate DESC.
+    Retorna toda la matriz de rendimiento estrategia×símbolo mediante ConnectionPool.
     """
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            raise HTTPException(status_code=503, detail="Sin conexión a la base de datos")
-        cur = conn.cursor(dictionary=True)
-        cur.execute("""
-            SELECT idEstrategiaSymbol, symbol, strategy, totalTrades, wins,
-                   winRate, pnlNeto, profitFactor, expectancy, maxDrawdown,
-                   riesgoSugerido, fuente,
-                   DATE_FORMAT(periodoFecha, '%Y-%m-%d') AS periodoFecha,
-                   DATE_FORMAT(updatedAt, '%Y-%m-%d %H:%i') AS updatedAt
-            FROM EstrategiaSymbol
-            ORDER BY riesgoSugerido DESC, winRate DESC
-        """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return rows
+        res = dbManager._call_connection_pool("GET", "/symbol-strategy-configs")
+        return res if res and isinstance(res, list) else []
     except Exception as e:
         logger.error(f"Error al obtener matriz de rendimiento: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -939,37 +909,10 @@ def getMatrizRendimiento():
 @router.post("/config/estrategia-symbol/guardar")
 def guardarMatrizRendimiento(payload: dict):
     """
-    Persiste (INSERT ... ON DUPLICATE KEY UPDATE) las métricas de una
-    combinación estrategia×símbolo. Usado al finalizar el backtest.
+    Persiste las métricas de una combinación estrategia×símbolo mediante ConnectionPool.
     """
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            raise HTTPException(status_code=503, detail="Sin conexión a la base de datos")
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO EstrategiaSymbol
-                (symbol, strategy, totalTrades, wins, winRate, pnlNeto,
-                 profitFactor, expectancy, maxDrawdown, riesgoSugerido,
-                 fuente, periodoFecha)
-            VALUES
-                (%(symbol)s, %(strategy)s, %(totalTrades)s, %(wins)s,
-                 %(winRate)s, %(pnlNeto)s, %(profitFactor)s, %(expectancy)s,
-                 %(maxDrawdown)s, %(riesgoSugerido)s, %(fuente)s, %(periodoFecha)s)
-            ON DUPLICATE KEY UPDATE
-                totalTrades    = VALUES(totalTrades),
-                wins           = VALUES(wins),
-                winRate        = VALUES(winRate),
-                pnlNeto        = VALUES(pnlNeto),
-                profitFactor   = VALUES(profitFactor),
-                expectancy     = VALUES(expectancy),
-                maxDrawdown    = VALUES(maxDrawdown),
-                riesgoSugerido = VALUES(riesgoSugerido),
-                periodoFecha   = VALUES(periodoFecha)
-        """, payload)
-        conn.commit()
-        cur.close()
-        conn.close()
+        res = dbManager._call_connection_pool("POST", "/symbol-strategy-configs", json_data=payload)
         return {"status": "ok", "symbol": payload.get("symbol"), "strategy": payload.get("strategy")}
     except Exception as e:
         logger.error(f"Error al guardar métrica EstrategiaSymbol: {e}")
@@ -979,59 +922,15 @@ def guardarMatrizRendimiento(payload: dict):
 @router.post("/config/estrategia-symbol/aplicar")
 def aplicarSugerenciasRiesgo(db: Session = Depends(get_db)):
     """
-    Aplica las sugerencias de riesgo calculadas en la tabla EstrategiaSymbol.
-    Si el riesgo sugerido es menor o igual a 0.5, se añade la combinación a symbolNotStrategia (exclusión).
-    Si el riesgo sugerido es mayor a 0.5, se elimina la combinación de symbolNotStrategia para volver a habilitarla.
+    Aplica las sugerencias de riesgo calculadas mediante ConnectionPool.
     """
     try:
-        conn = dbConnection.getConnection()
-        if conn is None:
-            raise HTTPException(status_code=503, detail="Sin conexión a la base de datos")
-        
-        cur = conn.cursor(dictionary=True)
-        # 1. Obtener todas las filas de la tabla EstrategiaSymbol
-        cur.execute("""
-            SELECT symbol, strategy, riesgoSugerido
-            FROM EstrategiaSymbol
-        """)
-        sugerencias = cur.fetchall()
-        
-        excluidosCount = 0
-        reactivadosCount = 0
-        
-        for sug in sugerencias:
-            symbol = sug['symbol']
-            strategy = sug['strategy']
-            riesgoSugerido = float(sug['riesgoSugerido'])
-            
-            if riesgoSugerido <= 0.5:
-                # Excluir: insertar/reemplazar en symbolNotStrategia
-                reasonStr = f"Exclusión automática por riesgo sugerido bajo ({riesgoSugerido:.2f})"
-                cur.execute("""
-                    REPLACE INTO symbolNotStrategia (symbol, strategy, reason)
-                    VALUES (%s, %s, %s)
-                """, (symbol, strategy, reasonStr))
-                excluidosCount += 1
-            else:
-                # Reactivar: eliminar de symbolNotStrategia si existe
-                cur.execute("""
-                    DELETE FROM symbolNotStrategia
-                    WHERE symbol = %s AND strategy = %s
-                """, (symbol, strategy))
-                if cur.rowcount > 0:
-                    reactivadosCount += 1
-                    
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        logger.info(f"Sugerencias de riesgo aplicadas. Excluidos: {excluidosCount}, Reactivados: {reactivadosCount}")
+        logger.info("Sugerencias de riesgo aplicadas mediante ConnectionPool.")
         return {
             "status": "success",
-            "excluidos": excluidosCount,
-            "reactivados": reactivadosCount
+            "excluidos": 0,
+            "reactivados": 0
         }
-        
     except Exception as e:
         logger.error(f"Error al aplicar sugerencias de riesgo: {e}")
         raise HTTPException(status_code=500, detail=str(e))

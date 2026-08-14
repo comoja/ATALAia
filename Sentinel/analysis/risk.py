@@ -339,17 +339,12 @@ def check_multi_tp_closure(dfNewCandles: pd.DataFrame, tradeData: Dict[str, Any]
 
 def _get_latest_price_sync(symbol: str) -> float:
     try:
-        from middleware.database import dbConnection
-        conn = dbConnection.getConnection()
-        if conn is None:
-            return 1.0
-        cursor = conn.cursor()
-        cursor.execute("SELECT close FROM candles WHERE symbol=%s AND timeframe='5min' ORDER BY timestamp DESC LIMIT 1", (symbol,))
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if row and row[0]:
-            return float(row[0])
+        from middleware.database import dbManager
+        res = dbManager._call_connection_pool("GET", "/candles/symbol-query", params={"symbol": symbol, "timeframe": "5min", "limit": 1})
+        if res and isinstance(res, list) and len(res) > 0:
+            c = res[0]
+            if isinstance(c, dict) and "close" in c:
+                return float(c["close"])
     except Exception as e:
         logger.error(f"Error en _get_latest_price_sync para {symbol}: {e}")
     return 1.0

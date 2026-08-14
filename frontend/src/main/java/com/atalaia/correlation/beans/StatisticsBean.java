@@ -117,16 +117,23 @@ public class StatisticsBean implements Serializable {
         return model;
     }
 
-    public BarChartModel getHsChart() { return hsChart; }
-    public BarChartModel getChngChart() { return chngChart; }
-    public BarChartModel getRepeticionChart() { return repeticionChart; }
-    public BarChartModel getDelayChart() { return delayChart; }
-    public BarChartModel getVelocidadLtChart() { return velocidadLtChart; }
-    public BarChartModel getVelocidadStChart() { return velocidadStChart; }
-    public BarChartModel getProb13Chart() { return prob13Chart; }
-    public BarChartModel getProb47Chart() { return prob47Chart; }
-    public BarChartModel getComportamientoChart() { return comportamientoChart; }
-    public BarChartModel getConductaChart() { return conductaChart; }
-    public BarChartModel getProb24AbreCierraChart() { return prob24AbreCierraChart; }
-    public BarChartModel getProb57AbreCierraChart() { return prob57AbreCierraChart; }
+    private static BarChartModel createEmptyBarChartModel() {
+        BarChartModel model = new BarChartModel();
+        ChartData data = new ChartData();
+        model.setData(data);
+        return model;
+    }
+
+    public BarChartModel getHsChart() { return hsChart != null ? hsChart : createEmptyBarChartModel(); }
+    public BarChartModel getChngChart() { return chngChart != null ? chngChart : createEmptyBarChartModel(); }
+    public BarChartModel getRepeticionChart() { return repeticionChart != null ? repeticionChart : createEmptyBarChartModel(); }
+    public BarChartModel getDelayChart() { return delayChart != null ? delayChart : createEmptyBarChartModel(); }
+    public BarChartModel getVelocidadLtChart() { return velocidadLtChart != null ? velocidadLtChart : createEmptyBarChartModel(); }
+    public BarChartModel getVelocidadStChart() { return velocidadStChart != null ? velocidadStChart : createEmptyBarChartModel(); }
+    public BarChartModel getProb13Chart() { return prob13Chart != null ? prob13Chart : createEmptyBarChartModel(); }
+    public BarChartModel getProb47Chart() { return prob47Chart != null ? prob47Chart : createEmptyBarChartModel(); }
+    public BarChartModel getComportamientoChart() { return comportamientoChart != null ? comportamientoChart : createEmptyBarChartModel(); }
+    public BarChartModel getConductaChart() { return conductaChart != null ? conductaChart : createEmptyBarChartModel(); }
+    public BarChartModel getProb24AbreCierraChart() { return prob24AbreCierraChart != null ? prob24AbreCierraChart : createEmptyBarChartModel(); }
+    public BarChartModel getProb57AbreCierraChart() { return prob57AbreCierraChart != null ? prob57AbreCierraChart : createEmptyBarChartModel(); }
 }

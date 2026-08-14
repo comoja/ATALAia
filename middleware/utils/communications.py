@@ -44,10 +44,12 @@ async def alertaInmediata(id, mensaje, prioridad=True, filePath=None):
     
     if cuentas:
         cuenta = cuentas[0]
+        token = cuenta.get('tokenMsg') or cuenta.get('TokenMsg')
+        chat_id = cuenta.get('idGrupoMsg') or cuenta.get('IdGrupoMsg')
         if filePath:
-            await sendTelegramDocument(cuenta['TokenMsg'], cuenta['idGrupoMsg'], filePath=filePath, caption=mensaje, highPriority=prioridad)
+            await sendTelegramDocument(token, chat_id, filePath=filePath, caption=mensaje, highPriority=prioridad)
         else:
-            await sendTelegramAlert(cuenta['TokenMsg'], cuenta['idGrupoMsg'], message=mensaje, highPriority=prioridad) 
+            await sendTelegramAlert(token, chat_id, message=mensaje, highPriority=prioridad) 
 
 async def sendTelegramDocument(token: str, chatId: str, filePath: str, caption: str = None, highPriority: bool = True):
     """

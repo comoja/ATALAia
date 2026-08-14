@@ -5,7 +5,6 @@ from middleware.config import constants
 
 settings = constants
 
-dbConfig = constants.dbConfig
 timeZone = constants.timeZone
 FESTIVOS = constants.FESTIVOS
 INTERVAL = constants.INTERVAL
@@ -24,7 +23,6 @@ minutosXdia = constants.minutosXdia
 
 __all__ = [
     "constants",
-    "dbConfig",
     "timeZone",
     "FESTIVOS",
     "INTERVAL",
