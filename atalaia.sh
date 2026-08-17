@@ -1,41 +1,51 @@
-#!/bin/zsh
+#!/bin/bash
 
-# ==========================================================================
-# ATALAIA SYSTEM - LIFECYCLE MANAGER
-# Script para levantar/tirar la aplicación (Backend FastAPI + Frontend Java)
-# ==========================================================================
+# ==============================================================================
+# ATALA.ia - Script de Gestión de Servicios Unificados
+# Controla: MT5 Wine Bridge (8005), FastAPI Backend (8004) y Tomcat Frontend (8080)
+# ==============================================================================
 
-# Variables en camelCase para adherencia estricta
 scriptDir=$(cd "$(dirname "$0")" && pwd)
 
-# Configuración de entorno para Java (JDK) y Maven si están en Homebrew
-if [ -z "$JAVA_HOME" ] || [ ! -d "$JAVA_HOME" ]; then
-    if [ -d "/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
-        export JAVA_HOME="/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+# Detección de Java Home
+if [ -z "$JAVA_HOME" ]; then
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
     elif [ -d "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
         export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-    elif [ -d "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home" ]; then
-        export JAVA_HOME="/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"
-    elif [ -d "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home" ]; then
-        export JAVA_HOME="/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"
     fi
 fi
 if [ -n "$JAVA_HOME" ]; then
-    export PATH="$JAVA_HOME/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+    export PATH="$JAVA_HOME/bin:$HOME/.local/share/maven/default-maven/bin:$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 else
-    export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+    export PATH="$HOME/.local/share/maven/default-maven/bin:$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 fi
 
+# Detección del intérprete de Python nativo
+if [ -x "/home/jcolinm/.venvs/Sistema/bin/python" ]; then
+    pythonCmd="/home/jcolinm/.venvs/Sistema/bin/python"
+    uvicornCmd="/home/jcolinm/.venvs/Sistema/bin/uvicorn"
+elif [ -x "$scriptDir/.venv/bin/python" ]; then
+    pythonCmd="$scriptDir/.venv/bin/python"
+    uvicornCmd="$scriptDir/.venv/bin/uvicorn"
+else
+    pythonCmd="python3"
+    uvicornCmd="uvicorn"
+fi
+
+# Detección de Python en Wine
+winePython="$HOME/.wine/drive_c/Python311/python.exe"
+
 logsDir="$scriptDir/logs"
+bridgePidFile="$logsDir/mt5_bridge.pid"
 backendPidFile="$logsDir/backend.pid"
 frontendPidFile="$logsDir/frontend.pid"
 tailPid=""
 
-# Asegurar que existe el directorio de logs
 mkdir -p "$logsDir"
 
-function cleanupAndExit() {
-    echo -e "\n👋 Capturado Ctrl-C. Deteniendo todos los servicios de ATALA.ia..."
+cleanupAndExit() {
+    echo -e "\n👋 Deteniendo servicios de ATALA.ia..."
     if [ -n "$tailPid" ]; then
         kill "$tailPid" 2>/dev/null
     fi
@@ -43,57 +53,79 @@ function cleanupAndExit() {
     exit 0
 }
 
-function startServices() {
-    # 1. Dar de baja servicios existentes preventivamente
+startServices() {
+    local isDaemon="$1"
+
+    # 1. Detener procesos existentes para evitar conflictos
     stopServices
 
     echo "=========================================================="
     echo "🚀 Levantando Sistema ATALA.ia (Aetherial UI)..."
     echo "=========================================================="
 
-    # 2. Compilar el Frontend
-    echo "📦 Compilando Frontend (Java 8 Maven)..."
-    cd "$scriptDir/frontend" || exit 1
-    if ! mvn clean package -DskipTests; then
-        echo "❌ Error de compilación en el Frontend. Abortando inicio."
-        cd "$scriptDir" || exit 1
-        exit 1
+    # 2. Levantar MT5 Bridge si existe Wine Python (puerto 8005)
+    if [ -f "$winePython" ]; then
+        echo "⚡ Iniciando MT5 Wine Bridge en puerto 8005..."
+        if [ -z "$DISPLAY" ] && command -v xvfb-run &>/dev/null; then
+            xvfb-run -a wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
+        else
+            WINEDEBUG=-all wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
+        fi
+        bridgePid=$!
+        echo "$bridgePid" > "$bridgePidFile"
+        sleep 1
+        echo "✅ MT5 Bridge levantado (PID: $bridgePid) | http://localhost:8005"
     fi
-    cd "$scriptDir" || exit 1
 
-    # 3. Levantar el Backend (FastAPI)
-    echo "⚡ Iniciando Backend en puerto 8004..."
-    "$scriptDir/.venv/bin/python" "$scriptDir/backend/main.py" > "$logsDir/backend_output.log" 2>&1 &
+    # 3. Compilar Frontend sólo si no existe el JAR
+    jarPath="$scriptDir/frontend/target/correlation-frontend-1.0.0-SNAPSHOT.jar"
+    if [ ! -f "$jarPath" ]; then
+        echo "📦 Preparando y compilando Frontend (Java Spring Boot + Maven)..."
+        mkdir -p "$HOME/.build-cache/atalaia-frontend/target"
+        if [ ! -L "$scriptDir/frontend/target" ]; then
+            rm -rf "$scriptDir/frontend/target"
+            ln -sfn "$HOME/.build-cache/atalaia-frontend/target" "$scriptDir/frontend/target"
+        fi
+        cd "$scriptDir/frontend" || exit 1
+        mvn package -DskipTests
+        cd "$scriptDir" || exit 1
+    fi
+
+    # 4. Levantar el Backend con Hot-Reload (FastAPI - puerto 8004)
+    echo "⚡ Iniciando Backend FastAPI en puerto 8004 con Auto-Reload..."
+    cd "$scriptDir" || exit 1
+    "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload > "$logsDir/backend_output.log" 2>&1 &
     backendPid=$!
     echo "$backendPid" > "$backendPidFile"
     echo "✅ Backend levantado con éxito (PID: $backendPid)."
 
-    # 4. Levantar el Frontend (Tomcat Embebido)
-    echo "⚡ Iniciando Frontend (Tomcat Embebido) en puerto 8080..."
-    java -jar "$scriptDir/frontend/target/correlation-frontend-1.0.0-SNAPSHOT.jar" > "$logsDir/frontend_output.log" 2>&1 &
-    frontendPid=$!
-    echo "$frontendPid" > "$frontendPidFile"
-    echo "✅ Frontend (Tomcat) levantado con éxito (PID: $frontendPid)."
+    # 5. Levantar el Frontend (Tomcat Embebido - puerto 8080)
+    if [ -f "$jarPath" ]; then
+        echo "⚡ Iniciando Frontend (Tomcat Embebido) en puerto 8080..."
+        java -jar "$jarPath" > "$logsDir/frontend_output.log" 2>&1 &
+        frontendPid=$!
+        echo "$frontendPid" > "$frontendPidFile"
+        echo "✅ Frontend (Tomcat) levantado con éxito (PID: $frontendPid)."
+    else
+        echo "⚠️ No se encontró el JAR del Frontend en $jarPath"
+    fi
 
     echo "----------------------------------------------------------"
-    echo "🎉 ¡Servicios iniciados con éxito!"
+    echo "🎉 ¡Servicios de ATALA.ia iniciados con éxito!"
+    echo "🔌 MT5 Wine Bridge:   http://localhost:8005"
     echo "🌐 FastAPI Backend:   http://localhost:8004"
     echo "🌐 PrimeFaces Visual: http://localhost:8080/ATALA.ia/login.xhtml"
     echo "=========================================================="
 
-    # 5. Configurar el trap para capturar Ctrl-C (SIGINT)
-    trap cleanupAndExit INT
-
-    echo "📊 Mostrando logs de Tomcat en tiempo real. Presiona Ctrl-C para detener todos los servicios..."
-    echo "----------------------------------------------------------"
-    tail -f "$logsDir/frontend_output.log" &
-    tailPid=$!
-    wait "$tailPid" 2>/dev/null
+    if [ "$isDaemon" = "daemon" ] || [ "$isDaemon" = "--daemon" ]; then
+        trap cleanupAndExit INT TERM
+        while true; do sleep 3600; done
+    fi
 }
 
-function stopServices() {
+stopServices() {
     echo "=========================================================="
-    echo "🛑 Tirando Sistema ATALA.ia..."
+    echo "🛑 Deteniendo Sistema ATALA.ia..."
     echo "=========================================================="
 
     # --- 1. APAGAR FRONTEND ---
@@ -101,27 +133,16 @@ function stopServices() {
         frontendPid=$(cat "$frontendPidFile")
         echo "⚡ Deteniendo Frontend (PID: $frontendPid)..."
         kill "$frontendPid" 2>/dev/null
-        # Dar un momento para cierre limpio
-        sleep 2
-        # Forzar si no ha cerrado
+        sleep 1
         if kill -0 "$frontendPid" 2>/dev/null; then
-            echo "⚠️  El Frontend no respondió, forzando kill..."
             kill -9 "$frontendPid" 2>/dev/null
         fi
         rm -f "$frontendPidFile"
         echo "✅ Frontend detenido."
-    else
-        # Búsqueda preventiva por puerto 8080 si el pidfile no existe
-        portPid=$(lsof -t -i:8080)
-        if [ -n "$portPid" ]; then
-            echo "⚡ Deteniendo proceso huérfano en puerto 8080 (PID: $portPid)..."
-            kill "$portPid" 2>/dev/null
-            sleep 1
-            kill -9 "$portPid" 2>/dev/null
-            echo "✅ Proceso en puerto 8080 detenido."
-        else
-            echo "ℹ️  No hay registros de Frontend activo."
-        fi
+    fi
+    portPid=$(lsof -t -i:8080 2>/dev/null)
+    if [ -n "$portPid" ]; then
+        kill -9 "$portPid" 2>/dev/null
     fi
 
     # --- 2. APAGAR BACKEND ---
@@ -131,78 +152,85 @@ function stopServices() {
         kill "$backendPid" 2>/dev/null
         sleep 1
         if kill -0 "$backendPid" 2>/dev/null; then
-            echo "⚠️  El Backend no respondió, forzando kill..."
             kill -9 "$backendPid" 2>/dev/null
         fi
         rm -f "$backendPidFile"
         echo "✅ Backend detenido."
-    else
-        # Búsqueda preventiva por puerto 8004 si el pidfile no existe
-        portPid=$(lsof -t -i:8004)
-        if [ -n "$portPid" ]; then
-            echo "⚡ Deteniendo proceso huérfano en puerto 8004 (PID: $portPid)..."
-            kill "$portPid" 2>/dev/null
-            sleep 1
-            kill -9 "$portPid" 2>/dev/null
-            echo "✅ Proceso en puerto 8004 detenido."
-        else
-            echo "ℹ️  No hay registros de Backend activo."
-        fi
+    fi
+    portPid=$(lsof -t -i:8004 2>/dev/null)
+    if [ -n "$portPid" ]; then
+        kill -9 "$portPid" 2>/dev/null
     fi
 
-    echo "✅ Todos los servicios se han detenido."
+    # --- 3. APAGAR MT5 BRIDGE ---
+    if [ -f "$bridgePidFile" ]; then
+        bridgePid=$(cat "$bridgePidFile")
+        echo "⚡ Deteniendo MT5 Wine Bridge (PID: $bridgePid)..."
+        kill "$bridgePid" 2>/dev/null
+        sleep 1
+        if kill -0 "$bridgePid" 2>/dev/null; then
+            kill -9 "$bridgePid" 2>/dev/null
+        fi
+        rm -f "$bridgePidFile"
+        echo "✅ MT5 Wine Bridge detenido."
+    fi
+    portPid=$(lsof -t -i:8005 2>/dev/null)
+    if [ -n "$portPid" ]; then
+        kill -9 "$portPid" 2>/dev/null
+    fi
+
+    echo "✅ Servicios de ATALA.ia detenidos."
     echo "=========================================================="
 }
 
-function showStatus() {
+showStatus() {
     echo "=========================================================="
     echo "📊 Estado del Sistema ATALA.ia"
     echo "=========================================================="
 
+    # Estado MT5 Bridge
+    if [ -f "$bridgePidFile" ] && kill -0 "$(cat "$bridgePidFile" 2>/dev/null)" 2>/dev/null; then
+        echo "🟢 MT5 Wine Bridge:   ACTIVO (PID: $(cat "$bridgePidFile")) | http://localhost:8005"
+    else
+        echo "🔴 MT5 Wine Bridge:   INACTIVO"
+    fi
+
     # Estado Backend
-    if [ -f "$backendPidFile" ]; then
-        backendPid=$(cat "$backendPidFile")
-        if kill -0 "$backendPid" 2>/dev/null; then
-            echo "🟢 Backend (FastAPI):  ACTIVO (PID: $backendPid) | http://localhost:8004"
-        else
-            echo "🔴 Backend (FastAPI):  INACTIVO (PID muerto)"
-        fi
+    if [ -f "$backendPidFile" ] && kill -0 "$(cat "$backendPidFile" 2>/dev/null)" 2>/dev/null; then
+        echo "🟢 Backend (FastAPI):  ACTIVO (PID: $(cat "$backendPidFile")) | http://localhost:8004"
     else
         echo "🔴 Backend (FastAPI):  INACTIVO"
     fi
 
     # Estado Frontend
-    if [ -f "$frontendPidFile" ]; then
-        frontendPid=$(cat "$frontendPidFile")
-        if kill -0 "$frontendPid" 2>/dev/null; then
-            echo "🟢 Frontend (Java):    ACTIVO (PID: $frontendPid) | http://localhost:8080/ATALA.ia/login.xhtml"
-        else
-            echo "🔴 Frontend (Java):    INACTIVO (PID muerto)"
-        fi
+    if [ -f "$frontendPidFile" ] && kill -0 "$(cat "$frontendPidFile" 2>/dev/null)" 2>/dev/null; then
+        echo "🟢 Frontend (Java):    ACTIVO (PID: $(cat "$frontendPidFile")) | http://localhost:8080/ATALA.ia/login.xhtml"
     else
         echo "🔴 Frontend (Java):    INACTIVO"
     fi
     echo "=========================================================="
 }
 
-# Evaluar argumento de entrada
 case "$1" in
-    start)
-        startServices
+    start|-start|--start)
+        startServices "$2"
         ;;
-    stop)
+    daemon|--daemon)
+        startServices "daemon"
+        ;;
+    stop|-stop|--stop)
         stopServices
         ;;
-    status)
+    status|-status|--status)
         showStatus
         ;;
-    restart)
+    restart|-restart|--restart)
         stopServices
         sleep 1
-        startServices
+        startServices "$2"
         ;;
     *)
-        echo "Uso: $0 {start|stop|status|restart}"
+        echo "Uso: $0 {start|stop|status|restart|daemon}"
         exit 1
         ;;
 esac

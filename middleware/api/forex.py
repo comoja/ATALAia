@@ -1,10 +1,13 @@
 """
 Asynchronous API client for MetaTrader 5 (MT5) to retrieve Forex rates, mimicking TwelveData interface.
+Supports both native Windows MT5 and Wine MT5 Bridge on Linux.
 """
 import os
 import sys
 import logging
 import asyncio
+import httpx
+import requests
 import pandas as pd
 import pytz
 from datetime import datetime, timedelta
@@ -12,13 +15,15 @@ from datetime import datetime, timedelta
 from middleware.config.constants import TIMEZONE, mt5Login, mt5Password, mt5Server
 from middleware.database import dbManager, dbConnection
 
-# Intentar importar MetaTrader5 con bypass para entornos macOS/desarrollo
+# Intentar importar MetaTrader5 nativo (Windows)
 try:
     import MetaTrader5 as mt5
 except ImportError:
     mt5 = None
 
 logger = logging.getLogger(__name__)
+
+MT5_BRIDGE_URL = os.getenv("MT5_BRIDGE_URL", "http://127.0.0.1:8005")
 
 # Mapeo de timeframes de TwelveData a constantes de MetaTrader 5
 TIMEFRAME_MAP = {}
@@ -36,57 +41,33 @@ if mt5 is not None:
         "1month": mt5.TIMEFRAME_MN1,
     }
 
+def _is_bridge_online() -> bool:
+    """Verifica si el servidor MT5 Bridge de Wine está activo."""
+    try:
+        res = requests.get(f"{MT5_BRIDGE_URL}/health", timeout=1)
+        if res.status_code == 200 and res.json().get("status") == "online":
+            return True
+    except Exception:
+        pass
+    return False
+
 async def _ensureMt5Initialized() -> bool:
     """
-    Asegura que el terminal de MT5 esté inicializado y conectado.
-    Retorna True si la conexión es exitosa, False en caso contrario.
+    Asegura que el terminal de MT5 esté inicializado y conectado (nativo o vía Bridge).
     """
-    if mt5 is None:
-        logger.warning("[ForexAPI] MetaTrader5 no está disponible o no es compatible en esta plataforma.")
-        return False
-        
-    try:
-        # Verificar si ya está inicializado y conectado a la cuenta correcta
-        terminalInfo = mt5.terminal_info()
-        if terminalInfo is not None:
-            if mt5Login > 0:
-                accountInfo = mt5.account_info()
-                if accountInfo is not None and accountInfo.login == mt5Login and accountInfo.server == mt5Server:
-                    logger.debug(f"[ForexAPI] MT5 ya está inicializado y conectado a la cuenta {mt5Login}.")
-                    return True
-            else:
-                logger.debug("[ForexAPI] MT5 ya está inicializado con sesión activa.")
+    if mt5 is not None:
+        try:
+            terminalInfo = mt5.terminal_info()
+            if terminalInfo is not None:
                 return True
-
-        logger.info("[ForexAPI] Intentando conectar con el terminal de MetaTrader 5...")
-        
-        # Inicializar MT5 sin credenciales directamente en initialize para evitar IPC timeout
-        isInitialized = await asyncio.to_thread(mt5.initialize)
-        if not isInitialized:
-            errorCode = mt5.last_error()
-            logger.error(f"[ForexAPI] Falló inicialización de MetaTrader5. Código de error: {errorCode}")
+            isInitialized = await asyncio.to_thread(mt5.initialize)
+            return isInitialized
+        except Exception as e:
+            logger.error(f"[ForexAPI] Error inicializando MT5 nativo: {e}")
             return False
 
-        # Si tenemos credenciales parametrizadas, realizamos el login por separado
-        if mt5Login > 0:
-            logger.info(f"[ForexAPI] Realizando login programático a la cuenta {mt5Login}...")
-            isLogged = await asyncio.to_thread(
-                mt5.login,
-                mt5Login,
-                password=mt5Password,
-                server=mt5Server
-            )
-            if not isLogged:
-                errorCode = mt5.last_error()
-                logger.error(f"[ForexAPI] Falló login en MetaTrader5. Código de error: {errorCode}")
-                await asyncio.to_thread(mt5.shutdown)
-                return False
-            
-        logger.info("[ForexAPI] Conexión e inicialización exitosa con MetaTrader 5.")
-        return True
-    except Exception as e:
-        logger.error(f"[ForexAPI] Excepción al intentar inicializar MT5: {e}")
-        return False
+    # Verificar bridge de Wine
+    return await asyncio.to_thread(_is_bridge_online)
 
 def adjustDataframeInplace(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -141,9 +122,10 @@ def adjustDataframeInplace(df: pd.DataFrame) -> pd.DataFrame:
 
 async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
     """
-    Consulta los datos de velas directamente desde MT5 de forma asíncrona.
+    Consulta los datos de velas directamente desde MT5 (nativo o vía Bridge Wine) de forma asíncrona.
     """
     if not await _ensureMt5Initialized():
+        logger.warning("[ForexAPI] MT5 no está inicializado ni el Bridge está disponible.")
         return None
 
     symbolRaw = params.get("symbol")
@@ -163,155 +145,110 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
     else:
         symbol = symbolRaw.replace("/", "").upper()
 
-    # Mapear el intervalo
-    mt5Timeframe = TIMEFRAME_MAP.get(interval)
-    if mt5Timeframe is None:
-        logger.error(f"[ForexAPI] Intervalo no soportado por MT5: {interval}")
-        return None
+    tzCdmx = pytz.timezone(TIMEZONE)
+    tsFrom = None
+    tsTo = None
+    dtTo = None
+
+    if startDate:
+        dtFrom = startDate
+        if isinstance(dtFrom, str):
+            try:
+                dtFrom = datetime.strptime(dtFrom, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                dtFrom = datetime.strptime(dtFrom, '%Y-%m-%d')
+        if hasattr(dtFrom, "to_pydatetime"):
+            dtFrom = dtFrom.to_pydatetime()
+        if dtFrom.tzinfo is None:
+            dtFrom = tzCdmx.localize(dtFrom)
+        else:
+            dtFrom = dtFrom.astimezone(tzCdmx)
+        tsFrom = int(dtFrom.timestamp())
+
+    if endDate:
+        dtTo = endDate
+        if isinstance(dtTo, str):
+            try:
+                dtTo = datetime.strptime(dtTo, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                dtTo = datetime.strptime(dtTo, '%Y-%m-%d')
+        if hasattr(dtTo, "to_pydatetime"):
+            dtTo = dtTo.to_pydatetime()
+        if dtTo.tzinfo is None:
+            dtTo = tzCdmx.localize(dtTo)
+        else:
+            dtTo = dtTo.astimezone(tzCdmx)
+        tsTo = int(dtTo.timestamp())
 
     try:
-        # Verificar que el símbolo esté disponible en el MarketWatch de MT5
-        symbolInfo = await asyncio.to_thread(mt5.symbol_info, symbol)
-        if symbolInfo is None:
-            # Intentar seleccionarlo en MarketWatch
-            selected = await asyncio.to_thread(mt5.symbol_select, symbol, True)
-            if not selected:
-                logger.error(f"[ForexAPI] Símbolo {symbol} no encontrado o no se pudo seleccionar en MT5.")
-                return None
-
         rates = None
-        # Obtener los rates según el rango de fechas o el tamaño de salida
-        if startDate:
-            tzCdmx = pytz.timezone(TIMEZONE)
-            
-            # Asegurar datetime tz-aware en CDMX
-            dtFrom = startDate
-            if isinstance(dtFrom, str):
-                try:
-                    dtFrom = datetime.strptime(dtFrom, '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    dtFrom = datetime.strptime(dtFrom, '%Y-%m-%d')
-            
-            if hasattr(dtFrom, "to_pydatetime"):
-                dtFrom = dtFrom.to_pydatetime()
-                
-            if dtFrom.tzinfo is None:
-                dtFrom = tzCdmx.localize(dtFrom)
-            else:
-                dtFrom = dtFrom.astimezone(tzCdmx)
-                
-            tsFrom = int(dtFrom.timestamp())
-
-            if endDate:
-                dtTo = endDate
-                if isinstance(dtTo, str):
-                    try:
-                        dtTo = datetime.strptime(dtTo, '%Y-%m-%d %H:%M:%S')
-                    except ValueError:
-                        dtTo = datetime.strptime(dtTo, '%Y-%m-%d')
-                
-                if hasattr(dtTo, "to_pydatetime"):
-                    dtTo = dtTo.to_pydatetime()
-                    
-                if dtTo.tzinfo is None:
-                    dtTo = tzCdmx.localize(dtTo)
-                else:
-                    dtTo = dtTo.astimezone(tzCdmx)
-                    
-                tsTo = int(dtTo.timestamp())
-            else:
-                tsTo = None
-
-            # Determinar el intervalo en minutos
-            intervalMinutes = 5
-            if interval == "1min":
-                intervalMinutes = 1
-            elif interval == "5min":
-                intervalMinutes = 5
-            elif interval == "15min":
-                intervalMinutes = 15
-            elif interval == "30min":
-                intervalMinutes = 30
-            elif interval == "1h":
-                intervalMinutes = 60
-            elif interval == "4h":
-                intervalMinutes = 240
-            elif interval == "1day" or interval == "1d":
-                intervalMinutes = 1440
-            elif interval == "1week":
-                intervalMinutes = 10080
-            elif interval == "1month":
-                intervalMinutes = 43200
-
-            # Solo validar la vela más antigua si el inicio solicitado es anterior a hace 30 días (para evitar consultas históricas innecesarias)
-            limitTs = int((datetime.now(pytz.timezone(TIMEZONE)) - timedelta(days=30)).timestamp())
-            if tsFrom < limitTs:
-                oldestRates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, datetime(1990, 1, 1), 1)
-                if oldestRates is not None and len(oldestRates) > 0:
-                    oldestTs = int(oldestRates[0]['time'])
-                    if tsFrom < oldestTs:
-                        logger.info(f"[ForexAPI] tsFrom ({dtFrom}) es anterior al historial disponible en MT5 ({datetime.fromtimestamp(oldestTs, tz=tzCdmx)}). Ajustando rango al inicio de la historia.")
-                        tsFrom = oldestTs
-                        dtFrom = datetime.fromtimestamp(tsFrom, tz=tzCdmx)
-                        if tsTo is not None and tsTo < tsFrom:
-                            tsTo = tsFrom + (3000 * intervalMinutes * 60)
-                            dtTo = datetime.fromtimestamp(tsTo, tz=tzCdmx)
-
-            if tsTo is not None:
-                # Recorte de seguridad para no pasarse de 3000 velas en la consulta
-                maxCandles = 3000
-                maxSeconds = maxCandles * intervalMinutes * 60
-                if tsTo - tsFrom > maxSeconds:
-                    tsTo = tsFrom + maxSeconds
-                    dtTo = datetime.fromtimestamp(tsTo, tz=tzCdmx)
-
-                logger.info(f"[ForexAPI] Solicitando rango desde {dtFrom} hasta {dtTo} (intervalo {interval})")
-                rates = await asyncio.to_thread(mt5.copy_rates_range, symbol, mt5Timeframe, tsFrom, tsTo)
-            else:
-                rates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, tsFrom, min(outputSize, 3000))
-        else:
-            # Por defecto obtener las últimas outputSize velas terminadas
-            rates = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 1, outputSize)
-
-        if rates is None or len(rates) == 0:
-            logger.warning(f"[ForexAPI] No se pudieron obtener velas para {symbol} desde MT5.")
-            return None
-
-        # Convertir a DataFrame
-        df = pd.DataFrame(rates)
         
-        # Excluir la vela en desarrollo actual (vela 0) para asegurar solo velas terminadas
-        currentBar = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 0, 1)
-        if currentBar is not None and len(currentBar) > 0:
-            currentBarTime = int(currentBar[0]['time'])
-            df = df[df['time'] < currentBarTime]
+        # 1. Si MT5 nativo está disponible (Windows)
+        if mt5 is not None:
+            mt5Timeframe = TIMEFRAME_MAP.get(interval, mt5.TIMEFRAME_M5)
+            symbolInfo = await asyncio.to_thread(mt5.symbol_info, symbol)
+            if symbolInfo is None:
+                selected = await asyncio.to_thread(mt5.symbol_select, symbol, True)
+                if not selected:
+                    logger.error(f"[ForexAPI] Símbolo {symbol} no encontrado en MT5.")
+                    return None
+
+            if tsFrom and tsTo:
+                rates = await asyncio.to_thread(mt5.copy_rates_range, symbol, mt5Timeframe, tsFrom, tsTo)
+            elif tsFrom:
+                rates = await asyncio.to_thread(mt5.copy_rates_from, symbol, mt5Timeframe, tsFrom, min(outputSize, 3000))
+            else:
+                rates = await asyncio.to_thread(mt5.copy_rates_from_pos, symbol, mt5Timeframe, 1, outputSize)
+            
+            if rates is not None and len(rates) > 0:
+                df = pd.DataFrame(rates)
+            else:
+                df = pd.DataFrame()
+        else:
+            # 2. Consultar a través del Bridge de Wine
+            async with httpx.AsyncClient(timeout=10) as client:
+                body = {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "output_size": outputSize,
+                    "ts_from": tsFrom,
+                    "ts_to": tsTo
+                }
+                res = await client.post(f"{MT5_BRIDGE_URL}/rates", json=body)
+                if res.status_code == 200:
+                    data = res.json()
+                    rates_list = data.get("rates", [])
+                    df = pd.DataFrame(rates_list) if rates_list else pd.DataFrame()
+                else:
+                    logger.error(f"[ForexAPI] Error en Bridge MT5: {res.text}")
+                    df = pd.DataFrame()
 
         if df.empty:
-            logger.warning(f"[ForexAPI] No quedaron velas terminadas para {symbol} después de filtrar la vela actual.")
+            logger.warning(f"[ForexAPI] No se obtuvieron velas para {symbol} desde MT5.")
             return None
+
+        # Convertir timestamps Unix UTC a timezone local
+        df['datetime'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert(tzCdmx)
         
-        # MT5 retorna time en segundos Unix (UTC). Convertimos a datetime con timezone local (TIMEZONE)
-        df['datetime'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert(pytz.timezone(TIMEZONE))
-        
-        # Mapear nombres de columnas
-        df = df.rename(columns={'tick_volume': 'volume'})
-        df['symbol'] = symbolRaw # Mantener el símbolo original con barra si venía así
-        
-        # Asegurar tipos correctos
+        # Mapear columnas
+        if 'tick_volume' in df.columns:
+            df = df.rename(columns={'tick_volume': 'volume'})
+        elif 'volume' not in df.columns:
+            df['volume'] = 0
+            
+        df['symbol'] = symbolRaw
+
         for col in ["open", "high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
 
-        # Seleccionar y ordenar columnas
         df = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
         df = df.sort_values("datetime").reset_index(drop=True)
 
-        if endDate:
+        if dtTo:
             dfFiltered = df[df['datetime'] <= dtTo].reset_index(drop=True)
-            if dfFiltered.empty and not df.empty:
-                logger.info(f"[ForexAPI] Rango solicitado {dtFrom} a {dtTo} no tiene datos. Devolviendo la primera vela disponible en MT5 ({df['datetime'].iloc[0]}) para avanzar.")
-                dfFiltered = df.head(1).reset_index(drop=True)
-            df = dfFiltered
+            if not dfFiltered.empty:
+                df = dfFiltered
 
         return adjustDataframeInplace(df.dropna(subset=["close"]))
 

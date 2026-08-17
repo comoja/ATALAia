@@ -5,8 +5,7 @@ scikit-learn
 joblib
 
 # Library for technical analysis
-# Note: This may require TA-Lib to be installed on the system first.
-# See https://github.com/mrjbq7/ta-lib for installation instructions.
+# Note: Requires TA-Lib C library (libta_lib) installed on the system
 TA-Lib
 
 # Asynchronous HTTP client for API interaction
@@ -14,6 +13,3 @@ httpx
 
 # For Telegram notifications
 python-telegram-bot
-
-
- /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/.venv/bin/activate && cd /Volumes/TOSHIBA5TB/Backup/desarrollo/ATALAia/middlend && python main.py

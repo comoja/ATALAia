@@ -11,13 +11,12 @@ BASE_DIR = Path(__file__).parent.parent.parent.resolve()
 def _find_and_load_dotenv():
     """Busca el archivo .env subiendo por los directorios padre hasta encontrarlo."""
     candidate = Path(__file__).resolve()
-    for _ in range(6):  # Hasta 6 niveles arriba
+    for _ in range(6):
         candidate = candidate.parent
         env_file = candidate / ".env"
         if env_file.is_file():
             load_dotenv(dotenv_path=env_file, override=False)
             return str(env_file)
-    # Fallback: intentar desde BASE_DIR por si acaso
     load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
     return None
 
@@ -61,7 +60,9 @@ TIMEZONE = "America/Mexico_City"
 DEFAULT_INTERVAL = "15min"
 MAX_INTERVAL = "1h"
 INTERVAL = "15min"
-DATA_SOURCE = "forex" #"forex" cuando es por twelvedata debe ser "db"
+
+# Fuente de datos estricta: MetaTrader 5 (vía Wine Bridge en Linux o Nativo en Windows)
+DATA_SOURCE = os.getenv("DATA_SOURCE", "forex")
 RISK_REWARD = 1.9
 VELAS_HISTORIAL = 1000
 tiempoEspera = 5
@@ -70,9 +71,10 @@ timeZone = TIMEZONE
 
 CONNECTION_POOL_URL = os.getenv("CONNECTION_POOL_URL", "http://127.0.0.1:8000/api/v1")
 
-# Log de diagnóstico al arrancar (visible en consola Windows)
+# Log de diagnóstico al arrancar (visible en consola)
 print(f"[CONFIG] .env cargado desde: {_found_env or 'NO ENCONTRADO (usando defaults)'}")
 print(f"[CONFIG] CONNECTION_POOL_URL = {CONNECTION_POOL_URL}")
+print(f"[CONFIG] DATA_SOURCE = {DATA_SOURCE} (MetaTrader 5)")
 
 MODEL_PARAMS = {
     "n_estimators": 300,
@@ -112,12 +114,11 @@ MODEL_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedModel.joblib")
 MODEL_REG_FILE_PATH = str(BASE_DIR / "Sentinel/ml/trainedRegModel.joblib")
 
 # --- Production Settings ---
-PRODUCTION_MODE = True # Cambiar a True para ejecución real en Broker
+PRODUCTION_MODE = True
 
 # --- Risk & Safety ---
-MAX_SIGNAL_AGE_MINUTES = 45 # Tiempo máximo permitido desde la vela origen hasta la ejecución
-MAX_RISK_PER_TRADE = 10.0 # Riesgo máximo permitido por operación (% del capital)
+MAX_SIGNAL_AGE_MINUTES = 45
+MAX_RISK_PER_TRADE = 10.0
 
 # --- Temporary Settings ---
-bypassRestTime = False  # Cambiar a False para respetar el descanso de mercado de nuevo
-
+bypassRestTime = False
