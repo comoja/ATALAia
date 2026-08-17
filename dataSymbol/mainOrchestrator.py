@@ -187,13 +187,11 @@ async def main():
                 current_hour_str = now_local.strftime("%Y-%m-%d %H:05:00")
                 if _last_hourly_stockprices_sync != current_hour_str:
                     logger.info("⏳ Detectado minuto :05 de la hora, sincronizando StockPrices desde velas cerradas...")
-                    import subprocess
-                    import sys, os
-                    scriptPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "dailyStockPrices.py"))
                     try:
-                        subprocess.Popen([sys.executable, scriptPath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        from dataSymbol.dailyStockPrices import syncDailyStockPrices
+                        asyncio.create_task(syncDailyStockPrices())
                         _last_hourly_stockprices_sync = current_hour_str
-                        logger.info("✅ Sincronización de StockPrices en minuto :05 iniciada en background.")
+                        logger.info("✅ Sincronización de StockPrices iniciada en background (async task).")
                     except Exception as e:
                         logger.error(f"Error iniciando sincronización de StockPrices: {e}")
 
