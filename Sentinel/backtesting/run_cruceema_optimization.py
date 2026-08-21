@@ -4,64 +4,20 @@ import pandas as pd
 import numpy as np
 import talib as ta
 import json
-from datetime import datetime
+import warnings
+from datetime import datetime, timedelta
 
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection
+warnings.filterwarnings('ignore')
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from Sentinel.ml import model as mlModel
 from middleware.config import constants as config
+from Sentinel.backtesting import opt_db_helper
 
-def getActiveSymbols():
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error cargando símbolos activos: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0, 'GBP/USD': 10000.0, 'AUD/USD': 10000.0, 'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0, 'USD/CHF': 10000.0, 'EUR/GBP': 10000.0, 'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0, 'USD/JPY': 100.0, 'USD/MXN': 10000.0, 'XAU/USD': 1.0, 'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0, 'GBP/USD': 1.5, 'AUD/USD': 1.2, 'NZD/USD': 1.5,
-    'USD/CAD': 1.5, 'USD/CHF': 1.6, 'EUR/GBP': 1.5, 'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0, 'USD/JPY': 1.2, 'USD/MXN': 25.0, 'XAU/USD': 0.35, 'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None: return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        print(f"Error cargando velas: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 def calculateSlope(series: np.ndarray) -> np.ndarray:
     n = len(series)
@@ -79,8 +35,10 @@ def runCruceEMAGridSearch() -> None:
     print("  INICIANDO GRID SEARCH OPTIMIZER (SMA Pullback 15m+IMACD)")
     print("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00' 
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
     modelClf = mlModel.loadModel(config.MODEL_FILE_PATH)
     if modelClf is None:
@@ -109,6 +67,10 @@ def runCruceEMAGridSearch() -> None:
         print(f"⚙️ Analizando combinaciones para {symbol}...")
         df5m = loadCandles(symbol, startDateStr, endDateStr)
         if df5m.empty or len(df5m) < 600:
+            print(f"⚠️ Datos insuficientes para {symbol} ({len(df5m)} velas).")
+            fallbackParams = {"emaFast": 9, "emaSlow": 21, "minRr": 1.5}
+            fallbackImacd = {"useImpulseMacdFilter": 1, "macdFast": 12, "macdSlow": 26, "macdSignal": 9}
+            opt_db_helper.saveSymbolStrategyConfig('CruceEMA', symbol, False, fallbackParams, fallbackImacd)
             continue
             
         # Resample a 15 min
@@ -117,10 +79,14 @@ def runCruceEMAGridSearch() -> None:
         }).dropna()
         
         if len(df15m) < 220:
+            print(f"⚠️ Velas 15m insuficientes para {symbol} ({len(df15m)} velas).")
+            fallbackParams = {"emaFast": 9, "emaSlow": 21, "minRr": 1.5}
+            fallbackImacd = {"useImpulseMacdFilter": 1, "macdFast": 12, "macdSlow": 26, "macdSignal": 9}
+            opt_db_helper.saveSymbolStrategyConfig('CruceEMA', symbol, False, fallbackParams, fallbackImacd)
             continue
             
-        pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-        spreadPrice = SPREADS.get(symbol, 1.0) / pipMult
+        pipMult = opt_db_helper.getPipMultiplier(symbol)
+        spreadPrice = opt_db_helper.getSpread(symbol) / pipMult
         
         opens = df15m['open'].values
         highs = df15m['high'].values
@@ -157,76 +123,39 @@ def runCruceEMAGridSearch() -> None:
                 
                 validIdx = np.where(~np.isnan(emaF) & ~np.isnan(emaS) & ~np.isnan(atr14) & ~np.isnan(sb_arr))[0]
                 if len(validIdx) < 100: continue
-                    
-                probs = np.zeros(n)
                 
-                closes_rolled = np.roll(closes, 1)
-                closes_rolled[0] = closes[0]
-                log_ret = np.log(closes / closes_rolled)
-                log_ret[0] = 0.0
+                # ML probabilities
+                probs = np.full(n, 0.5)
+                # Extraer features para ML
+                feat_df = pd.DataFrame(index=df15m.index)
+                feat_df['rsi'] = ta.RSI(closes, timeperiod=14)
+                feat_df['atr'] = atr14
+                feat_df['macd'], _, _ = ta.MACD(closes)
+                feat_df['adx'] = ta.ADX(highs, lows, closes, timeperiod=14)
+                feat_df['ema_slope'] = emaSlopes
+                feat_df['imacd'] = md_arr
+                feat_df['imacd_signal'] = sb_arr
+                feat_df.fillna(0.0, inplace=True)
                 
-                dfFeatAll = pd.DataFrame({
-                    "close": closes,
-                    "atr": atr14,
-                    "atr_norm": atr14 / closes,
-                    "sma20": emaF,
-                    "sma200": emaS,
-                    "dist_sma20": (closes - emaF) / closes,
-                    "dist_sma200": (closes - emaS) / closes,
-                    "log_return": log_ret,
-                    "range": (highs - lows) / closes,
-                    "sma_slope": emaSlopes
-                })
-                
-                valid_mask = np.zeros(n, dtype=bool)
-                valid_mask[validIdx] = True
-                valid_mask[0] = False
-                
-                if valid_mask.any():
-                    dfFeatValid = dfFeatAll.iloc[valid_mask]
-                    try:
-                        predProbs = modelClf.predict_proba(dfFeatValid)[:, 1]
-                        probs[valid_mask] = predProbs
-                    except:
-                        probs[valid_mask] = 0.55
-                
-                # Precalcular candidatos de señales
+                try:
+                    features_matrix = feat_df.values
+                    preds = modelClf.predict_proba(features_matrix)[:, 1]
+                    probs = preds
+                except Exception:
+                    probs = np.full(n, 0.5)
+
+                # Generar candidatos
                 candidates = []
-                idx = smaSlow + 20
-                while idx < n:
+                idx = validIdx[0]
+                while idx < n - 1:
+                    # Cruce EMA Pullback Logic
+                    isBull = closes[idx] > emaS[idx] and lows[idx] <= emaF[idx] and closes[idx] >= emaF[idx] and md_arr[idx] > sb_arr[idx] and emaSlopes[idx] > 0
+                    isBear = closes[idx] < emaS[idx] and highs[idx] >= emaF[idx] and closes[idx] <= emaF[idx] and md_arr[idx] < sb_arr[idx] and emaSlopes[idx] < 0
+                    
                     direction = None
-                    v_curr_close = closes[idx]
-                    v_curr_open = opens[idx]
-                    v_curr_high = highs[idx]
-                    v_curr_low = lows[idx]
-                    v_prev_close = closes[idx-1]
-                    v_prev_open = opens[idx-1]
+                    if isBull: direction = "LARGO"
+                    elif isBear: direction = "CORTO"
                     
-                    body_curr = abs(v_curr_close - v_curr_open)
-                    
-                    md_val = md_arr[idx]
-                    sb_val = sb_arr[idx]
-                    
-                    if emaF[idx] > emaS[idx]:
-                        in_zone = v_curr_low <= (emaF[idx] + (atr14[idx]*0.1))
-                        lower_wick = min(v_curr_open, v_curr_close) - v_curr_low
-                        is_pinbar = (lower_wick > (body_curr * 1.5)) and (v_curr_close > v_curr_open) and body_curr > 0
-                        is_engulfing = (v_prev_close < v_prev_open) and (v_curr_close > v_curr_open) and (v_curr_close > v_prev_open) and (v_curr_open < v_prev_close)
-                        
-                        imacd_bullish = (md_val > sb_val) and (md_val > 0)
-                        
-                        if in_zone and (is_pinbar or is_engulfing) and imacd_bullish: direction = "LARGO"
-                            
-                    elif emaF[idx] < emaS[idx]:
-                        in_zone = v_curr_high >= (emaF[idx] - (atr14[idx]*0.1))
-                        upper_wick = v_curr_high - max(v_curr_open, v_curr_close)
-                        is_pinbar = (upper_wick > (body_curr * 1.5)) and (v_curr_close < v_curr_open) and body_curr > 0
-                        is_engulfing = (v_prev_close > v_prev_open) and (v_curr_close < v_curr_open) and (v_curr_close < v_prev_open) and (v_curr_open > v_prev_close)
-                        
-                        imacd_bearish = (md_val < sb_val) and (md_val < 0)
-                        
-                        if in_zone and (is_pinbar or is_engulfing) and imacd_bearish: direction = "CORTO"
-                        
                     if direction:
                         candidates.append({
                             'idx': idx,
@@ -331,58 +260,38 @@ def runCruceEMAGridSearch() -> None:
                                 
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                
-                params = {
-                    "emaFast": symbolBestCombo['EMA Fast'],
-                    "emaSlow": symbolBestCombo['EMA Slow'],
-                    "minRr": symbolBestCombo['Min RR']
-                }
-                paramsJson = json.dumps(params)
-                
-                imacd_params = {
-                    "useImpulseMacdFilter": 1,
-                    "macdFast": 12,
-                    "macdSlow": symbolBestCombo['IMACD Slow'],
-                    "macdSignal": symbolBestCombo['IMACD Signal']
-                }
-                imacdJson = json.dumps(imacd_params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson, jsonIMACD)
-                    VALUES ('CruceEMA', %s, TRUE, %s, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), jsonIMACD = VALUES(jsonIMACD), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson, imacdJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "emaFast": symbolBestCombo['EMA Fast'],
+                "emaSlow": symbolBestCombo['EMA Slow'],
+                "minRr": symbolBestCombo['Min RR']
+            }
+            imacd_params = {
+                "useImpulseMacdFilter": 1,
+                "macdFast": 12,
+                "macdSlow": symbolBestCombo['IMACD Slow'],
+                "macdSignal": symbolBestCombo['IMACD Signal']
+            }
+            opt_db_helper.saveSymbolStrategyConfig('CruceEMA', symbol, True, params, imacd_params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
             print(f"  🏆 Mejor combo para {symbol}: Fast={symbolBestCombo['EMA Fast']} | Slow={symbolBestCombo['EMA Slow']} | IMACD={symbolBestCombo['IMACD Slow']}/{symbolBestCombo['IMACD Signal']} | RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
-            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")
+            fallbackParams = {"emaFast": 9, "emaSlow": 21, "minRr": 1.5}
+            fallbackImacd = {"useImpulseMacdFilter": 1, "macdFast": 12, "macdSlow": 26, "macdSignal": 9}
+            opt_db_helper.saveSymbolStrategyConfig('CruceEMA', symbol, False, fallbackParams, fallbackImacd)
+            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}. Guardado en DB (FALSE).")
 
     if allResultsRaw:
         dfRaw = pd.DataFrame(allResultsRaw)
-        rawPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/cruceema_grid_results_all.csv"
+        rawPath = opt_db_helper.getOutputPath("cruceema_grid_results_all.csv")
         dfRaw.to_csv(rawPath, index=False)
         print(f"\n💾 Todos los combos guardados en: {rawPath}")
         
     if bestResults:
         dfBest = pd.DataFrame(bestResults)
-        bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/cruceema_grid_results_best.csv"
+        bestPath = opt_db_helper.getOutputPath("cruceema_grid_results_best.csv")
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
 
 
 if __name__ == '__main__':
     runCruceEMAGridSearch()
-

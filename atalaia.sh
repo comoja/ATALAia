@@ -1,24 +1,39 @@
 #!/bin/bash
 
-# ==============================================================================
-# ATALA.ia - Script de Gestión de Servicios Unificados
-# Controla: MT5 Wine Bridge (8005), FastAPI Backend (8004) y Tomcat Frontend (8080)
-# ==============================================================================
-
 scriptDir=$(cd "$(dirname "$0")" && pwd)
 
-# Detección de Java Home
-if [ -z "$JAVA_HOME" ]; then
-    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
-        export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
-    elif [ -d "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home" ]; then
-        export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-    fi
+# Cargar variables de entorno del sistema
+if [ -f "$scriptDir/.env" ]; then
+    set -a
+    source "$scriptDir/.env"
+    set +a
 fi
-if [ -n "$JAVA_HOME" ]; then
-    export PATH="$JAVA_HOME/bin:$HOME/.local/share/maven/default-maven/bin:$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+# Detección del JDK/Java nativo
+if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    javaCmd="$JAVA_HOME/bin/java"
+elif [ -x "$HOME/.local/share/jvm/default-jdk/bin/java" ]; then
+    javaCmd="$HOME/.local/share/jvm/default-jdk/bin/java"
+    export JAVA_HOME="$HOME/.local/share/jvm/default-jdk"
+    export PATH="$JAVA_HOME/bin:$PATH"
+elif [ -x "/home/jcolinm/.local/share/jvm/default-jdk/bin/java" ]; then
+    javaCmd="/home/jcolinm/.local/share/jvm/default-jdk/bin/java"
+    export JAVA_HOME="/home/jcolinm/.local/share/jvm/default-jdk"
+    export PATH="$JAVA_HOME/bin:$PATH"
+elif command -v java &>/dev/null; then
+    javaCmd="java"
 else
-    export PATH="$HOME/.local/share/maven/default-maven/bin:$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+    javaCmd="java"
+fi
+
+if [ -x "$HOME/.local/share/maven/default-maven/bin/mvn" ]; then
+    mvnCmd="$HOME/.local/share/maven/default-maven/bin/mvn"
+elif [ -x "/home/jcolinm/.local/share/maven/default-maven/bin/mvn" ]; then
+    mvnCmd="/home/jcolinm/.local/share/maven/default-maven/bin/mvn"
+elif command -v mvn &>/dev/null; then
+    mvnCmd="mvn"
+else
+    mvnCmd="mvn"
 fi
 
 # Detección del intérprete de Python nativo
@@ -55,6 +70,7 @@ cleanupAndExit() {
 
 startServices() {
     local isDaemon="$1"
+    local buildFlag="$2"
 
     # 1. Detener procesos existentes para evitar conflictos
     stopServices
@@ -67,43 +83,55 @@ startServices() {
     if [ -f "$winePython" ]; then
         echo "⚡ Iniciando MT5 Wine Bridge en puerto 8005..."
         if [ -z "$DISPLAY" ] && command -v xvfb-run &>/dev/null; then
-            xvfb-run -a wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
+            nohup xvfb-run -a wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
         else
-            WINEDEBUG=-all wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
+            nohup env WINEDEBUG=-all wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
         fi
         bridgePid=$!
+        disown $bridgePid 2>/dev/null || true
         echo "$bridgePid" > "$bridgePidFile"
         sleep 1
         echo "✅ MT5 Bridge levantado (PID: $bridgePid) | http://localhost:8005"
     fi
 
-    # 3. Compilar Frontend sólo si no existe el JAR
-    jarPath="$scriptDir/frontend/target/correlation-frontend-1.0.0-SNAPSHOT.jar"
-    if [ ! -f "$jarPath" ]; then
-        echo "📦 Preparando y compilando Frontend (Java Spring Boot + Maven)..."
-        mkdir -p "$HOME/.build-cache/atalaia-frontend/target"
-        if [ ! -L "$scriptDir/frontend/target" ]; then
-            rm -rf "$scriptDir/frontend/target"
-            ln -sfn "$HOME/.build-cache/atalaia-frontend/target" "$scriptDir/frontend/target"
-        fi
-        cd "$scriptDir/frontend" || exit 1
-        mvn package -DskipTests
-        cd "$scriptDir" || exit 1
-    fi
-
-    # 4. Levantar el Backend con Hot-Reload (FastAPI - puerto 8004)
+    # 3. Levantar el Backend con Hot-Reload (FastAPI - puerto 8004)
     echo "⚡ Iniciando Backend FastAPI en puerto 8004 con Auto-Reload..."
     cd "$scriptDir" || exit 1
-    "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload > "$logsDir/backend_output.log" 2>&1 &
+    nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload > "$logsDir/backend_output.log" 2>&1 &
     backendPid=$!
+    disown $backendPid 2>/dev/null || true
     echo "$backendPid" > "$backendPidFile"
     echo "✅ Backend levantado con éxito (PID: $backendPid)."
+
+    # 4. Preparar y compilar Frontend solo si falta el JAR o si se pide rebuild
+    cacheTarget="$HOME/.build-cache/atalaia-frontend/target"
+    mkdir -p "$cacheTarget"
+    if [ ! -L "$scriptDir/frontend/target" ]; then
+        rm -rf "$scriptDir/frontend/target" 2>/dev/null || true
+        ln -sfn "$cacheTarget" "$scriptDir/frontend/target" 2>/dev/null || true
+    fi
+
+    jarPath="$cacheTarget/correlation-frontend-1.0.0-SNAPSHOT.jar"
+    if [ ! -f "$jarPath" ]; then
+        jarPath="$scriptDir/frontend/target/correlation-frontend-1.0.0-SNAPSHOT.jar"
+    fi
+
+    if [ ! -f "$jarPath" ] || [ "$buildFlag" = "build" ] || [ "$buildFlag" = "--build" ] || [ "$isDaemon" = "build" ]; then
+        echo "📦 Compilando Frontend (Java Spring Boot + Maven)..."
+        cd "$scriptDir/frontend" || exit 1
+        "$mvnCmd" package -DskipTests || true
+        cd "$scriptDir" || exit 1
+        jarPath="$cacheTarget/correlation-frontend-1.0.0-SNAPSHOT.jar"
+    else
+        echo "⚡ Usando JAR existente de Frontend (Arranque Instantáneo)"
+    fi
 
     # 5. Levantar el Frontend (Tomcat Embebido - puerto 8080)
     if [ -f "$jarPath" ]; then
         echo "⚡ Iniciando Frontend (Tomcat Embebido) en puerto 8080..."
-        java -jar "$jarPath" > "$logsDir/frontend_output.log" 2>&1 &
+        nohup "$javaCmd" -jar "$jarPath" > "$logsDir/frontend_output.log" 2>&1 &
         frontendPid=$!
+        disown $frontendPid 2>/dev/null || true
         echo "$frontendPid" > "$frontendPidFile"
         echo "✅ Frontend (Tomcat) levantado con éxito (PID: $frontendPid)."
     else
@@ -119,7 +147,7 @@ startServices() {
 
     if [ "$isDaemon" = "daemon" ] || [ "$isDaemon" = "--daemon" ]; then
         trap cleanupAndExit INT TERM
-        while true; do sleep 3600; done
+        while true; do sleep 3600 & wait $!; done
     fi
 }
 
@@ -213,10 +241,10 @@ showStatus() {
 
 case "$1" in
     start|-start|--start)
-        startServices "$2"
+        startServices "$2" "$3"
         ;;
     daemon|--daemon)
-        startServices "daemon"
+        startServices "daemon" "$2"
         ;;
     stop|-stop|--stop)
         stopServices
@@ -227,7 +255,7 @@ case "$1" in
     restart|-restart|--restart)
         stopServices
         sleep 1
-        startServices "$2"
+        startServices "$2" "$3"
         ;;
     *)
         echo "Uso: $0 {start|stop|status|restart|daemon}"

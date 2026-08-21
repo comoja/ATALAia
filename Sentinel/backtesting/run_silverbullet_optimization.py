@@ -4,107 +4,35 @@ import pandas as pd
 import numpy as np
 import talib as ta
 import logging
+import json
+import warnings
 from datetime import datetime, time, timedelta
 import pytz
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection
-from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR
-from Sentinel.analysis import technical
+warnings.filterwarnings('ignore')
 
-# Configuración de logs
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from middleware.utils.alertBuilder import adjustTPForMinRR
+from Sentinel.backtesting import opt_db_helper
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0,
-    'GBP/USD': 10000.0,
-    'AUD/USD': 10000.0,
-    'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0,
-    'USD/CHF': 10000.0,
-    'EUR/GBP': 10000.0,
-    'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0,
-    'USD/JPY': 100.0,
-    'USD/MXN': 10000.0,
-    'XAU/USD': 1.0,
-    'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0,
-    'GBP/USD': 1.5,
-    'AUD/USD': 1.2,
-    'NZD/USD': 1.5,
-    'USD/CAD': 1.5,
-    'USD/CHF': 1.6,
-    'EUR/GBP': 1.5,
-    'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0,
-    'USD/JPY': 1.2,
-    'USD/MXN': 25.0,
-    'XAU/USD': 0.35,
-    'BTC/USD': 30.0,
-}
-
-SILVER_BULLET_WINDOWS = {
-    "LONDON_OPEN": {"start": time(3, 0), "end": time(4, 0)},
-    "NY_OPENING": {"start": time(8, 30), "end": time(9, 30)},
-    "NY_AM": {"start": time(10, 0), "end": time(11, 0)},
-    "NY_PM": {"start": time(14, 0), "end": time(15, 0)},
-}
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 NY_TZ = pytz.timezone("America/New_York")
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        logger.error(f"Error cargando velas para {symbol}: {e}")
-        return pd.DataFrame()
+SILVER_BULLET_WINDOWS = {
+    "london_open": {"start": time(3, 0), "end": time(4, 0)},
+    "ny_am":       {"start": time(10, 0), "end": time(11, 0)},
+    "ny_pm":       {"start": time(14, 0), "end": time(15, 0)}
+}
 
 def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRrVal: float, minAdx: float) -> dict:
     df = df5m.copy()
     
-    # Calcular ADX
     df["adx"] = pd.Series(ta.ADX(df['high'].values.astype(float), df['low'].values.astype(float), df['close'].values.astype(float), timeperiod=14), index=df.index)
     df["atr"] = pd.Series(ta.ATR(df['high'].values.astype(float), df['low'].values.astype(float), df['close'].values.astype(float), timeperiod=14), index=df.index)
     
@@ -112,16 +40,19 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
     if len(df) < 50:
         return {"trades": [], "winRate": 0.0, "profitFactor": 0.0, "pnl": 0.0}
         
-    # Convertir el índice a zona horaria de NY para filtrar las ventanas
-    idxNy = df.index.tz_convert("America/New_York")
+    try:
+        idxNy = df.index.tz_convert("America/New_York")
+    except Exception:
+        df.index = df.index.tz_localize("America/Mexico_City", ambiguous='infer', nonexistent='shift_forward')
+        idxNy = df.index.tz_convert("America/New_York")
+        
     df["ny_time"] = idxNy.time
     df["ny_date"] = idxNy.date
     
     trades = []
-    pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-    spread = SPREADS.get(symbol, 1.0) / pipMult
+    pipMult = opt_db_helper.getPipMultiplier(symbol)
+    spread = opt_db_helper.getSpread(symbol) / pipMult
     
-    # Agrupar por fecha en NY
     dates = df["ny_date"].unique()
     
     for d in dates:
@@ -130,17 +61,14 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
             continue
             
         for w_name, w in SILVER_BULLET_WINDOWS.items():
-            # 1. Definir inicio y fin de la ventana
             w_start_ny = NY_TZ.localize(datetime.combine(d, w["start"]))
             w_end_ny = NY_TZ.localize(datetime.combine(d, w["end"]))
             
-            # Obtener datos de la ventana
             idx_ny_day = df_day.index.tz_convert("America/New_York")
             df_w = df_day[(idx_ny_day >= w_start_ny) & (idx_ny_day < w_end_ny)]
             if len(df_w) < 5:
                 continue
                 
-            # 2. Rango de referencia (primeros 15 min de la ventana)
             ref_end = w_start_ny + timedelta(minutes=15)
             df_ref = df_w[df_w.index.tz_convert("America/New_York") < ref_end]
             if df_ref.empty or len(df_ref) < 3:
@@ -151,7 +79,6 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
                 "low": float(df_ref["low"].min())
             }
             
-            # 3. Barrido de liquidez (sweep) en las velas posteriores
             sweep_start = w_start_ny + timedelta(minutes=15)
             df_post = df_w[df_w.index.tz_convert("America/New_York") >= sweep_start]
             if df_post.empty:
@@ -163,11 +90,9 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
                 if adx_v < minAdx:
                     continue
                     
-                # Sweep de mínimos → bias LARGO
                 if v["low"] < ref["low"] and v["close"] > ref["low"]:
                     sweep = {"type": "LARGO", "swept_level": ref["low"], "sweep_low": v["low"], "idx": idx_v, "time": time_v}
                     break
-                # Sweep de máximos → bias CORTO
                 elif v["high"] > ref["high"] and v["close"] < ref["high"]:
                     sweep = {"type": "CORTO", "swept_level": ref["high"], "sweep_high": v["high"], "idx": idx_v, "time": time_v}
                     break
@@ -175,14 +100,12 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
             if not sweep:
                 continue
                 
-            # 4. Confirmación de MSS y FVG en las velas posteriores al sweep
             df_signals = df_post.iloc[sweep["idx"]+1:]
             if len(df_signals) < 3:
                 continue
                 
             fvg = None
             for idx_s, (time_s, s) in enumerate(df_signals.iterrows()):
-                # Para FVG necesitamos el índice absoluto en df_day
                 abs_idx = df_day.index.get_loc(time_s)
                 if abs_idx < 2:
                     continue
@@ -193,98 +116,79 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
                 l = df_day["low"].iloc[abs_idx]
                 c = df_day["close"].iloc[abs_idx]
                 
-                # MSS check
                 h_vals = df_day["high"].iloc[max(0, abs_idx-6):abs_idx].values
                 l_vals = df_day["low"].iloc[max(0, abs_idx-6):abs_idx].values
                 if sweep["type"] == "LARGO":
-                    mss_ok = float(c) > float(np.max(h_vals))
+                    mss_ok = float(c) > float(np.max(h_vals)) if len(h_vals) > 0 else False
+                    if l > h2 and mss_ok:
+                        gap_pct = (l - h2) / float(c)
+                        if gap_pct >= fvgMinPct:
+                            fvg = {
+                                "direction": "LARGO",
+                                "entry": (h2 + l) / 2.0,
+                                "sl": float(sweep["sweep_low"]) - (float(s["atr"]) * 0.1),
+                                "time": time_s,
+                                "idx_day": abs_idx
+                            }
+                            break
                 else:
-                    mss_ok = float(c) < float(np.min(l_vals))
-                    
-                if not mss_ok:
-                    continue
-                    
-                # FVG check
-                if sweep["type"] == "LARGO" and l > h2 and (l - h2) / c >= fvgMinPct:
-                    fvg = {"type": "LARGO_FVG", "mid": (h2 + l) / 2, "time": time_s, "abs_idx": abs_idx}
-                    break
-                elif sweep["type"] == "CORTO" and h < l2 and (l2 - h) / c >= fvgMinPct:
-                    fvg = {"type": "CORTO_FVG", "mid": (h + l2) / 2, "time": time_s, "abs_idx": abs_idx}
-                    break
-                    
+                    mss_ok = float(c) < float(np.min(l_vals)) if len(l_vals) > 0 else False
+                    if h < l2 and mss_ok:
+                        gap_pct = (l2 - h) / float(c)
+                        if gap_pct >= fvgMinPct:
+                            fvg = {
+                                "direction": "CORTO",
+                                "entry": (l2 + h) / 2.0,
+                                "sl": float(sweep["sweep_high"]) + (float(s["atr"]) * 0.1),
+                                "time": time_s,
+                                "idx_day": abs_idx
+                            }
+                            break
+                            
             if not fvg:
                 continue
                 
-            # 5. Ejecutar trade
-            entry_idx = fvg["abs_idx"]
-            entry_price = float(df_day["close"].iloc[entry_idx])
-            atr_v = float(df_day["atr"].iloc[entry_idx])
-            
-            # Niveles estructurales
-            df_prior = df_day.iloc[:entry_idx + 1]
-            levels = technical.get_structural_levels(df_prior, lookback=20)
-            
-            if sweep["type"] == "LARGO":
-                slPrice = min(entry_price - (atr_v * 1.2), levels['swing_low'] - atr_v * 0.2)
-                tp_ref = levels['swing_high']
-                tp_ref = min(tp_ref, entry_price + atr_v * 3.0) # Cap de TP
-            else:
-                slPrice = max(entry_price + (atr_v * 1.2), levels['swing_high'] + atr_v * 0.2)
-                tp_ref = levels['swing_low']
-                tp_ref = max(tp_ref, entry_price - atr_v * 3.0) # Cap de TP
-                
-            slDist = abs(entry_price - slPrice)
-            if slDist <= 0:
+            entry_p = fvg["entry"]
+            sl_p = fvg["sl"]
+            sl_dist = abs(entry_p - sl_p)
+            if sl_dist <= 0:
                 continue
                 
-            tpPrice = adjustTPForMinRR(entry_price, slPrice, tp_ref, sweep["type"], minRR=minRrVal)
+            tp_p = entry_p + (sl_dist * minRrVal) if fvg["direction"] == "LARGO" else entry_p - (sl_dist * minRrVal)
             
-            # Monitorear velas siguientes hasta tocar SL o TP o el fin de la ventana
-            closed = False
-            pnlPips = 0.0
-            
-            for k in range(entry_idx + 1, len(df_day)):
-                time_k = df_day.index[k]
-                if time_k > w_end_ny + timedelta(hours=1): # Cierre forzado por tiempo fuera de la sesión extendida
-                    closed = True
-                    exit_price = float(df_day["close"].iloc[k])
-                    pnlPips = (exit_price - entry_price) * pipMult if sweep["type"] == "LARGO" else (entry_price - exit_price) * pipMult
-                    break
-                    
-                v_k_low = float(df_day["low"].iloc[k])
-                v_k_high = float(df_day["high"].iloc[k])
+            df_exec = df_day.iloc[fvg["idx_day"]+1:]
+            if df_exec.empty:
+                continue
                 
-                if sweep["type"] == "LARGO":
-                    if v_k_low <= slPrice:
-                        closed = True
-                        pnlPips = (slPrice - entry_price) * pipMult
-                        break
-                    elif v_k_high >= tpPrice:
-                        closed = True
-                        pnlPips = (tpPrice - entry_price) * pipMult
-                        break
-                else: # CORTO
-                    if v_k_high >= slPrice:
-                        closed = True
-                        pnlPips = (entry_price - slPrice) * pipMult
-                        break
-                    elif v_k_low <= tpPrice:
-                        closed = True
-                        pnlPips = (entry_price - tpPrice) * pipMult
-                        break
+            trade_active = False
+            for time_e, e in df_exec.iterrows():
+                high_e = float(e["high"])
+                low_e = float(e["low"])
+                
+                if not trade_active:
+                    if fvg["direction"] == "LARGO" and low_e <= entry_p:
+                        trade_active = True
+                    elif fvg["direction"] == "CORTO" and high_e >= entry_p:
+                        trade_active = True
+                    else:
+                        continue
                         
-            if closed:
-                pnlPips -= SPREADS.get(symbol, 1.0)
-                trades.append({
-                    "direction": sweep["type"],
-                    "entryTime": fvg["time"],
-                    "pnl": pnlPips,
-                    "result": "WIN" if pnlPips > 0 else "LOSS"
-                })
-                # Permitir solo una operación por ventana Silver Bullet para este símbolo y día
-                break
-
-    # Resumen de métricas
+                if trade_active:
+                    if fvg["direction"] == "LARGO":
+                        if low_e <= sl_p:
+                            trades.append({"pnl": -100.0})
+                            break
+                        elif high_e >= tp_p:
+                            trades.append({"pnl": 100.0 * minRrVal})
+                            break
+                    else:
+                        if high_e >= sl_p:
+                            trades.append({"pnl": -100.0})
+                            break
+                        elif low_e <= tp_p:
+                            trades.append({"pnl": 100.0 * minRrVal})
+                            break
+                            
     if not trades:
         return {"trades": [], "winRate": 0.0, "profitFactor": 0.0, "pnl": 0.0}
         
@@ -300,37 +204,37 @@ def runBacktestForCombo(df5m: pd.DataFrame, symbol: str, fvgMinPct: float, minRr
     
     return {
         "trades": trades,
-        "winRate": winRate,
-        "profitFactor": profitFactor,
-        "pnl": pnlTotal
+        "winRate": round(winRate, 2),
+        "profitFactor": round(profitFactor, 2),
+        "pnl": round(pnlTotal, 2)
     }
 
 def runSilverBulletGridSearch():
     logger.info("==========================================================")
-    logger.info(" INICIANDO GRID SEARCH OPTIMIZER (SILVERBULLET - 5MIN) ")
+    logger.info("  INICIANDO GRID SEARCH OPTIMIZER (SILVER BULLET ICT)   ")
     logger.info("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00'
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
-    # Grid de Parámetros Extendido (Deep Grid Search)
-    fvgMinPctCombos = [0.00003, 0.00005, 0.00008, 0.0001, 0.00012, 0.00015, 0.0002]
-    minRrCombos = [1.0, 1.2, 1.4, 1.5, 1.7, 1.8, 2.0, 2.3, 2.5, 3.0]
-    minAdxCombos = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
+    fvgMinPctCombos = [0.00005, 0.0001, 0.00015, 0.0002]
+    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
+    minAdxCombos = [15.0, 20.0, 25.0]
     
     bestResults = []
     allResultsRaw = []
     
     for symbol in ALL_SYMBOLS:
-        logger.info(f"⚙️ Analizando combinaciones para {symbol}...")
+        logger.info(f"\n⚙️ Analizando combinaciones para {symbol}...")
         df5m = loadCandles(symbol, startDateStr, endDateStr)
         if df5m.empty or len(df5m) < 400:
-            logger.warning(f"  ⚠️ Datos insuficientes para {symbol}. Saltando.")
+            logger.warning(f"  ⚠️ Datos de 5m insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"fvgMinPct": 0.0001, "minRr": 1.5, "minAdx": 20.0}
+            opt_db_helper.saveSymbolStrategyConfig('SilverBullet', symbol, False, fallbackParams)
             continue
             
-        from middleware.config.constants import TIMEZONE
-        df5m.index = df5m.index.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
-        
         bestCombo = None
         bestPf = 0.0
         bestWr = 0.0
@@ -353,7 +257,6 @@ def runSilverBulletGridSearch():
                     }
                     allResultsRaw.append(row)
                     
-                    # Criterio de viabilidad: WR >= 35% y PF >= 1.00, al menos 1 trade
                     if numTrades >= 1 and res['winRate'] >= 35.0 and res['profitFactor'] >= 1.00:
                         if res['profitFactor'] > bestPf or (res['profitFactor'] == bestPf and res['winRate'] > bestWr):
                             bestPf = res['profitFactor']
@@ -363,91 +266,24 @@ def runSilverBulletGridSearch():
         if bestCombo:
             logger.info(f"  ✨ Mejor combo viable para {symbol}: FVG Min={bestCombo['fvgMinPct']}, Min R:R={bestCombo['minRr']}, Min ADX={bestCombo['minAdx']} (PF={bestCombo['profitFactor']:.2f}, WR={bestCombo['winRate']:.2f}%)")
             bestResults.append(bestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = bestCombo
-                params = {"min_rr": combo["Min RR"]}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('SilverBullet', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "fvgMinPct": bestCombo["fvgMinPct"],
+                "minRr": bestCombo["minRr"],
+                "minAdx": bestCombo["minAdx"]
+            }
+            opt_db_helper.saveSymbolStrategyConfig('SilverBullet', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
         else:
             logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0 y WR >= 35%) para {symbol}.")
+            fallbackParams = {"fvgMinPct": 0.0001, "minRr": 1.5, "minAdx": 20.0}
+            opt_db_helper.saveSymbolStrategyConfig('SilverBullet', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró combo viable para {symbol}. Guardado en DB (FALSE).")
             
-    # Guardar resultados en CSV
     dfAll = pd.DataFrame(allResultsRaw)
-    dfAll.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/silverbullet_grid_results_all.csv", index=False)
+    if not dfAll.empty: dfAll.to_csv(opt_db_helper.getOutputPath("silverbullet_grid_results_all.csv"), index=False)
     
     dfBest = pd.DataFrame(bestResults)
-    dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/silverbullet_grid_results_best.csv", index=False)
-    
-    # NUEVO: Guardar en base de datos inmediatamente
-    if bestResults:
-        import json
-        from middleware.database import dbConnection
-        try:
-            conn = dbConnection.getConnection()
-            if conn:
-                cursor = conn.cursor()
-                strategy_name = "SilverBullet"
-                
-                # Deshabilitar los que no fueron rentables
-                successful_symbols = {r['symbol'] for r in bestResults}
-                for s in ALL_SYMBOLS:
-                    if s not in successful_symbols:
-                        cursor.execute("""
-                            INSERT INTO symbolStrategyConfig (strategy, symbol, enabled)
-                            VALUES (%s, %s, FALSE)
-                            ON DUPLICATE KEY UPDATE enabled = FALSE
-                        """, (strategy_name, s))
-                
-                for combo in bestResults:
-                    symbol = combo['symbol']
-                    params_dict = {
-                        "fvgMinPct": float(combo['fvgMinPct']),
-                        "minRr": float(combo['minRr']),
-                        "minAdx": float(combo['minAdx']),
-                        "maxSignalAgeMin": 45,
-                        "oteFibMin": 0.62,
-                        "oteFibMax": 0.79,
-                        "useOteFilter": True,
-                        "minConfidence": 70,
-                        "minUsdProfit": 10.0,
-                        "filterByHtfTrend": False,
-                        "winRate": float(combo['winRate']),
-                        "profitFactor": float(combo['profitFactor'])
-                    }
-                    params_json = json.dumps(params_dict)
-                    cursor.execute("""
-                        INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                        VALUES (%s, %s, TRUE, %s)
-                        ON DUPLICATE KEY UPDATE enabled = TRUE, parametersJson = %s
-                    """, (strategy_name, symbol, params_json, params_json))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                logger.info(f"💾 Se guardaron en BD los resultados de {strategy_name}")
-        except Exception as e:
-            logger.error(f"❌ Error al guardar en BD: {e}")
-    
-    logger.info("==========================================================")
-    logger.info(" GRID SEARCH COMPLETADO. Archivos CSV generados con éxito.")
-    logger.info("==========================================================")
+    if not dfBest.empty: dfBest.to_csv(opt_db_helper.getOutputPath("silverbullet_grid_results_best.csv"), index=False)
 
 if __name__ == "__main__":
     runSilverBulletGridSearch()

@@ -39,6 +39,81 @@ public class DashboardBean implements Serializable {
 
     // --- Catalogo de Simbolos desde BD ---
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
+    public static class UserRatioDto implements java.io.Serializable {
+        private Integer id;
+        private Integer idUsuario;
+        private String numerador;
+        private String denominador;
+        private String periodo;
+        private Integer dias;
+        private Integer emaRapida;
+        private Integer emaLenta;
+        private Boolean operar;
+        private String createdAt;
+
+        public Integer getId() { return id; }
+        public void setId(Integer id) { this.id = id; }
+        public Integer getIdUsuario() { return idUsuario; }
+        public void setIdUsuario(Integer idUsuario) { this.idUsuario = idUsuario; }
+        public String getNumerador() { return numerador; }
+        public void setNumerador(String numerador) { this.numerador = numerador; }
+        public String getDenominador() { return denominador; }
+        public void setDenominador(String denominador) { this.denominador = denominador; }
+        public String getPeriodo() { return periodo; }
+        public void setPeriodo(String periodo) { this.periodo = periodo; }
+        public Integer getDias() { return dias; }
+        public void setDias(Integer dias) { this.dias = dias; }
+        public Integer getEmaRapida() { return emaRapida; }
+        public void setEmaRapida(Integer emaRapida) { this.emaRapida = emaRapida; }
+        public Integer getEmaLenta() { return emaLenta; }
+        public void setEmaLenta(Integer emaLenta) { this.emaLenta = emaLenta; }
+        public Boolean getOperar() { return operar; }
+        public void setOperar(Boolean operar) { this.operar = operar; }
+        public String getCreatedAt() { return createdAt; }
+        public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
+    }
+
+        private String activeAccordionIndex = "0";
+
+    public String getActiveAccordionIndex() {
+        return activeAccordionIndex;
+    }
+
+    public void setActiveAccordionIndex(String activeAccordionIndex) {
+        this.activeAccordionIndex = activeAccordionIndex;
+    }
+
+    public void onTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getTab() != null) {
+            String title = event.getTab().getTitle();
+            if (title != null && title.contains("1.")) {
+                this.activeAccordionIndex = "0";
+            } else {
+                this.activeAccordionIndex = "1";
+            }
+            log.info("Tab del acordeón cambiado a: {} (index={})", title, activeAccordionIndex);
+        }
+    }
+
+    private List<UserRatioDto> userRatiosList = new ArrayList<>();
+    private UserRatioDto selectedUserRatio;
+
+    public List<UserRatioDto> getUserRatiosList() {
+        return userRatiosList;
+    }
+
+    public void setUserRatiosList(List<UserRatioDto> userRatiosList) {
+        this.userRatiosList = userRatiosList;
+    }
+
+    public UserRatioDto getSelectedUserRatio() {
+        return selectedUserRatio;
+    }
+
+    public void setSelectedUserRatio(UserRatioDto selectedUserRatio) {
+        this.selectedUserRatio = selectedUserRatio;
+    }
+
 
     // --- Parámetros de Calibración (Entrada camelCase) ---
     private String selectedPair = "EUR/USD"; // Par A (Numerador)
@@ -52,12 +127,51 @@ public class DashboardBean implements Serializable {
     private Integer sigmaWindow = 30;
     private Integer smaPeriodParam = 3;
     private Integer emaSlowPeriodParam = 15;
-    private Integer histogramBins = 50;
+    private Integer histogramBins = 15;
 
     // --- Temporada y Periodo Histórico ---
     private String timeframe = "1d";
+    private Integer daysBack = 180;
+    private Boolean operar = false;
+    private Boolean ratioExistsInDb = false;
+
+    public Boolean getRatioExistsInDb() {
+        return ratioExistsInDb;
+    }
+
+    public void setRatioExistsInDb(Boolean ratioExistsInDb) {
+        this.ratioExistsInDb = ratioExistsInDb;
+    }
+
+    public Boolean getOperar() {
+        return operar;
+    }
+
+    public void setOperar(Boolean operar) {
+        this.operar = operar;
+    }
     private java.util.Date startDate;
     private java.util.Date endDate;
+
+    public Integer getDaysBack() {
+        return daysBack;
+    }
+
+    public void setDaysBack(Integer daysBack) {
+        this.daysBack = daysBack;
+    }
+
+    public void onDaysBackChange() {
+        if (daysBack != null && daysBack > 0) {
+            if (endDate == null) {
+                endDate = new java.util.Date();
+            }
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.setTime(endDate);
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+            this.startDate = cal.getTime();
+        }
+    }
 
     public java.util.Date getStartDate() {
         return startDate;
@@ -141,21 +255,24 @@ public class DashboardBean implements Serializable {
     @PostConstruct
     public void init() {
         log.info("Inicializando DashboardBean Holográfico (Aether UI)...");
-        // Por defecto, fecha fin = hoy, fecha inicio = hace 1 año (365 días)
+        // Por defecto, fecha fin = hoy, fecha inicio = hace 180 días
         this.endDate = new java.util.Date();
         java.util.Calendar cal = java.util.Calendar.getInstance();
         cal.setTime(this.endDate);
-        cal.add(java.util.Calendar.DAY_OF_YEAR, -365);
+        cal.add(java.util.Calendar.DAY_OF_YEAR, -180);
         this.startDate = cal.getTime();
 
         loadCatalogo();
+        loadUserRatiosList();
+        loadUserRatiosList();
+        fetchUserRatioDetails();
         analyzePair(); // Cargar datos iniciales
     }
 
     public void onDatesOrTimeframeChange() {
         if (startDate == null) {
             java.util.Calendar cal = java.util.Calendar.getInstance();
-            cal.add(java.util.Calendar.DAY_OF_YEAR, -365);
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -180);
             startDate = cal.getTime();
         }
         if (endDate == null) {
@@ -225,6 +342,16 @@ public class DashboardBean implements Serializable {
             log.info("Analizando ratio sintético: {} / {} con calibración en RAM...", selectedPair, selectedPair2);
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
+
+            if (daysBack != null && daysBack > 0) {
+                if (endDate == null) {
+                    endDate = new java.util.Date();
+                }
+                java.util.Calendar cal = java.util.Calendar.getInstance();
+                cal.setTime(endDate);
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+                this.startDate = cal.getTime();
+            }
 
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
@@ -305,8 +432,7 @@ public class DashboardBean implements Serializable {
                                 "Error de Procesamiento", errorMsg));
             }
             
-            // --- Cargar análisis conductual (nueva pestaña)
-            fetchAnalysisData();
+            // --- Análisis conductual deshabilitado
 
         } catch (Exception e) {
             log.error("Error al calibrar con el backend holográfico", e);
@@ -334,6 +460,16 @@ public class DashboardBean implements Serializable {
             log.info("Optimizando parámetros del ciclo de ratio sintético: {} / {}...", selectedPair, selectedPair2);
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
+
+            if (daysBack != null && daysBack > 0) {
+                if (endDate == null) {
+                    endDate = new java.util.Date();
+                }
+                java.util.Calendar cal = java.util.Calendar.getInstance();
+                cal.setTime(endDate);
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+                this.startDate = cal.getTime();
+            }
 
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
@@ -403,20 +539,29 @@ public class DashboardBean implements Serializable {
             payload.put("numerador", selectedPair);
             payload.put("denominador", selectedPair2);
             payload.put("periodo", timeframe != null ? timeframe : "1d");
+            payload.put("dias", daysBack != null ? daysBack : 180);
             payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 3);
             payload.put("EMALenta", emaSlowPeriodParam != null ? emaSlowPeriodParam : 20);
+            payload.put("operar", operar != null ? operar : false);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
             String url = backendUrl + "/api/v1/user-ratios/guardar";
-            log.info("Guardando ratio para idUsuario {}: {}/{} ({}) [EMARapida={}, EMALenta={}] en {}", userId, selectedPair, selectedPair2, timeframe, smaPeriodParam, emaSlowPeriodParam, url);
+            log.info("Guardando ratio para idUsuario {}: {}/{} ({}, {} días) [EMARapida={}, EMALenta={}, Operar={}] en {}",
+                    userId, selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar, url);
 
             org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
 
             if (response.getStatusCode().is2xxSuccessful()) {
+                this.ratioExistsInDb = true;
+                loadUserRatiosList();
+                String operarDesc = Boolean.TRUE.equals(operar) ? "Activado (SI)" : "Desactivado (NO)";
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
-                                "Ratio Guardado Exitosamente", "Se guardó la selección " + selectedPair + " / " + selectedPair2 + " (" + timeframe + ") con EMARapida=" + smaPeriodParam + ", EMALenta=" + emaSlowPeriodParam + "."));
+                                "Ratio Guardado Exitosamente",
+                                "Se guardó la selección " + selectedPair + " / " + selectedPair2 +
+                                " (" + timeframe + ", " + daysBack + " días) con EMARapida=" + smaPeriodParam +
+                                ", EMALenta=" + emaSlowPeriodParam + ", Operar=" + operarDesc + "."));
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
@@ -428,6 +573,96 @@ public class DashboardBean implements Serializable {
                     new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
                             "Error de Conexión", "Fallo al comunicar con el servidor backend: " + e.getMessage()));
         }
+    }
+
+        public void onOperarToggle() {
+        log.info("Estado de Operar actualizado a {} para {} / {}. Guardando en BD...", operar, selectedPair, selectedPair2);
+        guardarRatio();
+    }
+
+        public void loadUserRatiosList() {
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/user-ratios/" + userId;
+            log.info("Cargando lista de ratios guardados para idUsuario {} desde {}", userId, url);
+
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UserRatioDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UserRatioDto dto = new UserRatioDto();
+                        if (item.has("id")) dto.setId(item.get("id").asInt());
+                        if (item.has("idUsuario")) dto.setIdUsuario(item.get("idUsuario").asInt());
+                        if (item.has("numerador")) dto.setNumerador(item.get("numerador").asText());
+                        if (item.has("denominador")) dto.setDenominador(item.get("denominador").asText());
+                        if (item.has("periodo")) dto.setPeriodo(item.get("periodo").asText());
+                        if (item.has("dias") && !item.get("dias").isNull()) dto.setDias(item.get("dias").asInt());
+                        if (item.has("EMARapida") && !item.get("EMARapida").isNull()) dto.setEmaRapida(item.get("EMARapida").asInt());
+                        if (item.has("EMALenta") && !item.get("EMALenta").isNull()) dto.setEmaLenta(item.get("EMALenta").asInt());
+                        if (item.has("operar") && !item.get("operar").isNull()) dto.setOperar(item.get("operar").asBoolean());
+                        else dto.setOperar(false);
+                        list.add(dto);
+                    }
+                }
+            }
+                        this.userRatiosList = list;
+            log.info("Cargados {} ratios guardados para el usuario {}", list.size(), userId);
+            try {
+                if (org.primefaces.PrimeFaces.current() != null && org.primefaces.PrimeFaces.current().isAjaxRequest()) {
+                    org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion:userRatiosTable", "aetherForm:mainTabView:leftAccordion");
+                }
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.error("Error al cargar lista de user_ratios: {}", e.getMessage());
+        }
+    }
+
+        public void onRowSelect(org.primefaces.event.SelectEvent<UserRatioDto> event) {
+        if (event != null && event.getObject() != null) {
+            onSelectUserRatio(event.getObject());
+        }
+    }
+
+    public void onSelectUserRatio(UserRatioDto ratio) {
+        if (ratio == null) return;
+        log.info("Seleccionado ratio desde acordeón: {} / {} (periodo={}, dias={}, fast={}, slow={}, operar={})",
+                ratio.getNumerador(), ratio.getDenominador(), ratio.getPeriodo(), ratio.getDias(), ratio.getEmaRapida(), ratio.getEmaLenta(), ratio.getOperar());
+        this.selectedUserRatio = ratio;
+        this.selectedPair = ratio.getNumerador();
+        loadCorrelationsForSelectedPair();
+        this.selectedPair2 = ratio.getDenominador();
+        if (ratio.getPeriodo() != null && !ratio.getPeriodo().isEmpty()) {
+            this.timeframe = ratio.getPeriodo();
+        }
+        if (ratio.getDias() != null) {
+            this.daysBack = ratio.getDias();
+            onDaysBackChange();
+        }
+        if (ratio.getEmaRapida() != null) {
+            this.smaPeriodParam = ratio.getEmaRapida();
+        }
+        if (ratio.getEmaLenta() != null) {
+            this.emaSlowPeriodParam = ratio.getEmaLenta();
+        }
+        this.operar = Boolean.TRUE.equals(ratio.getOperar());
+        this.ratioExistsInDb = true;
+
+        analyzePair();
+
+        javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                        "Ratio Cargado", "Se cargó la configuración de " + selectedPair + " / " + selectedPair2));
     }
 
     public void fetchUserRatioDetails() {
@@ -454,8 +689,13 @@ public class DashboardBean implements Serializable {
             if (responseStr != null && !responseStr.isEmpty()) {
                 JsonNode rootNode = mapper.readTree(responseStr);
                 if (rootNode.has("found") && rootNode.get("found").asBoolean()) {
+                    this.ratioExistsInDb = true;
                     if (rootNode.has("periodo") && !rootNode.get("periodo").isNull()) {
                         this.timeframe = rootNode.get("periodo").asText();
+                    }
+                    if (rootNode.has("dias") && !rootNode.get("dias").isNull()) {
+                        this.daysBack = rootNode.get("dias").asInt();
+                        onDaysBackChange();
                     }
                     if (rootNode.has("EMARapida") && !rootNode.get("EMARapida").isNull()) {
                         this.smaPeriodParam = rootNode.get("EMARapida").asInt();
@@ -463,17 +703,26 @@ public class DashboardBean implements Serializable {
                     if (rootNode.has("EMALenta") && !rootNode.get("EMALenta").isNull()) {
                         this.emaSlowPeriodParam = rootNode.get("EMALenta").asInt();
                     }
-                    log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, EMARapida={}, EMALenta={}",
-                            selectedPair, selectedPair2, timeframe, smaPeriodParam, emaSlowPeriodParam);
+                    if (rootNode.has("operar") && !rootNode.get("operar").isNull()) {
+                        this.operar = rootNode.get("operar").asBoolean();
+                    } else {
+                        this.operar = false;
+                    }
+                    log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, dias={}, EMARapida={}, EMALenta={}, operar={}",
+                            selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar);
 
                     javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                             new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                     "Configuración Cargada", "Se cargó la calibración guardada para " + selectedPair + " / " + selectedPair2));
                 } else {
                     log.info("ℹ️ No existe registro en BD para {}/{}. Aplicando valores por defecto.", selectedPair, selectedPair2);
+                    this.ratioExistsInDb = false;
                     this.smaPeriodParam = 3;
                     this.emaSlowPeriodParam = 15;
                     this.timeframe = "1d";
+                    this.daysBack = 180;
+                    this.operar = false;
+                    onDaysBackChange();
                 }
             }
         } catch (Exception e) {
@@ -508,6 +757,9 @@ public class DashboardBean implements Serializable {
             org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
 
             if (response.getStatusCode().is2xxSuccessful()) {
+                this.ratioExistsInDb = false;
+                this.operar = false;
+                loadUserRatiosList();
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                 "Ratio Eliminado Exitosamente", "Se eliminó el ratio " + selectedPair + " / " + selectedPair2 + "."));
@@ -834,7 +1086,6 @@ public class DashboardBean implements Serializable {
     public void onDenominadorChange() {
         log.info("Selección de Denominador cambiada a: {}. Consultando BD...", selectedPair2);
         fetchUserRatioDetails();
-        analyzePair();
     }
 
     /**

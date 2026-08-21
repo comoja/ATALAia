@@ -4,96 +4,29 @@ import pandas as pd
 import numpy as np
 import talib as ta
 import json
-from datetime import datetime
+import warnings
+from datetime import datetime, timedelta
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection
+warnings.filterwarnings('ignore')
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from Sentinel.backtesting import opt_db_helper
 
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0,
-    'GBP/USD': 10000.0,
-    'AUD/USD': 10000.0,
-    'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0,
-    'USD/CHF': 10000.0,
-    'EUR/GBP': 10000.0,
-    'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0,
-    'USD/JPY': 100.0,
-    'USD/MXN': 10000.0,
-    'XAU/USD': 1.0,
-    'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0,
-    'GBP/USD': 1.5,
-    'AUD/USD': 1.2,
-    'NZD/USD': 1.5,
-    'USD/CAD': 1.5,
-    'USD/CHF': 1.6,
-    'EUR/GBP': 1.5,
-    'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0,
-    'USD/JPY': 1.2,
-    'USD/MXN': 25.0,
-    'XAU/USD': 0.35,
-    'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        print(f"Error cargando velas: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 def runSpeedBotGridSearch() -> None:
     print("==========================================================")
     print("       INICIANDO GRID SEARCH OPTIMIZER (SPEEDBOT)         ")
     print("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00'
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
-    # Grid de Parámetros de Desplazamiento
     atrMults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0]
     bodyRatios = [0.65, 0.70, 0.75, 0.80, 0.85]
     confirmRatios = [0.30, 0.40, 0.50, 0.60, 0.70]
@@ -107,19 +40,19 @@ def runSpeedBotGridSearch() -> None:
         df5m = loadCandles(symbol, startDateStr, endDateStr)
         if df5m.empty or len(df5m) < 200:
             print(f"  ⚠️ Datos insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"atr_mult": 1.5, "body_ratio": 0.6, "confirm_ratio": 0.5, "min_rr": 1.5}
+            opt_db_helper.saveSymbolStrategyConfig('SpeedBot', symbol, False, fallbackParams)
             continue
             
-        pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-        spreadPrice = SPREADS.get(symbol, 1.0) / pipMult
+        pipMult = opt_db_helper.getPipMultiplier(symbol)
+        spreadPrice = opt_db_helper.getSpread(symbol) / pipMult
         
-        # Convertir a arrays de numpy para velocidad extrema
         openPrices = df5m['open'].values.astype(float)
         highPrices = df5m['high'].values.astype(float)
         lowPrices = df5m['low'].values.astype(float)
         closePrices = df5m['close'].values.astype(float)
         totalBars = len(df5m)
         
-        # Calcular ATR 14
         atr14 = ta.ATR(highPrices, lowPrices, closePrices, timeperiod=14)
         
         symbolBestCombo = None
@@ -129,7 +62,6 @@ def runSpeedBotGridSearch() -> None:
             for bodyRatio in bodyRatios:
                 for confirmRatio in confirmRatios:
                     for minRr in minRrCombos:
-                        
                         trades = []
                         i = 50
                         while i < totalBars:
@@ -153,8 +85,6 @@ def runSpeedBotGridSearch() -> None:
                                 continue
                                 
                             direction = "LARGO" if closePrices[i] > openPrices[i] else "CORTO"
-                            
-                            # Simular SL y TP
                             entryPrice = closePrices[i] + (spreadPrice / 2.0) if direction == "LARGO" else closePrices[i] - (spreadPrice / 2.0)
                             
                             if direction == "LARGO":
@@ -169,7 +99,6 @@ def runSpeedBotGridSearch() -> None:
                                 
                             tp = entryPrice + (riskDist * minRr) if direction == "LARGO" else entryPrice - (riskDist * minRr)
                             
-                            # Simular holding period hasta que toque SL o TP
                             tradeClosed = False
                             pnlUsd = 0.0
                             for j in range(i + 1, totalBars):
@@ -200,11 +129,9 @@ def runSpeedBotGridSearch() -> None:
                                     i = j
                                     break
                             if not tradeClosed:
-                                # Llegó al fin del dataset sin tocar SL o TP
                                 break
                             i += 1
                             
-                        # Métricas del combo
                         tCount = len(trades)
                         if tCount > 3:
                             wCount = len([t for t in trades if t > 0])
@@ -228,50 +155,35 @@ def runSpeedBotGridSearch() -> None:
                             }
                             allResultsRaw.append(comboData)
                             
-                            # Criterio del mejor combo
                             if pnlNet > symbolBestProfit and profFactor >= 1.0:
                                 symbolBestProfit = pnlNet
                                 symbolBestCombo = comboData
                                 
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = symbolBestCombo
-                params = {"threshold": combo.get("Threshold", 0.0), "min_rr": combo["Min RR"]}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('SpeedBot', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "atr_mult": symbolBestCombo.get("ATR Mult", 1.5),
+                "body_ratio": symbolBestCombo.get("Body Ratio", 0.6),
+                "confirm_ratio": symbolBestCombo.get("Confirm Ratio", 0.5),
+                "min_rr": symbolBestCombo["Min RR"]
+            }
+            opt_db_helper.saveSymbolStrategyConfig('SpeedBot', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
             print(f"  🏆 Mejor combo para {symbol}: ATR Mult={symbolBestCombo['ATR Mult']} | Body={symbolBestCombo['Body Ratio']} | Confirm={symbolBestCombo['Confirm Ratio']} | RR={symbolBestCombo['Min RR']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
-            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")
+            fallbackParams = {"atr_mult": 1.5, "body_ratio": 0.6, "confirm_ratio": 0.5, "min_rr": 1.5}
+            opt_db_helper.saveSymbolStrategyConfig('SpeedBot', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}. Guardado en DB (FALSE).")
             
-    # Guardar reportes
     if allResultsRaw:
         dfRaw = pd.DataFrame(allResultsRaw)
-        rawPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/speedbot_grid_results_all.csv"
+        rawPath = opt_db_helper.getOutputPath("speedbot_grid_results_all.csv")
         dfRaw.to_csv(rawPath, index=False)
         print(f"\n💾 Todos los combos guardados en: {rawPath}")
         
     if bestResults:
         dfBest = pd.DataFrame(bestResults)
-        bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/speedbot_grid_results_best.csv"
+        bestPath = opt_db_helper.getOutputPath("speedbot_grid_results_best.csv")
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
 

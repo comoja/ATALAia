@@ -5,478 +5,119 @@ import numpy as np
 import talib as ta
 import logging
 import asyncio
-from datetime import datetime
-import pytz
+import json
+import warnings
+from datetime import datetime, timedelta
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection, dbManager
+warnings.filterwarnings('ignore')
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from Sentinel.core.Patron4h import Patron4HBot
-from middleware.utils.alertBuilder import getPipMultiplier
 from Sentinel.analysis import technical
 from Sentinel.analysis.fvg_analyzer import FvgAnalyzer
+from Sentinel.backtesting import opt_db_helper
 
-# Silenciar logs para no saturar la pantalla
 logging.getLogger('sentinel').setLevel(logging.ERROR)
 logging.basicConfig(level=logging.ERROR)
 
-# --- Inyección de Caché para Funciones SMC Costosas ---
-orig_detect_fvgs = technical.detect_fvgs
-orig_detect_mss = technical.detect_mss
-
-fvg_cache = {}
-mss_cache = {}
-
-def cached_detect_fvgs(df, min_gap_pct=0.00005, validate_mitigation=True, apply_high_prob_filters=True):
-    if df is None or len(df) == 0:
-        return []
-    # Pasar solo las últimas 200 velas reduce enormemente el tiempo de cálculo en backtesting
-    df_tail = df.tail(200)
-    key = (df_tail.index[-1], len(df_tail), min_gap_pct, validate_mitigation, apply_high_prob_filters)
-    if key not in fvg_cache:
-        fvg_cache[key] = orig_detect_fvgs(df_tail, min_gap_pct, validate_mitigation, apply_high_prob_filters)
-    return fvg_cache[key]
-
-def cached_detect_mss(df, direction, lookback=15):
-    if df is None or len(df) == 0:
-        return False
-    df_tail = df.tail(lookback + 20)
-    key = (df_tail.index[-1], len(df_tail), direction, lookback)
-    if key not in mss_cache:
-        mss_cache[key] = orig_detect_mss(df_tail, direction, lookback)
-    return mss_cache[key]
-
-technical.detect_fvgs = cached_detect_fvgs
-technical.detect_mss = cached_detect_mss
-
-# Inyectar Mock para FvgAnalyzer.detectFvg que precalcula de forma global
-orig_detectFvg = FvgAnalyzer.detectFvg
-
-# Variables globales para los FVGs completos del símbolo actual
-global_raw_fvgs = {
-    '15min': [],
-    '1h': [],
-    '4h': [],
-    '1d': []
-}
-
-df_15m_global = None
-df_1h_global = None
-df_4h_global = None
-df_1d_global = None
-
-def mock_detectFvg(self, df):
-    if df is None or len(df) < 3:
-        return []
-    
-    # Calcular la diferencia de tiempo para determinar el marco de tiempo
-    diff = (df.index[1] - df.index[0]).total_seconds()
-    if diff <= 900: # 15min
-        tf = '15min'
-    elif diff <= 3600: # 1h
-        tf = '1h'
-    elif diff <= 14400: # 4h
-        tf = '4h'
-    else: # 1D
-        tf = '1d'
-        
-    # Obtener el índice máximo según la fecha del último registro del df en el df global correspondiente
-    t_last = df.index[-1]
-    
-    # Filtrar los FVGs precalculados que ocurren antes o en el timestamp de la vela actual
-    # Usamos la fecha en lugar del idx directamente para evitar desajustes en el re-slicing
-    res = []
-    for f in global_raw_fvgs[tf]:
-        # Usamos la fecha precalculada en lugar de parsearla dentro del loop en cada vela
-        if f.get('_parsed_time') and f['_parsed_time'] <= t_last:
-            res.append(f)
-    return res
-
-FvgAnalyzer.detectFvg = mock_detectFvg
-# -----------------------------------------------------
-
-
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0,
-    'GBP/USD': 10000.0,
-    'AUD/USD': 10000.0,
-    'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0,
-    'USD/CHF': 10000.0,
-    'EUR/GBP': 10000.0,
-    'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0,
-    'USD/JPY': 100.0,
-    'USD/MXN': 10000.0,
-    'XAU/USD': 1.0,
-    'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0,
-    'GBP/USD': 1.5,
-    'AUD/USD': 1.2,
-    'NZD/USD': 1.5,
-    'USD/CAD': 1.5,
-    'USD/CHF': 1.6,
-    'EUR/GBP': 1.5,
-    'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0,
-    'USD/JPY': 1.2,
-    'USD/MXN': 25.0,
-    'XAU/USD': 0.35,
-    'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        print(f"Error cargando velas para {symbol}: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 async def runPatron4HGridSearch() -> None:
     print("==========================================================")
-    print("  INICIANDO GRID SEARCH OPTIMIZER (PATRON4H - FAST CACHED) ")
+    print("       INICIANDO GRID SEARCH OPTIMIZER (PATRON4H)         ")
     print("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00'
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
-    # Grid de Parámetros
-    minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
-    minConfidenceCombos = [60.0, 65.0, 70.0, 75.0, 80.0]
-    displacementPctCombos = [0.0003, 0.0005, 0.0008, 0.0010]
-    fvgMinPctCombos = [0.00003, 0.00005, 0.00008, 0.0001]
+    fvgMinPctCombos = [0.00005, 0.0001, 0.0002]
+    displacementPctCombos = [0.0003, 0.0005, 0.001]
+    minRrCombos = [1.2, 1.5, 2.0, 2.5]
+    minConfidenceCombos = [50.0, 60.0, 70.0]
     
     bestResults = []
     allResultsRaw = []
     
-    bot = Patron4HBot()
-    
-    # Mockear dbManager.getSymbolStrategyConfig en memoria
-    global current_config
-    current_config = {}
-    dbManager.getSymbolStrategyConfig = lambda strat, sym: current_config
-    
-    global df_15m_global, df_1h_global, df_4h_global, df_1d_global
-    
     for symbol in ALL_SYMBOLS:
-        print(f"\n⚙️ Analizando combinaciones para {symbol}...")
+        print(f"⚙️ Analizando combinaciones para {symbol}...")
         df5m = loadCandles(symbol, startDateStr, endDateStr)
-        if df5m.empty or len(df5m) < 400:
+        if df5m.empty or len(df5m) < 600:
             print(f"  ⚠️ Datos insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"fvgMinPct": 0.0001, "displacementPct": 0.0005, "rrRatioMin": 1.5, "maxMinutosFvg": 240.0, "minConfidence": 50, "lookback": 50}
+            opt_db_helper.saveSymbolStrategyConfig('Patron4h', symbol, False, fallbackParams)
             continue
             
-        from middleware.config.constants import TIMEZONE
-        df5m.index = df5m.index.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
-            
-        # Resamplear globalmente para este símbolo
-        df_15m_global = df5m.resample('15min').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
+        df4h = df5m.resample('4h').agg({
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
         }).dropna()
         
-        df_1h_global = df5m.resample('1h').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
-        }).dropna()
-        
-        df_4h_global = df5m.resample('4h').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
-        }).dropna()
-        
-        df_1d_global = df5m.resample('1D').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
-        }).dropna()
-        
-        if len(df_15m_global) < 200 or len(df_1d_global) < 3:
-            print(f"  ⚠️ Datos insuficientes en 15m/1d para {symbol}. Saltando.")
+        if len(df4h) < 50:
+            fallbackParams = {"fvgMinPct": 0.0001, "displacementPct": 0.0005, "rrRatioMin": 1.5, "maxMinutosFvg": 240.0, "minConfidence": 50, "lookback": 50}
+            opt_db_helper.saveSymbolStrategyConfig('Patron4h', symbol, False, fallbackParams)
             continue
             
-        pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-        spreadPrice = SPREADS.get(symbol, 1.0) / pipMult
+        pipMult = opt_db_helper.getPipMultiplier(symbol)
+        spreadPrice = opt_db_helper.getSpread(symbol) / pipMult
         
-        # Limpiar cachés para el nuevo símbolo
-        fvg_cache.clear()
-        mss_cache.clear()
+        bot = Patron4HBot()
         
-        # Precalcular FVGs globales usando el método original sobre el dataset completo
-        print(f"  ⚡ Precalculando FVGs de forma global para {symbol}...")
-        analyzer = FvgAnalyzer(minGapPct=0.00005)
-        for tf, df_glob in [('15min', df_15m_global), ('1h', df_1h_global), ('4h', df_4h_global), ('1d', df_1d_global)]:
-            global_raw_fvgs[tf] = orig_detectFvg(analyzer, df_glob)
-            for f in global_raw_fvgs[tf]:
-                f['_parsed_time'] = pd.to_datetime(f['timestamp']).tz_localize(df_glob.index.tzinfo)
-        
-        # Precalcular mapeo de índices
-        idx1h_map = df_1h_global.index.get_indexer(df_15m_global.index, method='pad')
-        idx4h_map = df_4h_global.index.get_indexer(df_15m_global.index, method='pad')
-        idx1d_map = df_1d_global.index.get_indexer(df_15m_global.index, method='pad')
-        
-        # Precalcular catalizadores confirmados en 4H y 1H de forma rápida una sola vez
-        print(f"  ⚡ Precalculando catalizadores en 4H y 1H para {symbol}...")
-        catalizadores = set()
-        
-        # Precalcular tendencia diaria para cada día
-        tendenciaDiaria = {}
-        for idx_d in range(2, len(df_1d_global)):
-            t_day = df_1d_global.index[idx_d]
-            bot.currentTime = t_day
-            df_1d_sliced = df_1d_global.iloc[:idx_d+1]
-            ctx = bot.obtener_contexto_diario(df_1d_sliced, 0.00005)
-            tendenciaDiaria[t_day.date()] = ctx
-            
-        # Analizar catalizadores 4H
-        for i in range(20, len(df_4h_global)):
-            t = df_4h_global.index[i]
-            bot.currentTime = t
-            ctx = tendenciaDiaria.get(t.date())
-            if not ctx or ctx['tendencia'] == 'LATERAL':
-                continue
-            df_tf_sliced = df_4h_global.iloc[:i+1]
-            c4h = bot.analizar_catalizador(df_tf_sliced, ctx, None, '4H', 0.00005, 0.0005)
-            if c4h['confirmado']:
-                catalizadores.add(t)
-                
-        # Analizar catalizadores 1H
-        for j in range(20, len(df_1h_global)):
-            t = df_1h_global.index[j]
-            bot.currentTime = t
-            if t in catalizadores:
-                continue
-            ctx = tendenciaDiaria.get(t.date())
-            if not ctx or ctx['tendencia'] == 'LATERAL':
-                continue
-            df_tf_sliced = df_1h_global.iloc[:j+1]
-            c1h = bot.analizar_catalizador(df_tf_sliced, ctx, None, '1h', 0.00005, 0.0005)
-            if c1h['confirmado']:
-                catalizadores.add(t)
-                
-        print(f"  📌 Encontrados {len(catalizadores)} catalizadores potenciales.")
-        if len(catalizadores) == 0:
-            print(f"  ❌ No hay catalizadores para {symbol}. Saltando.")
-            continue
-            
         symbolBestCombo = None
         symbolBestProfit = -9999.0
         
-        # 1. Precalcular todas las señales crudas (Structural Simulation)
-        raw_signals = {} # key: (displacementPct, fvgMinPct), value: list of raw signals
-        
-        for displacementPct in displacementPctCombos:
-            for fvgMinPct in fvgMinPctCombos:
-                current_config = {
-                    'fvgMinPct': fvgMinPct,
-                    'displacementPct': displacementPct,
-                    'rrRatioMin': 0.0, # Para obtener TP estructural puro
-                    'maxMinutosFvg': 240.0,
-                    'minConfidence': 0.0, # Para obtener todas las señales viables
-                    'lookback': 50
-                }
-                
-                combo_signals = []
-                idx = 100
-                n = len(df_15m_global)
-                
-                while idx < n:
-                    t_current = df_15m_global.index[idx]
-                    
-                    # Obtener índices posicionales
-                    i1h = idx1h_map[idx]
-                    i4h = idx4h_map[idx]
-                    i1d = idx1d_map[idx]
-                    
-                    if i1d < 2:
-                        idx += 1
-                        continue
-                        
-                    t_4h_closed = df_4h_global.index[i4h]
-                    t_1h_closed = df_1h_global.index[i1h]
-                    
-                    # Filtro rápido
-                    if t_4h_closed not in catalizadores and t_1h_closed not in catalizadores:
-                        idx += 1
-                        continue
-                        
-                    df_15m_sliced = df_15m_global.iloc[:idx+1]
-                    df_1h_sliced = df_1h_global.iloc[:i1h+1]
-                    df_4h_sliced = df_4h_global.iloc[:i4h+1]
-                    df_1d_sliced = df_1d_global.iloc[:i1d+1]
-                    
-                    symbolInfo = {
-                        'symbol': symbol,
-                        'intervalo': '15min',
-                        'momentum': '☁️ SIN DATOS',
-                        'weekly_trend': 'NEUTRAL',
-                        'refCapital': 10000.0,
-                        'refRiskPct': 1.0
-                    }
-                    
-                    preloaded = {
-                        symbol: {
-                            '15min': df_15m_sliced,
-                            '1h': df_1h_sliced,
-                            '4h': df_4h_sliced,
-                            '1d': df_1d_sliced
-                        }
-                    }
-                    
-                    try:
-                        bot.currentTime = t_current
-                        # Importamos asincronía aquí si es necesario
-                        import asyncio
-                        signals = await bot.runAnalysisCycleForSymbol(symbolInfo, preloadedData=preloaded)
-                        if signals and len(signals) > 0:
-                            sig = signals[0]
-                            combo_signals.append({
-                                'idx': idx, # índice de la vela actual
-                                'direction': sig.direction,
-                                'entry': sig.entry_price,
-                                'sl': sig.stop_loss,
-                                'original_tp': sig.take_profit,
-                                'confidence': sig.confidence
-                            })
-                    except Exception as e:
-                        pass
-                        
-                    idx += 1
-                    
-                raw_signals[(displacementPct, fvgMinPct)] = combo_signals
-                print(f"    - Precalculadas {len(combo_signals)} señales para Disp={displacementPct}, FVG={fvgMinPct}")
-
-        # 2. Evaluación Rápida (RR y Confianza) sobre las señales crudas
-        for displacementPct in displacementPctCombos:
-            for fvgMinPct in fvgMinPctCombos:
-                signals = raw_signals[(displacementPct, fvgMinPct)]
-                
+        for fvgMinPct in fvgMinPctCombos:
+            for displacementPct in displacementPctCombos:
                 for minRr in minRrCombos:
-                    for minConfidence in minConfidenceCombos:
-                        
+                    for minConf in minConfidenceCombos:
                         trades = []
-                        activeTrade = None
+                        last_exit_idx = -1
                         
-                        # Loop muy rápido sobre los índices 15m
-                        idx = 100
-                        n = len(df_15m_global)
+                        df4h_fvgs = technical.detect_fvgs(df4h, min_gap_pct=fvgMinPct, validate_mitigation=False, apply_high_prob_filters=True)
                         
-                        # Convertir a generador o lista para procesar las señales secuencialmente
-                        signal_queue = [s for s in signals if s['confidence'] >= minConfidence]
-                        sig_idx = 0
-                        num_sigs = len(signal_queue)
-                        
-                        while idx < n:
-                            if activeTrade:
-                                row = df_15m_global.iloc[idx]
-                                vHigh = row['high']
-                                vLow = row['low']
-                                
-                                if activeTrade['direction'] == 'LARGO':
-                                    lowAdj = vLow - (spreadPrice / 2.0)
-                                    highAdj = vHigh + (spreadPrice / 2.0)
-                                    if lowAdj <= activeTrade['sl']:
-                                        trades.append(-100.0)
-                                        activeTrade = None
-                                    elif highAdj >= activeTrade['tp']:
-                                        trades.append(100.0 * activeTrade['rr'])
-                                        activeTrade = None
-                                else:
-                                    highAdj = vHigh + (spreadPrice / 2.0)
-                                    lowAdj = vLow - (spreadPrice / 2.0)
-                                    if highAdj >= activeTrade['sl']:
-                                        trades.append(-100.0)
-                                        activeTrade = None
-                                    elif lowAdj <= activeTrade['tp']:
-                                        trades.append(100.0 * activeTrade['rr'])
-                                        activeTrade = None
-                                        
-                                idx += 1
-                                continue
+                        for fvg in df4h_fvgs:
+                            fvg_time = fvg.get('time')
+                            if not fvg_time: continue
                             
-                            # Si no hay trade activo, ver si hay una señal en este índice
-                            if sig_idx < num_sigs and signal_queue[sig_idx]['idx'] == idx:
-                                s = signal_queue[sig_idx]
-                                # Ajustar el TP según el minRr
-                                riesgo = abs(s['entry'] - s['sl'])
-                                if riesgo > 0:
-                                    if s['direction'] == 'LARGO':
-                                        min_tp = s['entry'] + (riesgo * minRr)
-                                        adjusted_tp = max(s['original_tp'], min_tp)
-                                    else:
-                                        min_tp = s['entry'] - (riesgo * minRr)
-                                        adjusted_tp = min(s['original_tp'], min_tp)
-                                        
-                                    adjusted_rr = abs(adjusted_tp - s['entry']) / riesgo
-                                    activeTrade = {
-                                        'direction': s['direction'],
-                                        'entry': s['entry'],
-                                        'sl': s['sl'],
-                                        'tp': adjusted_tp,
-                                        'rr': adjusted_rr
-                                    }
-                                sig_idx += 1
+                            df5m_sub = df5m[df5m.index >= fvg_time]
+                            if df5m_sub.empty or len(df5m_sub) < 10: continue
                             
-                            # Optimizador: saltar directo al siguiente idx de señal o vela
-                            if not activeTrade:
-                                if sig_idx < num_sigs:
-                                    idx = signal_queue[sig_idx]['idx']
-                                else:
-                                    break # Ya no hay más señales
+                            fvg_dir = "LARGO" if fvg.get('type') == 'Bullish_FVG' else "CORTO"
+                            entry_price = float(df5m_sub['close'].iloc[0])
+                            atr_val = ta.ATR(df5m_sub['high'].values, df5m_sub['low'].values, df5m_sub['close'].values, timeperiod=14)[-1]
+                            if np.isnan(atr_val) or atr_val <= 0: continue
+                            
+                            if fvg_dir == "LARGO":
+                                sl = entry_price - (atr_val * 1.5)
+                                tp = entry_price + (abs(entry_price - sl) * minRr)
                             else:
-                                idx += 1
+                                sl = entry_price + (atr_val * 1.5)
+                                tp = entry_price - (abs(entry_price - sl) * minRr)
                                 
-                        # Métricas finales del combo
+                            for idx_k in range(1, min(len(df5m_sub), 48)): # Max 4 horas en velas de 5m
+                                vH = float(df5m_sub['high'].iloc[idx_k])
+                                vL = float(df5m_sub['low'].iloc[idx_k])
+                                
+                                if fvg_dir == "LARGO":
+                                    if vL <= sl:
+                                        trades.append(-100.0)
+                                        break
+                                    elif vH >= tp:
+                                        trades.append(100.0 * minRr)
+                                        break
+                                else:
+                                    if vH >= sl:
+                                        trades.append(-100.0)
+                                        break
+                                    elif vL <= tp:
+                                        trades.append(100.0 * minRr)
+                                        break
+                                        
                         tCount = len(trades)
-                        if tCount >= 2:
+                        if tCount > 3:
                             wCount = len([t for t in trades if t > 0])
                             wRate = (wCount / tCount) * 100
                             pnlNet = sum(trades)
@@ -487,10 +128,10 @@ async def runPatron4HGridSearch() -> None:
                             
                             comboData = {
                                 'Símbolo': symbol,
-                                'Min RR': minRr,
-                                'Min Conf': minConfidence,
-                                'Displacement Pct': displacementPct,
                                 'FVG Min Pct': fvgMinPct,
+                                'Displacement Pct': displacementPct,
+                                'Min RR': minRr,
+                                'Min Conf': minConf,
                                 'Trades': tCount,
                                 'Win Rate': f"{wRate:.1f}%",
                                 'Profit Factor': round(profFactor, 2),
@@ -498,53 +139,39 @@ async def runPatron4HGridSearch() -> None:
                             }
                             allResultsRaw.append(comboData)
                             
-                            if pnlNet > symbolBestProfit and profFactor >= 1.25 and wRate >= 42.0:
+                            if pnlNet > symbolBestProfit and profFactor >= 1.0:
                                 symbolBestProfit = pnlNet
                                 symbolBestCombo = comboData
-
+                                
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = symbolBestCombo
-                params = {"fvgMinPct": combo["FVG Min Pct"], "displacementPct": combo["Displacement Pct"], "rrRatioMin": combo["Min RR"], "maxMinutosFvg": 240.0, "minConfidence": combo["Min Conf"], "lookback": 50}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('Patron4h', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "fvgMinPct": symbolBestCombo["FVG Min Pct"],
+                "displacementPct": symbolBestCombo["Displacement Pct"],
+                "rrRatioMin": symbolBestCombo["Min RR"],
+                "maxMinutosFvg": 240.0,
+                "minConfidence": symbolBestCombo["Min Conf"],
+                "lookback": 50
+            }
+            opt_db_helper.saveSymbolStrategyConfig('Patron4h', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
             print(f"  🏆 Mejor combo para {symbol}: RR={symbolBestCombo['Min RR']} | Conf={symbolBestCombo['Min Conf']}% | Disp={symbolBestCombo['Displacement Pct']} | FVG={symbolBestCombo['FVG Min Pct']} | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
-            print(f"  ❌ No se encontró ninguna combinación rentable y viable para {symbol}.")
+            fallbackParams = {"fvgMinPct": 0.0001, "displacementPct": 0.0005, "rrRatioMin": 1.5, "maxMinutosFvg": 240.0, "minConfidence": 50, "lookback": 50}
+            opt_db_helper.saveSymbolStrategyConfig('Patron4h', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró ninguna combinación rentable y viable para {symbol}. Guardado en DB (FALSE).")
             
-    # Guardar reportes
     if allResultsRaw:
         dfRaw = pd.DataFrame(allResultsRaw)
-        rawPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/patron4h_grid_results_all.csv"
+        rawPath = opt_db_helper.getOutputPath("patron4h_grid_results_all.csv")
         dfRaw.to_csv(rawPath, index=False)
         print(f"\n💾 Todos los combos guardados en: {rawPath}")
         
     if bestResults:
         dfBest = pd.DataFrame(bestResults)
-        bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/patron4h_grid_results_best.csv"
+        bestPath = opt_db_helper.getOutputPath("patron4h_grid_results_best.csv")
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
-    else:
-        print("\n⚠️ Ningún activo tuvo combinaciones rentables viables (PF >= 1.25, WR >= 42%).")
 
 if __name__ == '__main__':
     asyncio.run(runPatron4HGridSearch())

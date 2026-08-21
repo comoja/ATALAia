@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Orquestador central de optimizaciones para el mantenimiento semanal de Sentinel.
-Ejecuta de forma secuencial todos los scripts de optimización en rejilla.
+Orquestador central de optimizaciones para el mantenimiento de Sentinel.
+Ejecuta de forma secuencial todos los scripts de optimización en rejilla
+sobre los símbolos activos de Sentinel, garantizando la persistencia completa
+en symbolstrategyconfig (enabled = TRUE para rentables, enabled = FALSE para no rentables).
 """
 import os
 import sys
@@ -29,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("optimization_orchestrator")
 
-# Lista de scripts de optimización a ejecutar
+# Lista de 15 scripts de optimización a ejecutar
 optimizationScripts = [
     "run_cruceema_optimization.py",
     "run_genericfvg_optimization.py",
@@ -50,7 +52,7 @@ optimizationScripts = [
 
 def runAllOptimizations() -> None:
     logger.info("================================================================")
-    logger.info("🚀 INICIANDO RE-OPTIMIZACIÓN GENERAL DE PARÁMETROS SEMANAL")
+    logger.info("🚀 INICIANDO RE-OPTIMIZACIÓN GENERAL DE PARÁMETROS SENTINEL")
     logger.info("================================================================")
     
     pythonBin = sys.executable
@@ -66,50 +68,48 @@ def runAllOptimizations() -> None:
             logger.warning(f"⚠️ El script {scriptName} no existe en la ruta {backtestingDir}. Se omite.")
             continue
             
-        logger.info(f"⏳ Ejecutando optimizador: {scriptName}...")
+        logger.info(f"⏳ [{successCount + failureCount + 1}/{len(optimizationScripts)}] Ejecutando optimizador: {scriptName}...")
         startTime = datetime.now()
         
         try:
-            # Ejecutar el script usando el mismo entorno de python actual y silenciando warnings
             env = os.environ.copy()
             env["PYTHONWARNINGS"] = "ignore"
+            env["PYTHONUNBUFFERED"] = "1"
             
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [pythonBin, scriptPath],
                 cwd=rutaRaiz,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
-                check=True
+                bufsize=1
             )
             
-            elapsedTime = datetime.now() - startTime
-            logger.info(f"✅ Optimizador {scriptName} finalizado con éxito en {elapsedTime.total_seconds():.1f}s.")
-            successCount += 1
-            
-            # Registrar salida si tiene información relevante
-            if result.stdout:
-                lines = result.stdout.strip().split('\n')
-                # Registrar las últimas 5 líneas de la salida para tener resumen
-                summaryLines = [line for line in lines if "Mejor" in line or "Mejores" in line or "guardado" in line or "rentable" in line]
-                for line in summaryLines[-5:]:
-                    logger.info(f"   [Output] {line}")
+            for line in iter(process.stdout.readline, ''):
+                clean_line = line.strip()
+                if clean_line:
+                    logger.info(f"   [{scriptName}] {clean_line}")
                     
-        except subprocess.CalledProcessError as e:
+            process.stdout.close()
+            return_code = process.wait()
+            
             elapsedTime = datetime.now() - startTime
-            logger.error(f"❌ Error al ejecutar {scriptName} después de {elapsedTime.total_seconds():.1f}s.")
-            logger.error(f"   [Error Output]: {e.stderr.strip() or e.stdout.strip()}")
-            failureCount += 1
+            if return_code == 0:
+                logger.info(f"✅ Optimizador {scriptName} finalizado con éxito en {elapsedTime.total_seconds():.1f}s.")
+                successCount += 1
+            else:
+                logger.error(f"❌ Error en {scriptName} (código de salida {return_code}) después de {elapsedTime.total_seconds():.1f}s.")
+                failureCount += 1
+                    
         except Exception as ex:
+            elapsedTime = datetime.now() - startTime
             logger.error(f"❌ Excepción inesperada ejecutando {scriptName}: {ex}")
             failureCount += 1
             
     logger.info("================================================================")
     logger.info(f"🏁 PROCESO COMPLETADO: {successCount} exitosos, {failureCount} fallidos.")
     logger.info("================================================================")
-    # Nota: Los scripts de optimización ahora guardan directamente en la base de datos de manera dinámica,
-    # y también desactivan los símbolos que no tengan optimizaciones rentables.
 
 if __name__ == '__main__':
     runAllOptimizations()

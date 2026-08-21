@@ -96,8 +96,10 @@ class UserRatioCreate(BaseModel):
     numerador: str = Field(..., description="Símbolo numerador (Par A)")
     denominador: str = Field(..., description="Símbolo denominador (Par B)")
     periodo: str = Field(..., description="Periodo o temporalidad (ej. 1d, 1h)")
+    dias: Optional[int] = Field(180, description="Días hacia atrás")
     EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
+    operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
 
 class UserRatioDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
@@ -118,15 +120,19 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
 
         emaRapida = payload.EMARapida if payload.EMARapida is not None else 3
         emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
+        dias = payload.dias if payload.dias is not None else 180
+        operar = bool(payload.operar) if payload.operar is not None else False
 
         if existingRatio:
             existingRatio.periodo = payload.periodo
+            existingRatio.dias = dias
             existingRatio.EMARapida = emaRapida
             existingRatio.EMALenta = emaLenta
+            existingRatio.operar = operar
             existingRatio.createdAt = datetime.utcnow()
             db.commit()
             db.refresh(existingRatio)
-            logger.info(f"Ratio actualizado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}) [EMA Fast: {emaRapida}, Slow: {emaLenta}]")
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
             return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "action": "updated"}
         else:
             nuevoRatio = UserRatio(
@@ -134,14 +140,16 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
                 numerador=payload.numerador,
                 denominador=payload.denominador,
                 periodo=payload.periodo,
+                dias=dias,
                 EMARapida=emaRapida,
                 EMALenta=emaLenta,
+                operar=operar,
                 createdAt=datetime.utcnow()
             )
             db.add(nuevoRatio)
             db.commit()
             db.refresh(nuevoRatio)
-            logger.info(f"Ratio guardado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}) [EMA Fast: {emaRapida}, Slow: {emaLenta}]")
+            logger.info(f"Ratio guardado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
             return {"status": "success", "message": "Ratio guardado exitosamente", "id": nuevoRatio.id, "action": "created"}
     except Exception as e:
         db.rollback()
@@ -169,8 +177,10 @@ def findUserRatio(idUsuario: int, numerador: str, denominador: str, db: Session 
         "numerador": ratio.numerador,
         "denominador": ratio.denominador,
         "periodo": ratio.periodo,
+        "dias": ratio.dias if getattr(ratio, 'dias', None) is not None else 180,
         "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
         "EMALenta": ratio.EMALenta if ratio.EMALenta is not None else 20,
+        "operar": bool(ratio.operar) if getattr(ratio, 'operar', None) is not None else False,
         "createdAt": ratio.createdAt
     }
 
@@ -221,7 +231,7 @@ async def get_ratio_correlation(
     sigmaWindow: int = 7,
     smaPeriod: int = 3,
     emaSlowPeriod: int = 20,
-    histogramBins: int = 50,
+    histogramBins: int = 15,
     tf: str = "1d",
     start_date: str = "",
     end_date: str = ""

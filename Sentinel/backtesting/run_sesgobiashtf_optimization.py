@@ -5,108 +5,34 @@ import numpy as np
 import talib as ta
 import logging
 import asyncio
-from datetime import datetime, time, timedelta
-import pytz
+import json
+import warnings
+from datetime import datetime, timedelta
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection
-from middleware.utils.alertBuilder import getPipMultiplier, adjustTPForMinRR
+warnings.filterwarnings('ignore')
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from middleware.utils.alertBuilder import adjustTPForMinRR
 from Sentinel.core.SesgoBiasHTF import SesgoBiasHTFBot
+from Sentinel.backtesting import opt_db_helper
 
-# Configuración de logs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
-# Silenciar los logs internos del bot de sentinel para evitar I/O masivo
 logging.getLogger("sentinel").setLevel(logging.WARNING)
 
-
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0,
-    'GBP/USD': 10000.0,
-    'AUD/USD': 10000.0,
-    'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0,
-    'USD/CHF': 10000.0,
-    'EUR/GBP': 10000.0,
-    'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0,
-    'USD/JPY': 100.0,
-    'USD/MXN': 10000.0,
-    'XAU/USD': 1.0,
-    'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0,
-    'GBP/USD': 1.5,
-    'AUD/USD': 1.2,
-    'NZD/USD': 1.5,
-    'USD/CAD': 1.5,
-    'USD/CHF': 1.6,
-    'EUR/GBP': 1.5,
-    'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0,
-    'USD/JPY': 1.2,
-    'USD/MXN': 25.0,
-    'XAU/USD': 0.35,
-    'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        logger.error(f"Error cargando velas para {symbol}: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 async def runBacktestForCombo(df15m: pd.DataFrame, symbol: str, swingLookback: int, mssLookback: int, minRr: float) -> dict:
     bot = SesgoBiasHTFBot()
-    
-    # Sobrescribir parámetros en el bot
     bot.swing_lookback = swingLookback
     bot.swingLookback = swingLookback
     bot.mss_lookback = mssLookback
     bot.mssLookback = mssLookback
     bot.minRr = minRr
     
-    # Configurar filtros mensuales/semanales simulando mainOrchestrator
-    # tendencia en base a la media móvil de 14 días
     df_daily = bot.resample_ohlcv(df15m, '1d')
     if len(df_daily) >= 14:
         df_daily['sma14'] = df_daily['close'].rolling(14).mean()
@@ -118,93 +44,79 @@ async def runBacktestForCombo(df15m: pd.DataFrame, symbol: str, swingLookback: i
         
     symbol_info = {
         'symbol': symbol,
-        'tipo': 'METALES' if 'XAU' in symbol else ('CRYPTO' if 'BTC' in symbol else 'FOREX'),
-        'pip': 1.0,
         'weekly_trend': weekly_trend
     }
     
     trades = []
-    pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
+    activeTrade = None
+    pipMult = opt_db_helper.getPipMultiplier(symbol)
+    spread = opt_db_helper.getSpread(symbol) / pipMult
     
-    # Pre-cargar y pre-resamplear marcos temporales superiores una vez
-    df_h1 = bot.resample_ohlcv(df15m, '1h')
-    df_1d = bot.resample_ohlcv(df15m, '1d')
-    df_1w = bot.resample_ohlcv(df15m, '1w')
-    df_1M = bot.resample_ohlcv(df15m, '1M')
-    
-    start_idx = 100
-    total_len = len(df15m)
-    
-    i = start_idx
-    while i < total_len:
-        # Slice de 15min hasta la vela actual
-        df_slice_15m = df15m.iloc[:i]
-        timestamp_curr = df_slice_15m.index[-1]
+    startIdx = max(swingLookback, mssLookback, 50) + 10
+    if len(df15m) < startIdx:
+        return {"trades": [], "winRate": 0.0, "profitFactor": 0.0, "pnl": 0.0}
         
-        # Filtrar marcos superiores hasta el timestamp actual para no tener sesgo de supervivencia
-        df_slice_h1 = df_h1[df_h1.index <= timestamp_curr]
-        df_slice_1d = df_1d[df_1d.index <= timestamp_curr]
-        df_slice_1w = df_1w[df_1w.index <= timestamp_curr]
-        df_slice_1m = df_1M[df_1M.index <= timestamp_curr]
+    for i in range(startIdx, len(df15m)):
+        currentTime = df15m.index[i]
         
-        # Estructurar master dictionary
-        preloaded = {
-            symbol: {
-                '15min': df_slice_15m,
-                '1h': df_slice_h1,
-                '1d': df_slice_1d,
-                '1w': df_slice_1w,
-                '1m': df_slice_1m
-            }
-        }
-        
-        # Ejecutar ciclo de análisis
-        signal = await bot.runAnalysisCycleForSymbol(symbol_info, preloadedData=preloaded)
-        if signal:
-            entry_price = float(signal.entry_price)
-            sl_price = float(signal.stop_loss)
-            tp_price = float(signal.take_profit)
-            direction = signal.direction
+        if activeTrade:
+            velaHigh = float(df15m['high'].iloc[i])
+            velaLow = float(df15m['low'].iloc[i])
+            direction = activeTrade['direction']
+            sl = activeTrade['sl']
+            tp = activeTrade['tp']
             
-            # Monitorear velas siguientes hasta tocar SL o TP
             closed = False
-            pnl_pips = 0.0
+            pnlPips = 0.0
             
-            for k in range(i, total_len):
-                v_k_low = float(df15m['low'].iloc[k])
-                v_k_high = float(df15m['high'].iloc[k])
-                
-                if direction == "LARGO":
-                    if v_k_low <= sl_price:
-                        closed = True
-                        pnl_pips = (sl_price - entry_price) * pipMult
-                        break
-                    elif v_k_high >= tp_price:
-                        closed = True
-                        pnl_pips = (tp_price - entry_price) * pipMult
-                        break
-                else: # CORTO
-                    if v_k_high >= sl_price:
-                        closed = True
-                        pnl_pips = (entry_price - sl_price) * pipMult
-                        break
-                    elif v_k_low <= tp_price:
-                        closed = True
-                        pnl_pips = (entry_price - tp_price) * pipMult
-                        break
-            
+            if direction == "LARGO":
+                if velaLow <= sl:
+                    closed = True
+                    pnlPips = (sl - activeTrade['entry']) * pipMult
+                elif velaHigh >= tp:
+                    closed = True
+                    pnlPips = (tp - activeTrade['entry']) * pipMult
+            else:
+                if velaHigh >= sl:
+                    closed = True
+                    pnlPips = (activeTrade['entry'] - sl) * pipMult
+                elif velaLow <= tp:
+                    closed = True
+                    pnlPips = (activeTrade['entry'] - tp) * pipMult
+                    
             if closed:
-                pnl_pips -= SPREADS.get(symbol, 1.0)
+                pnlPips -= opt_db_helper.getSpread(symbol)
                 trades.append({
                     "direction": direction,
-                    "entryTime": timestamp_curr,
-                    "pnl": pnl_pips,
-                    "result": "WIN" if pnl_pips > 0 else "LOSS"
+                    "entryTime": activeTrade['entryTime'],
+                    "exitTime": currentTime,
+                    "pnl": pnlPips,
+                    "result": "WIN" if pnlPips > 0 else "LOSS"
                 })
-                i = k + 1
-                continue
-        i += 1
-        
+                activeTrade = None
+            continue
+            
+        df_slice = df15m.iloc[:i+1]
+        try:
+            signal = await bot.analyze(df_slice, symbol_info)
+            if signal and signal.action in ["COMPRA", "VENTA"]:
+                direction = "LARGO" if signal.action == "COMPRA" else "CORTO"
+                currentClose = float(df15m['close'].iloc[i])
+                slPrice = signal.stopLoss
+                tpPrice = signal.takeProfit
+                
+                slDist = abs(currentClose - slPrice)
+                if slDist > 0:
+                    activeTrade = {
+                        "direction": direction,
+                        "entry": currentClose,
+                        "sl": slPrice,
+                        "tp": tpPrice,
+                        "entryTime": currentTime
+                    }
+        except Exception:
+            continue
+            
     if not trades:
         return {"trades": [], "winRate": 0.0, "profitFactor": 0.0, "pnl": 0.0}
         
@@ -220,46 +132,47 @@ async def runBacktestForCombo(df15m: pd.DataFrame, symbol: str, swingLookback: i
     
     return {
         "trades": trades,
-        "winRate": winRate,
-        "profitFactor": profitFactor,
-        "pnl": pnlTotal
+        "winRate": round(winRate, 2),
+        "profitFactor": round(profitFactor, 2),
+        "pnl": round(pnlTotal, 2)
     }
 
 async def runSesgoBiasHTFGridSearch():
     logger.info("==========================================================")
-    logger.info(" INICIANDO GRID SEARCH OPTIMIZER (SESGOBIASHTF - 15MIN) ")
+    logger.info("  INICIANDO GRID SEARCH OPTIMIZER (SESGO BIAS HTF)       ")
     logger.info("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00'
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
-    # Grid de Parámetros
-    swingLookbackCombos = [20, 30, 40, 50, 60]
-    mssLookbackCombos = [3, 4, 5, 6]
+    swingLookbackCombos = [15, 20, 25, 30]
+    mssLookbackCombos = [8, 10, 12, 15]
     minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.5]
     
     bestResults = []
     allResultsRaw = []
     
     for symbol in ALL_SYMBOLS:
-        logger.info(f"⚙️ Analizando combinaciones para {symbol}...")
+        logger.info(f"\n⚙️ Analizando combinaciones para {symbol}...")
         df5m = loadCandles(symbol, startDateStr, endDateStr)
         if df5m.empty or len(df5m) < 400:
-            logger.warning(f"  ⚠️ Datos insuficientes para {symbol}. Saltando.")
+            logger.warning(f"  ⚠️ Datos de 5m insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"swingLookback": 20, "mssLookback": 10, "minRr": 1.5}
+            opt_db_helper.saveSymbolStrategyConfig('SesgoBiasHTF', symbol, False, fallbackParams)
             continue
             
-        from middleware.config.constants import TIMEZONE
-        df5m.index = df5m.index.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
-        
-        # Resamplear de 5min a 15min
         df15m = df5m.resample('15min').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
         }).dropna()
         
+        if len(df15m) < 150:
+            logger.warning(f"  ⚠️ Datos de 15m insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"swingLookback": 20, "mssLookback": 10, "minRr": 1.5}
+            opt_db_helper.saveSymbolStrategyConfig('SesgoBiasHTF', symbol, False, fallbackParams)
+            continue
+            
         bestCombo = None
         bestPf = 0.0
         bestWr = 0.0
@@ -282,7 +195,6 @@ async def runSesgoBiasHTFGridSearch():
                     }
                     allResultsRaw.append(row)
                     
-                    # Criterio de viabilidad: WR >= 42% y PF >= 1.25, al menos 1 trade
                     if numTrades >= 1 and res['winRate'] >= 35.0 and res['profitFactor'] >= 1.00:
                         if res['profitFactor'] > bestPf or (res['profitFactor'] == bestPf and res['winRate'] > bestWr):
                             bestPf = res['profitFactor']
@@ -292,95 +204,24 @@ async def runSesgoBiasHTFGridSearch():
         if bestCombo:
             logger.info(f"  ✨ Mejor combo viable para {symbol}: Swing={bestCombo['swingLookback']}, MSS={bestCombo['mssLookback']}, Min R:R={bestCombo['minRr']} (PF={bestCombo['profitFactor']:.2f}, WR={bestCombo['winRate']:.2f}%)")
             bestResults.append(bestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = bestCombo
-                params = {"timeframe_htf": "D1", "sma_period": combo.get("SMA Period", 14), "min_rr": combo["Min RR"]}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('SesgoBiasHTF', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "swingLookback": int(bestCombo['swingLookback']),
+                "mssLookback": int(bestCombo['mssLookback']),
+                "minRr": float(bestCombo['minRr'])
+            }
+            opt_db_helper.saveSymbolStrategyConfig('SesgoBiasHTF', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
         else:
             logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0 y WR >= 35%) para {symbol}.")
+            fallbackParams = {"swingLookback": 20, "mssLookback": 10, "minRr": 1.5}
+            opt_db_helper.saveSymbolStrategyConfig('SesgoBiasHTF', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró combo viable para {symbol}. Guardado en DB (FALSE).")
             
-    # Guardar resultados en CSV
     dfAll = pd.DataFrame(allResultsRaw)
-    dfAll.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sesgobiashtf_grid_results_all.csv", index=False)
+    if not dfAll.empty: dfAll.to_csv(opt_db_helper.getOutputPath("sesgobiashtf_grid_results_all.csv"), index=False)
     
     dfBest = pd.DataFrame(bestResults)
-    dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sesgobiashtf_grid_results_best.csv", index=False)
-    
-    # NUEVO: Guardar en base de datos inmediatamente
-    if bestResults:
-        import json
-        from middleware.database import dbConnection
-        try:
-            conn = dbConnection.getConnection()
-            if conn:
-                cursor = conn.cursor()
-                strategy_name = "SesgoBiasHTF"
-                
-                # Deshabilitar los que no fueron rentables
-                successful_symbols = {r['symbol'] for r in bestResults}
-                for s in ALL_SYMBOLS:
-                    if s not in successful_symbols:
-                        cursor.execute("""
-                            INSERT INTO symbolStrategyConfig (strategy, symbol, enabled)
-                            VALUES (%s, %s, FALSE)
-                            ON DUPLICATE KEY UPDATE enabled = FALSE
-                        """, (strategy_name, s))
-                
-                for combo in bestResults:
-                    symbol = combo['symbol']
-                    params_dict = {
-                        "swingLookback": int(combo['swingLookback']),
-                        "mssLookback": int(combo['mssLookback']),
-                        "minRr": float(combo['minRr']),
-                        "fvgMinPct": 0.0001,
-                        "minDistancePips": 10.0,
-                        "maxSignalAgeMinutes": 60,
-                        "useKillzones": True,
-                        "volatilityThreshold": 0.5,
-                        "useOteFilter": True,
-                        "oteFibMin": 0.62,
-                        "oteFibMax": 0.79,
-                        "oteReduceConf": 15,
-                        "minConfidence": 70,
-                        "minUsdProfit": 10.0,
-                        "winRate": float(combo['winRate']),
-                        "profitFactor": float(combo['profitFactor'])
-                    }
-                    params_json = json.dumps(params_dict)
-                    cursor.execute("""
-                        INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                        VALUES (%s, %s, TRUE, %s)
-                        ON DUPLICATE KEY UPDATE enabled = TRUE, parametersJson = %s
-                    """, (strategy_name, symbol, params_json, params_json))
-                conn.commit()
-                cursor.close()
-                conn.close()
-                logger.info(f"💾 Se guardaron en BD los resultados de {strategy_name}")
-        except Exception as e:
-            logger.error(f"❌ Error al guardar en BD: {e}")
-    
-    logger.info("==========================================================")
-    logger.info(" GRID SEARCH COMPLETADO. Archivos CSV generados con éxito.")
-    logger.info("==========================================================")
+    if not dfBest.empty: dfBest.to_csv(opt_db_helper.getOutputPath("sesgobiashtf_grid_results_best.csv"), index=False)
 
 if __name__ == "__main__":
     asyncio.run(runSesgoBiasHTFGridSearch())

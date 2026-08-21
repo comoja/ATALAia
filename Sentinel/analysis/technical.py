@@ -899,6 +899,16 @@ def resample_to_interval(df: pd.DataFrame, interval: str) -> pd.DataFrame:
             
             nowMx = datetime.now(pytz.timezone(TIMEZONE))
             lastClosedTs = get_last_closed_candle(nowMx, minutes)
+            lastClosedTs = pd.to_datetime(lastClosedTs)
+            
+            if df_resampled.index.tz is not None:
+                if lastClosedTs.tz is None:
+                    lastClosedTs = lastClosedTs.tz_localize(df_resampled.index.tz)
+                else:
+                    lastClosedTs = lastClosedTs.tz_convert(df_resampled.index.tz)
+            else:
+                if getattr(lastClosedTs, 'tz', None) is not None:
+                    lastClosedTs = lastClosedTs.tz_localize(None)
             
             # Filtrar el DataFrame para incluir solo velas cuya estampa sea <= la última cerrada
             df_resampled = df_resampled[df_resampled.index <= lastClosedTs]

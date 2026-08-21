@@ -1,74 +1,25 @@
-import sys
 import os
+import sys
 import pandas as pd
 import numpy as np
 import logging
-import asyncio
-import json
+import warnings
+from datetime import datetime, timedelta
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection, dbManager
+warnings.filterwarnings('ignore')
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from middleware.config import constants as config
 from Sentinel.analysis import technical
 from Sentinel.ml import model as mlModel
+from Sentinel.backtesting import opt_db_helper
 
-# Configuración de logs
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger(__name__)
-logging.getLogger("sentinel").setLevel(logging.ERROR)
+logger = logging.getLogger("sniper_grid_search")
 
-def getActiveSymbols():
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error cargando símbolos activos: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0, 'GBP/USD': 10000.0, 'AUD/USD': 10000.0, 'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0, 'USD/CHF': 10000.0, 'EUR/GBP': 10000.0, 'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0, 'USD/JPY': 100.0, 'USD/MXN': 10000.0, 'XAU/USD': 1.0, 'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0, 'GBP/USD': 1.5, 'AUD/USD': 1.2, 'NZD/USD': 1.5,
-    'USD/CAD': 1.5, 'USD/CHF': 1.6, 'EUR/GBP': 1.5, 'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0, 'USD/JPY': 1.2, 'USD/MXN': 25.0, 'XAU/USD': 0.35, 'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None: return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        logger.error(f"Error cargando velas para {symbol}: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 def evaluateGrid(symbol: str, df15m: pd.DataFrame, model, probaThresholdLongCombos, minConfidenceCombos, minRrCombos):
     df_prepared = technical.calculateFeatures(df15m.copy())
@@ -85,22 +36,20 @@ def evaluateGrid(symbol: str, df15m: pd.DataFrame, model, probaThresholdLongComb
     
     probas = model.predict_proba(X_clean[features])[:, 1]
     
-    # Extraer columnas operativas de df_prepared usando el índice limpio
     df_op = df_prepared.loc[X_clean.index]
     close_arr = df_op['close'].values
     high_arr = df_op['high'].values
     low_arr = df_op['low'].values
     atr_arr = df_op['atr'].values
     
-    pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-    spread = SPREADS.get(symbol, 1.0) / pipMult  # En unidades de precio
+    pipMult = opt_db_helper.getPipMultiplier(symbol)
+    spread = opt_db_helper.getSpread(symbol) / pipMult
     
     results = []
     
     for probaThresholdLong in probaThresholdLongCombos:
         probaThresholdShort = 1.0 - probaThresholdLong
         
-        # Encontrar índices donde hay señal (vectorizado)
         long_signals = probas >= probaThresholdLong
         short_signals = probas <= probaThresholdShort
         
@@ -112,112 +61,107 @@ def evaluateGrid(symbol: str, df15m: pd.DataFrame, model, probaThresholdLongComb
                 
                 for i in range(100, len(X_clean)):
                     if in_trade:
-                        # Simulador rápido de trade
                         v_k_low = low_arr[i]
                         v_k_high = high_arr[i]
                         
                         if direction == "LARGO":
                             if v_k_low <= sl_price:
                                 in_trade = False
-                                trades.append((sl_price - entry_price) * pipMult - SPREADS.get(symbol, 1.0))
+                                trades.append((sl_price - entry_price) * pipMult - opt_db_helper.getSpread(symbol))
                             elif v_k_high >= tp_price:
                                 in_trade = False
-                                trades.append((tp_price - entry_price) * pipMult - SPREADS.get(symbol, 1.0))
+                                trades.append((tp_price - entry_price) * pipMult - opt_db_helper.getSpread(symbol))
                         else:
                             if v_k_high >= sl_price:
                                 in_trade = False
-                                trades.append((entry_price - sl_price) * pipMult - SPREADS.get(symbol, 1.0))
+                                trades.append((entry_price - sl_price) * pipMult - opt_db_helper.getSpread(symbol))
                             elif v_k_low <= tp_price:
                                 in_trade = False
-                                trades.append((entry_price - tp_price) * pipMult - SPREADS.get(symbol, 1.0))
+                                trades.append((entry_price - tp_price) * pipMult - opt_db_helper.getSpread(symbol))
                         continue
                         
-                    # Buscar entradas
                     is_long = long_signals[i-1]
                     is_short = short_signals[i-1]
                     
                     if not is_long and not is_short:
                         continue
                         
-                    # Validaciones
-                    confianza = (probas[i-1] * 100) if is_long else ((1 - probas[i-1]) * 100)
-                    if confianza < minConfidence:
+                    prob_val = probas[i-1]
+                    confidence = prob_val if is_long else (1.0 - prob_val)
+                    if (confidence * 100) < minConfidence:
                         continue
                         
-                    atr = atr_arr[i-1]
-                    close = close_arr[i-1]
-                    
-                    direction = "LARGO" if is_long else "CORTO"
-                    entry_price = close
-                    
-                    # Aproximación de SL y TP
-                    sl_dist = atr * 1.5
-                    
-                    if direction == "LARGO":
-                        sl_price = entry_price - sl_dist
-                        tp_price = entry_price + (sl_dist * minRr)
-                    else:
-                        sl_price = entry_price + sl_dist
-                        tp_price = entry_price - (sl_dist * minRr)
+                    atr_val = atr_arr[i-1]
+                    if np.isnan(atr_val) or atr_val <= 0:
+                        continue
                         
-                    in_trade = True
+                    current_close = close_arr[i-1]
                     
-                # Evaluar resultados para esta combinación
-                numTrades = len(trades)
-                if numTrades == 0:
-                    continue
+                    if is_long:
+                        direction = "LARGO"
+                        entry_price = current_close
+                        sl_price = entry_price - (atr_val * 1.5)
+                        tp_price = entry_price + (abs(entry_price - sl_price) * minRr)
+                        in_trade = True
+                    elif is_short:
+                        direction = "CORTO"
+                        entry_price = current_close
+                        sl_price = entry_price + (atr_val * 1.5)
+                        tp_price = entry_price - (abs(entry_price - sl_price) * minRr)
+                        in_trade = True
+                        
+                if trades:
+                    wins = [t for t in trades if t > 0]
+                    losses = [t for t in trades if t <= 0]
+                    win_rate = (len(wins) / len(trades)) * 100
+                    pnl = sum(trades)
+                    profit_factor = sum(wins) / abs(sum(losses)) if losses and sum(losses) != 0 else (99.0 if wins else 0.0)
                     
-                wins = [t for t in trades if t > 0]
-                losses = [t for t in trades if t <= 0]
-                
-                totalProfit = sum(wins)
-                totalLoss = abs(sum(losses))
-                
-                winRate = (len(wins) / numTrades) * 100.0
-                profitFactor = totalProfit / totalLoss if totalLoss > 0 else 999.0 if totalProfit > 0 else 0.0
-                pnlTotal = sum(trades)
-                
-                if numTrades >= 1 and winRate >= 35.0 and profitFactor >= 1.00:
-                    results.append({
-                        "symbol": symbol,
-                        "probaThresholdLong": probaThresholdLong,
-                        "minConfidence": minConfidence,
-                        "minRr": minRr,
-                        "totalTrades": numTrades,
-                        "winRate": round(winRate, 2),
-                        "profitFactor": round(profitFactor, 2),
-                        "pnl": round(pnlTotal, 2)
-                    })
-                    
+                    if len(trades) >= 3 and profit_factor >= 1.0:
+                        results.append({
+                            "symbol": symbol,
+                            "probaThresholdLong": probaThresholdLong,
+                            "minConfidence": minConfidence,
+                            "minRr": minRr,
+                            "totalTrades": len(trades),
+                            "winRate": round(win_rate, 2),
+                            "profitFactor": round(profit_factor, 2),
+                            "pnl": round(pnl, 2)
+                        })
+                        
     return results
 
-async def runSniperGridSearch():
+def runSniperGridSearch():
     logger.info("==========================================================")
-    logger.info(" INICIANDO DEEP GRID SEARCH OPTIMIZER (SNIPER - VECTORIZED) ")
+    logger.info(" INICIANDO GRID SEARCH OPTIMIZER PARA ESTRATEGIA SNIPER")
     logger.info("==========================================================")
+    
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
     model = mlModel.loadModel(config.MODEL_FILE_PATH)
-    if model is None: return
+    if model is None:
+        logger.error("No se pudo cargar el modelo ML para Sniper.")
+        return
         
-    startDateStr = '2026-04-16 00:00:00'
-    endDateStr = '2026-06-16 23:59:59'
-    
-    # Deep Grid
-    probaThresholdLongCombos = [0.53, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70, 0.75]
-    minConfidenceCombos = [45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
-    minRrCombos = [1.0, 1.2, 1.4, 1.5, 1.6, 1.8, 2.0, 2.2, 2.5, 2.8, 3.0, 3.5]
+    probaThresholdLongCombos = [0.45, 0.50, 0.55, 0.60]
+    minConfidenceCombos = [50, 55, 60, 65]
+    minRrCombos = [1.2, 1.5, 2.0, 2.5]
     
     bestResults = []
     allResultsRaw = []
     
     for symbol in ALL_SYMBOLS:
-        logger.info(f"⚙️ Analizando combinaciones para {symbol}...")
+        logger.info(f"⚙️ Optimizando combinaciones para {symbol}...")
         df5m = loadCandles(symbol, startDateStr, endDateStr)
-        if df5m.empty or len(df5m) < 400: continue
+        if df5m.empty or len(df5m) < 500:
+            logger.warning(f"  ⚠️ Datos insuficientes para {symbol} ({len(df5m)} velas).")
+            fallbackParams = {"minRr": 1.5, "minConfidence": 55, "probaThresholdLong": 0.50}
+            opt_db_helper.saveSymbolStrategyConfig('Sniper', symbol, False, fallbackParams)
+            continue
             
-        from middleware.config.constants import TIMEZONE
-        df5m.index = df5m.index.tz_localize(TIMEZONE, ambiguous='infer', nonexistent='shift_forward')
-        
         df15m = df5m.resample('15min').agg({
             'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
         }).dropna()
@@ -229,44 +173,26 @@ async def runSniperGridSearch():
             best = max(results, key=lambda x: (x['profitFactor'], x['winRate']))
             logger.info(f"  ✨ Mejor combo para {symbol}: PF={best['profitFactor']}, MinConf={best['minConfidence']}, R:R={best['minRr']}")
             bestResults.append(best)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                
-                params = {
-                    "minRr": best['minRr'],
-                    "minConfidence": best['minConfidence'],
-                    "probaThresholdLong": best['probaThresholdLong']
-                }
-                paramsJson = json.dumps(params)
-                
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('Sniper', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "minRr": best['minRr'],
+                "minConfidence": best['minConfidence'],
+                "probaThresholdLong": best['probaThresholdLong']
+            }
+            opt_db_helper.saveSymbolStrategyConfig('Sniper', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
         else:
             logger.warning(f"  ❌ No se encontró combo viable (PF >= 1.0) para {symbol}.")
+            fallbackParams = {"minRr": 1.5, "minConfidence": 55, "probaThresholdLong": 0.50}
+            opt_db_helper.saveSymbolStrategyConfig('Sniper', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró combo viable para {symbol}. Guardado en DB (FALSE).")
             
     dfAll = pd.DataFrame(allResultsRaw)
-    if not dfAll.empty: dfAll.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_all.csv", index=False)
+    if not dfAll.empty: 
+        dfAll.to_csv(opt_db_helper.getOutputPath("sniper_grid_results_all.csv"), index=False)
     
     dfBest = pd.DataFrame(bestResults)
     if not dfBest.empty:
-        dfBest.to_csv("/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/sniper_grid_results_best.csv", index=False)
+        dfBest.to_csv(opt_db_helper.getOutputPath("sniper_grid_results_best.csv"), index=False)
 
-
-if __name__ == "__main__":
-    asyncio.run(runSniperGridSearch())
+if __name__ == '__main__':
+    runSniperGridSearch()

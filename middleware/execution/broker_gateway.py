@@ -324,53 +324,63 @@ class BrokerGateway:
         if self.mode == "live":
             if brokerEnabled:
                 # -- INICIO ENVÍO WEBHOOK (SOPORTE MULTI-CUENTA) --
-                active_brokers = [bc for bc in cuentasBroker if bc.get('activo') == 1]
-                webhook_sent = False
-                if active_brokers:
+                activeBrokers = [bc for bc in cuentasBroker if bc.get('activo') == 1]
+                webhookSent = False
+                if activeBrokers:
                     import requests
                     import os
-                    webhook_url = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
+                    from middleware.utils.cryptoUtils import buildEncryptedAccountToken
+                    webhookUrl = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
                     
-                    for bc in active_brokers:
+                    for bc in activeBrokers:
                         logger.info(f"Enviando orden vía Webhook para cuenta {bc.get('loginUsuario')} (Broker: {bc.get('nombreBroker')})")
                         
-                        direction_str = str(trade_data.get('direction', '')).upper()
-                        if any(w in direction_str for w in ["COMPRA", "BUY", "LONG", "LARGO"]):
-                            action_val = "buy"
-                        elif any(w in direction_str for w in ["CLOSE", "CIERRE"]):
-                            action_val = "close"
+                        directionStr = str(trade_data.get('direction', '')).upper()
+                        if any(w in directionStr for w in ["COMPRA", "BUY", "LONG", "LARGO"]):
+                            actionVal = "buy"
+                        elif any(w in directionStr for w in ["CLOSE", "CIERRE"]):
+                            actionVal = "close"
                         else:
-                            action_val = "sell"
+                            actionVal = "sell"
                         
-                        payload = {
+                        idCuentaVal = bc.get('idCuenta') or account.get('idCuenta', 2)
+                        loginUsuarioVal = bc.get('loginUsuario', '')
+                        tokenAccesoVal = bc.get('tokenAcceso', '')
+                        
+                        encryptedAccountToken = buildEncryptedAccountToken(
+                            idCuenta=idCuentaVal,
+                            loginUsuario=loginUsuarioVal,
+                            tokenAcceso=tokenAccesoVal
+                        )
+
+                        orderPayload = {
                             "strategy": strategy_name,
-                            "action": action_val,
+                            "passphrase": os.getenv("WEBHOOK_VERIFY_TOKEN", ""),
+                            "time": time.time(),
+                            "action": actionVal,
                             "ticker": trade_data.get('symbol'),
                             "entry": float(trade_data.get('entryPrice', 0) or 0),
                             "quantity": float(trade_data.get('size', 0) or 0),
                             "tp": float(trade_data.get('takeProfit', 0) or 0),
                             "sl": float(trade_data.get('stopLoss', 0) or 0),
-                            "FOREX_USERNAME": bc.get('loginUsuario'),
-                            "FOREX_PASSWORD": bc.get('tokenAcceso'),
-                            "FOREX_APP_KEY": bc.get('Apikey'),
-                            "FOREX_API_URL": bc.get('Servidor')
+                            "FOREX_USERNAME": encryptedAccountToken
                         }
                         
                         import json
-                        logger.info(f"Payload JSON a enviar al Webhook: {json.dumps(payload)}")
+                        logger.info(f"Payload JSON a enviar al Webhook: {json.dumps(orderPayload)}")
                         
                         try:
-                            resp = requests.post(webhook_url, json=payload, timeout=30)
+                            resp = requests.post(webhookUrl, json=orderPayload, timeout=30)
                             if resp.status_code == 200:
                                 try:
-                                    resp_data = resp.json()
-                                    order_id = resp_data.get("order_id")
-                                    if order_id:
-                                        trade_data['ticketId'] = str(order_id)
+                                    respData = resp.json()
+                                    orderId = respData.get("order_id")
+                                    if orderId:
+                                        trade_data['ticketId'] = str(orderId)
                                 except Exception:
                                     pass
                                 logger.info(f"✅ Webhook enviado correctamente para {bc.get('loginUsuario')}: {resp.text}")
-                                webhook_sent = True
+                                webhookSent = True
                             else:
                                 logger.error(f"❌ Error webhook {resp.status_code} para {bc.get('loginUsuario')}: {resp.text}")
                         except Exception as e:
@@ -380,7 +390,7 @@ class BrokerGateway:
                 # -- FIN ENVÍO WEBHOOK --
 
                 if active_brokers:
-                    if webhook_sent:
+                    if webhookSent:
                         logger.info("ℹ️ Orden ejecutada vía Webhook correctamente. Se omite ejecución en MT5 local.")
                         exec_success = True
                     else:

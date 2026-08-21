@@ -4,97 +4,29 @@ import pandas as pd
 import numpy as np
 import talib as ta
 import json
-from datetime import datetime
+import warnings
+from datetime import datetime, timedelta
 
-# Asegurar path del proyecto en sys.path
-sys.path.append("/Volumes/TimeMachine/ATALAia")
-from middleware.database import dbConnection
-from Sentinel.analysis import technical
+warnings.filterwarnings('ignore')
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from Sentinel.backtesting import opt_db_helper
 
-def getActiveSymbols():
-    try:
-        from middleware.database import dbConnection
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        cursor = connection.cursor()
-        cursor.execute("SELECT symbol FROM SentinelSymbol WHERE Activo = 1")
-        rows = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        symbolsList = [row[0] for row in rows]
-        if not symbolsList:
-            return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-        return symbolsList
-    except Exception as e:
-        print(f"Error fetching active symbols: {e}")
-        return ['EUR/USD', 'GBP/USD', 'AUD/USD', 'NZD/USD', 'USD/CAD', 'USD/CHF', 'EUR/GBP', 'GBP/CAD', 'GBP/JPY', 'USD/JPY', 'USD/MXN', 'XAU/USD', 'BTC/USD']
-
-ALL_SYMBOLS = getActiveSymbols()
-
-PIP_MULTIPLIERS = {
-    'EUR/USD': 10000.0,
-    'GBP/USD': 10000.0,
-    'AUD/USD': 10000.0,
-    'NZD/USD': 10000.0,
-    'USD/CAD': 10000.0,
-    'USD/CHF': 10000.0,
-    'EUR/GBP': 10000.0,
-    'GBP/CAD': 10000.0,
-    'GBP/JPY': 100.0,
-    'USD/JPY': 100.0,
-    'USD/MXN': 10000.0,
-    'XAU/USD': 1.0,
-    'BTC/USD': 1.0,
-}
-
-SPREADS = {
-    'EUR/USD': 1.0,
-    'GBP/USD': 1.5,
-    'AUD/USD': 1.2,
-    'NZD/USD': 1.5,
-    'USD/CAD': 1.5,
-    'USD/CHF': 1.6,
-    'EUR/GBP': 1.5,
-    'GBP/CAD': 2.2,
-    'GBP/JPY': 2.0,
-    'USD/JPY': 1.2,
-    'USD/MXN': 25.0,
-    'XAU/USD': 0.35,
-    'BTC/USD': 30.0,
-}
-
-def loadCandles(symbol: str, startDate: str, endDate: str) -> pd.DataFrame:
-    try:
-        connection = dbConnection.getConnection()
-        if connection is None:
-            return pd.DataFrame()
-        query = """
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-            ORDER BY timestamp ASC
-        """
-        df = pd.read_sql(query, connection, params=(symbol, startDate, endDate))
-        connection.close()
-        if not df.empty:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            df.set_index('datetime', inplace=True)
-        return df
-    except Exception as e:
-        print(f"Error cargando velas: {e}")
-        return pd.DataFrame()
+ALL_SYMBOLS = opt_db_helper.getActiveSentinelSymbols()
+PIP_MULTIPLIERS = opt_db_helper.PIP_MULTIPLIERS
+SPREADS = opt_db_helper.SPREADS
+loadCandles = opt_db_helper.loadCandles
 
 def runFVGDiarioGridSearch() -> None:
     print("==========================================================")
     print("       INICIANDO GRID SEARCH OPTIMIZER (FVGDIARIO)        ")
     print("==========================================================")
     
-    startDateStr = '2026-04-16 00:00:00' # Extra para inicialización
-    endDateStr = '2026-06-16 23:59:59'
+    endDate = datetime.now()
+    startDate = endDate - timedelta(days=60)
+    startDateStr = startDate.strftime("%Y-%m-%d 00:00:00")
+    endDateStr = endDate.strftime("%Y-%m-%d %H:%M:%S")
     
-    # Grid de Parámetros
     minRrCombos = [1.2, 1.5, 1.8, 2.0, 2.3, 2.5, 2.8, 3.0, 3.5]
     minFvgPipsCombos = [2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
     minConfidenceCombos = [60.0, 65.0, 70.0, 75.0, 80.0, 85.0]
@@ -107,41 +39,32 @@ def runFVGDiarioGridSearch() -> None:
         df5m = loadCandles(symbol, startDateStr, endDateStr)
         if df5m.empty or len(df5m) < 400:
             print(f"  ⚠️ Datos insuficientes para {symbol}. Saltando.")
+            fallbackParams = {"min_rr": 1.5, "min_fvg_pips": 5.0, "min_confidence": 60}
+            opt_db_helper.saveSymbolStrategyConfig('FVGDiario', symbol, False, fallbackParams)
             continue
             
-        # Resamplear a 15min y 1D
         df15m = df5m.resample('15min').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
         }).dropna()
         
         df1d = df5m.resample('1D').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum'
+            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
         }).dropna()
         
         if len(df15m) < 200 or len(df1d) < 3:
-            print(f"  ⚠️ Datos insuficientes en 15m/1d para {symbol}. Saltando.")
+            fallbackParams = {"min_rr": 1.5, "min_fvg_pips": 5.0, "min_confidence": 60}
+            opt_db_helper.saveSymbolStrategyConfig('FVGDiario', symbol, False, fallbackParams)
             continue
             
-        pipMult = PIP_MULTIPLIERS.get(symbol, 10000.0)
-        spreadPrice = SPREADS.get(symbol, 1.0) / pipMult
+        pipMult = opt_db_helper.getPipMultiplier(symbol)
+        spreadPrice = opt_db_helper.getSpread(symbol) / pipMult
         
-        # Precalcular Daily Bias y PDH/PDL por día
         dailyBiasMap = {}
         pdhMap = {}
         pdlMap = {}
         
         for i in range(1, len(df1d)):
-            prevDayDate = df1d.index[i-1].date()
             curDayDate = df1d.index[i].date()
-            
             prevDayRow = df1d.iloc[i-1]
             closeVal = prevDayRow['close']
             openVal = prevDayRow['open']
@@ -162,7 +85,6 @@ def runFVGDiarioGridSearch() -> None:
             pdhMap[curDayDate] = float(highVal)
             pdlMap[curDayDate] = float(lowVal)
             
-        # Precalcular ATR en 15m
         df15m = df15m.copy()
         df15m["atr"] = ta.ATR(df15m['high'].values, df15m['low'].values, df15m['close'].values, timeperiod=14)
         df15m.dropna(subset=["atr"], inplace=True)
@@ -175,7 +97,6 @@ def runFVGDiarioGridSearch() -> None:
         times = df15m.index
         n = len(df15m)
         
-        # Precalcular swing highs y lows de 20 velas
         sHighs = df15m['high'].rolling(20).max().values
         sLows = df15m['low'].rolling(20).min().values
         
@@ -188,12 +109,9 @@ def runFVGDiarioGridSearch() -> None:
                     trades = []
                     activeTrade = None
                     
-                    # Simulación del backtest
-                    # Empezamos en un índice seguro para tener histórico
                     idx = 30
                     while idx < n:
                         if activeTrade:
-                            # Evaluar salidas
                             vHigh = highs[idx]
                             vLow = lows[idx]
                             
@@ -219,7 +137,6 @@ def runFVGDiarioGridSearch() -> None:
                             idx += 1
                             continue
                             
-                        # Buscar parámetros del día anterior correspondiente a esta vela
                         candleDate = times[idx].date()
                         dailyBias = dailyBiasMap.get(candleDate, "NEUTRAL")
                         pdh = pdhMap.get(candleDate, None)
@@ -229,11 +146,6 @@ def runFVGDiarioGridSearch() -> None:
                             idx += 1
                             continue
                             
-                        # Detectar sweep de liquidez en las últimas 10 velas de 15m
-                        # (technical.detectLiquiditySweep)
-                        # Para emularlo de forma rápida:
-                        # Si es LARGO, queremos ver si el low cruzó pdl en las últimas 10 velas
-                        # Si es CORTO, queremos ver si el high cruzó pdh en las últimas 10 velas
                         windowHighs = highs[idx-10:idx]
                         windowLows = lows[idx-10:idx]
                         
@@ -247,9 +159,6 @@ def runFVGDiarioGridSearch() -> None:
                             idx += 1
                             continue
                             
-                        # Verificar MSS (Market Structure Shift) posterior al sweep
-                        # LARGO: ver si el high de las últimas velas superó el nivel
-                        # CORTO: ver si el low de las últimas velas cayó del nivel
                         mss = False
                         if dailyBias == "LARGO":
                             for k in range(idx - 5, idx + 1):
@@ -266,10 +175,6 @@ def runFVGDiarioGridSearch() -> None:
                             idx += 1
                             continue
                             
-                        # Buscar FVG después de la manipulación
-                        # Para simplificar y acelerar, detectamos un FVG local (velas i, i-1, i-2)
-                        # BISI (Bullish): Low[i] > High[i-2]
-                        # SIBI (Bearish): High[i] < Low[i-2]
                         isBullishFvg = (lows[idx] > highs[idx-2]) and (closes[idx-1] > opens[idx-1])
                         isBearishFvg = (highs[idx] < lows[idx-2]) and (closes[idx-1] < opens[idx-1])
                         
@@ -285,45 +190,35 @@ def runFVGDiarioGridSearch() -> None:
                             idx += 1
                             continue
                             
-                        fvgSizePips = fvg['size'] * pipMult
-                        if fvgSizePips < minFvgPips:
+                        fvgPips = fvg['size'] * pipMult
+                        if fvgPips < minFvgPips:
                             idx += 1
                             continue
                             
-                        # Confianza
-                        baseConf = 85 if dailyBias != "NEUTRAL" else 75
-                        if baseConf < minConfidence:
-                            idx += 1
-                            continue
-                            
-                        # Entrar al trade
-                        direction = "LARGO" if dailyBias == "LARGO" else "CORTO"
-                        entry = closes[idx]
-                        
+                        currentPrice = closes[idx]
                         atrVal = atrs[idx]
-                        swingHigh = sHighs[idx]
-                        swingLow = sLows[idx]
                         
-                        if direction == "LARGO":
-                            sl = swingLow - atrVal * 0.2
+                        if fvg['type'] == 'Bullish_FVG':
+                            entryPrice = fvg['mid']
+                            sl = (sLows[idx] if not np.isnan(sLows[idx]) else entryPrice - (atrVal * 1.5)) - (atrVal * 0.2)
+                            riskDist = abs(entryPrice - sl)
+                            if riskDist <= 0:
+                                idx += 1
+                                continue
+                            tp = entryPrice + (riskDist * minRr)
+                            activeTrade = {"direction": "LARGO", "entry": entryPrice, "sl": sl, "tp": tp}
                         else:
-                            sl = swingHigh + atrVal * 0.2
-                            
-                        slDist = abs(entry - sl)
-                        if slDist > 0:
-                            tpDist = slDist * minRr
-                            tp = entry + tpDist if direction == "LARGO" else entry - tpDist
-                            
-                            activeTrade = {
-                                'direction': direction,
-                                'entry': entry + (spreadPrice / 2.0) if direction == "LARGO" else entry - (spreadPrice / 2.0),
-                                'sl': sl,
-                                'tp': tp
-                            }
+                            entryPrice = fvg['mid']
+                            sl = (sHighs[idx] if not np.isnan(sHighs[idx]) else entryPrice + (atrVal * 1.5)) + (atrVal * 0.2)
+                            riskDist = abs(entryPrice - sl)
+                            if riskDist <= 0:
+                                idx += 1
+                                continue
+                            tp = entryPrice - (riskDist * minRr)
+                            activeTrade = {"direction": "CORTO", "entry": entryPrice, "sl": sl, "tp": tp}
                             
                         idx += 1
                         
-                    # Evaluar métricas
                     tCount = len(trades)
                     if tCount > 3:
                         wCount = len([t for t in trades if t > 0])
@@ -352,43 +247,28 @@ def runFVGDiarioGridSearch() -> None:
                             
         if symbolBestCombo:
             bestResults.append(symbolBestCombo)
-            try:
-                import json
-                from middleware.database import dbConnection
-                conn = dbConnection.getConnection()
-                cursor = conn.cursor()
-                combo = symbolBestCombo
-                params = {"min_rr": combo["Min RR"]}
-                paramsJson = json.dumps(params)
-                
-                sql = """
-                    INSERT INTO symbolStrategyConfig (strategy, symbol, enabled, parametersJson)
-                    VALUES ('FvgDiario', %s, TRUE, %s)
-                    ON DUPLICATE KEY UPDATE parametersJson = VALUES(parametersJson), enabled = TRUE
-                """
-                cursor.execute(sql, (symbol, paramsJson))
-                conn.commit()
-                print(f"✅ DB: Guardado {symbol} (TRUE)")
-            except Exception as e:
-                print(f"❌ Error DB {symbol}: {e}")
-            finally:
-                if 'cursor' in locals(): cursor.close()
-                if 'conn' in locals() and hasattr(conn, 'close'): conn.close()
-
+            params = {
+                "min_rr": symbolBestCombo["Min RR"],
+                "min_fvg_pips": symbolBestCombo.get("Min FVG Pips", 5.0),
+                "min_confidence": symbolBestCombo.get("Min Conf", 60.0)
+            }
+            opt_db_helper.saveSymbolStrategyConfig('FVGDiario', symbol, True, params)
+            print(f"✅ DB: Guardado {symbol} (TRUE)")
             print(f"  🏆 Mejor combo para {symbol}: RR={symbolBestCombo['Min RR']} | Min FVG Pips={symbolBestCombo['Min FVG Pips']} | Conf={symbolBestCombo['Min Conf']}% | Trades={symbolBestCombo['Trades']} | WR={symbolBestCombo['Win Rate']} | PF={symbolBestCombo['Profit Factor']} | PnL=${symbolBestCombo['PnL USD']:.2f}")
         else:
-            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}.")
+            fallbackParams = {"min_rr": 1.5, "min_fvg_pips": 5.0, "min_confidence": 60}
+            opt_db_helper.saveSymbolStrategyConfig('FVGDiario', symbol, False, fallbackParams)
+            print(f"  ❌ No se encontró ninguna combinación rentable para {symbol}. Guardado en DB (FALSE).")
 
-    # Guardar reportes
     if allResultsRaw:
         dfRaw = pd.DataFrame(allResultsRaw)
-        rawPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/fvgdiario_grid_results_all.csv"
+        rawPath = opt_db_helper.getOutputPath("fvgdiario_grid_results_all.csv")
         dfRaw.to_csv(rawPath, index=False)
         print(f"\n💾 Todos los combos guardados en: {rawPath}")
         
     if bestResults:
         dfBest = pd.DataFrame(bestResults)
-        bestPath = "/Volumes/TimeMachine/ATALAia/Sentinel/backtesting/fvgdiario_grid_results_best.csv"
+        bestPath = opt_db_helper.getOutputPath("fvgdiario_grid_results_best.csv")
         dfBest.to_csv(bestPath, index=False)
         print(f"🏆 Resumen de los mejores combos guardado en: {bestPath}")
 

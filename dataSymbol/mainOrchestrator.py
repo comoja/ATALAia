@@ -51,7 +51,7 @@ def next_5min_time(now):
 
 def seconds_until_next_5min(now, buffer_seconds=120):
     next_time = next_5min_time(now)
-    next_time = next_time + timedelta(seconds=buffer_seconds if DATA_SOURCE != "forex" else 2)
+    next_time = next_time + timedelta(seconds=buffer_seconds if DATA_SOURCE != "forex" else 3)
     sleep_seconds = int((next_time - now).total_seconds())
     return max(0, sleep_seconds), next_time
 
@@ -73,13 +73,10 @@ def adjust_to_market_open(dt):
 
 def get_safe_last_candle(now, interval=5):
     """
-    Calcula el timestamp de la última vela CERRADA.
-    Restamos el intervalo completo (5 min) más un buffer de seguridad (30s) 
-    para asegurar que los datos ya están disponibles en la API.
+    Calcula el timestamp de la última vela CERRADA usando la función estándar del middleware.
+    A las 18:35:02, devuelve 18:30 (la vela 18:30-18:35 que acaba de cerrar a las 18:35:00).
     """
-    safe_now = now - timedelta(minutes=interval) - timedelta(seconds=30)
-    minute = (safe_now.minute // interval) * interval
-    return safe_now.replace(minute=minute, second=0, microsecond=0)
+    return _get_last_closed_candle(now, interval)
 
 from middleware.utils.time_utils import get_last_closed_candle as _get_last_closed_candle
 

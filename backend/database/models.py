@@ -151,8 +151,10 @@ class UserRatio(Base):
     numerador = Column(String(20), nullable=False)
     denominador = Column(String(20), nullable=False)
     periodo = Column(String(20), nullable=False)
+    dias = Column(Integer, default=180)
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
+    operar = Column(Boolean, default=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
 
 # Crea las tablas si no existen en la BD "ATALAia"
