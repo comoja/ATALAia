@@ -39,9 +39,51 @@ public class DashboardBean implements Serializable {
 
     // --- Catalogo de Simbolos desde BD ---
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
+        public static class UserAccountDto implements java.io.Serializable {
+        private Integer idUsuarioCuenta;
+        private Integer idUsuario;
+        private Integer idCuenta;
+        private String nombreCuenta;
+        private Double capital;
+        private Boolean activo;
+
+        public Integer getIdUsuarioCuenta() { return idUsuarioCuenta; }
+        public void setIdUsuarioCuenta(Integer idUsuarioCuenta) { this.idUsuarioCuenta = idUsuarioCuenta; }
+        public Integer getIdUsuario() { return idUsuario; }
+        public void setIdUsuario(Integer idUsuario) { this.idUsuario = idUsuario; }
+        public Integer getIdCuenta() { return idCuenta; }
+        public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
+        public String getNombreCuenta() { return nombreCuenta; }
+        public void setNombreCuenta(String nombreCuenta) { this.nombreCuenta = nombreCuenta; }
+        public Double getCapital() { return capital; }
+        public void setCapital(Double capital) { this.capital = capital; }
+        public Boolean getActivo() { return activo; }
+        public void setActivo(Boolean activo) { this.activo = activo; }
+    }
+
+    private List<UserAccountDto> userAccountsCombo = new ArrayList<>();
+    private Integer selectedAccountId;
+
+    public List<UserAccountDto> getUserAccountsCombo() {
+        return userAccountsCombo;
+    }
+
+    public void setUserAccountsCombo(List<UserAccountDto> userAccountsCombo) {
+        this.userAccountsCombo = userAccountsCombo;
+    }
+
+    public Integer getSelectedAccountId() {
+        return selectedAccountId;
+    }
+
+    public void setSelectedAccountId(Integer selectedAccountId) {
+        this.selectedAccountId = selectedAccountId;
+    }
+
     public static class UserRatioDto implements java.io.Serializable {
         private Integer id;
         private Integer idUsuario;
+        private Integer idCuenta;
         private String numerador;
         private String denominador;
         private String periodo;
@@ -55,6 +97,8 @@ public class DashboardBean implements Serializable {
         public void setId(Integer id) { this.id = id; }
         public Integer getIdUsuario() { return idUsuario; }
         public void setIdUsuario(Integer idUsuario) { this.idUsuario = idUsuario; }
+        public Integer getIdCuenta() { return idCuenta; }
+        public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
         public String getNumerador() { return numerador; }
         public void setNumerador(String numerador) { this.numerador = numerador; }
         public String getDenominador() { return denominador; }
@@ -263,7 +307,7 @@ public class DashboardBean implements Serializable {
         this.startDate = cal.getTime();
 
         loadCatalogo();
-        loadUserRatiosList();
+        loadUserAccounts();
         loadUserRatiosList();
         fetchUserRatioDetails();
         analyzePair(); // Cargar datos iniciales
@@ -536,6 +580,7 @@ public class DashboardBean implements Serializable {
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idUsuario", userId);
+            payload.put("idCuenta", selectedAccountId);
             payload.put("numerador", selectedPair);
             payload.put("denominador", selectedPair2);
             payload.put("periodo", timeframe != null ? timeframe : "1d");
@@ -575,7 +620,123 @@ public class DashboardBean implements Serializable {
         }
     }
 
-        public void onOperarToggle() {
+                public void loadUserAccounts() {
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/usuario-cuentas/" + userId;
+            log.info("Cargando cuentas asociadas para idUsuario {} desde {}", userId, url);
+
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UserAccountDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UserAccountDto dto = new UserAccountDto();
+                        if (item.has("idUsuarioCuenta")) dto.setIdUsuarioCuenta(item.get("idUsuarioCuenta").asInt());
+                        if (item.has("idUsuario")) dto.setIdUsuario(item.get("idUsuario").asInt());
+                        if (item.has("idCuenta")) dto.setIdCuenta(item.get("idCuenta").asInt());
+                        if (item.has("nombreCuenta")) dto.setNombreCuenta(item.get("nombreCuenta").asText());
+                        if (item.has("capital") && !item.get("capital").isNull()) dto.setCapital(item.get("capital").asDouble());
+                        if (item.has("activo") && !item.get("activo").isNull()) dto.setActivo(item.get("activo").asBoolean());
+                        list.add(dto);
+                    }
+                }
+            }
+            this.userAccountsCombo = list;
+            log.info("Cargadas {} cuentas para el usuario {}", list.size(), userId);
+
+            if (!list.isEmpty()) {
+                boolean accountFound = false;
+                if (selectedAccountId != null) {
+                    for (UserAccountDto acc : list) {
+                        if (acc.getIdCuenta().equals(selectedAccountId)) {
+                            accountFound = true;
+                            break;
+                        }
+                    }
+                }
+                if (!accountFound) {
+                    this.selectedAccountId = list.get(0).getIdCuenta();
+                }
+            } else {
+                this.selectedAccountId = null;
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar cuentas del usuario: {}", e.getMessage());
+        }
+    }
+
+    public void onCuentaChange() {
+        log.info("Cuenta cambiada en panel lateral a idCuenta={}", selectedAccountId);
+        loadUserRatiosList();
+        if (userRatiosList != null && !userRatiosList.isEmpty()) {
+            UserRatioDto firstRatio = userRatiosList.get(0);
+            onSelectUserRatio(firstRatio);
+            this.activeAccordionIndex = "0";
+        } else {
+            this.ratioExistsInDb = false;
+            this.operar = false;
+            this.selectedUserRatio = null;
+            this.activeAccordionIndex = "0";
+            fetchUserRatioDetails();
+            analyzePair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Cuenta Seleccionada", "No hay ratios registrados para esta cuenta."));
+        }
+
+        try {
+            if (org.primefaces.PrimeFaces.current() != null && org.primefaces.PrimeFaces.current().isAjaxRequest()) {
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion:userRatiosTable", "aetherForm:mainTabView:leftAccordion");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public void onUsuarioChange() {
+        Integer userId = null;
+        if (securityBean != null) {
+            userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+        }
+        log.info("Usuario seleccionado cambiado en cabecera de configuración: idUsuario={}", userId);
+        loadUserAccounts();
+        loadUserRatiosList();
+
+        if (userRatiosList != null && !userRatiosList.isEmpty()) {
+            UserRatioDto firstRatio = userRatiosList.get(0);
+            log.info("Cargando primer ratio del usuario {}: {} / {}", userId, firstRatio.getNumerador(), firstRatio.getDenominador());
+            onSelectUserRatio(firstRatio);
+            this.activeAccordionIndex = "0"; // Mantener abierta la sección 1 para ver la tabla del usuario
+        } else {
+            log.info("El usuario {} no tiene ratios guardados. Restableciendo estado.", userId);
+            this.ratioExistsInDb = false;
+            this.operar = false;
+            this.selectedUserRatio = null;
+            this.activeAccordionIndex = "0";
+            fetchUserRatioDetails();
+            analyzePair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Usuario Seleccionado", "El usuario seleccionado no tiene ratios guardados."));
+        }
+
+        try {
+            if (org.primefaces.PrimeFaces.current() != null && org.primefaces.PrimeFaces.current().isAjaxRequest()) {
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion:userRatiosTable", "aetherForm:mainTabView:leftAccordion");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public void onOperarToggle() {
         log.info("Estado de Operar actualizado a {} para {} / {}. Guardando en BD...", operar, selectedPair, selectedPair2);
         guardarRatio();
     }
@@ -592,7 +753,7 @@ public class DashboardBean implements Serializable {
 
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
-            String url = backendUrl + "/api/v1/user-ratios/" + userId;
+            String url = backendUrl + "/api/v1/user-ratios/" + userId + (selectedAccountId != null ? "?idCuenta=" + selectedAccountId : "");
             log.info("Cargando lista de ratios guardados para idUsuario {} desde {}", userId, url);
 
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -604,6 +765,7 @@ public class DashboardBean implements Serializable {
                         UserRatioDto dto = new UserRatioDto();
                         if (item.has("id")) dto.setId(item.get("id").asInt());
                         if (item.has("idUsuario")) dto.setIdUsuario(item.get("idUsuario").asInt());
+                        if (item.has("idCuenta") && !item.get("idCuenta").isNull()) dto.setIdCuenta(item.get("idCuenta").asInt());
                         if (item.has("numerador")) dto.setNumerador(item.get("numerador").asText());
                         if (item.has("denominador")) dto.setDenominador(item.get("denominador").asText());
                         if (item.has("periodo")) dto.setPeriodo(item.get("periodo").asText());
@@ -678,7 +840,7 @@ public class DashboardBean implements Serializable {
 
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
-            String url = String.format("%s/api/v1/user-ratios/buscar?idUsuario=%d&numerador=%s&denominador=%s",
+            String url = String.format("%s/api/v1/user-ratios/buscar?idUsuario=%d&numerador=%s&denominador=%s" + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
                     backendUrl, userId,
                     java.net.URLEncoder.encode(selectedPair != null ? selectedPair : "", "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2 != null ? selectedPair2 : "", "UTF-8"));
@@ -746,6 +908,7 @@ public class DashboardBean implements Serializable {
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idUsuario", userId);
+            payload.put("idCuenta", selectedAccountId);
             payload.put("numerador", selectedPair);
             payload.put("denominador", selectedPair2);
 

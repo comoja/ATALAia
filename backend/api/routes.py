@@ -15,7 +15,7 @@ from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -93,6 +93,7 @@ def get_catalogo_pares():
 
 class UserRatioCreate(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     numerador: str = Field(..., description="Símbolo numerador (Par A)")
     denominador: str = Field(..., description="Símbolo denominador (Par B)")
     periodo: str = Field(..., description="Periodo o temporalidad (ej. 1d, 1h)")
@@ -103,20 +104,29 @@ class UserRatioCreate(BaseModel):
 
 class UserRatioDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     numerador: str = Field(..., description="Símbolo numerador (Par A)")
     denominador: str = Field(..., description="Símbolo denominador (Par B)")
 
 @router.post("/user-ratios/guardar")
 def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
     """
-    Guarda o actualiza (UPSERT) en user_ratios la relación entre idUsuario, numerador y denominador.
+    Guarda o actualiza (UPSERT) en user_ratios la relación entre idUsuario, idCuenta, numerador y denominador.
     """
     try:
-        existingRatio = db.query(UserRatio).filter(
+        cuentaId = payload.idCuenta
+        if not cuentaId:
+            uc = db.query(UsuarioCuenta).filter(UsuarioCuenta.idUsuario == payload.idUsuario, UsuarioCuenta.activo == True).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
+            cuentaId = uc.idCuenta if uc else 1
+
+        query = db.query(UserRatio).filter(
             UserRatio.idUsuario == payload.idUsuario,
             UserRatio.numerador == payload.numerador,
             UserRatio.denominador == payload.denominador
-        ).first()
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        existingRatio = query.first()
 
         emaRapida = payload.EMARapida if payload.EMARapida is not None else 3
         emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
@@ -124,6 +134,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
         operar = bool(payload.operar) if payload.operar is not None else False
 
         if existingRatio:
+            existingRatio.idCuenta = cuentaId
             existingRatio.periodo = payload.periodo
             existingRatio.dias = dias
             existingRatio.EMARapida = emaRapida
@@ -132,11 +143,12 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
             existingRatio.createdAt = datetime.utcnow()
             db.commit()
             db.refresh(existingRatio)
-            logger.info(f"Ratio actualizado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
-            return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "action": "updated"}
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
+            return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "idCuenta": cuentaId, "action": "updated"}
         else:
             nuevoRatio = UserRatio(
                 idUsuario=payload.idUsuario,
+                idCuenta=cuentaId,
                 numerador=payload.numerador,
                 denominador=payload.denominador,
                 periodo=payload.periodo,
@@ -149,23 +161,27 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
             db.add(nuevoRatio)
             db.commit()
             db.refresh(nuevoRatio)
-            logger.info(f"Ratio guardado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
-            return {"status": "success", "message": "Ratio guardado exitosamente", "id": nuevoRatio.id, "action": "created"}
+            logger.info(f"Ratio guardado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
+            return {"status": "success", "message": "Ratio guardado exitosamente", "id": nuevoRatio.id, "idCuenta": cuentaId, "action": "created"}
     except Exception as e:
         db.rollback()
         logger.error(f"Error al guardar user_ratio: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/user-ratios/buscar")
-def findUserRatio(idUsuario: int, numerador: str, denominador: str, db: Session = Depends(get_db)):
+def findUserRatio(idUsuario: int, numerador: str, denominador: str, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
-    Busca la configuración de un ratio guardado por su clave compuesta (idUsuario, numerador, denominador).
+    Busca la configuración de un ratio guardado por su clave compuesta (idUsuario, idCuenta, numerador, denominador).
     """
-    ratio = db.query(UserRatio).filter(
+    query = db.query(UserRatio).filter(
         UserRatio.idUsuario == idUsuario,
         UserRatio.numerador == numerador,
         UserRatio.denominador == denominador
-    ).first()
+    )
+    if idCuenta:
+        query = query.filter(UserRatio.idCuenta == idCuenta)
+    
+    ratio = query.first()
 
     if not ratio:
         return {"found": False}
@@ -174,6 +190,7 @@ def findUserRatio(idUsuario: int, numerador: str, denominador: str, db: Session 
         "found": True,
         "id": ratio.id,
         "idUsuario": ratio.idUsuario,
+        "idCuenta": ratio.idCuenta,
         "numerador": ratio.numerador,
         "denominador": ratio.denominador,
         "periodo": ratio.periodo,
@@ -187,21 +204,25 @@ def findUserRatio(idUsuario: int, numerador: str, denominador: str, db: Session 
 @router.post("/user-ratios/borrar")
 def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
     """
-    Elimina por el índice compuesto (idUsuario, numerador, denominador) el registro correspondiente.
+    Elimina por el índice compuesto (idUsuario, idCuenta, numerador, denominador) el registro correspondiente.
     """
     try:
-        ratioToDelete = db.query(UserRatio).filter(
+        query = db.query(UserRatio).filter(
             UserRatio.idUsuario == payload.idUsuario,
             UserRatio.numerador == payload.numerador,
             UserRatio.denominador == payload.denominador
-        ).first()
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+
+        ratioToDelete = query.first()
 
         if not ratioToDelete:
             raise HTTPException(status_code=404, detail="No se encontró la combinación de ratio especificada para eliminar.")
 
         db.delete(ratioToDelete)
         db.commit()
-        logger.info(f"Ratio eliminado para usuario {payload.idUsuario}: {payload.numerador}/{payload.denominador}")
+        logger.info(f"Ratio eliminado para usuario {payload.idUsuario} (cuenta {ratioToDelete.idCuenta}): {payload.numerador}/{payload.denominador}")
         return {"status": "success", "message": "Ratio eliminado exitosamente"}
     except HTTPException as he:
         raise he
@@ -210,12 +231,106 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
         logger.error(f"Error al borrar user_ratio: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+class UsuarioCuentaAssign(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: int = Field(..., description="ID de la cuenta a asociar")
+    activo: Optional[bool] = Field(True, description="Estado de la asignación")
+
+class UsuarioCuentaDelete(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: int = Field(..., description="ID de la cuenta a desasociar")
+
+@router.get("/usuario-cuentas/{idUsuario}")
+def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
+    """
+    Obtiene todas las cuentas asociadas y administradas por un usuario específico.
+    """
+    relaciones = (
+        db.query(UsuarioCuenta, Cuenta)
+        .join(Cuenta, UsuarioCuenta.idCuenta == Cuenta.idCuenta)
+        .filter(UsuarioCuenta.idUsuario == idUsuario)
+        .all()
+    )
+    return [
+        {
+            "idUsuarioCuenta": uc.idUsuarioCuenta,
+            "idUsuario": uc.idUsuario,
+            "idCuenta": c.idCuenta,
+            "nombreCuenta": c.Nombre,
+            "capital": float(c.Capital or 0.0),
+            "activo": bool(uc.activo),
+            "createdAt": uc.createdAt
+        }
+        for uc, c in relaciones
+    ]
+
+@router.post("/usuario-cuentas/asignar")
+def asignarUsuarioCuenta(payload: UsuarioCuentaAssign, db: Session = Depends(get_db)):
+    """
+    Asocia una cuenta a un usuario (UPSERT en usuarioCuenta).
+    """
+    try:
+        relacion = db.query(UsuarioCuenta).filter(
+            UsuarioCuenta.idUsuario == payload.idUsuario,
+            UsuarioCuenta.idCuenta == payload.idCuenta
+        ).first()
+        if relacion:
+            relacion.activo = payload.activo
+            db.commit()
+            db.refresh(relacion)
+            logger.info(f"Relación usuarioCuenta actualizada: Usuario {payload.idUsuario} -> Cuenta {payload.idCuenta} (activo={payload.activo})")
+            return {"status": "success", "message": "Asignación actualizada", "id": relacion.idUsuarioCuenta}
+        else:
+            nuevaRelacion = UsuarioCuenta(
+                idUsuario=payload.idUsuario,
+                idCuenta=payload.idCuenta,
+                activo=payload.activo,
+                createdAt=datetime.utcnow()
+            )
+            db.add(nuevaRelacion)
+            db.commit()
+            db.refresh(nuevaRelacion)
+            logger.info(f"Nueva relación usuarioCuenta creada: Usuario {payload.idUsuario} -> Cuenta {payload.idCuenta}")
+            return {"status": "success", "message": "Cuenta asignada exitosamente", "id": nuevaRelacion.idUsuarioCuenta}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al asignar cuenta a usuario: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/usuario-cuentas/desasignar")
+def desasignarUsuarioCuenta(payload: UsuarioCuentaDelete, db: Session = Depends(get_db)):
+    """
+    Elimina la asociación entre un usuario y una cuenta.
+    """
+    try:
+        relacion = db.query(UsuarioCuenta).filter(
+            UsuarioCuenta.idUsuario == payload.idUsuario,
+            UsuarioCuenta.idCuenta == payload.idCuenta
+        ).first()
+        if not relacion:
+            raise HTTPException(status_code=404, detail="No se encontró la asignación especificada.")
+        db.delete(relacion)
+        db.commit()
+        logger.info(f"Relación usuarioCuenta eliminada: Usuario {payload.idUsuario} -> Cuenta {payload.idCuenta}")
+        return {"status": "success", "message": "Asignación eliminada exitosamente"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al desasignar cuenta de usuario: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/user-ratios/{idUsuario}")
-def getUserRatios(idUsuario: int, db: Session = Depends(get_db)):
+def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
-    Obtiene todos los ratios guardados para un usuario específico.
+    Obtiene todos los ratios guardados para un usuario específico (y opcionalmente por cuenta).
     """
-    return db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario).order_by(UserRatio.id.desc()).all()
+    query = db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario)
+    if idCuenta:
+        query = query.filter(UserRatio.idCuenta == idCuenta)
+    return query.order_by(UserRatio.id.desc()).all()
 
 
 @router.get("/ratio/{pairA:path}")

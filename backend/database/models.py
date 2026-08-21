@@ -141,13 +141,14 @@ class SentinelSymbol(Base):
 
 class UserRatio(Base):
     """
-    Tabla de relación entre usuario y ratios guardados a analizar.
+    Tabla de relación entre usuario, cuenta y ratios guardados a analizar.
     """
     __tablename__ = "user_ratios"
-    __table_args__ = (UniqueConstraint("idUsuario", "numerador", "denominador", name="ukUserRatioPair"),)
+    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "numerador", "denominador", name="ukUserRatioPair"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
     numerador = Column(String(20), nullable=False)
     denominador = Column(String(20), nullable=False)
     periodo = Column(String(20), nullable=False)
@@ -155,6 +156,21 @@ class UserRatio(Base):
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
     operar = Column(Boolean, default=False)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+
+class UsuarioCuenta(Base):
+    """
+    Tabla de relación entre usuarios y cuentas de trading (1 usuario administra N cuentas).
+    """
+    __tablename__ = "usuarioCuenta"
+    __table_args__ = (
+        UniqueConstraint("idUsuario", "idCuenta", name="ukUsuarioCuenta"),
+    )
+
+    idUsuarioCuenta = Column(Integer, primary_key=True, autoincrement=True)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
+    activo = Column(Boolean, default=True, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
 
 # Crea las tablas si no existen en la BD "ATALAia"
