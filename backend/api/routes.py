@@ -466,63 +466,8 @@ async def get_ratio_correlation(
                     except Exception as e:
                         logger.warning(f"Error parseando fechas para el filtro: {e}")
                 
-                # --- PROYECCIÓN FUTURA ---
-                if history_real:
-                    import pandas as pd
-                    import numpy as np
-                    
-                    ultimo_punto = history_real[-1]
-                    total_puntos_original = len(resultado["history"])
-                    
-                    try:
-                        dt_start = pd.to_datetime(ultimo_punto["datetime"])
-                    except Exception:
-                        dt_start = pd.Timestamp.now()
-                        
-                    history_proyeccion = []
-                    num_puntos_proyectar = len(history_real)
-                    
-                    for k in range(1, num_puntos_proyectar + 1):
-                        # Calcular el timestamp futuro sumando el offset correspondiente
-                        if tf == "1month":
-                            dt_futuro = dt_start + pd.DateOffset(months=k)
-                        elif tf == "1week":
-                            dt_futuro = dt_start + pd.DateOffset(weeks=k)
-                        elif tf == "1d":
-                            dt_futuro = dt_start + pd.DateOffset(days=k)
-                        elif tf == "1h":
-                            dt_futuro = dt_start + pd.DateOffset(hours=k)
-                        elif tf == "30m":
-                            dt_futuro = dt_start + pd.DateOffset(minutes=30 * k)
-                        elif tf == "15m":
-                            dt_futuro = dt_start + pd.DateOffset(minutes=15 * k)
-                        elif tf == "5m":
-                            dt_futuro = dt_start + pd.DateOffset(minutes=5 * k)
-                        else:
-                            dt_futuro = dt_start + pd.DateOffset(days=k)
-                            
-                        # Utilizar el precio del último punto real conocido para mantener la continuidad
-                        last_price = history_real[-1].get("price", 0) if history_real else 0
-                        # Opcionalmente se podría proyectar el precio, pero de forma base usamos el último
-                        ciclo_st_futuro = amplitude * np.sin(freq * last_price + phase) + offset
-                        
-                        item_futuro = {
-                            "datetime": str(dt_futuro),
-                            "price": None,
-                            "vol7D": None,
-                            "vol60D": None,
-                            "sma20": None,
-                            "cicloSt": float(ciclo_st_futuro),
-                            "bsCall": None,
-                            "bsPut": None,
-                            "priceA": None,
-                            "priceB": None,
-                            "isProjection": True
-                        }
-                        history_proyeccion.append(item_futuro)
-                    resultado["history"] = history_real + history_proyeccion
-                else:
-                    resultado["history"] = history_real
+                # Historial real sin proyecciones
+                resultado["history"] = history_real
                     
             # --- DISTRIBUCIÓN ESTADÍSTICA (PRECIOS NORMALIZADOS 0-1) ---
             try:
