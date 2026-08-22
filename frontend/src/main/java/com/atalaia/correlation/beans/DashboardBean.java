@@ -132,6 +132,10 @@ public class DashboardBean implements Serializable {
         private Double pipsB;
         private Double pnlA;
         private Double pnlB;
+        private Double marginA;
+        private Double marginB;
+        private Double availableCapital;
+        private Double accumCapital;
         private Boolean isOpen = false;
 
         public Integer getTradeNum() { return tradeNum; }
@@ -194,6 +198,26 @@ public class DashboardBean implements Serializable {
         public void setPnlB(Double pnlB) { this.pnlB = pnlB; }
         public Boolean getIsOpen() { return isOpen != null && isOpen; }
         public void setIsOpen(Boolean isOpen) { this.isOpen = isOpen; }
+        public Double getMarginA() { return marginA; }
+        public void setMarginA(Double marginA) { this.marginA = marginA; }
+        public Double getMarginB() { return marginB; }
+        public void setMarginB(Double marginB) { this.marginB = marginB; }
+        public String getFormattedMarginA() {
+            return marginA != null ? String.format(java.util.Locale.US, "%,.2f", marginA) : "0.00";
+        }
+        public String getFormattedMarginB() {
+            return marginB != null ? String.format(java.util.Locale.US, "%,.2f", marginB) : "0.00";
+        }
+        public Double getAvailableCapital() { return availableCapital; }
+        public void setAvailableCapital(Double availableCapital) { this.availableCapital = availableCapital; }
+        public String getFormattedAvailableCapital() {
+            return availableCapital != null ? String.format(java.util.Locale.US, "%,.2f", availableCapital) : "0.00";
+        }
+        public Double getAccumCapital() { return accumCapital; }
+        public void setAccumCapital(Double accumCapital) { this.accumCapital = accumCapital; }
+        public String getFormattedAccumCapital() {
+            return accumCapital != null ? String.format(java.util.Locale.US, "%,.2f", accumCapital) : "0.00";
+        }
         public String getFormattedAllocatedCapital() {
             return allocatedCapital != null ? String.format(java.util.Locale.US, "%,.2f", allocatedCapital) : "0.00";
         }
@@ -451,6 +475,32 @@ public class DashboardBean implements Serializable {
         return p != null ? String.format(java.util.Locale.US, "%,.2f", p) : "0.00";
     }
 
+    public Double getSelectedAccountCapital() {
+        if (selectedAccountId != null && userAccountsCombo != null) {
+            for (UserAccountDto acc : userAccountsCombo) {
+                if (selectedAccountId.equals(acc.getIdCuenta()) && acc.getCapital() != null) {
+                    return acc.getCapital();
+                }
+            }
+        }
+        if (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getInitialCapital() != null) {
+            return signalBtCombinedMetrics.getInitialCapital();
+        }
+        return 300.0;
+    }
+
+    public String getFormattedSignalBtInitialCapital() {
+        Double cap = getSelectedAccountCapital();
+        if (cap != null) {
+            if (cap == Math.floor(cap)) {
+                return String.format(java.util.Locale.US, "%,.0f", cap);
+            } else {
+                return String.format(java.util.Locale.US, "%,.2f", cap);
+            }
+        }
+        return "300";
+    }
+
     public Double getQuantTotalPnl() {
         if (quantMetrics != null && quantMetrics.getFinalCapital() != null && quantMetrics.getInitialCapital() != null) {
             return Math.round((quantMetrics.getFinalCapital() - quantMetrics.getInitialCapital()) * 100.0) / 100.0;
@@ -511,19 +561,6 @@ public class DashboardBean implements Serializable {
 
     private List<UserAccountDto> userAccountsCombo = new ArrayList<>();
     private Integer selectedAccountId;
-
-    public Double getSelectedAccountCapital() {
-        if (selectedAccountId != null && userAccountsCombo != null) {
-            for (UserAccountDto a : userAccountsCombo) {
-                if (a.getIdCuenta() != null && a.getIdCuenta().equals(selectedAccountId)) {
-                    if (a.getCapital() != null && a.getCapital() > 0) {
-                        return a.getCapital();
-                    }
-                }
-            }
-        }
-        return 1000.0;
-    }
 
     public List<UserAccountDto> getUserAccountsCombo() {
         return userAccountsCombo;
@@ -976,8 +1013,13 @@ public class DashboardBean implements Serializable {
                                 if (t.has("allocatedCapital")) st.setAllocatedCapital(t.get("allocatedCapital").asDouble());
                                 if (t.has("entryDate")) {
                                     String ed = t.get("entryDate").asText();
-                                    if (ed != null && ed.length() >= 10 && ed.contains(" ") && !ed.contains("Entradas")) {
-                                        ed = ed.substring(0, 10);
+                                    if (ed != null) {
+                                        if (ed.startsWith("Entradas: ")) {
+                                            ed = ed.substring("Entradas: ".length());
+                                        }
+                                        if (ed.length() >= 10 && ed.contains(" ") && !ed.contains(" a ")) {
+                                            ed = ed.substring(0, 10);
+                                        }
                                     }
                                     st.setEntryDate(ed);
                                 }
@@ -1011,6 +1053,10 @@ public class DashboardBean implements Serializable {
                                 if (t.has("pipsB") && !t.get("pipsB").isNull()) st.setPipsB(t.get("pipsB").asDouble());
                                 if (t.has("pnlA") && !t.get("pnlA").isNull()) st.setPnlA(t.get("pnlA").asDouble());
                                 if (t.has("pnlB") && !t.get("pnlB").isNull()) st.setPnlB(t.get("pnlB").asDouble());
+                                if (t.has("marginA") && !t.get("marginA").isNull()) st.setMarginA(t.get("marginA").asDouble());
+                                if (t.has("marginB") && !t.get("marginB").isNull()) st.setMarginB(t.get("marginB").asDouble());
+                                if (t.has("availableCapital") && !t.get("availableCapital").isNull()) st.setAvailableCapital(t.get("availableCapital").asDouble());
+                                if (t.has("accumCapital") && !t.get("accumCapital").isNull()) st.setAccumCapital(t.get("accumCapital").asDouble());
                                 if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
                                 toTrades.add(st);
                             }
@@ -1046,8 +1092,13 @@ public class DashboardBean implements Serializable {
                                 if (t.has("allocatedCapital")) st.setAllocatedCapital(t.get("allocatedCapital").asDouble());
                                 if (t.has("entryDate")) {
                                     String ed = t.get("entryDate").asText();
-                                    if (ed != null && ed.length() >= 10 && ed.contains(" ") && !ed.contains("Entradas")) {
-                                        ed = ed.substring(0, 10);
+                                    if (ed != null) {
+                                        if (ed.startsWith("Entradas: ")) {
+                                            ed = ed.substring("Entradas: ".length());
+                                        }
+                                        if (ed.length() >= 10 && ed.contains(" ") && !ed.contains(" a ")) {
+                                            ed = ed.substring(0, 10);
+                                        }
                                     }
                                     st.setEntryDate(ed);
                                 }
@@ -1081,6 +1132,10 @@ public class DashboardBean implements Serializable {
                                 if (t.has("pipsB") && !t.get("pipsB").isNull()) st.setPipsB(t.get("pipsB").asDouble());
                                 if (t.has("pnlA") && !t.get("pnlA").isNull()) st.setPnlA(t.get("pnlA").asDouble());
                                 if (t.has("pnlB") && !t.get("pnlB").isNull()) st.setPnlB(t.get("pnlB").asDouble());
+                                if (t.has("marginA") && !t.get("marginA").isNull()) st.setMarginA(t.get("marginA").asDouble());
+                                if (t.has("marginB") && !t.get("marginB").isNull()) st.setMarginB(t.get("marginB").asDouble());
+                                if (t.has("availableCapital") && !t.get("availableCapital").isNull()) st.setAvailableCapital(t.get("availableCapital").asDouble());
+                                if (t.has("accumCapital") && !t.get("accumCapital").isNull()) st.setAccumCapital(t.get("accumCapital").asDouble());
                                 if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
                                 cbTrades.add(st);
                             }

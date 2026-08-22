@@ -619,15 +619,16 @@ class QuantPairEngine:
         cycle_counter = 0
         equity = float(initialCapital) if initialCapital > 0 else 800.0
         cycle_start_equity = equity # Capital base del ciclo para calcular el 3%
+        cycle_available_equity = equity # Capital disminuido decrementando margen para entradas sucesivas
         peakEquity = equity
         maxDrawdown = 0.0
         equityCurve = []
         costRate = (commissionBps + slippageBps) / 10000.0
         allocationRate = allocationPct / 100.0
 
-        # Ratios de margen institucional desde symbols.margen
-        margenRateA = (margenPctA / 100.0) if margenPctA > 0 else 0.01
-        margenRateB = (margenPctB / 100.0) if margenPctB > 0 else 0.01
+        # Ratios de margen institucional directo desde symbols.margen
+        margenRateA = (margenPctA / 100.0) if margenPctA >= 0.05 else margenPctA
+        margenRateB = (margenPctB / 100.0) if margenPctB >= 0.05 else margenPctB
 
         sample_req_margin_lot = 20.0
 
@@ -697,6 +698,8 @@ class QuantPairEngine:
                 cycle_trades = []
                 cycle_pnl = 0.0
                 cycle_margin = sum(t["margin"] for t in active_trades)
+                cycle_margin_a = sum(t.get("marginA", 0.0) for t in active_trades)
+                cycle_margin_b = sum(t.get("marginB", 0.0) for t in active_trades)
                 cycle_units_a = sum(t["unitsA"] for t in active_trades)
                 cycle_units_b = sum(t["unitsB"] for t in active_trades)
 
@@ -744,6 +747,10 @@ class QuantPairEngine:
                         "entryDate": t["entryDate"],
                         "exitDate": d,
                         "allocatedCapital": round(float(t["margin"]), 2), # Margen invertido de la cuenta
+                        "marginA": round(float(t.get("marginA", 0.0)), 2),
+                        "marginB": round(float(t.get("marginB", 0.0)), 2),
+                        "availableCapital": round(float(t.get("availableCapital", 0.0)), 2), # Capital disminuido
+                        "accumCapital": round(float(equity), 2), # Capital acumulado tras la operación
                         "multA": t["multA"],
                         "multB": t["multB"],
                         "unitsA": int(t["unitsA"]),
@@ -775,9 +782,13 @@ class QuantPairEngine:
                     "cycleNum": cycle_counter,
                     "signalType": f"SUBTOTAL CIERRE #{cycle_counter}",
                     "direction": f"● Salida Media ({len(cycle_trades)} ops)",
-                    "entryDate": f"Entradas: {entrySpan}",
+                    "entryDate": entrySpan,
                     "exitDate": d,
                     "allocatedCapital": round(float(cycle_margin), 2),
+                    "marginA": round(float(cycle_margin_a), 2),
+                    "marginB": round(float(cycle_margin_b), 2),
+                    "availableCapital": round(float(equity), 2),
+                    "accumCapital": round(float(equity), 2),
                     "multA": None,
                     "multB": None,
                     "unitsA": int(cycle_units_a),
@@ -799,6 +810,7 @@ class QuantPairEngine:
 
                 # REINVERSIÓN AL CIERRE
                 cycle_start_equity = equity
+                cycle_available_equity = equity
                 active_trades = []
 
             # 2. EVALUAR ENTRADA CON 3% DE CAPITAL, symbols.margen Y NOMBRES REALES DE PARES
@@ -830,12 +842,13 @@ class QuantPairEngine:
                         direction = f"LONG {nameA} / SHORT {nameB}"
 
             if sigType and direction:
-                totalEntryBudget = cycle_start_equity * allocationRate
+                totalEntryBudget = max(0.0, cycle_available_equity) * allocationRate
                 budgetA = totalEntryBudget / 2.0
                 budgetB = totalEntryBudget / 2.0
 
-                margen1LotA = (minLotsA * pxA) * margenRateA
-                margen1LotB = (minLotsB * (1.0 if quoteB == "MXN" else pxB)) * margenRateB
+                # Margen invertido = symbols.margen * lote
+                margen1LotA = minLotsA * margenRateA
+                margen1LotB = minLotsB * margenRateB
                 sample_req_margin_lot = margen1LotA + margen1LotB
 
                 multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA) else 1
@@ -843,9 +856,13 @@ class QuantPairEngine:
 
                 realMargenA = multA * margen1LotA
                 realMargenB = multB * margen1LotB
+                totalMargen = realMargenA + realMargenB
 
                 unitsA = multA * minLotsA
                 unitsB = multB * minLotsB
+
+                # Decrementar capital disminuido con el margen retenido
+                cycle_available_equity = max(0.0, cycle_available_equity - totalMargen)
 
                 active_trades.append({
                     "signalType": sigType,
@@ -854,7 +871,10 @@ class QuantPairEngine:
                     "entryIndex": i,
                     "entryPxA": pxA,
                     "entryPxB": pxB,
-                    "margin": realMargenA + realMargenB,
+                    "margin": totalMargen,
+                    "marginA": round(float(realMargenA), 2),
+                    "marginB": round(float(realMargenB), 2),
+                    "availableCapital": round(float(cycle_available_equity), 2),
                     "multA": multA,
                     "multB": multB,
                     "unitsA": unitsA,
@@ -869,6 +889,8 @@ class QuantPairEngine:
             open_cycle_trades = []
             open_pnl = 0.0
             open_margin = sum(t["margin"] for t in active_trades)
+            open_margin_a = sum(t.get("marginA", 0.0) for t in active_trades)
+            open_margin_b = sum(t.get("marginB", 0.0) for t in active_trades)
             open_units_a = sum(t["unitsA"] for t in active_trades)
             open_units_b = sum(t["unitsB"] for t in active_trades)
 
@@ -908,6 +930,10 @@ class QuantPairEngine:
                     "entryDate": t["entryDate"],
                     "exitDate": "EN CURSO",
                     "allocatedCapital": round(float(t["margin"]), 2),
+                    "marginA": round(float(t.get("marginA", 0.0)), 2),
+                    "marginB": round(float(t.get("marginB", 0.0)), 2),
+                    "availableCapital": round(float(t.get("availableCapital", 0.0)), 2),
+                    "accumCapital": round(float(equity + tradePnl), 2),
                     "multA": t["multA"],
                     "multB": t["multB"],
                     "unitsA": int(t["unitsA"]),
@@ -938,9 +964,13 @@ class QuantPairEngine:
                 "cycleNum": cycle_counter + 1,
                 "signalType": "SUBTOTAL POSICIONES ABIERTAS",
                 "direction": f"● En Curso ({len(open_cycle_trades)} ops activas)",
-                "entryDate": f"Entradas: {openEntrySpan}",
+                "entryDate": openEntrySpan,
                 "exitDate": "EN CURSO",
                 "allocatedCapital": round(float(open_margin), 2),
+                "marginA": round(float(open_margin_a), 2),
+                "marginB": round(float(open_margin_b), 2),
+                "availableCapital": round(float(cycle_available_equity), 2),
+                "accumCapital": round(float(equity + open_pnl), 2),
                 "multA": None,
                 "multB": None,
                 "unitsA": int(open_units_a),
