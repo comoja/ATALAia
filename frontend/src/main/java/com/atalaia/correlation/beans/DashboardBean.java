@@ -39,7 +39,413 @@ public class DashboardBean implements Serializable {
 
     // --- Catalogo de Simbolos desde BD ---
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
-        public static class UserAccountDto implements java.io.Serializable {
+            // --- DTOs del Motor Cuantitativo (Pair Trading & Reversión a la Media) ---
+        // --- DTOs para el Backtest de Señales Gráficas (Triángulos y Cuadros) ---
+    public static class SignalBacktestMetricsDto implements java.io.Serializable {
+        private String mode = "TRIANGLES_ONLY";
+        private String modeLabel = "Solo Triángulos (Coincidentes)";
+        private Integer totalTrades = 0;
+        private Integer winningTrades = 0;
+        private Integer losingTrades = 0;
+        private Double winRate = 0.0;
+        private Double profitFactor = 0.0;
+        private Double sharpeRatio = 0.0;
+        private Double maxDrawdown = 0.0;
+        private Double totalReturnPct = 0.0;
+        private Double netProfit = 0.0;
+        private Double initialCapital = 10000.0;
+        private Double finalCapital = 10000.0;
+        private Double allocationPct = 3.0;
+        private Double reqMarginPerMinLot = 20.0;
+
+        public String getMode() { return mode; }
+        public void setMode(String mode) { this.mode = mode; }
+        public String getModeLabel() { return modeLabel; }
+        public void setModeLabel(String modeLabel) { this.modeLabel = modeLabel; }
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+        public Integer getWinningTrades() { return winningTrades; }
+        public void setWinningTrades(Integer winningTrades) { this.winningTrades = winningTrades; }
+        public Integer getLosingTrades() { return losingTrades; }
+        public void setLosingTrades(Integer losingTrades) { this.losingTrades = losingTrades; }
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+        public Double getProfitFactor() { return profitFactor; }
+        public void setProfitFactor(Double profitFactor) { this.profitFactor = profitFactor; }
+        public Double getSharpeRatio() { return sharpeRatio; }
+        public void setSharpeRatio(Double sharpeRatio) { this.sharpeRatio = sharpeRatio; }
+        public Double getMaxDrawdown() { return maxDrawdown; }
+        public void setMaxDrawdown(Double maxDrawdown) { this.maxDrawdown = maxDrawdown; }
+        public Double getTotalReturnPct() { return totalReturnPct; }
+        public void setTotalReturnPct(Double totalReturnPct) { this.totalReturnPct = totalReturnPct; }
+        public Double getNetProfit() { return netProfit; }
+        public void setNetProfit(Double netProfit) { this.netProfit = netProfit; }
+        public Double getInitialCapital() { return initialCapital; }
+        public void setInitialCapital(Double initialCapital) { this.initialCapital = initialCapital; }
+        public Double getFinalCapital() { return finalCapital; }
+        public void setFinalCapital(Double finalCapital) { this.finalCapital = finalCapital; }
+        public Double getAllocationPct() { return allocationPct; }
+        public void setAllocationPct(Double allocationPct) { this.allocationPct = allocationPct; }
+        public Double getReqMarginPerMinLot() { return reqMarginPerMinLot; }
+        public void setReqMarginPerMinLot(Double reqMarginPerMinLot) { this.reqMarginPerMinLot = reqMarginPerMinLot; }
+        public String getFormattedInitialCapital() {
+            return initialCapital != null ? String.format(java.util.Locale.US, "%,.2f", initialCapital) : "0.00";
+        }
+        public String getFormattedFinalCapital() {
+            return finalCapital != null ? String.format(java.util.Locale.US, "%,.2f", finalCapital) : "0.00";
+        }
+        public String getFormattedNetProfit() {
+            return netProfit != null ? String.format(java.util.Locale.US, "%,.2f", netProfit) : "0.00";
+        }
+        public String getFormattedReqMarginPerMinLot() {
+            return reqMarginPerMinLot != null ? String.format(java.util.Locale.US, "%,.2f", reqMarginPerMinLot) : "0.00";
+        }
+    }
+
+    public static class SignalTradeDto implements java.io.Serializable {
+        private Integer tradeNum;
+        private String signalType;
+        private Boolean isSubtotal = false;
+        private Integer cycleNum = 1;
+        private Integer cycleTotalTrades = 1;
+        private Double cycleTotalInvested = 2000.0;
+        private Double cycleTotalPnl = 0.0;
+        private Double cycleAvgReturnPct = 0.0;
+        private String direction;
+        private Double allocatedCapital = 2000.0;
+        private String entryDate;
+        private String exitDate;
+        private Double entryPriceA;
+        private Double exitPriceA;
+        private Double entryPriceB;
+        private Double exitPriceB;
+        private Integer durationBars;
+        private Double returnPct;
+        private Double pnl;
+        private String exitReason;
+        private Boolean isWin;
+        private Integer multA;
+        private Integer multB;
+        private Integer unitsA;
+        private Integer unitsB;
+        private Double pipsA;
+        private Double pipsB;
+        private Double pnlA;
+        private Double pnlB;
+        private Boolean isOpen = false;
+
+        public Integer getTradeNum() { return tradeNum; }
+        public void setTradeNum(Integer tradeNum) { this.tradeNum = tradeNum; }
+        public String getSignalType() { return signalType; }
+        public void setSignalType(String signalType) { this.signalType = signalType; }
+        public Integer getCycleNum() { return cycleNum; }
+        public void setCycleNum(Integer cycleNum) { this.cycleNum = cycleNum; }
+        public Integer getCycleTotalTrades() { return cycleTotalTrades; }
+        public void setCycleTotalTrades(Integer cycleTotalTrades) { this.cycleTotalTrades = cycleTotalTrades; }
+        public Double getCycleTotalInvested() { return cycleTotalInvested; }
+        public void setCycleTotalInvested(Double cycleTotalInvested) { this.cycleTotalInvested = cycleTotalInvested; }
+        public Double getCycleTotalPnl() { return cycleTotalPnl; }
+        public void setCycleTotalPnl(Double cycleTotalPnl) { this.cycleTotalPnl = cycleTotalPnl; }
+        public Double getCycleAvgReturnPct() { return cycleAvgReturnPct; }
+        public void setCycleAvgReturnPct(Double cycleAvgReturnPct) { this.cycleAvgReturnPct = cycleAvgReturnPct; }
+        public String getDirection() { return direction; }
+        public void setDirection(String direction) { this.direction = direction; }
+        public Double getAllocatedCapital() { return allocatedCapital; }
+        public void setAllocatedCapital(Double allocatedCapital) { this.allocatedCapital = allocatedCapital; }
+        public String getEntryDate() { return entryDate; }
+        public void setEntryDate(String entryDate) { this.entryDate = entryDate; }
+        public String getExitDate() { return exitDate; }
+        public void setExitDate(String exitDate) { this.exitDate = exitDate; }
+        public Double getEntryPriceA() { return entryPriceA; }
+        public void setEntryPriceA(Double entryPriceA) { this.entryPriceA = entryPriceA; }
+        public Double getExitPriceA() { return exitPriceA; }
+        public void setExitPriceA(Double exitPriceA) { this.exitPriceA = exitPriceA; }
+        public Double getEntryPriceB() { return entryPriceB; }
+        public void setEntryPriceB(Double entryPriceB) { this.entryPriceB = entryPriceB; }
+        public Double getExitPriceB() { return exitPriceB; }
+        public void setExitPriceB(Double exitPriceB) { this.exitPriceB = exitPriceB; }
+        public Integer getDurationBars() { return durationBars; }
+        public void setDurationBars(Integer durationBars) { this.durationBars = durationBars; }
+        public Double getReturnPct() { return returnPct; }
+        public void setReturnPct(Double returnPct) { this.returnPct = returnPct; }
+        public Double getPnl() { return pnl; }
+        public void setPnl(Double pnl) { this.pnl = pnl; }
+        public String getExitReason() { return exitReason; }
+        public void setExitReason(String exitReason) { this.exitReason = exitReason; }
+        public Boolean getIsWin() { return isWin; }
+        public void setIsWin(Boolean isWin) { this.isWin = isWin; }
+        public Boolean getIsSubtotal() { return isSubtotal != null && isSubtotal; }
+        public void setIsSubtotal(Boolean isSubtotal) { this.isSubtotal = isSubtotal; }
+        public Integer getMultA() { return multA; }
+        public void setMultA(Integer multA) { this.multA = multA; }
+        public Integer getMultB() { return multB; }
+        public void setMultB(Integer multB) { this.multB = multB; }
+        public Integer getUnitsA() { return unitsA; }
+        public void setUnitsA(Integer unitsA) { this.unitsA = unitsA; }
+        public Integer getUnitsB() { return unitsB; }
+        public void setUnitsB(Integer unitsB) { this.unitsB = unitsB; }
+        public Double getPipsA() { return pipsA; }
+        public void setPipsA(Double pipsA) { this.pipsA = pipsA; }
+        public Double getPipsB() { return pipsB; }
+        public void setPipsB(Double pipsB) { this.pipsB = pipsB; }
+        public Double getPnlA() { return pnlA; }
+        public void setPnlA(Double pnlA) { this.pnlA = pnlA; }
+        public Double getPnlB() { return pnlB; }
+        public void setPnlB(Double pnlB) { this.pnlB = pnlB; }
+        public Boolean getIsOpen() { return isOpen != null && isOpen; }
+        public void setIsOpen(Boolean isOpen) { this.isOpen = isOpen; }
+        public String getFormattedAllocatedCapital() {
+            return allocatedCapital != null ? String.format(java.util.Locale.US, "%,.2f", allocatedCapital) : "0.00";
+        }
+        public String getFormattedUnitsA() {
+            return unitsA != null ? String.format(java.util.Locale.US, "%,d", unitsA) : "0";
+        }
+        public String getFormattedUnitsB() {
+            return unitsB != null ? String.format(java.util.Locale.US, "%,d", unitsB) : "0";
+        }
+        public String getFormattedPnl() {
+            return pnl != null ? String.format(java.util.Locale.US, "%,.2f", pnl) : "0.00";
+        }
+        public String getFormattedPnlA() {
+            return pnlA != null ? String.format(java.util.Locale.US, "%,.2f", pnlA) : "0.00";
+        }
+        public String getFormattedPnlB() {
+            return pnlB != null ? String.format(java.util.Locale.US, "%,.2f", pnlB) : "0.00";
+        }
+    }
+
+    public static class QuantMetricsDto implements java.io.Serializable {
+        private Double halfLife;
+        private Double reversionSpeed;
+        private String halfLifeDescription = "Calculando...";
+        private Boolean isMeanReverting = false;
+        private Double pValue;
+        private Double rSquared;
+
+        private Double dominantPeriod;
+        private Integer periodsToMeanCross;
+
+        private Integer totalFvgs = 0;
+        private Integer activeFvgs = 0;
+
+        private Integer totalTrades = 0;
+        private Double winRate = 0.0;
+        private Double profitFactor = 0.0;
+        private Double sharpeRatio = 0.0;
+        private Double maxDrawdown = 0.0;
+        private Double totalReturnPct = 0.0;
+
+        private Boolean hasLiveSignal = false;
+        private String liveSignalType = "NONE";
+        private String liveActionA = "HOLD";
+        private String liveActionB = "HOLD";
+        private Double liveZScore = 0.0;
+        private Double initialCapital = 10000.0;
+        private Double finalCapital = 10000.0;
+        private Double allocationPct = 3.0;
+        private Double reqMarginPerMinLot = 20.0;
+
+        // Getters y Setters
+        public Double getHalfLife() { return halfLife; }
+        public void setHalfLife(Double halfLife) { this.halfLife = halfLife; }
+        public Double getReversionSpeed() { return reversionSpeed; }
+        public void setReversionSpeed(Double reversionSpeed) { this.reversionSpeed = reversionSpeed; }
+        public String getHalfLifeDescription() { return halfLifeDescription; }
+        public void setHalfLifeDescription(String halfLifeDescription) { this.halfLifeDescription = halfLifeDescription; }
+        public Boolean getIsMeanReverting() { return isMeanReverting; }
+        public void setIsMeanReverting(Boolean isMeanReverting) { this.isMeanReverting = isMeanReverting; }
+        public Double getPValue() { return pValue; }
+        public void setPValue(Double pValue) { this.pValue = pValue; }
+        public Double getRSquared() { return rSquared; }
+        public void setRSquared(Double rSquared) { this.rSquared = rSquared; }
+        public Double getDominantPeriod() { return dominantPeriod; }
+        public void setDominantPeriod(Double dominantPeriod) { this.dominantPeriod = dominantPeriod; }
+        public Integer getPeriodsToMeanCross() { return periodsToMeanCross; }
+        public void setPeriodsToMeanCross(Integer periodsToMeanCross) { this.periodsToMeanCross = periodsToMeanCross; }
+        public Integer getTotalFvgs() { return totalFvgs; }
+        public void setTotalFvgs(Integer totalFvgs) { this.totalFvgs = totalFvgs; }
+        public Integer getActiveFvgs() { return activeFvgs; }
+        public void setActiveFvgs(Integer activeFvgs) { this.activeFvgs = activeFvgs; }
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+        public Double getProfitFactor() { return profitFactor; }
+        public void setProfitFactor(Double profitFactor) { this.profitFactor = profitFactor; }
+        public Double getSharpeRatio() { return sharpeRatio; }
+        public void setSharpeRatio(Double sharpeRatio) { this.sharpeRatio = sharpeRatio; }
+        public Double getMaxDrawdown() { return maxDrawdown; }
+        public void setMaxDrawdown(Double maxDrawdown) { this.maxDrawdown = maxDrawdown; }
+        public Double getTotalReturnPct() { return totalReturnPct; }
+        public void setTotalReturnPct(Double totalReturnPct) { this.totalReturnPct = totalReturnPct; }
+        public Boolean getHasLiveSignal() { return hasLiveSignal; }
+        public void setHasLiveSignal(Boolean hasLiveSignal) { this.hasLiveSignal = hasLiveSignal; }
+        public String getLiveSignalType() { return liveSignalType; }
+        public void setLiveSignalType(String liveSignalType) { this.liveSignalType = liveSignalType; }
+        public String getLiveActionA() { return liveActionA; }
+        public void setLiveActionA(String liveActionA) { this.liveActionA = liveActionA; }
+        public String getLiveActionB() { return liveActionB; }
+        public void setLiveActionB(String liveActionB) { this.liveActionB = liveActionB; }
+        public Double getLiveZScore() { return liveZScore; }
+        public void setLiveZScore(Double liveZScore) { this.liveZScore = liveZScore; }
+        public Double getInitialCapital() { return initialCapital; }
+        public void setInitialCapital(Double initialCapital) { this.initialCapital = initialCapital; }
+        public Double getFinalCapital() { return finalCapital; }
+        public void setFinalCapital(Double finalCapital) { this.finalCapital = finalCapital; }
+        public Double getAllocationPct() { return allocationPct; }
+        public void setAllocationPct(Double allocationPct) { this.allocationPct = allocationPct; }
+        public Double getReqMarginPerMinLot() { return reqMarginPerMinLot; }
+        public void setReqMarginPerMinLot(Double reqMarginPerMinLot) { this.reqMarginPerMinLot = reqMarginPerMinLot; }
+    }
+
+    public static class QuantFvgDto implements java.io.Serializable {
+        private String datetime;
+        private String type;
+        private Double top;
+        private Double bottom;
+        private Double gapSize;
+        private Boolean mitigated;
+        private String mitigationDate;
+
+        public String getDatetime() { return datetime; }
+        public void setDatetime(String datetime) { this.datetime = datetime; }
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        public Double getTop() { return top; }
+        public void setTop(Double top) { this.top = top; }
+        public Double getBottom() { return bottom; }
+        public void setBottom(Double bottom) { this.bottom = bottom; }
+        public Double getGapSize() { return gapSize; }
+        public void setGapSize(Double gapSize) { this.gapSize = gapSize; }
+        public Boolean getMitigated() { return mitigated; }
+        public void setMitigated(Boolean mitigated) { this.mitigated = mitigated; }
+        public String getMitigationDate() { return mitigationDate; }
+        public void setMitigationDate(String mitigationDate) { this.mitigationDate = mitigationDate; }
+    }
+
+    public static class QuantTradeDto implements java.io.Serializable {
+        private Integer tradeNum;
+        private String type;
+        private String entryDate;
+        private String exitDate;
+        private Double allocatedCapital = 10000.0;
+        private Double entryPrice;
+        private Double exitPrice;
+        private Integer durationBars;
+        private Double returnPct;
+        private Double pnl;
+        private String exitReason;
+        private Boolean isWin;
+
+        public Integer getTradeNum() { return tradeNum; }
+        public void setTradeNum(Integer tradeNum) { this.tradeNum = tradeNum; }
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        public String getEntryDate() { return entryDate; }
+        public void setEntryDate(String entryDate) { this.entryDate = entryDate; }
+        public String getExitDate() { return exitDate; }
+        public void setExitDate(String exitDate) { this.exitDate = exitDate; }
+        public Double getAllocatedCapital() { return allocatedCapital; }
+        public void setAllocatedCapital(Double allocatedCapital) { this.allocatedCapital = allocatedCapital; }
+        public Double getEntryPrice() { return entryPrice; }
+        public void setEntryPrice(Double entryPrice) { this.entryPrice = entryPrice; }
+        public Double getExitPrice() { return exitPrice; }
+        public void setExitPrice(Double exitPrice) { this.exitPrice = exitPrice; }
+        public Integer getDurationBars() { return durationBars; }
+        public void setDurationBars(Integer durationBars) { this.durationBars = durationBars; }
+        public Double getReturnPct() { return returnPct; }
+        public void setReturnPct(Double returnPct) { this.returnPct = returnPct; }
+        public Double getPnl() { return pnl; }
+        public void setPnl(Double pnl) { this.pnl = pnl; }
+        public String getExitReason() { return exitReason; }
+        public void setExitReason(String exitReason) { this.exitReason = exitReason; }
+        public Boolean getIsWin() { return isWin; }
+        public void setIsWin(Boolean isWin) { this.isWin = isWin; }
+    }
+
+        // --- Propiedades del Backtest de Señales Gráficas ---
+    private SignalBacktestMetricsDto signalBtTrianglesMetrics = new SignalBacktestMetricsDto();
+    private SignalBacktestMetricsDto signalBtCombinedMetrics = new SignalBacktestMetricsDto();
+    private String signalBtStrategySelected = "COMBINED"; // "TRIANGLES" o "COMBINED"
+    private List<SignalTradeDto> signalBtTradesList = new ArrayList<>();
+    private List<SignalTradeDto> signalBtTrianglesTrades = new ArrayList<>();
+    private List<SignalTradeDto> signalBtCombinedTrades = new ArrayList<>();
+    private String signalBtComparisonCurveJson = "[]";
+
+    public SignalBacktestMetricsDto getSignalBtTrianglesMetrics() { return signalBtTrianglesMetrics; }
+    public void setSignalBtTrianglesMetrics(SignalBacktestMetricsDto m) { this.signalBtTrianglesMetrics = m; }
+    public SignalBacktestMetricsDto getSignalBtCombinedMetrics() { return signalBtCombinedMetrics; }
+    public void setSignalBtCombinedMetrics(SignalBacktestMetricsDto m) { this.signalBtCombinedMetrics = m; }
+    public String getSignalBtStrategySelected() { return signalBtStrategySelected; }
+    public void setSignalBtStrategySelected(String s) { this.signalBtStrategySelected = s; }
+    public List<SignalTradeDto> getSignalBtTradesList() { return signalBtTradesList; }
+    public void setSignalBtTradesList(List<SignalTradeDto> l) { this.signalBtTradesList = l; }
+    public List<SignalTradeDto> getSignalBtTrianglesTrades() { return signalBtTrianglesTrades; }
+    public void setSignalBtTrianglesTrades(List<SignalTradeDto> l) { this.signalBtTrianglesTrades = l; }
+    public List<SignalTradeDto> getSignalBtCombinedTrades() { return signalBtCombinedTrades; }
+    public void setSignalBtCombinedTrades(List<SignalTradeDto> l) { this.signalBtCombinedTrades = l; }
+    public String getSignalBtComparisonCurveJson() { return signalBtComparisonCurveJson; }
+    public void setSignalBtComparisonCurveJson(String s) { this.signalBtComparisonCurveJson = s; }
+
+    
+    public Double getSignalBtTotalReturn() {
+        if ("TRIANGLES".equals(this.signalBtStrategySelected)) {
+            return signalBtTrianglesMetrics != null ? signalBtTrianglesMetrics.getTotalReturnPct() : 0.0;
+        } else {
+            return signalBtCombinedMetrics != null ? signalBtCombinedMetrics.getTotalReturnPct() : 0.0;
+        }
+    }
+
+    public Double getSignalBtTotalPnl() {
+        if ("TRIANGLES".equals(this.signalBtStrategySelected)) {
+            return signalBtTrianglesMetrics != null ? signalBtTrianglesMetrics.getNetProfit() : 0.0;
+        } else {
+            return signalBtCombinedMetrics != null ? signalBtCombinedMetrics.getNetProfit() : 0.0;
+        }
+    }
+
+    public String getFormattedSignalBtTotalPnl() {
+        Double p = getSignalBtTotalPnl();
+        return p != null ? String.format(java.util.Locale.US, "%,.2f", p) : "0.00";
+    }
+
+    public Double getQuantTotalPnl() {
+        if (quantMetrics != null && quantMetrics.getFinalCapital() != null && quantMetrics.getInitialCapital() != null) {
+            return Math.round((quantMetrics.getFinalCapital() - quantMetrics.getInitialCapital()) * 100.0) / 100.0;
+        }
+        return 0.0;
+    }
+
+    public void onSignalStrategyChange() {
+        if ("TRIANGLES".equals(this.signalBtStrategySelected)) {
+            this.signalBtTradesList = this.signalBtTrianglesTrades;
+        } else {
+            this.signalBtTradesList = this.signalBtCombinedTrades;
+        }
+        log.info("Estrategia de señales seleccionada: {}, Total trades: {}", this.signalBtStrategySelected, this.signalBtTradesList.size());
+    }
+
+    private QuantMetricsDto quantMetrics = new QuantMetricsDto();
+    private List<QuantFvgDto> quantFvgsList = new ArrayList<>();
+    private List<QuantTradeDto> quantTradesList = new ArrayList<>();
+    private String quantTimeSeriesJson = "[]";
+    private String equityCurveJson = "[]";
+    private String quantTradesJson = "[]";
+
+    public QuantMetricsDto getQuantMetrics() { return quantMetrics; }
+    public void setQuantMetrics(QuantMetricsDto quantMetrics) { this.quantMetrics = quantMetrics; }
+    public List<QuantFvgDto> getQuantFvgsList() { return quantFvgsList; }
+    public void setQuantFvgsList(List<QuantFvgDto> quantFvgsList) { this.quantFvgsList = quantFvgsList; }
+    public List<QuantTradeDto> getQuantTradesList() { return quantTradesList; }
+    public void setQuantTradesList(List<QuantTradeDto> quantTradesList) { this.quantTradesList = quantTradesList; }
+    public String getQuantTimeSeriesJson() { return quantTimeSeriesJson; }
+    public void setQuantTimeSeriesJson(String quantTimeSeriesJson) { this.quantTimeSeriesJson = quantTimeSeriesJson; }
+    public String getEquityCurveJson() { return equityCurveJson; }
+    public void setEquityCurveJson(String equityCurveJson) { this.equityCurveJson = equityCurveJson; }
+    public String getQuantTradesJson() { return quantTradesJson; }
+    public void setQuantTradesJson(String quantTradesJson) { this.quantTradesJson = quantTradesJson; }
+
+    public static class UserAccountDto implements java.io.Serializable {
         private Integer idUsuarioCuenta;
         private Integer idUsuario;
         private Integer idCuenta;
@@ -63,6 +469,19 @@ public class DashboardBean implements Serializable {
 
     private List<UserAccountDto> userAccountsCombo = new ArrayList<>();
     private Integer selectedAccountId;
+
+    public Double getSelectedAccountCapital() {
+        if (selectedAccountId != null && userAccountsCombo != null) {
+            for (UserAccountDto a : userAccountsCombo) {
+                if (a.getIdCuenta() != null && a.getIdCuenta().equals(selectedAccountId)) {
+                    if (a.getCapital() != null && a.getCapital() > 0) {
+                        return a.getCapital();
+                    }
+                }
+            }
+        }
+        return 1000.0;
+    }
 
     public List<UserAccountDto> getUserAccountsCombo() {
         return userAccountsCombo;
@@ -368,6 +787,283 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    
+    public void loadQuantPairAnalysis() {
+        if (selectedPair == null || selectedPair.isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            return;
+        }
+        try {
+            log.info("Ejecutando análisis cuantitativo y backtest para {} / {}...", selectedPair, selectedPair2);
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startStr = (startDate != null) ? sdf.format(startDate) : "";
+            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+
+            String url = String.format(
+                    "%s/api/v1/quant/pair-analysis/%s?pairB=%s&timeframe=%s&days=%d&start_date=%s&end_date=%s" +
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
+                    "&leverage=100.0",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
+                    timeframe, (daysBack != null ? daysBack : 180), startStr, endStr);
+
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode root = mapper.readTree(responseStr);
+                QuantMetricsDto metrics = new QuantMetricsDto();
+
+                if (root.has("halfLife")) {
+                    JsonNode hl = root.get("halfLife");
+                    if (hl.has("halfLife") && !hl.get("halfLife").isNull()) metrics.setHalfLife(hl.get("halfLife").asDouble());
+                    if (hl.has("reversionSpeed") && !hl.get("reversionSpeed").isNull()) metrics.setReversionSpeed(hl.get("reversionSpeed").asDouble());
+                    if (hl.has("halfLifeDescription")) metrics.setHalfLifeDescription(hl.get("halfLifeDescription").asText());
+                    if (hl.has("isMeanReverting")) metrics.setIsMeanReverting(hl.get("isMeanReverting").asBoolean());
+                    if (hl.has("pValue") && !hl.get("pValue").isNull()) metrics.setPValue(hl.get("pValue").asDouble());
+                    if (hl.has("rSquared") && !hl.get("rSquared").isNull()) metrics.setRSquared(hl.get("rSquared").asDouble());
+                }
+
+                if (root.has("spectralAnalysis")) {
+                    JsonNode sp = root.get("spectralAnalysis");
+                    if (sp.has("dominantPeriod") && !sp.get("dominantPeriod").isNull()) metrics.setDominantPeriod(sp.get("dominantPeriod").asDouble());
+                    if (sp.has("periodsToMeanCross") && !sp.get("periodsToMeanCross").isNull()) metrics.setPeriodsToMeanCross(sp.get("periodsToMeanCross").asInt());
+                }
+
+                if (root.has("fvgsSummary")) {
+                    JsonNode fvgSum = root.get("fvgsSummary");
+                    if (fvgSum.has("totalFvgs")) metrics.setTotalFvgs(fvgSum.get("totalFvgs").asInt());
+                    if (fvgSum.has("activeFvgs")) metrics.setActiveFvgs(fvgSum.get("activeFvgs").asInt());
+
+                    List<QuantFvgDto> fList = new ArrayList<>();
+                    if (fvgSum.has("list") && fvgSum.get("list").isArray()) {
+                        for (JsonNode item : fvgSum.get("list")) {
+                            QuantFvgDto fDto = new QuantFvgDto();
+                            if (item.has("datetime")) fDto.setDatetime(item.get("datetime").asText());
+                            if (item.has("type")) fDto.setType(item.get("type").asText());
+                            if (item.has("top")) fDto.setTop(item.get("top").asDouble());
+                            if (item.has("bottom")) fDto.setBottom(item.get("bottom").asDouble());
+                            if (item.has("gapSize")) fDto.setGapSize(item.get("gapSize").asDouble());
+                            if (item.has("mitigated")) fDto.setMitigated(item.get("mitigated").asBoolean());
+                            if (item.has("mitigationDate") && !item.get("mitigationDate").isNull()) fDto.setMitigationDate(item.get("mitigationDate").asText());
+                            fList.add(fDto);
+                        }
+                    }
+                    this.quantFvgsList = fList;
+                }
+
+                if (root.has("backtestMetrics")) {
+                    JsonNode bm = root.get("backtestMetrics");
+                    if (bm.has("totalTrades")) metrics.setTotalTrades(bm.get("totalTrades").asInt());
+                    if (bm.has("winRate")) metrics.setWinRate(bm.get("winRate").asDouble());
+                    if (bm.has("profitFactor")) metrics.setProfitFactor(bm.get("profitFactor").asDouble());
+                    if (bm.has("sharpeRatio")) metrics.setSharpeRatio(bm.get("sharpeRatio").asDouble());
+                    if (bm.has("maxDrawdown")) metrics.setMaxDrawdown(bm.get("maxDrawdown").asDouble());
+                    if (bm.has("totalReturnPct")) metrics.setTotalReturnPct(bm.get("totalReturnPct").asDouble());
+                    if (bm.has("initialCapital")) metrics.setInitialCapital(bm.get("initialCapital").asDouble());
+                    if (bm.has("finalCapital")) metrics.setFinalCapital(bm.get("finalCapital").asDouble());
+
+                    List<QuantTradeDto> tList = new ArrayList<>();
+                    if (bm.has("trades") && bm.get("trades").isArray()) {
+                        for (JsonNode item : bm.get("trades")) {
+                            QuantTradeDto tDto = new QuantTradeDto();
+                            if (item.has("tradeNum")) tDto.setTradeNum(item.get("tradeNum").asInt());
+                            if (item.has("type")) tDto.setType(item.get("type").asText());
+                            if (item.has("entryDate")) tDto.setEntryDate(item.get("entryDate").asText());
+                            if (item.has("exitDate")) tDto.setExitDate(item.get("exitDate").asText());
+                            if (item.has("entryPrice")) tDto.setEntryPrice(item.get("entryPrice").asDouble());
+                            if (item.has("exitPrice")) tDto.setExitPrice(item.get("exitPrice").asDouble());
+                            if (item.has("durationBars")) tDto.setDurationBars(item.get("durationBars").asInt());
+                            if (item.has("returnPct")) tDto.setReturnPct(item.get("returnPct").asDouble());
+                            if (item.has("pnl")) tDto.setPnl(item.get("pnl").asDouble());
+                            if (item.has("exitReason")) tDto.setExitReason(item.get("exitReason").asText());
+                            if (item.has("isWin")) tDto.setIsWin(item.get("isWin").asBoolean());
+                            tList.add(tDto);
+                        }
+                    }
+                    this.quantTradesList = tList;
+                    if (bm.has("trades")) this.quantTradesJson = bm.get("trades").toString();
+                }
+
+                if (root.has("liveSignal")) {
+                    JsonNode ls = root.get("liveSignal");
+                    if (ls.has("hasSignal")) metrics.setHasLiveSignal(ls.get("hasSignal").asBoolean());
+                    if (ls.has("signalType")) metrics.setLiveSignalType(ls.get("signalType").asText());
+                    if (ls.has("actionPairA")) metrics.setLiveActionA(ls.get("actionPairA").asText());
+                    if (ls.has("actionPairB")) metrics.setLiveActionB(ls.get("actionPairB").asText());
+                    if (ls.has("zScore")) metrics.setLiveZScore(ls.get("zScore").asDouble());
+                }
+
+                if (root.has("timeSeries")) {
+                    this.quantTimeSeriesJson = root.get("timeSeries").toString();
+                }
+
+                if (root.has("equityCurve")) {
+                    this.equityCurveJson = root.get("equityCurve").toString();
+                }
+
+                                if (root.has("signalBacktest")) {
+                    JsonNode sbNode = root.get("signalBacktest");
+                    
+                    // 1. Triángulos Solos
+                    if (sbNode.has("trianglesOnly")) {
+                        JsonNode toNode = sbNode.get("trianglesOnly");
+                        SignalBacktestMetricsDto toDto = new SignalBacktestMetricsDto();
+                        if (toNode.has("mode")) toDto.setMode(toNode.get("mode").asText());
+                        if (toNode.has("modeLabel")) toDto.setModeLabel(toNode.get("modeLabel").asText());
+                        if (toNode.has("totalTrades")) toDto.setTotalTrades(toNode.get("totalTrades").asInt());
+                        if (toNode.has("winningTrades")) toDto.setWinningTrades(toNode.get("winningTrades").asInt());
+                        if (toNode.has("losingTrades")) toDto.setLosingTrades(toNode.get("losingTrades").asInt());
+                        if (toNode.has("winRate")) toDto.setWinRate(toNode.get("winRate").asDouble());
+                        if (toNode.has("profitFactor")) toDto.setProfitFactor(toNode.get("profitFactor").asDouble());
+                        if (toNode.has("sharpeRatio")) toDto.setSharpeRatio(toNode.get("sharpeRatio").asDouble());
+                        if (toNode.has("maxDrawdown")) toDto.setMaxDrawdown(toNode.get("maxDrawdown").asDouble());
+                        if (toNode.has("totalReturnPct")) toDto.setTotalReturnPct(toNode.get("totalReturnPct").asDouble());
+                        if (toNode.has("netProfit")) toDto.setNetProfit(toNode.get("netProfit").asDouble());
+                        if (toNode.has("finalCapital")) toDto.setFinalCapital(toNode.get("finalCapital").asDouble());
+                        this.signalBtTrianglesMetrics = toDto;
+
+                        List<SignalTradeDto> toTrades = new ArrayList<>();
+                        if (toNode.has("trades") && toNode.get("trades").isArray()) {
+                            for (JsonNode t : toNode.get("trades")) {
+                                SignalTradeDto st = new SignalTradeDto();
+                                if (t.has("tradeNum")) st.setTradeNum(t.get("tradeNum").asInt());
+                                if (t.has("signalType")) st.setSignalType(t.get("signalType").asText());
+                                if (t.has("direction")) st.setDirection(t.get("direction").asText());
+                                if (t.has("allocatedCapital")) st.setAllocatedCapital(t.get("allocatedCapital").asDouble());
+                                if (t.has("entryDate")) {
+                                    String ed = t.get("entryDate").asText();
+                                    if (ed != null && ed.length() >= 10 && ed.contains(" ") && !ed.contains("Entradas")) {
+                                        ed = ed.substring(0, 10);
+                                    }
+                                    st.setEntryDate(ed);
+                                }
+                                if (t.has("exitDate")) {
+                                    String xd = t.get("exitDate").asText();
+                                    if (xd != null && xd.length() >= 10 && xd.contains(" ")) {
+                                        xd = xd.substring(0, 10);
+                                    }
+                                    st.setExitDate(xd);
+                                }
+                                if (t.has("entryPriceA")) st.setEntryPriceA(t.get("entryPriceA").asDouble());
+                                if (t.has("exitPriceA")) st.setExitPriceA(t.get("exitPriceA").asDouble());
+                                if (t.has("entryPriceB")) st.setEntryPriceB(t.get("entryPriceB").asDouble());
+                                if (t.has("exitPriceB")) st.setExitPriceB(t.get("exitPriceB").asDouble());
+                                if (t.has("durationBars")) st.setDurationBars(t.get("durationBars").asInt());
+                                if (t.has("returnPct")) st.setReturnPct(t.get("returnPct").asDouble());
+                                if (t.has("pnl")) st.setPnl(t.get("pnl").asDouble());
+                                if (t.has("exitReason")) st.setExitReason(t.get("exitReason").asText());
+                                if (t.has("isWin")) st.setIsWin(t.get("isWin").asBoolean());
+                                if (t.has("cycleNum")) st.setCycleNum(t.get("cycleNum").asInt());
+                                if (t.has("cycleTotalTrades")) st.setCycleTotalTrades(t.get("cycleTotalTrades").asInt());
+                                if (t.has("cycleTotalInvested")) st.setCycleTotalInvested(t.get("cycleTotalInvested").asDouble());
+                                if (t.has("cycleTotalPnl")) st.setCycleTotalPnl(t.get("cycleTotalPnl").asDouble());
+                                if (t.has("cycleAvgReturnPct")) st.setCycleAvgReturnPct(t.get("cycleAvgReturnPct").asDouble());
+                                if (t.has("isSubtotal")) st.setIsSubtotal(t.get("isSubtotal").asBoolean());
+                                if (t.has("multA") && !t.get("multA").isNull()) st.setMultA(t.get("multA").asInt());
+                                if (t.has("multB") && !t.get("multB").isNull()) st.setMultB(t.get("multB").asInt());
+                                if (t.has("unitsA") && !t.get("unitsA").isNull()) st.setUnitsA(t.get("unitsA").asInt());
+                                if (t.has("unitsB") && !t.get("unitsB").isNull()) st.setUnitsB(t.get("unitsB").asInt());
+                                if (t.has("pipsA") && !t.get("pipsA").isNull()) st.setPipsA(t.get("pipsA").asDouble());
+                                if (t.has("pipsB") && !t.get("pipsB").isNull()) st.setPipsB(t.get("pipsB").asDouble());
+                                if (t.has("pnlA") && !t.get("pnlA").isNull()) st.setPnlA(t.get("pnlA").asDouble());
+                                if (t.has("pnlB") && !t.get("pnlB").isNull()) st.setPnlB(t.get("pnlB").asDouble());
+                                if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
+                                toTrades.add(st);
+                            }
+                        }
+                        this.signalBtTrianglesTrades = toTrades;
+                    }
+
+                    // 2. Combinado (Triángulos + Cuadros)
+                    if (sbNode.has("combined")) {
+                        JsonNode cbNode = sbNode.get("combined");
+                        SignalBacktestMetricsDto cbDto = new SignalBacktestMetricsDto();
+                        if (cbNode.has("mode")) cbDto.setMode(cbNode.get("mode").asText());
+                        if (cbNode.has("modeLabel")) cbDto.setModeLabel(cbNode.get("modeLabel").asText());
+                        if (cbNode.has("totalTrades")) cbDto.setTotalTrades(cbNode.get("totalTrades").asInt());
+                        if (cbNode.has("winningTrades")) cbDto.setWinningTrades(cbNode.get("winningTrades").asInt());
+                        if (cbNode.has("losingTrades")) cbDto.setLosingTrades(cbNode.get("losingTrades").asInt());
+                        if (cbNode.has("winRate")) cbDto.setWinRate(cbNode.get("winRate").asDouble());
+                        if (cbNode.has("profitFactor")) cbDto.setProfitFactor(cbNode.get("profitFactor").asDouble());
+                        if (cbNode.has("sharpeRatio")) cbDto.setSharpeRatio(cbNode.get("sharpeRatio").asDouble());
+                        if (cbNode.has("maxDrawdown")) cbDto.setMaxDrawdown(cbNode.get("maxDrawdown").asDouble());
+                        if (cbNode.has("totalReturnPct")) cbDto.setTotalReturnPct(cbNode.get("totalReturnPct").asDouble());
+                        if (cbNode.has("netProfit")) cbDto.setNetProfit(cbNode.get("netProfit").asDouble());
+                        if (cbNode.has("finalCapital")) cbDto.setFinalCapital(cbNode.get("finalCapital").asDouble());
+                        this.signalBtCombinedMetrics = cbDto;
+
+                        List<SignalTradeDto> cbTrades = new ArrayList<>();
+                        if (cbNode.has("trades") && cbNode.get("trades").isArray()) {
+                            for (JsonNode t : cbNode.get("trades")) {
+                                SignalTradeDto st = new SignalTradeDto();
+                                if (t.has("tradeNum")) st.setTradeNum(t.get("tradeNum").asInt());
+                                if (t.has("signalType")) st.setSignalType(t.get("signalType").asText());
+                                if (t.has("direction")) st.setDirection(t.get("direction").asText());
+                                if (t.has("allocatedCapital")) st.setAllocatedCapital(t.get("allocatedCapital").asDouble());
+                                if (t.has("entryDate")) {
+                                    String ed = t.get("entryDate").asText();
+                                    if (ed != null && ed.length() >= 10 && ed.contains(" ") && !ed.contains("Entradas")) {
+                                        ed = ed.substring(0, 10);
+                                    }
+                                    st.setEntryDate(ed);
+                                }
+                                if (t.has("exitDate")) {
+                                    String xd = t.get("exitDate").asText();
+                                    if (xd != null && xd.length() >= 10 && xd.contains(" ")) {
+                                        xd = xd.substring(0, 10);
+                                    }
+                                    st.setExitDate(xd);
+                                }
+                                if (t.has("entryPriceA")) st.setEntryPriceA(t.get("entryPriceA").asDouble());
+                                if (t.has("exitPriceA")) st.setExitPriceA(t.get("exitPriceA").asDouble());
+                                if (t.has("entryPriceB")) st.setEntryPriceB(t.get("entryPriceB").asDouble());
+                                if (t.has("exitPriceB")) st.setExitPriceB(t.get("exitPriceB").asDouble());
+                                if (t.has("durationBars")) st.setDurationBars(t.get("durationBars").asInt());
+                                if (t.has("returnPct")) st.setReturnPct(t.get("returnPct").asDouble());
+                                if (t.has("pnl")) st.setPnl(t.get("pnl").asDouble());
+                                if (t.has("exitReason")) st.setExitReason(t.get("exitReason").asText());
+                                if (t.has("isWin")) st.setIsWin(t.get("isWin").asBoolean());
+                                if (t.has("cycleNum")) st.setCycleNum(t.get("cycleNum").asInt());
+                                if (t.has("cycleTotalTrades")) st.setCycleTotalTrades(t.get("cycleTotalTrades").asInt());
+                                if (t.has("cycleTotalInvested")) st.setCycleTotalInvested(t.get("cycleTotalInvested").asDouble());
+                                if (t.has("cycleTotalPnl")) st.setCycleTotalPnl(t.get("cycleTotalPnl").asDouble());
+                                if (t.has("cycleAvgReturnPct")) st.setCycleAvgReturnPct(t.get("cycleAvgReturnPct").asDouble());
+                                if (t.has("isSubtotal")) st.setIsSubtotal(t.get("isSubtotal").asBoolean());
+                                if (t.has("multA") && !t.get("multA").isNull()) st.setMultA(t.get("multA").asInt());
+                                if (t.has("multB") && !t.get("multB").isNull()) st.setMultB(t.get("multB").asInt());
+                                if (t.has("unitsA") && !t.get("unitsA").isNull()) st.setUnitsA(t.get("unitsA").asInt());
+                                if (t.has("unitsB") && !t.get("unitsB").isNull()) st.setUnitsB(t.get("unitsB").asInt());
+                                if (t.has("pipsA") && !t.get("pipsA").isNull()) st.setPipsA(t.get("pipsA").asDouble());
+                                if (t.has("pipsB") && !t.get("pipsB").isNull()) st.setPipsB(t.get("pipsB").asDouble());
+                                if (t.has("pnlA") && !t.get("pnlA").isNull()) st.setPnlA(t.get("pnlA").asDouble());
+                                if (t.has("pnlB") && !t.get("pnlB").isNull()) st.setPnlB(t.get("pnlB").asDouble());
+                                if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
+                                cbTrades.add(st);
+                            }
+                        }
+                        this.signalBtCombinedTrades = cbTrades;
+                    }
+
+                    // Establecer lista activa según selección
+                    if ("TRIANGLES".equals(this.signalBtStrategySelected)) {
+                        this.signalBtTradesList = this.signalBtTrianglesTrades;
+                    } else {
+                        this.signalBtTradesList = this.signalBtCombinedTrades;
+                    }
+
+                    // Curva comparativa de equidad
+                    this.signalBtComparisonCurveJson = sbNode.toString();
+                }
+                this.quantMetrics = metrics;
+                log.info("Análisis cuantitativo cargado exitosamente: HalfLife={}, WinRate={}%", metrics.getHalfLife(), metrics.getWinRate());
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar análisis cuantitativo: {}", e.getMessage());
+        }
+    }
+
     public void analyzePair() {
         onDatesOrTimeframeChange();
         if (selectedPair == null || selectedPair.isEmpty()) {
@@ -468,6 +1164,7 @@ public class DashboardBean implements Serializable {
                 }
 
                 analysisResult = "Ratio sintético calculado: " + this.ratioLabel;
+                loadQuantPairAnalysis();
             } else {
                 String errorMsg = rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido";
                 analysisResult = "Fallo en motor de correlación: " + errorMsg;
@@ -1249,6 +1946,7 @@ public class DashboardBean implements Serializable {
     public void onDenominadorChange() {
         log.info("Selección de Denominador cambiada a: {}. Consultando BD...", selectedPair2);
         fetchUserRatioDetails();
+        analyzePair();
     }
 
     /**
