@@ -269,6 +269,131 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
         logger.error(f"Error al borrar user_ratio: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/trades/active-summary/{idCuenta}")
+def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene el resumen consolidado de todas las posiciones activas en la tabla trades
+    para la cuenta especificada, agrupadas por ratio (setup).
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
+               openTime, size, entryPrice, margin_used, pnl
+        FROM trades
+        WHERE idCuenta = :idc AND status = 'OPEN'
+        ORDER BY setup, openTime ASC, idTrade ASC
+    """)
+    rows = db.execute(sql, {"idc": idCuenta}).fetchall()
+    
+    if not rows:
+        return []
+        
+    by_setup = {}
+    for r in rows:
+        setup = r.setup or "RATIO"
+        if setup not in by_setup:
+            by_setup[setup] = []
+        by_setup[setup].append(r)
+        
+    def get_close_and_quote(sym):
+        clean = sym.replace("/", "").upper()
+        row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+        row_s = db.execute(text("SELECT quote_currency FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        cur_close = float(row_c[0]) if row_c and row_c[0] else 1.0
+        quote_curr = str(row_s[0]).upper() if row_s and row_s[0] else ("MXN" if "MXN" in sym else "USD")
+        return cur_close, quote_curr
+
+    results = []
+    for setup, t_list in by_setup.items():
+        parts = [p.strip() for p in setup.split("-") if p.strip()]
+        pairA = parts[0] if len(parts) >= 1 else ""
+        pairB = parts[1] if len(parts) >= 2 else ""
+        
+        curA, qcA = get_close_and_quote(pairA) if pairA else (1.0, "USD")
+        curB, qcB = get_close_and_quote(pairB) if pairB else (1.0, "USD")
+        
+        tot_margin = 0.0
+        tot_marginA = 0.0
+        tot_marginB = 0.0
+        tot_pnl = 0.0
+        pnlA = 0.0
+        pnlB = 0.0
+        
+        open_dates = []
+        dirA = ""
+        dirB = ""
+        trade_items = []
+        
+        for t in t_list:
+            sym = t.symbol
+            direction = str(t.direction).upper()
+            size = float(t.size or 0)
+            entry = float(t.entryPrice or 0)
+            margin = float(t.margin_used or 0)
+            tot_margin += margin
+            
+            cur_px = curA if sym == pairA else (curB if sym == pairB else entry)
+            qc = qcA if sym == pairA else (qcB if sym == pairB else "USD")
+            
+            if "LARG" in direction or "BUY" in direction:
+                diff = cur_px - entry
+            else:
+                diff = entry - cur_px
+                
+            pnl_quote = diff * size
+            item_pnl_usd = pnl_quote if qc == "USD" else (pnl_quote / cur_px if cur_px > 0 else pnl_quote)
+            
+            if sym == pairA:
+                tot_marginA += margin
+                pnlA += item_pnl_usd
+                dirA = "BUY" if ("LARG" in direction or "BUY" in direction) else "SELL"
+            elif sym == pairB:
+                tot_marginB += margin
+                pnlB += item_pnl_usd
+                dirB = "BUY" if ("LARG" in direction or "BUY" in direction) else "SELL"
+                
+            tot_pnl += item_pnl_usd
+            if t.openTime:
+                d_str = t.openTime.strftime("%Y-%m-%d %H:%M") if hasattr(t.openTime, "strftime") else str(t.openTime)
+                open_dates.append(d_str)
+                
+            trade_items.append({
+                "idTrade": t.idTrade,
+                "symbol": sym,
+                "direction": direction,
+                "size": size,
+                "entryPrice": entry,
+                "currentPrice": cur_px,
+                "margin": margin,
+                "pnl": round(item_pnl_usd, 2),
+                "openTime": str(t.openTime)
+            })
+            
+        ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
+        dir_text = f"{dirA} {pairA} + {dirB} {pairB}" if (dirA and dirB) else (dirA or dirB)
+        
+        results.append({
+            "setup": setup,
+            "pairA": pairA,
+            "pairB": pairB,
+            "hasActiveCycle": True,
+            "totalOpenTrades": len(t_list) // 2 if len(t_list) >= 2 else len(t_list),
+            "totalTradesCount": len(t_list),
+            "totalMargin": round(tot_margin, 2),
+            "marginA": round(tot_marginA, 2),
+            "marginB": round(tot_marginB, 2),
+            "pnlA": round(pnlA, 2),
+            "pnlB": round(pnlB, 2),
+            "totalPnl": round(tot_pnl, 2),
+            "returnPct": round(ret_pct, 2),
+            "direction": dir_text,
+            "firstEntryDate": open_dates[0] if open_dates else "",
+            "lastEntryDate": open_dates[-1] if open_dates else "",
+            "trades": trade_items
+        })
+        
+    return results
+
 
 
 class UsuarioCuentaAssign(BaseModel):
