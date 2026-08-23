@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class QuantPairEngine:
+class CruceEmaEngine:
     """
     Motor matemático para el Análisis de Cruces EMA.
     """
@@ -82,14 +82,14 @@ class QuantPairEngine:
         priceMean = (normA + normB) / 2.0
         avgOfMean = float(priceMean.mean())
 
-        # Desviación estándar móvil anclada al promedio de la media
-        stdA = emaA.rolling(window=sigmaWindow, min_periods=max(3, sigmaWindow // 2)).std().fillna(0.0)
-        stdB = emaB.rolling(window=sigmaWindow, min_periods=max(3, sigmaWindow // 2)).std().fillna(0.0)
+        # Desviación estándar de los Precios Normalizados anclada al promedio de la media (idéntica a la gráfica)
+        stdNormA = float(normA.std())
+        stdNormB = float(normB.std())
 
-        stdAboveA = avgOfMean + stdA
-        stdBelowA = avgOfMean - stdA
-        stdAboveB = avgOfMean + stdB
-        stdBelowB = avgOfMean - stdB
+        stdAboveA = avgOfMean + stdNormA
+        stdBelowA = avgOfMean - stdNormA
+        stdAboveB = avgOfMean + stdNormB
+        stdBelowB = avgOfMean - stdNormB
 
         dates = [str(d)[:10] for d in commonIdx]
         pricesA = sA.values
@@ -98,10 +98,6 @@ class QuantPairEngine:
         normB_vals = normB.values
         emaA_vals = emaA.values
         emaB_vals = emaB.values
-        stdAboveA_vals = stdAboveA.values
-        stdBelowA_vals = stdBelowA.values
-        stdAboveB_vals = stdAboveB.values
-        stdBelowB_vals = stdBelowB.values
         n = len(dates)
 
         active_trades: List[Dict[str, Any]] = []
@@ -169,12 +165,12 @@ class QuantPairEngine:
             currP_B, prevP_B = normB_vals[i], normB_vals[i - 1]
             currE_B, prevE_B = emaB_vals[i], emaB_vals[i - 1]
 
-            isCrossDownHigh_A = (prevP_A >= prevE_A and currP_A < currE_A and (prevP_A >= stdAboveA_vals[i] or currP_A >= stdAboveA_vals[i]))
-            isCrossUpLow_A = (prevP_A <= prevE_A and currP_A > currE_A and (prevP_A <= stdBelowA_vals[i] or currP_A <= stdBelowA_vals[i]))
+            isCrossDownHigh_A = (prevP_A >= prevE_A and currP_A < currE_A and (prevP_A >= stdAboveA or currP_A >= stdAboveA))
+            isCrossUpLow_A = (prevP_A <= prevE_A and currP_A > currE_A and (prevP_A <= stdBelowA or currP_A <= stdBelowA))
             hasSignal_A = (isCrossDownHigh_A or isCrossUpLow_A)
 
-            isCrossDownHigh_B = (prevP_B >= prevE_B and currP_B < currE_B and (prevP_B >= stdAboveB_vals[i] or currP_B >= stdAboveB_vals[i]))
-            isCrossUpLow_B = (prevP_B <= prevE_B and currP_B > currE_B and (prevP_B <= stdBelowB_vals[i] or currP_B <= stdBelowB_vals[i]))
+            isCrossDownHigh_B = (prevP_B >= prevE_B and currP_B < currE_B and (prevP_B >= stdAboveB or currP_B >= stdAboveB))
+            isCrossUpLow_B = (prevP_B <= prevE_B and currP_B > currE_B and (prevP_B <= stdBelowB or currP_B <= stdBelowB))
             hasSignal_B = (isCrossDownHigh_B or isCrossUpLow_B)
 
             # Detectar cruce con la media (CÍRCULO DE SALIDA)
@@ -528,4 +524,4 @@ class QuantPairEngine:
         }
 
 
-quantEngine = QuantPairEngine()
+cruceEmaEngine = CruceEmaEngine()

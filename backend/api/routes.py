@@ -14,7 +14,7 @@ from middleware.database import dbManager
 from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
-from backend.services.quant_pair_engine import quantEngine
+from backend.services.cruce_ema_engine import cruceEmaEngine
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
@@ -173,6 +173,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
 def findUserRatio(idUsuario: int, numerador: str, denominador: str, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
     Busca la configuración de un ratio guardado por su clave compuesta (idUsuario, idCuenta, numerador, denominador).
+    Incluye la verificación de posiciones abiertas en la tabla trades.
     """
     query = db.query(UserRatio).filter(
         UserRatio.idUsuario == idUsuario,
@@ -185,8 +186,24 @@ def findUserRatio(idUsuario: int, numerador: str, denominador: str, idCuenta: Op
     ratio = query.first()
 
     if not ratio:
-        return {"found": False}
+        return {"found": False, "hasOpenTrades": False}
     
+    has_open_trades = False
+    open_count = 0
+    if ratio.idCuenta:
+        s1 = f"{ratio.numerador} - {ratio.denominador}"
+        s2 = f"{ratio.denominador} - {ratio.numerador}"
+        from sqlalchemy import text
+        cnt = db.execute(text("""
+            SELECT COUNT(*) FROM trades 
+            WHERE idCuenta = :idc 
+              AND (setup = :s1 OR setup = :s2)
+              AND status = 'OPEN'
+        """), {"idc": ratio.idCuenta, "s1": s1, "s2": s2}).scalar()
+        if cnt and cnt > 0:
+            has_open_trades = True
+            open_count = int(cnt)
+
     return {
         "found": True,
         "id": ratio.id,
@@ -199,13 +216,16 @@ def findUserRatio(idUsuario: int, numerador: str, denominador: str, idCuenta: Op
         "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
         "EMALenta": ratio.EMALenta if ratio.EMALenta is not None else 20,
         "operar": bool(ratio.operar) if getattr(ratio, 'operar', None) is not None else False,
-        "createdAt": ratio.createdAt
+        "createdAt": ratio.createdAt,
+        "hasOpenTrades": has_open_trades,
+        "openTradesCount": open_count
     }
 
 @router.post("/user-ratios/borrar")
 def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
     """
     Elimina por el índice compuesto (idUsuario, idCuenta, numerador, denominador) el registro correspondiente.
+    Valida que NO tenga registros activos (status = 'OPEN') en la tabla trades.
     """
     try:
         query = db.query(UserRatio).filter(
@@ -220,6 +240,23 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
 
         if not ratioToDelete:
             raise HTTPException(status_code=404, detail="No se encontró la combinación de ratio especificada para eliminar.")
+
+        # Validar si tiene posiciones activas en la tabla trades
+        if ratioToDelete.idCuenta:
+            s1 = f"{payload.numerador} - {payload.denominador}"
+            s2 = f"{payload.denominador} - {payload.numerador}"
+            from sqlalchemy import text
+            cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades 
+                WHERE idCuenta = :idc 
+                  AND (setup = :s1 OR setup = :s2)
+                  AND status = 'OPEN'
+            """), {"idc": ratioToDelete.idCuenta, "s1": s1, "s2": s2}).scalar()
+            if cnt and cnt > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No se puede borrar el ratio porque tiene {cnt} posiciones activas (no cerradas) en la tabla trades."
+                )
 
         db.delete(ratioToDelete)
         db.commit()
@@ -326,12 +363,45 @@ def desasignarUsuarioCuenta(payload: UsuarioCuentaDelete, db: Session = Depends(
 @router.get("/user-ratios/{idUsuario}")
 def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
-    Obtiene todos los ratios guardados para un usuario específico (y opcionalmente por cuenta).
+    Obtiene todos los ratios guardados para un usuario específico (y opcionalmente por cuenta),
+    incluyendo la bandera hasOpenTrades si existen órdenes activas en trades.
     """
     query = db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario)
     if idCuenta:
         query = query.filter(UserRatio.idCuenta == idCuenta)
-    return query.order_by(UserRatio.id.desc()).all()
+    ratios = query.order_by(UserRatio.id.desc()).all()
+
+    from sqlalchemy import text
+    results = []
+    for r in ratios:
+        has_open = False
+        if r.idCuenta:
+            s1 = f"{r.numerador} - {r.denominador}"
+            s2 = f"{r.denominador} - {r.numerador}"
+            cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades 
+                WHERE idCuenta = :idc 
+                  AND (setup = :s1 OR setup = :s2)
+                  AND status = 'OPEN'
+            """), {"idc": r.idCuenta, "s1": s1, "s2": s2}).scalar()
+            if cnt and cnt > 0:
+                has_open = True
+
+        results.append({
+            "id": r.id,
+            "idUsuario": r.idUsuario,
+            "idCuenta": r.idCuenta,
+            "numerador": r.numerador,
+            "denominador": r.denominador,
+            "periodo": r.periodo,
+            "dias": r.dias,
+            "EMARapida": r.EMARapida,
+            "EMALenta": r.EMALenta,
+            "operar": r.operar,
+            "createdAt": r.createdAt,
+            "hasOpenTrades": has_open
+        })
+    return results
 
 
 @router.get("/ratio/{pairA:path}")
@@ -1014,8 +1084,8 @@ def aplicarSugerenciasRiesgo(db: Session = Depends(get_db)):
 
 
 
-@router.get("/quant/pair-analysis/{pairA:path}")
-async def get_quant_pair_analysis(
+@router.get("/cruces-ema/pair-analysis/{pairA:path}")
+async def get_cruces_ema_pair_analysis(
     pairA: str,
     pairB: str,
     timeframe: str = "1d",
@@ -1117,7 +1187,7 @@ async def get_quant_pair_analysis(
             logger.warning(f"Error consultando cuenta/symbols en BD: {ex_db}")
 
         # Ejecución del Backtest de Cruces EMA (Modo 1: Solo Triángulos / Modo 2: Triángulos + Cuadros)
-        trianglesOnlyBt = quantEngine.runSignalBacktest(
+        trianglesOnlyBt = cruceEmaEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
             pairA=pairA, pairB=pairB,
             smaPeriod=smaPeriod,
@@ -1136,7 +1206,7 @@ async def get_quant_pair_analysis(
             commissionBps=commissionBps,
             slippageBps=slippageBps
         )
-        combinedBt = quantEngine.runSignalBacktest(
+        combinedBt = cruceEmaEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
             pairA=pairA, pairB=pairB,
             smaPeriod=smaPeriod,
@@ -1170,5 +1240,5 @@ async def get_quant_pair_analysis(
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error(f"Error en get_quant_pair_analysis: {e}", exc_info=True)
+        logger.error(f"Error en get_cruces_ema_pair_analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

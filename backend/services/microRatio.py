@@ -36,7 +36,7 @@ if projectRoot not in sys.path:
     sys.path.insert(0, projectRoot)
 
 from backend.database.models import SessionLocal
-from backend.services.quant_pair_engine import quantEngine
+from backend.services.cruce_ema_engine import cruceEmaEngine
 from middleware.utils.communications import alertaInmediata
 
 # Configuración de Logging
@@ -654,7 +654,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     capitalActual = accountData.get("capital", 300.0)
 
     # 3. Ejecutar Backtest del Ciclo de Cruces EMA
-    bt = quantEngine.runSignalBacktest(
+    bt = cruceEmaEngine.runSignalBacktest(
         dfA_tf, dfB_tf,
         pairA=numerador, pairB=denominador,
         smaPeriod=emaRapida, sigmaWindow=emaLenta,
