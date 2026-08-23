@@ -85,5 +85,4 @@ if __name__ == "__main__":
     test_fft_spectral_analysis()
     test_ornstein_uhlenbeck_half_life()
     test_vectorized_backtest()
-    print("
-🎉 TODOS LOS TESTS DEL MOTOR CUANTITATIVO PASARON EXITOSAMENTE!")
+    print("\n🎉 TODOS LOS TESTS DEL MOTOR CUANTITATIVO PASARON EXITOSAMENTE!")

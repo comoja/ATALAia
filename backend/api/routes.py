@@ -1012,6 +1012,8 @@ def aplicarSugerenciasRiesgo(db: Session = Depends(get_db)):
 
 
 
+
+
 @router.get("/quant/pair-analysis/{pairA:path}")
 async def get_quant_pair_analysis(
     pairA: str,
@@ -1026,16 +1028,13 @@ async def get_quant_pair_analysis(
     end_date: str = "",
     idCuenta: Optional[int] = None,
     capital: Optional[float] = None,
-    leverage: float = 100.0
+    leverage: float = 100.0,
+    smaPeriod: int = 3,
+    sigmaWindow: int = 30
 ) -> Dict[str, Any]:
     """
-    Endpoint del Motor Cuantitativo para Pair Trading:
-    - Identifica FVGs alcistas y bajistas con estado de mitigación.
-    - Calcula Z-Score y bandas dinámicas (+/- 2σ, +/- 3σ).
-    - Descompone la señal mediante FFT y extrae el periodo dominante.
-    - Modela la vida media de reversión (Ornstein-Uhlenbeck Half-Life).
-    - Ejecuta un backtest vectorizado histórico con costos y Curva de Equidad.
-    - Evalúa la última vela para señales live.
+    Endpoint de Análisis y Backtest de Cruces EMA (Triángulos, Cuadros y Círculos).
+    Proporciona métricas, curva de equidad y bitácora detallada de trades para la UI.
     """
     pairA = unquote(pairA)
     pairB = unquote(pairB)
@@ -1057,34 +1056,14 @@ async def get_quant_pair_analysis(
         elif timeframe in ["1d", "1D"]:
             resample_rule = "D"
 
-        # Verificar si disponemos de OHLC completo o solo closePrice
-        if 'openPrice' in df_a.columns and 'highPrice' in df_a.columns and 'lowPrice' in df_a.columns:
-            agg_dict = {
-                'openPrice': 'first',
-                'highPrice': 'max',
-                'lowPrice': 'min',
-                'closePrice': 'last',
-                'volume': 'sum' if 'volume' in df_a.columns else 'last'
-            }
-            if resample_rule:
-                df_a_tf = df_a.resample(resample_rule).agg(agg_dict).dropna()
-                df_b_tf = df_b.resample(resample_rule).agg(agg_dict).dropna()
-            else:
-                df_a_tf = df_a.dropna()
-                df_b_tf = df_b.dropna()
+        if resample_rule:
+            df_a_tf = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+            df_b_tf = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+            if len(df_a_tf) > 1: df_a_tf = df_a_tf.iloc[:-1]
+            if len(df_b_tf) > 1: df_b_tf = df_b_tf.iloc[:-1]
         else:
-            if resample_rule:
-                df_a_tf = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-                df_b_tf = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            else:
-                df_a_tf = df_a.dropna()
-                df_b_tf = df_b.dropna()
-            df_a_tf['openPrice'] = df_a_tf['closePrice']
-            df_a_tf['highPrice'] = df_a_tf['closePrice']
-            df_a_tf['lowPrice'] = df_a_tf['closePrice']
-            df_b_tf['openPrice'] = df_b_tf['closePrice']
-            df_b_tf['highPrice'] = df_b_tf['closePrice']
-            df_b_tf['lowPrice'] = df_b_tf['closePrice']
+            df_a_tf = df_a.dropna()
+            df_b_tf = df_b.dropna()
 
         # Alinear fechas comunes (intersección)
         common_idx = df_a_tf.index.intersection(df_b_tf.index)
@@ -1094,81 +1073,25 @@ async def get_quant_pair_analysis(
         df_a_tf = df_a_tf.loc[common_idx]
         df_b_tf = df_b_tf.loc[common_idx]
 
-        # Filtrar por días o rango de fechas si se especifica
         if start_date and end_date:
             try:
                 dt_start = pd.to_datetime(start_date, utc=True).tz_localize(None)
                 dt_end = pd.to_datetime(end_date, utc=True).tz_localize(None)
-                mask = (df_a_tf.index >= dt_start) & (df_a_tf.index <= dt_end)
-                df_a_tf = df_a_tf.loc[mask]
-                df_b_tf = df_b_tf.loc[mask]
+                df_a_tf = df_a_tf.loc[dt_start:dt_end]
+                df_b_tf = df_b_tf.loc[dt_start:dt_end]
             except Exception as e:
-                logger.warning(f"Error en filtro de fechas: {e}")
+                logger.warning(f"Error recortando fechas en pair-analysis: {e}")
         elif days and days > 0:
             df_a_tf = df_a_tf.tail(days)
             df_b_tf = df_b_tf.tail(days)
 
-        # Construir Ratio OHLC
-        ratio_open = df_a_tf['openPrice'] / df_b_tf['openPrice']
-        ratio_high = df_a_tf['highPrice'] / df_b_tf['lowPrice']
-        ratio_low = df_a_tf['lowPrice'] / df_b_tf['highPrice']
-        ratio_close = df_a_tf['closePrice'] / df_b_tf['closePrice']
-
-        df_ratio = pd.DataFrame({
-            'datetime': df_a_tf.index.astype(str),
-            'open': ratio_open.values,
-            'high': ratio_high.values,
-            'low': ratio_low.values,
-            'close': ratio_close.values,
-            'ratio': ratio_close.values
-        }, index=df_a_tf.index)
-
-        # 1. Fair Value Gaps (FVG)
-        fvgs = quantEngine.identifyFvg(df_ratio)
-
-        # 2. Bandas Z-Score dinámicas
-        dfBands = quantEngine.calculateDynamicZScoreBands(
-            df_ratio['close'],
-            window=windowZScore,
-            stdThreshold=stdThreshold
-        )
-        df_ratio['zScore'] = dfBands['zScore'].values
-        df_ratio['rollingMean'] = dfBands['rollingMean'].values
-        df_ratio['upperBand2Std'] = dfBands['upperBand2Std'].values
-        df_ratio['lowerBand2Std'] = dfBands['lowerBand2Std'].values
-        df_ratio['upperBand3Std'] = dfBands['upperBand3Std'].values
-        df_ratio['lowerBand3Std'] = dfBands['lowerBand3Std'].values
-
-        # 3. Análisis Espectral FFT
-        fftResult = quantEngine.computeFftSpectralAnalysis(df_ratio['close'], numHarmonics=5)
-
-        # 4. Ornstein-Uhlenbeck Half-Life
-        ouResult = quantEngine.calculateOrnsteinUhlenbeckHalfLife(df_ratio['close'])
-
-        # 5. Backtesting Vectorizado
-        backtestResult = quantEngine.runVectorizedBacktest(
-            df_ratio,
-            entryZThreshold=stdThreshold,
-            exitZThreshold=0.0,
-            stopLossZThreshold=3.5,
-            commissionBps=commissionBps,
-            slippageBps=slippageBps,
-            initialCapital=10000.0
-        )
-
-        # 6. Señal Live
-        liveSignal = quantEngine.evaluateLiveSignal(df_ratio, pairA, pairB, entryZThreshold=stdThreshold)
-
-        # 7. Backtests de Señales con cuenta.Capital, symbols.margen y Pip Real
+        # Consultar capital real de cuenta y parámetros institucionales de symbols
         account_capital = float(capital) if capital and capital > 0 else 10000.0
-        min_lots_a = 1000.0
-        min_lots_b = 1000.0
-        margen_pct_a = 0.25
-        margen_pct_b = 1.00
-        pip_a = 0.00010
-        pip_b = 0.01000
-        quote_a = "USD"
-        quote_b = "USD"
+        min_lots_a, min_lots_b = 1000.0, 1000.0
+        margen_pct_a, margen_pct_b = 0.25, 1.00
+        pip_a, pip_b = 0.00010, 0.01000
+        quote_a, quote_b = "USD", "USD"
+
         try:
             from backend.database.models import SessionLocal
             from sqlalchemy import text
@@ -1193,11 +1116,12 @@ async def get_quant_pair_analysis(
         except Exception as ex_db:
             logger.warning(f"Error consultando cuenta/symbols en BD: {ex_db}")
 
+        # Ejecución del Backtest de Cruces EMA (Modo 1: Solo Triángulos / Modo 2: Triángulos + Cuadros)
         trianglesOnlyBt = quantEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
             pairA=pairA, pairB=pairB,
-            smaPeriod=3,
-            sigmaWindow=30,
+            smaPeriod=smaPeriod,
+            sigmaWindow=sigmaWindow,
             includeBoxes=False,
             initialCapital=account_capital,
             allocationPct=3.0,
@@ -1215,8 +1139,8 @@ async def get_quant_pair_analysis(
         combinedBt = quantEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
             pairA=pairA, pairB=pairB,
-            smaPeriod=3,
-            sigmaWindow=30,
+            smaPeriod=smaPeriod,
+            sigmaWindow=sigmaWindow,
             includeBoxes=True,
             initialCapital=account_capital,
             allocationPct=3.0,
@@ -1232,58 +1156,15 @@ async def get_quant_pair_analysis(
             slippageBps=slippageBps
         )
 
-        # Empaquetar series para el frontend / gráfico
-        timeSeriesData = []
-        fftReconstructed = fftResult.get("reconstructed", [])
-        for i, dt in enumerate(df_ratio['datetime']):
-            timeSeriesData.append({
-                "datetime": dt,
-                "ratio": round(float(df_ratio['close'].iloc[i]), 6),
-                "zScore": round(float(df_ratio['zScore'].iloc[i]), 3),
-                "rollingMean": round(float(df_ratio['rollingMean'].iloc[i]), 6) if not np.isnan(df_ratio['rollingMean'].iloc[i]) else None,
-                "upperBand2Std": round(float(df_ratio['upperBand2Std'].iloc[i]), 6) if not np.isnan(df_ratio['upperBand2Std'].iloc[i]) else None,
-                "lowerBand2Std": round(float(df_ratio['lowerBand2Std'].iloc[i]), 6) if not np.isnan(df_ratio['lowerBand2Std'].iloc[i]) else None,
-                "upperBand3Std": round(float(df_ratio['upperBand3Std'].iloc[i]), 6) if not np.isnan(df_ratio['upperBand3Std'].iloc[i]) else None,
-                "lowerBand3Std": round(float(df_ratio['lowerBand3Std'].iloc[i]), 6) if not np.isnan(df_ratio['lowerBand3Std'].iloc[i]) else None,
-                "fftReconstructed": fftReconstructed[i] if i < len(fftReconstructed) else None
-            })
-
         return {
             "status": "success",
             "pairA": pairA,
             "pairB": pairB,
             "timeframe": timeframe,
-            "pointsCount": len(df_ratio),
-            "halfLife": ouResult,
-            "spectralAnalysis": {
-                "dominantPeriod": fftResult.get("dominantPeriod"),
-                "periodsToMeanCross": fftResult.get("periodsToMeanCross"),
-                "dominantFrequency": fftResult.get("dominantFrequency")
-            },
-            "fvgsSummary": {
-                "totalFvgs": len(fvgs),
-                "activeFvgs": len([f for f in fvgs if not f["mitigated"]]),
-                "mitigatedFvgs": len([f for f in fvgs if f["mitigated"]]),
-                "list": fvgs
-            },
-            "backtestMetrics": {
-                "totalTrades": backtestResult["totalTrades"],
-                "winRate": backtestResult["winRate"],
-                "profitFactor": backtestResult["profitFactor"],
-                "sharpeRatio": backtestResult["sharpeRatio"],
-                "maxDrawdown": backtestResult["maxDrawdown"],
-                "totalReturnPct": backtestResult["totalReturnPct"],
-                "finalCapital": backtestResult["finalCapital"],
-                "initialCapital": backtestResult["initialCapital"],
-                "trades": backtestResult["trades"]
-            },
-            "liveSignal": liveSignal,
             "signalBacktest": {
                 "trianglesOnly": trianglesOnlyBt,
                 "combined": combinedBt
-            },
-            "timeSeries": timeSeriesData,
-            "equityCurve": backtestResult["equityCurve"]
+            }
         }
 
     except HTTPException as he:
