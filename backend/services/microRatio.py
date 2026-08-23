@@ -334,6 +334,73 @@ async def sendRatioTelegramAlert(idCuenta: int, messageText: str):
         logger.error(f"⚠️ Error enviando alerta de Telegram para Cuenta #{idCuenta}: {exTel}")
 
 
+def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]]) -> None:
+    """
+    Envía órdenes de ejecución/cierre al Webhook del bróker para todas las cuentas
+    activas en 'brokercuenta' asociadas a idCuenta.
+    """
+    try:
+        query = text("""
+            SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
+            FROM brokercuenta bc
+            LEFT JOIN broker b ON bc.idBroker = b.idBroker
+            WHERE bc.idCuenta = :idc AND bc.activo = 1
+        """)
+        activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
+        if not activeBrokers:
+            logger.info(f"ℹ️ [Webhook] No hay cuentas de bróker activas en brokercuenta para Cuenta #{idCuenta}. Se omite envío a Webhook.")
+            return
+
+        import os, time, json, requests
+        from middleware.utils.cryptoUtils import buildEncryptedAccountToken
+        
+        webhookUrl = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
+        passphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+
+        for bc in activeBrokers:
+            loginUsuario = bc.get("loginUsuario", "")
+            tokenAcceso = bc.get("tokenAcceso", "")
+            nombreBroker = bc.get("nombreBroker", "Broker")
+
+            encryptedAccountToken = buildEncryptedAccountToken(
+                idCuenta=idCuenta,
+                loginUsuario=loginUsuario,
+                tokenAcceso=tokenAcceso
+            )
+
+            for ordInfo in orders:
+                symbol = ordInfo.get("symbol")
+                action = ordInfo.get("action")  # "buy", "sell", "close"
+                size = float(ordInfo.get("size", 0.0))
+                entryPx = float(ordInfo.get("entryPrice", 0.0))
+                strategy = ordInfo.get("strategy", "RATIO ATALAia")
+
+                orderPayload = {
+                    "strategy": strategy,
+                    "passphrase": passphrase,
+                    "time": time.time(),
+                    "action": action,
+                    "ticker": symbol,
+                    "entry": entryPx,
+                    "quantity": size,
+                    "tp": 0.0,
+                    "sl": 0.0,
+                    "FOREX_USERNAME": encryptedAccountToken
+                }
+
+                logger.info(f"🌐 [Webhook] Enviando orden {action.upper()} {symbol} ({size:,.0f} lotes) para cuenta {loginUsuario} ({nombreBroker})...")
+                try:
+                    resp = requests.post(webhookUrl, json=orderPayload, timeout=30)
+                    if resp.status_code == 200:
+                        logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} ejecutada exitosamente para {loginUsuario}: {resp.text}")
+                    else:
+                        logger.error(f"❌ [Webhook] Error {resp.status_code} para {loginUsuario} en {symbol}: {resp.text}")
+                except Exception as exReq:
+                    logger.error(f"❌ [Webhook] Excepción enviando orden a {webhookUrl} para {loginUsuario}: {exReq}")
+    except Exception as e:
+        logger.error(f"⚠️ Error general en despacho de Webhook para Cuenta #{idCuenta}: {e}", exc_info=True)
+
+
 def openSingleRatioTradePair(
     dbSession,
     idCuenta: int,
@@ -462,6 +529,25 @@ def openSingleRatioTradePair(
         f"| Pata 2 ({denominador}): {directionB} {unitsB:,.0f} lotes @ {entryPxB} (Margen: ${marginB:,.2f}) "
         f"| Margen Total Retenido: ${totalMargin:,.2f} USD (Cap. restante: ${(accountCapital - totalMargin):,.2f})"
     )
+
+    # 4. Despachar Órdenes al Webhook de Brókers (si hay cuentas activas en brokercuenta)
+    webhookOrders = [
+        {
+            "strategy": "RATIO ATALAia",
+            "symbol": numerador,
+            "action": "buy" if directionA == "LARGO" else "sell",
+            "size": unitsA,
+            "entryPrice": entryPxA
+        },
+        {
+            "strategy": "RATIO ATALAia",
+            "symbol": denominador,
+            "action": "buy" if directionB == "LARGO" else "sell",
+            "size": unitsB,
+            "entryPrice": entryPxB
+        }
+    ]
+    sendRatioWebhookOrders(dbSession, idCuenta, webhookOrders)
 
     # 4. Despachar Alerta por Telegram
     alertMsg = buildRatioEntryAlertMessage(
@@ -597,6 +683,18 @@ def closeRatioTrades(
         f"| PnL Total: ${totalNetPnl:+,.2f} USD | Margen Reintegrado: ${totalMarginToRelease:,.2f} "
         f"| Impacto Neto en Cuenta: ${netReintegration:+,.2f} USD"
     )
+
+    # Despachar Órdenes de Cierre al Webhook de Brókers
+    webhookCloseOrders = []
+    for tr in openTrades:
+        webhookCloseOrders.append({
+            "strategy": "RATIO ATALAia",
+            "symbol": tr.get("symbol"),
+            "action": "close",
+            "size": float(tr.get("size", 0.0)),
+            "entryPrice": float(tr.get("entryPrice", 0.0))
+        })
+    sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
 
     # Enviar alerta de cierre por Telegram
     exitAlertMsg = buildRatioExitAlertMessage(

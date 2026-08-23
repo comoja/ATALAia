@@ -102,10 +102,52 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    public static class ActiveTradeItemDto implements java.io.Serializable {
+        private int idTrade;
+        private String symbol;
+        private String direction;
+        private double size;
+        private double entryPrice;
+        private double currentPrice;
+        private double margin;
+        private double pnl;
+        private String openTime;
+
+        public int getIdTrade() { return idTrade; }
+        public void setIdTrade(int idTrade) { this.idTrade = idTrade; }
+        public String getSymbol() { return symbol; }
+        public void setSymbol(String symbol) { this.symbol = symbol; }
+        public String getDirection() { return direction; }
+        public void setDirection(String direction) { this.direction = direction; }
+        public double getSize() { return size; }
+        public void setSize(double size) { this.size = size; }
+        public double getEntryPrice() { return entryPrice; }
+        public void setEntryPrice(double entryPrice) { this.entryPrice = entryPrice; }
+        public double getCurrentPrice() { return currentPrice; }
+        public void setCurrentPrice(double currentPrice) { this.currentPrice = currentPrice; }
+        public double getMargin() { return margin; }
+        public void setMargin(double margin) { this.margin = margin; }
+        public double getPnl() { return pnl; }
+        public void setPnl(double pnl) { this.pnl = pnl; }
+        public String getOpenTime() { return openTime; }
+        public void setOpenTime(String openTime) { this.openTime = openTime; }
+
+        public String getFormattedEntryPrice() { return String.format(java.util.Locale.US, "%,.5f", entryPrice); }
+        public String getFormattedCurrentPrice() { return String.format(java.util.Locale.US, "%,.5f", currentPrice); }
+        public String getFormattedMargin() { return String.format(java.util.Locale.US, "%,.2f", margin); }
+        public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
+        public String getFormattedUnits() { return String.format(java.util.Locale.US, "%,.0f", size); }
+    }
+
     public static class ActiveCycleSummaryDto implements java.io.Serializable {
+        private String setup = "";
+        private String pairA = "";
+        private String pairB = "";
         private boolean hasActiveCycle = false;
         private int totalOpenTrades = 0;
         private double totalMargin = 0.0;
+        private double marginA = 0.0;
+        private double marginB = 0.0;
         private double totalPnl = 0.0;
         private double returnPct = 0.0;
         private double pnlA = 0.0;
@@ -117,13 +159,24 @@ public class DashboardBean implements Serializable {
         private double availableCapital = 0.0;
         private double accumCapital = 0.0;
         private boolean isWin = true;
+        private List<ActiveTradeItemDto> trades = new ArrayList<>();
 
+        public String getSetup() { return setup; }
+        public void setSetup(String setup) { this.setup = setup; }
+        public String getPairA() { return pairA; }
+        public void setPairA(String pairA) { this.pairA = pairA; }
+        public String getPairB() { return pairB; }
+        public void setPairB(String pairB) { this.pairB = pairB; }
         public boolean isHasActiveCycle() { return hasActiveCycle; }
         public void setHasActiveCycle(boolean hasActiveCycle) { this.hasActiveCycle = hasActiveCycle; }
         public int getTotalOpenTrades() { return totalOpenTrades; }
         public void setTotalOpenTrades(int totalOpenTrades) { this.totalOpenTrades = totalOpenTrades; }
         public double getTotalMargin() { return totalMargin; }
         public void setTotalMargin(double totalMargin) { this.totalMargin = totalMargin; }
+        public double getMarginA() { return marginA; }
+        public void setMarginA(double marginA) { this.marginA = marginA; }
+        public double getMarginB() { return marginB; }
+        public void setMarginB(double marginB) { this.marginB = marginB; }
         public double getTotalPnl() { return totalPnl; }
         public void setTotalPnl(double totalPnl) { this.totalPnl = totalPnl; }
         public double getReturnPct() { return returnPct; }
@@ -146,12 +199,16 @@ public class DashboardBean implements Serializable {
         public void setAccumCapital(double accumCapital) { this.accumCapital = accumCapital; }
         public boolean isIsWin() { return isWin; }
         public void setIsWin(boolean isWin) { this.isWin = isWin; }
+        public List<ActiveTradeItemDto> getTrades() { return trades; }
+        public void setTrades(List<ActiveTradeItemDto> trades) { this.trades = trades; }
 
         public String getPnlSign() { return totalPnl >= 0 ? "+" : ""; }
         public String getRetSign() { return returnPct >= 0 ? "+" : ""; }
         public String getFormattedTotalPnl() { return String.format(java.util.Locale.US, "%,.2f", totalPnl); }
         public String getFormattedReturnPct() { return String.format(java.util.Locale.US, "%,.1f", returnPct); }
         public String getFormattedTotalMargin() { return String.format(java.util.Locale.US, "%,.2f", totalMargin); }
+        public String getFormattedMarginA() { return String.format(java.util.Locale.US, "%,.2f", marginA); }
+        public String getFormattedMarginB() { return String.format(java.util.Locale.US, "%,.2f", marginB); }
         public String getFormattedPnlA() { return String.format(java.util.Locale.US, "%,.2f", pnlA); }
         public String getFormattedPnlB() { return String.format(java.util.Locale.US, "%,.2f", pnlB); }
         public String getShortDirection() {
@@ -348,6 +405,10 @@ public class DashboardBean implements Serializable {
     private List<SignalTradeDto> signalBtTradesList = new ArrayList<>();
     private String signalBtStrategySelected = "COMBINED";
     private String signalBtComparisonCurveJson = "{}";
+    private List<ActiveCycleSummaryDto> allActiveCycles = new ArrayList<>();
+
+    public List<ActiveCycleSummaryDto> getAllActiveCycles() { return allActiveCycles; }
+    public void setAllActiveCycles(List<ActiveCycleSummaryDto> allActiveCycles) { this.allActiveCycles = allActiveCycles; }
 
     public SignalBacktestMetricsDto getSignalBtTrianglesMetrics() { return signalBtTrianglesMetrics; }
     public void setSignalBtTrianglesMetrics(SignalBacktestMetricsDto signalBtTrianglesMetrics) { this.signalBtTrianglesMetrics = signalBtTrianglesMetrics; }
@@ -390,6 +451,12 @@ public class DashboardBean implements Serializable {
         return String.format(java.util.Locale.US, "%,.2f", cap != null ? cap : 0.0);
     }
 
+    public String getFormattedSignalBtFinalCapital() {
+        return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getFinalCapital() != null)
+                ? String.format(java.util.Locale.US, "%,.2f", signalBtCombinedMetrics.getFinalCapital())
+                : "0.00";
+    }
+
     public Double getSignalBtTotalReturn() {
         return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getTotalReturnPct() != null)
                 ? signalBtCombinedMetrics.getTotalReturnPct()
@@ -403,65 +470,24 @@ public class DashboardBean implements Serializable {
     }
 
     public ActiveCycleSummaryDto getActiveCycleSummary() {
-        ActiveCycleSummaryDto summary = new ActiveCycleSummaryDto();
-        if (signalBtTradesList == null || signalBtTradesList.isEmpty()) {
-            return summary;
-        }
-
-        java.util.List<SignalTradeDto> openTrades = new java.util.ArrayList<>();
-        SignalTradeDto subtotalDto = null;
-
-        for (SignalTradeDto t : signalBtTradesList) {
-            if (Boolean.TRUE.equals(t.getIsOpen())) {
-                if (Boolean.TRUE.equals(t.getIsSubtotal())) {
-                    subtotalDto = t;
-                } else {
-                    openTrades.add(t);
+        if (allActiveCycles != null && !allActiveCycles.isEmpty()) {
+            String pA = (selectedPair != null ? selectedPair.trim() : "");
+            String pB = (selectedPair2 != null ? selectedPair2.trim() : "");
+            String s1 = pA + " - " + pB;
+            String s2 = pB + " - " + pA;
+            for (ActiveCycleSummaryDto c : allActiveCycles) {
+                if (c.getSetup() != null && (c.getSetup().equalsIgnoreCase(s1) || c.getSetup().equalsIgnoreCase(s2))) {
+                    return c;
+                }
+                if ((c.getPairA() != null && c.getPairA().equalsIgnoreCase(pA) && c.getPairB() != null && c.getPairB().equalsIgnoreCase(pB))
+                        || (c.getPairA() != null && c.getPairA().equalsIgnoreCase(pB) && c.getPairB() != null && c.getPairB().equalsIgnoreCase(pA))) {
+                    return c;
                 }
             }
         }
-
-        if (!openTrades.isEmpty()) {
-            summary.setHasActiveCycle(true);
-            summary.setTotalOpenTrades(openTrades.size());
-
-            if (subtotalDto != null) {
-                double mA = subtotalDto.getMarginA() != null ? subtotalDto.getMarginA() : 0.0;
-                double mB = subtotalDto.getMarginB() != null ? subtotalDto.getMarginB() : 0.0;
-                summary.setTotalMargin(mA + mB);
-                summary.setTotalPnl(subtotalDto.getPnl() != null ? subtotalDto.getPnl() : 0.0);
-                summary.setReturnPct(subtotalDto.getReturnPct() != null ? subtotalDto.getReturnPct() : 0.0);
-                summary.setPnlA(subtotalDto.getPnlA() != null ? subtotalDto.getPnlA() : 0.0);
-                summary.setPnlB(subtotalDto.getPnlB() != null ? subtotalDto.getPnlB() : 0.0);
-                summary.setAccumCapital(subtotalDto.getAccumCapital() != null ? subtotalDto.getAccumCapital() : 0.0);
-                summary.setAvailableCapital(subtotalDto.getAvailableCapital() != null ? subtotalDto.getAvailableCapital() : 0.0);
-                summary.setIsWin(summary.getTotalPnl() >= 0);
-            } else {
-                double tPnl = 0.0, tMargin = 0.0, pA = 0.0, pB = 0.0;
-                for (SignalTradeDto ot : openTrades) {
-                    tPnl += (ot.getPnl() != null ? ot.getPnl() : 0.0);
-                    double mA = ot.getMarginA() != null ? ot.getMarginA() : 0.0;
-                    double mB = ot.getMarginB() != null ? ot.getMarginB() : 0.0;
-                    tMargin += (mA + mB);
-                    pA += (ot.getPnlA() != null ? ot.getPnlA() : 0.0);
-                    pB += (ot.getPnlB() != null ? ot.getPnlB() : 0.0);
-                }
-                summary.setTotalPnl(tPnl);
-                summary.setTotalMargin(tMargin);
-                summary.setPnlA(pA);
-                summary.setPnlB(pB);
-                summary.setReturnPct(tMargin > 0 ? (tPnl / tMargin) * 100.0 : 0.0);
-                summary.setIsWin(tPnl >= 0);
-            }
-
-            SignalTradeDto first = openTrades.get(0);
-            SignalTradeDto last = openTrades.get(openTrades.size() - 1);
-            summary.setDirection(first.getDirection() != null ? first.getDirection() : "");
-            summary.setFirstEntryDate(first.getEntryDate() != null ? first.getEntryDate() : "");
-            summary.setLastEntryDate(last.getEntryDate() != null ? last.getEntryDate() : "");
-            summary.setLastSignalType(last.getSignalType() != null ? last.getSignalType() : "");
-        }
-        return summary;
+        ActiveCycleSummaryDto emptyDto = new ActiveCycleSummaryDto();
+        emptyDto.setHasActiveCycle(false);
+        return emptyDto;
     }
 
     public String getFormattedSignalBtTotalPnl() {
@@ -751,8 +777,82 @@ public class DashboardBean implements Serializable {
         loadCatalogo();
         loadUserAccounts();
         loadUserRatiosList();
+        loadAllActiveCycles();
         fetchUserRatioDetails();
         analyzePair(); // Cargar datos iniciales
+    }
+
+    public void loadAllActiveCycles() {
+        this.allActiveCycles = new ArrayList<>();
+        Integer idCuenta = selectedAccountId;
+        if (idCuenta == null) {
+            return;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/trades/active-summary/" + idCuenta;
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.trim().isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode n : rootNode) {
+                        ActiveCycleSummaryDto dto = new ActiveCycleSummaryDto();
+                        dto.setSetup(n.path("setup").asText(""));
+                        dto.setPairA(n.path("pairA").asText(""));
+                        dto.setPairB(n.path("pairB").asText(""));
+                        dto.setHasActiveCycle(n.path("hasActiveCycle").asBoolean(true));
+                        dto.setTotalOpenTrades(n.path("totalOpenTrades").asInt(0));
+                        dto.setTotalMargin(n.path("totalMargin").asDouble(0.0));
+                        dto.setMarginA(n.path("marginA").asDouble(0.0));
+                        dto.setMarginB(n.path("marginB").asDouble(0.0));
+                        dto.setPnlA(n.path("pnlA").asDouble(0.0));
+                        dto.setPnlB(n.path("pnlB").asDouble(0.0));
+                        dto.setTotalPnl(n.path("totalPnl").asDouble(0.0));
+                        dto.setReturnPct(n.path("returnPct").asDouble(0.0));
+                        dto.setDirection(n.path("direction").asText(""));
+                        dto.setFirstEntryDate(n.path("firstEntryDate").asText(""));
+                        dto.setLastEntryDate(n.path("lastEntryDate").asText(""));
+                        dto.setIsWin(dto.getTotalPnl() >= 0);
+
+                        JsonNode tradesNode = n.path("trades");
+                        if (tradesNode.isArray()) {
+                            List<ActiveTradeItemDto> tList = new ArrayList<>();
+                            for (JsonNode tn : tradesNode) {
+                                ActiveTradeItemDto item = new ActiveTradeItemDto();
+                                item.setIdTrade(tn.path("idTrade").asInt());
+                                item.setSymbol(tn.path("symbol").asText(""));
+                                item.setDirection(tn.path("direction").asText(""));
+                                item.setSize(tn.path("size").asDouble());
+                                item.setEntryPrice(tn.path("entryPrice").asDouble());
+                                item.setCurrentPrice(tn.path("currentPrice").asDouble());
+                                item.setMargin(tn.path("margin").asDouble());
+                                item.setPnl(tn.path("pnl").asDouble());
+                                item.setOpenTime(tn.path("openTime").asText(""));
+                                tList.add(item);
+                            }
+                            dto.setTrades(tList);
+                        }
+                        allActiveCycles.add(dto);
+                    }
+                }
+            }
+            log.info("Cargados {} ciclos de posiciones activas para idCuenta {}", allActiveCycles.size(), idCuenta);
+        } catch (Exception e) {
+            log.error("Error al cargar allActiveCycles desde backend: {}", e.getMessage());
+        }
+    }
+
+    public void selectRatioFromActiveCycle(ActiveCycleSummaryDto cycle) {
+        if (cycle == null) return;
+        if (cycle.getPairA() != null && !cycle.getPairA().isEmpty()) {
+            this.selectedPair = cycle.getPairA();
+        }
+        if (cycle.getPairB() != null && !cycle.getPairB().isEmpty()) {
+            this.selectedPair2 = cycle.getPairB();
+        }
+        fetchUserRatioDetails();
+        analyzePair();
     }
 
     public void onDatesOrTimeframeChange() {
@@ -1329,6 +1429,7 @@ public class DashboardBean implements Serializable {
     public void onCuentaChange() {
         log.info("Cuenta cambiada en panel lateral a idCuenta={}", selectedAccountId);
         loadUserRatiosList();
+        loadAllActiveCycles();
         if (userRatiosList != null && !userRatiosList.isEmpty()) {
             UserRatioDto firstRatio = userRatiosList.get(0);
             onSelectUserRatio(firstRatio);
