@@ -4,16 +4,16 @@ Microservicio: microRatio.py
 ===========================
 Evalúa periódicamente (cada hora) las combinaciones activas en 'user_ratios'
 con 'operar = 1' para la cuenta correspondiente.
-Al detectar señales de Análisis de Cruces EMA (Triángulos, Cuadros y Círculo de Media),
-genera EXACTAMENTE 2 registros (las 2 patas: Numerador y Denominador) en la tabla 'trades',
-calcula el dimensionamiento real (3% del capital de la cuenta en múltiplos de min_lots),
-descuenta el margen retenido de 'cuenta.Capital' y despacha la alerta de Cruces EMA por Telegram.
 
-Estrategia: RATIO ATALAia
-Setup: {numerador} - {denominador} (ej: USD/MXN - GBP/USD)
-Patas: 
-  - Pata 1: Símbolo Numerador
-  - Pata 2: Símbolo Denominador
+Lógica de Operación:
+1. ENTRADA (Triángulo Coincidente):
+   Se abren exactamente 2 registros (las 2 patas) cuando ambos pares se encuentran fuera
+   de su desviación estándar (+1σ o -1σ) y cruzan simultáneamente su respectiva EMA rápida.
+2. CIERRE (Convergencia de Precios ●):
+   Se cierran y liquidan las posiciones ÚNICAMENTE cuando la curva de precios normalizados
+   del Par A cruza a la curva de precios normalizados del Par B.
+
+Todas las funciones y variables utilizan nomenclatura camelCase.
 """
 
 import os
@@ -24,7 +24,7 @@ import asyncio
 import argparse
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 import pandas as pd
 import numpy as np
@@ -36,7 +36,7 @@ if projectRoot not in sys.path:
     sys.path.insert(0, projectRoot)
 
 from backend.database.models import SessionLocal
-from backend.services.cruce_ema_engine import cruceEmaEngine
+from backend.services.signal_engine import signalEngine
 from middleware.utils.communications import alertaInmediata
 
 # Configuración de Logging
@@ -84,7 +84,7 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
             "denominador": str(r[4]),
             "periodo": str(r[5]) if r[5] else "1d",
             "dias": int(r[6]) if r[6] else 180,
-            "EMARapida": int(r[7]) if r[7] else 3,
+            "EMARapida": int(r[7]) if r[7] else 2,
             "EMALenta": int(r[8]) if r[8] else 20,
             "operar": bool(r[9])
         })
@@ -199,32 +199,121 @@ def resamplePriceData(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return df
 
 
+def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt: datetime) -> bool:
+    """Verifica si ya existe un trade abierto registrado para la misma fecha de vela."""
+    sqlQuery = text("""
+        SELECT COUNT(*)
+        FROM trades
+        WHERE idCuenta = :idc
+          AND setup = :stp
+          AND status = 'OPEN'
+          AND DATE(candleTime) = DATE(:cdt)
+    """)
+    cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "stp": setupName, "cdt": candleDt}).scalar()
+    return bool(cnt and cnt > 0)
+
+
+def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) -> Tuple[bool, float, float, float]:
+    """
+    Evalúa la salud de margen de la cuenta considerando todas las operaciones abiertas.
+    Calcula:
+    - totalMargin: sumatoria de margen retenido de todos los trades OPEN
+    - totalFloatingPnl: sumatoria de PnL no realizado de todos los trades OPEN
+    - equidad: accountCapital + totalFloatingPnl
+    - marginIndicator: (equidad / totalMargin) * 100.0 si totalMargin > 0 sino 9999.0
+    
+    Regla: Permite operar si marginIndicator >= 200.0 (o si no hay margen retenido).
+    Retorna: (canOperate: bool, marginIndicator: float, totalMargin: float, equidad: float)
+    """
+    sqlTrades = text("""
+        SELECT t.idTrade, t.symbol, t.direction, t.size, t.entryPrice, t.margin_used,
+               s.pip, s.quote_currency
+        FROM trades t
+        LEFT JOIN symbols s ON t.symbol = s.symbol
+        WHERE t.idCuenta = :idc AND t.status = OPEN
+    """)
+    rows = dbSession.execute(sqlTrades, {"idc": idCuenta}).fetchall()
+    
+    if not rows:
+        return True, 9999.0, 0.0, accountCapital
+
+    totalMargin = 0.0
+    totalFloatingPnl = 0.0
+    symbolPrices = {}
+
+    for r in rows:
+        sym = str(r[1])
+        direction = str(r[2]).upper()
+        size = float(r[3])
+        entryPx = float(r[4])
+        marginUsed = float(r[5]) if r[5] is not None else 0.0
+        pipVal = float(r[6]) if r[6] is not None and float(r[6]) > 0 else 0.0001
+        quoteCurr = str(r[7]) if r[7] else "USD"
+
+        totalMargin += marginUsed
+
+        if sym not in symbolPrices:
+            sqlPx = text("""
+                SELECT closePrice 
+                FROM stockprices 
+                WHERE symbol = :sym 
+                ORDER BY priceDate DESC 
+                LIMIT 1
+            """)
+            pxRow = dbSession.execute(sqlPx, {"sym": sym}).fetchone()
+            symbolPrices[sym] = float(pxRow[0]) if pxRow and pxRow[0] is not None else entryPx
+
+        currentPx = symbolPrices[sym]
+
+        if direction in ["LARGO", "BUY", "LONG"]:
+            delta = currentPx - entryPx
+        else:
+            delta = entryPx - currentPx
+
+        pips = (delta / pipVal) if pipVal > 0 else 0.0
+
+        if quoteCurr == "USD":
+            pipMoneyValue = size * pipVal
+        else:
+            pipMoneyValue = (size * pipVal) / currentPx if currentPx > 0 else (size * pipVal)
+
+        costs = (size * currentPx) * 0.0003
+        tradePnl = (pips * pipMoneyValue) - costs
+        totalFloatingPnl += tradePnl
+
+    equity = accountCapital + totalFloatingPnl
+    marginIndicator = (equity / totalMargin * 100.0) if totalMargin > 0 else 9999.0
+    canOperate = bool(marginIndicator >= 200.0)
+
+    return canOperate, marginIndicator, totalMargin, equity
+
+
 def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict[str, Any]]:
     """
-    Verifica si existen órdenes abiertas para el setup y cuenta en la tabla 'trades'.
+    Verifica si existen operaciones actualmente en estado 'OPEN' para este setup y cuenta,
+    incluyendo su ticketId para la gestión de órdenes en bróker.
     """
     sqlQuery = text("""
-        SELECT idTrade, idCuenta, strategy, setup, symbol, status, direction, size, entryPrice, margin_used, candleTime, openTime
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, candleTime, openTime, ticketId
         FROM trades
-        WHERE idCuenta = :idc AND strategy = 'RATIO ATALAia' AND setup = :setup AND status = 'OPEN'
+        WHERE idCuenta = :idc
+          AND setup = :stp
+          AND status = 'OPEN'
         ORDER BY idTrade ASC
     """)
-    rows = dbSession.execute(sqlQuery, {"idc": idCuenta, "setup": setupName}).fetchall()
+    rows = dbSession.execute(sqlQuery, {"idc": idCuenta, "stp": setupName}).fetchall()
     openTrades = []
     for r in rows:
         openTrades.append({
             "idTrade": r[0],
-            "idCuenta": r[1],
-            "strategy": r[2],
-            "setup": r[3],
-            "symbol": r[4],
-            "status": r[5],
-            "direction": r[6],
-            "size": float(r[7]) if r[7] is not None else 0.0,
-            "entryPrice": float(r[8]) if r[8] is not None else 0.0,
-            "margin_used": float(r[9]) if r[9] is not None else 0.0,
-            "candleTime": r[10],
-            "openTime": r[11]
+            "symbol": str(r[1]),
+            "direction": str(r[2]),
+            "size": float(r[3]),
+            "entryPrice": float(r[4]),
+            "margin_used": float(r[5]) if r[5] is not None else 0.0,
+            "candleTime": r[6],
+            "openTime": r[7],
+            "ticketId": str(r[8]) if r[8] else None
         })
     return openTrades
 
@@ -245,30 +334,22 @@ def buildRatioEntryAlertMessage(
     marginA: float,
     marginB: float,
     totalMargin: float,
-    entryDate: str = ""
+    entryDate: str
 ) -> str:
-    """Construye el mensaje de alerta de entrada para Telegram."""
+    """Construye el mensaje formal de entrada para Telegram."""
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entryDateDisplay = entryDate if entryDate else nowStr[:10]
     dirBadgeA = "🟢 COMPRA" if directionA == "LARGO" else "🔴 VENTA"
     dirBadgeB = "🟢 COMPRA" if directionB == "LARGO" else "🔴 VENTA"
-    
-    if any(s in signalType for s in ["▲", "▼", "■", "●"]):
-        sigEmoji = ""
-    elif "CUADRO" in signalType:
-        sigEmoji = "■ "
-    elif "VERDE" in signalType:
-        sigEmoji = "▲ "
-    else:
-        sigEmoji = "▼ "
+      
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry_date_display = entryDate if entryDate else now_str[:10]
     lines = [
-        "<center>🟩🟥🟩 <b>ATALA.ia CRUCE EMA</b> 🟩🟥🟩</center>",
-        f"<center><b>   {numerador} ⇄ {denominador} ({periodo.upper()})</b></center>",
-        f"<center><b>   {accountName} (${accountCapital:,.2f} USD)</b></center>",
-        f"<center>{now_str}</center>",
+        f"<center>🟩🟥 <b>ATALA.ia CRUCE EMA</b> 🟥🟩</center>",
+        f"<center><b> {numerador} ⇄ {denominador} ({periodo.upper()}) </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
         "━━━━━━━━━━━━━━━━━",   
-        f"<center>Fecha del cruce: <b>{entry_date_display}</b></center>",
+        f"<center>Fecha del cruce: <b>{entryDateDisplay}</b></center>",
         "",   
         f"📍 <b>PATA 1 {dirBadgeA} {numerador}</b>",
         f"   🔹 Entrada: <b>{priceA:,.5f}</b>",
@@ -301,19 +382,19 @@ def buildRatioExitAlertMessage(
     totalNetPnl: float,
     totalMarginReleased: float
 ) -> str:
-    """Construye el mensaje de liquidación y cierre en media para Telegram."""
+    """Construye el mensaje de liquidación por cruce de precios (convergencia) para Telegram."""
     pnlSign = "+" if totalNetPnl >= 0 else ""
     retPct = ((totalNetPnl / totalMarginReleased) * 100.0) if totalMarginReleased > 0 else 0.0
     retSign = "+" if retPct >= 0 else ""
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
-        "<center>🟩🟥🟩 <b>ATALA.ia CIERRE CRUCE EMA </b> 🟩🟥🟩</center>",
+        "<center>🟥<b>ATALA.ia CIERRE POR CRUCE DE PRECIOS</b>🟥</center>",
         f"<center><b>   {numerador} ⇄ {denominador} ({periodo.upper()})</b></center>",
         f"<center><b>   {accountName} </b></center>",
-        f"<center>{now_str}</center>",
+        f"<center>{nowStr}</center>",
         "━━━━━━━━━━━━━━━━━━━━",
-        "<center> <b>LIQUIDACIÓN POR PATA:</b></center>",
+        "<center> <b>LIQUIDACIÓN POR CONVERGENCIA (●):</b></center>",
         f"   <b>{numerador} ({dirA}):</b> {pipsA:+,.1f} pips  |  <b>{pnlA:+,.2f} USD</b>",
         f"   <b>{denominador} ({dirB}):</b> {pipsB:+,.1f} pips  |  <b>{pnlB:+,.2f} USD</b>",
         "━━━━━━━━━━━━━━━━━━━━",
@@ -334,11 +415,13 @@ async def sendRatioTelegramAlert(idCuenta: int, messageText: str):
         logger.error(f"⚠️ Error enviando alerta de Telegram para Cuenta #{idCuenta}: {exTel}")
 
 
-def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]]) -> None:
+def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Envía órdenes de ejecución/cierre al Webhook del bróker para todas las cuentas
     activas en 'brokercuenta' asociadas a idCuenta.
+    Retorna la lista con los resultados de ejecución real (order_id, fill_price, idTrade).
     """
+    executionResults = []
     try:
         query = text("""
             SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
@@ -349,12 +432,12 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
         activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
         if not activeBrokers:
             logger.info(f"ℹ️ [Webhook] No hay cuentas de bróker activas en brokercuenta para Cuenta #{idCuenta}. Se omite envío a Webhook.")
-            return
+            return executionResults
 
         import os, time, json, requests
         from middleware.utils.cryptoUtils import buildEncryptedAccountToken
         
-        webhookUrl = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8000/webhook/tradingview")
+        webhookUrl = os.getenv("WEBHOOK_URL") or "http://127.0.0.1:8002/webhook/tradingview"
         passphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
 
         for bc in activeBrokers:
@@ -370,10 +453,12 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
 
             for ordInfo in orders:
                 symbol = ordInfo.get("symbol")
-                action = ordInfo.get("action")  # "buy", "sell", "close"
+                action = ordInfo.get("action")
                 size = float(ordInfo.get("size", 0.0))
                 entryPx = float(ordInfo.get("entryPrice", 0.0))
                 strategy = ordInfo.get("strategy", "RATIO ATALAia")
+                ticketId = ordInfo.get("ticketId")
+                idTrade = ordInfo.get("idTrade")
 
                 orderPayload = {
                     "strategy": strategy,
@@ -385,6 +470,8 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                     "quantity": size,
                     "tp": 0.0,
                     "sl": 0.0,
+                    "sync": True,
+                    "ticketId": ticketId,
                     "FOREX_USERNAME": encryptedAccountToken
                 }
 
@@ -392,13 +479,37 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                 try:
                     resp = requests.post(webhookUrl, json=orderPayload, timeout=30)
                     if resp.status_code == 200:
-                        logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} ejecutada exitosamente para {loginUsuario}: {resp.text}")
+                        resData = resp.json() if resp.text else {}
+                        orderId = resData.get("order_id")
+                        fillPrice = resData.get("fill_price") or entryPx
+                        logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} confirmada en FOREX.com -> OrderId: {orderId}, FillPrice: {fillPrice}")
+                        executionResults.append({
+                            "idTrade": idTrade,
+                            "symbol": symbol,
+                            "action": action,
+                            "order_id": orderId,
+                            "fill_price": fillPrice,
+                            "success": True
+                        })
                     else:
                         logger.error(f"❌ [Webhook] Error {resp.status_code} para {loginUsuario} en {symbol}: {resp.text}")
+                        executionResults.append({
+                            "idTrade": idTrade,
+                            "symbol": symbol,
+                            "action": action,
+                            "success": False
+                        })
                 except Exception as exReq:
                     logger.error(f"❌ [Webhook] Excepción enviando orden a {webhookUrl} para {loginUsuario}: {exReq}")
+                    executionResults.append({
+                        "idTrade": idTrade,
+                        "symbol": symbol,
+                        "action": action,
+                        "success": False
+                    })
     except Exception as e:
         logger.error(f"⚠️ Error general en despacho de Webhook para Cuenta #{idCuenta}: {e}", exc_info=True)
+    return executionResults
 
 
 def openSingleRatioTradePair(
@@ -408,7 +519,12 @@ def openSingleRatioTradePair(
     numerador: str,
     denominador: str,
     periodo: str,
-    op: Dict[str, Any],
+    candleDateStr: str,
+    signalType: str,
+    directionA: str,
+    directionB: str,
+    entryPxA: float,
+    entryPxB: float,
     accountData: Dict[str, Any],
     symDataA: Dict[str, Any],
     symDataB: Dict[str, Any]
@@ -418,15 +534,6 @@ def openSingleRatioTradePair(
     calcula el dimensionamiento proporcional exacto (3% del capital disponible de la cuenta),
     descuenta el margen retenido de 'cuenta.Capital' y envía la alerta de Cruces EMA por Telegram.
     """
-    dirStr = str(op.get("direction", ""))
-    if "SHORT " + numerador in dirStr or "SHORT A" in dirStr:
-        directionA = "CORTO"
-        directionB = "LARGO"
-    else:
-        directionA = "LARGO"
-        directionB = "CORTO"
-
-    # Dimensionamiento real basado en el 3% del capital real de la cuenta
     accountCapital = float(accountData.get("capital", 300.0))
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
 
@@ -451,11 +558,8 @@ def openSingleRatioTradePair(
     marginB = multB * margen1LotB
     totalMargin = marginA + marginB
 
-    entryPxA = float(op.get("entryPriceA", 0.0))
-    entryPxB = float(op.get("entryPriceB", 0.0))
-    candleDateStr = str(op.get("entryDate", ""))[:19]
     try:
-        candleDt = datetime.strptime(candleDateStr[:10], "%Y-%m-%d")
+        candleDt = datetime.strptime(str(candleDateStr)[:10], "%Y-%m-%d")
     except Exception:
         candleDt = datetime.now()
 
@@ -474,7 +578,7 @@ def openSingleRatioTradePair(
     """)
 
     # 1. Pata 1: Numerador
-    dbSession.execute(insertTradeSql, {
+    resA = dbSession.execute(insertTradeSql, {
         "idCuenta": idCuenta,
         "strategy": "RATIO ATALAia",
         "setup": setupName,
@@ -491,9 +595,10 @@ def openSingleRatioTradePair(
         "takeProfit": None,
         "margin_used": marginA
     })
+    idTradeA = resA.lastrowid
 
     # 2. Pata 2: Denominador
-    dbSession.execute(insertTradeSql, {
+    resB = dbSession.execute(insertTradeSql, {
         "idCuenta": idCuenta,
         "strategy": "RATIO ATALAia",
         "setup": setupName,
@@ -510,6 +615,7 @@ def openSingleRatioTradePair(
         "takeProfit": None,
         "margin_used": marginB
     })
+    idTradeB = resB.lastrowid
 
     # 3. Descontar margen retenido de cuenta.Capital
     updateCapitalSql = text("""
@@ -521,18 +627,12 @@ def openSingleRatioTradePair(
         "margenRetenido": totalMargin,
         "idc": idCuenta
     })
-
     dbSession.commit()
-    logger.info(
-        f"🚀 [{setupName}] SEÑAL EJECUTADA (2 REGISTROS): {op.get('signalType')} en Cuenta #{idCuenta} "
-        f"| Pata 1 ({numerador}): {directionA} {unitsA:,.0f} lotes @ {entryPxA} (Margen: ${marginA:,.2f}) "
-        f"| Pata 2 ({denominador}): {directionB} {unitsB:,.0f} lotes @ {entryPxB} (Margen: ${marginB:,.2f}) "
-        f"| Margen Total Retenido: ${totalMargin:,.2f} USD (Cap. restante: ${(accountCapital - totalMargin):,.2f})"
-    )
 
-    # 4. Despachar Órdenes al Webhook de Brókers (si hay cuentas activas en brokercuenta)
+    # 4. Despachar Órdenes al Webhook y recibir ID de Transacción (ticketId) y Precio Real
     webhookOrders = [
         {
+            "idTrade": idTradeA,
             "strategy": "RATIO ATALAia",
             "symbol": numerador,
             "action": "buy" if directionA == "LARGO" else "sell",
@@ -540,6 +640,7 @@ def openSingleRatioTradePair(
             "entryPrice": entryPxA
         },
         {
+            "idTrade": idTradeB,
             "strategy": "RATIO ATALAia",
             "symbol": denominador,
             "action": "buy" if directionB == "LARGO" else "sell",
@@ -547,16 +648,47 @@ def openSingleRatioTradePair(
             "entryPrice": entryPxB
         }
     ]
-    sendRatioWebhookOrders(dbSession, idCuenta, webhookOrders)
+    execResults = sendRatioWebhookOrders(dbSession, idCuenta, webhookOrders)
 
-    # 4. Despachar Alerta por Telegram
+    # 5. Corregir precio real de ejecución y guardar TicketID en la BD MySQL
+    realPxA, realPxB = entryPxA, entryPxB
+    for res in execResults:
+        tId = res.get("idTrade")
+        ordId = res.get("order_id")
+        fPx = res.get("fill_price")
+        if tId and (ordId or fPx):
+            updateTradeSyncSql = text("""
+                UPDATE trades
+                SET ticketId = COALESCE(:ticketId, ticketId),
+                    entryPrice = COALESCE(:fillPrice, entryPrice)
+                WHERE idTrade = :idt
+            """)
+            dbSession.execute(updateTradeSyncSql, {
+                "ticketId": str(ordId) if ordId else None,
+                "fillPrice": float(fPx) if fPx else None,
+                "idt": tId
+            })
+            if tId == idTradeA and fPx:
+                realPxA = float(fPx)
+            elif tId == idTradeB and fPx:
+                realPxB = float(fPx)
+
+    dbSession.commit()
+    logger.info(
+        f"🚀 [{setupName}] SEÑAL EJECUTADA (2 REGISTROS): {signalType} en Cuenta #{idCuenta} "
+        f"| Pata 1 ({numerador}, Trade #{idTradeA}): {directionA} {unitsA:,.0f} lotes @ {realPxA} (Margen: ${marginA:,.2f}) "
+        f"| Pata 2 ({denominador}, Trade #{idTradeB}): {directionB} {unitsB:,.0f} lotes @ {realPxB} (Margen: ${marginB:,.2f}) "
+        f"| Margen Total Retenido: ${totalMargin:,.2f} USD (Cap. restante: ${(accountCapital - totalMargin):,.2f})"
+    )
+
+    # 5. Despachar Alerta por Telegram
     alertMsg = buildRatioEntryAlertMessage(
         accountName=accountName,
         accountCapital=accountCapital,
         numerador=numerador,
         denominador=denominador,
         periodo=periodo,
-        signalType=str(op.get("signalType", "SEÑAL DE CRUCE EMA")),
+        signalType=signalType,
         directionA=directionA,
         directionB=directionB,
         unitsA=unitsA,
@@ -566,7 +698,7 @@ def openSingleRatioTradePair(
         marginA=marginA,
         marginB=marginB,
         totalMargin=totalMargin,
-        entryDate=candleDateStr[:10]
+        entryDate=str(candleDateStr)[:10]
     )
     try:
         asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
@@ -587,9 +719,9 @@ def closeRatioTrades(
     periodo: str = "1d"
 ) -> bool:
     """
-    Cierra todas las operaciones abiertas del setup al llegar al Círculo de Media (●),
+    Cierra todas las operaciones abiertas del setup al ocurrir el cruce de precios (●),
     liquida el PnL neto por pips, reincorpora el margen y la ganancia/pérdida a 'cuenta.Capital'
-    y envía la alerta de cierre a Telegram.
+    y envía la alerta de cierre a Telegram y la orden de cierre al Webhook.
     """
     if not openTrades:
         return False
@@ -679,7 +811,7 @@ def closeRatioTrades(
     newCapital = float(accountData.get("capital", 0.0)) + netReintegration
 
     logger.info(
-        f"🎯 [{setupName}] CRUCE DE MEDIA (●): {len(openTrades)} trades liquidados en Cuenta #{idCuenta} "
+        f"🎯 [{setupName}] CRUCE DE PRECIOS (●): {len(openTrades)} trades liquidados en Cuenta #{idCuenta} "
         f"| PnL Total: ${totalNetPnl:+,.2f} USD | Margen Reintegrado: ${totalMarginToRelease:,.2f} "
         f"| Impacto Neto en Cuenta: ${netReintegration:+,.2f} USD"
     )
@@ -723,7 +855,9 @@ def closeRatioTrades(
 def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     """
     Evalúa el user_ratio activo (operar = 1) para la cuenta especificada.
-    Genera EXACTAMENTE 2 registros para la señal activa más reciente.
+    Utiliza el motor centralizado signalEngine:
+    - Abre operaciones cuando ambos pares coinciden en señal de Triángulo (hasSignalBoth).
+    - Cierra operaciones ÚNICAMENTE cuando ocurre el cruce real entre los precios de Par A y Par B (isPriceCross).
     """
     idCuenta = ratioRecord["idCuenta"]
     numerador = ratioRecord["numerador"]
@@ -731,7 +865,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     setupName = f"{numerador} - {denominador}"
     periodo = ratioRecord["periodo"]
     dias = ratioRecord["dias"] or 180
-    emaRapida = ratioRecord["EMARapida"] or 3
+    emaRapida = ratioRecord["EMARapida"] or 2
     emaLenta = ratioRecord["EMALenta"] or 20
 
     # 1. Historial de precios
@@ -742,51 +876,96 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         logger.warning(f"⚠️ [{setupName}] Historial insuficiente para {numerador} o {denominador}.")
         return
 
-    dfA_tf = resamplePriceData(dfA, periodo).tail(dias)
-    dfB_tf = resamplePriceData(dfB, periodo).tail(dias)
+    dfATf = resamplePriceData(dfA, periodo).tail(dias)
+    dfBTf = resamplePriceData(dfB, periodo).tail(dias)
 
     # 2. Datos de símbolos y cuenta
     symDataA = fetchSymbolData(dbSession, numerador)
     symDataB = fetchSymbolData(dbSession, denominador)
     accountData = fetchAccountData(dbSession, idCuenta)
-    capitalActual = accountData.get("capital", 300.0)
 
-    # 3. Ejecutar Backtest del Ciclo de Cruces EMA
-    bt = cruceEmaEngine.runSignalBacktest(
-        dfA_tf, dfB_tf,
-        pairA=numerador, pairB=denominador,
-        smaPeriod=emaRapida, sigmaWindow=emaLenta,
-        includeBoxes=True, initialCapital=capitalActual,
-        minLotsA=symDataA["minLots"], minLotsB=symDataB["minLots"],
-        margenPctA=symDataA["margenPct"], margenPctB=symDataB["margenPct"]
+    # 3. Evaluación matemática con signalEngine
+    evalResult = signalEngine.evaluateRatioSignals(
+        dfA=dfATf,
+        dfB=dfBTf,
+        pairA=numerador,
+        pairB=denominador,
+        smaPeriod=emaRapida,
+        sigmaWindow=emaLenta,
+        includeBoxes=False
     )
 
-    activeCycleTrades = [t for t in bt["trades"] if t.get("isOpen") and not t.get("isSubtotal")]
+    normInfo = evalResult.get("normData", {})
+    latestSig = evalResult.get("latestSignal", {})
+
+    if not latestSig:
+        logger.warning(f"⚠️ [{setupName}] No se obtuvieron señales del motor signalEngine.")
+        return
+
+    pA = latestSig.get("priceA", 0.0)
+    pB = latestSig.get("priceB", 0.0)
+    nA = latestSig.get("normA", 0.0)
+    nB = latestSig.get("normB", 0.0)
+    eA = latestSig.get("emaA", 0.0)
+    eB = latestSig.get("emaB", 0.0)
+    stdUpA = normInfo.get("stdAboveA", 0.0)
+    stdDownA = normInfo.get("stdBelowA", 0.0)
+    stdUpB = normInfo.get("stdAboveB", 0.0)
+    stdDownB = normInfo.get("stdBelowB", 0.0)
+    hasSigA = latestSig.get("hasSignalA", False)
+    hasSigB = latestSig.get("hasSignalB", False)
+    hasBoth = latestSig.get("hasSignalBoth", False)
+    isPriceCross = latestSig.get("isPriceCross", False)
+
+    logger.info(
+        f"📊 [{setupName}] EVALUACIÓN: "
+        f"{numerador} [Px: {pA:.5f} | Norm: {nA:.4f} | EMA: {eA:.4f} | +1σ: {stdUpA:.4f} | -1σ: {stdDownA:.4f} | Sig: {hasSigA}] ⇄ "
+        f"{denominador} [Px: {pB:.5f} | Norm: {nB:.4f} | EMA: {eB:.4f} | +1σ: {stdUpB:.4f} | -1σ: {stdDownB:.4f} | Sig: {hasSigB}] "
+        f"| Coincidente (Triángulo): {hasBoth} | Cruce Precios (●): {isPriceCross}"
+    )
+
     dbOpenTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
+    latestPriceA = float(dfATf["closePrice"].iloc[-1])
+    latestPriceB = float(dfBTf["closePrice"].iloc[-1])
 
-    latestPriceA = float(dfA_tf["closePrice"].iloc[-1])
-    latestPriceB = float(dfB_tf["closePrice"].iloc[-1])
-
-    # Caso A: Si el ciclo ya cerró en media (●) pero en BD hay órdenes abiertas
-    if not activeCycleTrades and dbOpenTrades:
-        logger.info(f"🔄 [{setupName}] Ciclo completado en la media (●). Cerrando {len(dbOpenTrades)} posiciones abiertas en BD...")
+    # 4. EVALUACIÓN DE CIERRE: ¿Ocurrió el cruce entre los dos precios (convergencia ●)?
+    if dbOpenTrades and isPriceCross:
+        logger.info(f"🔄 [{setupName}] ¡CRUCE DE PRECIOS CONFIRMADO (●)! Cerrando {len(dbOpenTrades)} posiciones abiertas en BD...")
         symMap = {numerador: symDataA, denominador: symDataB}
         priceMap = {numerador: latestPriceA, denominador: latestPriceB}
         closeRatioTrades(dbSession, idCuenta, setupName, dbOpenTrades, symMap, priceMap, accountData, periodo)
         return
 
-    # Caso B: Hay operaciones activas en el ciclo -> Tomar ÚNICAMENTE la señal activa más reciente
-    if activeCycleTrades:
-        latestOp = activeCycleTrades[-1]
-        entryDateStr = str(latestOp.get("entryDate", ""))[:10]
-        
-        # Verificar si la señal activa más reciente ya está en trades
-        isAlreadyInDb = any(
-            str(tr["candleTime"])[:10] == entryDateStr for tr in dbOpenTrades
-        )
+    # 5. EVALUACIÓN DE ENTRADA: Permite acumulación de posiciones si hay nueva señal coincidente en nueva vela
+    if hasBoth:
+        entryDateStr = str(latestSig.get("date", ""))[:10]
+        try:
+            candleDt = datetime.strptime(entryDateStr, "%Y-%m-%d")
+        except Exception:
+            candleDt = datetime.now()
 
-        if not isAlreadyInDb and not dbOpenTrades:
-            logger.info(f"📊 [{setupName}] Señal activa detectada para Cuenta #{idCuenta} ({latestOp.get('signalType')}, fecha {entryDateStr}). Generando 2 registros...")
+        alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt)
+        if not alreadyEntered:
+            # Control de Gestión de Riesgo: Indicador de Margen >= 200%
+            canOperate, marginInd, totalMargin, equity = checkAccountMarginHealth(
+                dbSession, idCuenta, float(accountData.get("capital", 0.0))
+            )
+            if not canOperate:
+                logger.warning(
+                    f"⛔ [{setupName}] Apertura SUSPENDIDA para Cuenta #{idCuenta}: "
+                    f"Indicador de Margen {marginInd:.1f}% es menor al 200% requerido "
+                    f"(Capital: ${accountData.get("capital", 0.0):,.2f} | Margen: ${totalMargin:,.2f} | Equidad: ${equity:,.2f})."
+                )
+                return
+
+            sigType = latestSig.get("signalType", "TRIANGULO")
+            dirA = "CORTO" if latestSig.get("symbolAAction") == "SELL" else "LARGO"
+            dirB = "CORTO" if latestSig.get("symbolBAction") == "SELL" else "LARGO"
+
+            logger.info(
+                f"🎯 [{setupName}] NUEVA SEÑAL COINCIDENTE ({sigType}, fecha {entryDateStr} | "
+                f"Ind. Margen: {marginInd:.1f}% >= 200%). Generando 2 registros en trades..."
+            )
             openSingleRatioTradePair(
                 dbSession=dbSession,
                 idCuenta=idCuenta,
@@ -794,15 +973,26 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 numerador=numerador,
                 denominador=denominador,
                 periodo=periodo,
-                op=latestOp,
+                candleDateStr=entryDateStr,
+                signalType=sigType,
+                directionA=dirA,
+                directionB=dirB,
+                entryPxA=latestPriceA,
+                entryPxB=latestPriceB,
                 accountData=accountData,
                 symDataA=symDataA,
                 symDataB=symDataB
             )
         else:
-            logger.info(f"ℹ️ [{setupName}] Posición activa ya registrada en trades ({len(dbOpenTrades)} registros presentes en Cuenta #{idCuenta}). Sin nuevas entradas.")
+            logger.info(f"ℹ️ [{setupName}] Señal coincidente de fecha {entryDateStr} ya fue registrada previamente en trades.")
     else:
-        logger.info(f"🔍 [{setupName}] Sin operaciones activas en el ciclo actual para Cuenta #{idCuenta}.")
+        if dbOpenTrades:
+            logger.info(
+                f"⏳ [{setupName}] Posición activa en curso ({len(dbOpenTrades)} trades en Cuenta #{idCuenta}). "
+                f"Precios normalizados: {numerador}={nA:.4f} vs {denominador}={nB:.4f} (Dif: {abs(nA - nB):.4f}). Esperando cruce de precios (●)."
+            )
+        else:
+            logger.info(f"🔍 [{setupName}] Sin señales de entrada coincidentes (Triángulos) en la vela actual.")
 
 
 def processAllActiveRatios() -> int:
@@ -848,22 +1038,24 @@ async def runHourlyScheduler():
             logger.error(f"Error en ejecución horaria de microRatio: {e}", exc_info=True)
 
         now = datetime.now()
-        secondsToNextHour = 3600 - (now.minute * 60 + now.second)
-        logger.info(f"⏳ Próxima evaluación en {secondsToNextHour // 60} min {secondsToNextHour % 60} seg...")
-        await asyncio.sleep(secondsToNextHour)
+        secondsUntilNextHour = (60 - now.minute - 1) * 60 + (60 - now.second)
+        logger.info(f"💤 Próxima evaluación en {secondsUntilNextHour // 60}m {secondsUntilNextHour % 60}s (en la siguiente hora en punto).")
+        await asyncio.sleep(max(10, secondsUntilNextHour))
 
 
 def main():
-    """Manejo de argumentos de línea de comandos."""
-    parser = argparse.ArgumentParser(description="Microservicio de Señales y Operación de Ratios ATALAia")
-    parser.add_argument("--once", "--run-now", action="store_true", help="Ejecuta un único ciclo de evaluación y termina.")
+    parser = argparse.ArgumentParser(description="Microservicio microRatio para arbitraje de ratios EMA.")
+    parser.add_argument("--once", action="store_true", help="Ejecuta una sola iteración y termina.")
     args = parser.parse_args()
 
     if args.once:
-        logger.info("Modo de ejecución única activado (--once).")
+        logger.info("▶️ Modo de ejecución única activado (--once).")
         processAllActiveRatios()
     else:
-        asyncio.run(runHourlyScheduler())
+        try:
+            asyncio.run(runHourlyScheduler())
+        except KeyboardInterrupt:
+            logger.info("🛑 Detención manual del microservicio microRatio.")
 
 
 if __name__ == "__main__":

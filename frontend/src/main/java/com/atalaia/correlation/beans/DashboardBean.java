@@ -155,10 +155,19 @@ public class DashboardBean implements Serializable {
         private String direction = "";
         private String firstEntryDate = "";
         private String lastEntryDate = "";
+        private String timeframe = "1d";
         private String lastSignalType = "";
         private double availableCapital = 0.0;
         private double accumCapital = 0.0;
         private boolean isWin = true;
+        private double sizeA = 0.0;
+        private double sizeB = 0.0;
+        private double avgEntryPriceA = 0.0;
+        private double avgEntryPriceB = 0.0;
+        private double currentPriceA = 0.0;
+        private double currentPriceB = 0.0;
+        private String dirA = "BUY";
+        private String dirB = "SELL";
         private List<ActiveTradeItemDto> trades = new ArrayList<>();
 
         public String getSetup() { return setup; }
@@ -191,6 +200,8 @@ public class DashboardBean implements Serializable {
         public void setFirstEntryDate(String firstEntryDate) { this.firstEntryDate = firstEntryDate; }
         public String getLastEntryDate() { return lastEntryDate; }
         public void setLastEntryDate(String lastEntryDate) { this.lastEntryDate = lastEntryDate; }
+        public String getTimeframe() { return timeframe; }
+        public void setTimeframe(String timeframe) { this.timeframe = timeframe; }
         public String getLastSignalType() { return lastSignalType; }
         public void setLastSignalType(String lastSignalType) { this.lastSignalType = lastSignalType; }
         public double getAvailableCapital() { return availableCapital; }
@@ -199,6 +210,43 @@ public class DashboardBean implements Serializable {
         public void setAccumCapital(double accumCapital) { this.accumCapital = accumCapital; }
         public boolean isIsWin() { return isWin; }
         public void setIsWin(boolean isWin) { this.isWin = isWin; }
+        public double getSizeA() { return sizeA; }
+        public void setSizeA(double sizeA) { this.sizeA = sizeA; }
+        public double getSizeB() { return sizeB; }
+        public void setSizeB(double sizeB) { this.sizeB = sizeB; }
+        public double getAvgEntryPriceA() { return avgEntryPriceA; }
+        public void setAvgEntryPriceA(double avgEntryPriceA) { this.avgEntryPriceA = avgEntryPriceA; }
+        public double getAvgEntryPriceB() { return avgEntryPriceB; }
+        public void setAvgEntryPriceB(double avgEntryPriceB) { this.avgEntryPriceB = avgEntryPriceB; }
+        public double getCurrentPriceA() { return currentPriceA; }
+        public void setCurrentPriceA(double currentPriceA) { this.currentPriceA = currentPriceA; }
+        public double getCurrentPriceB() { return currentPriceB; }
+        public void setCurrentPriceB(double currentPriceB) { this.currentPriceB = currentPriceB; }
+
+        public String getFormattedSizeA() { return String.format(java.util.Locale.US, "%,.0f", sizeA); }
+        public String getFormattedSizeB() { return String.format(java.util.Locale.US, "%,.0f", sizeB); }
+        public String getFormattedAvgEntryPriceA() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceA); }
+        public String getFormattedAvgEntryPriceB() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceB); }
+        public String getFormattedCurrentPriceA() { return String.format(java.util.Locale.US, "%,.5f", currentPriceA); }
+        public String getFormattedCurrentPriceB() { return String.format(java.util.Locale.US, "%,.5f", currentPriceB); }
+        public String getDirA() { return dirA; }
+        public void setDirA(String dirA) { this.dirA = dirA; }
+        public String getDirB() { return dirB; }
+        public void setDirB(String dirB) { this.dirB = dirB; }
+        public boolean isBuyA() { return dirA != null && (dirA.equalsIgnoreCase("BUY") || dirA.toUpperCase().contains("LARG")); }
+        public boolean isBuyB() { return dirB != null && (dirB.equalsIgnoreCase("BUY") || dirB.toUpperCase().contains("LARG")); }
+        public boolean isWinA() { return pnlA >= 0; }
+        public boolean isWinB() { return pnlB >= 0; }
+        public String getColorA() { return isBuyA() ? "#15803d" : "#b91c1c"; }
+        public String getColorB() { return isBuyB() ? "#15803d" : "#b91c1c"; }
+        public String getPnlColorA() { return pnlA >= 0 ? "#15803d" : "#b91c1c"; }
+        public String getPnlColorB() { return pnlB >= 0 ? "#15803d" : "#b91c1c"; }
+        public String getPnlColor() { return totalPnl >= 0 ? "#15803d" : "#b91c1c"; }
+        public String getBgColor() { return totalPnl >= 0 ? "#f0fdf4" : "#fef2f2"; }
+        public String getBorderColor() { return totalPnl >= 0 ? "#bbf7d0" : "#fecaca"; }
+        public String getPnlSignA() { return pnlA >= 0 ? "+" : ""; }
+        public String getPnlSignB() { return pnlB >= 0 ? "+" : ""; }
+
         public List<ActiveTradeItemDto> getTrades() { return trades; }
         public void setTrades(List<ActiveTradeItemDto> trades) { this.trades = trades; }
 
@@ -406,6 +454,71 @@ public class DashboardBean implements Serializable {
     private String signalBtStrategySelected = "COMBINED";
     private String signalBtComparisonCurveJson = "{}";
     private List<ActiveCycleSummaryDto> allActiveCycles = new ArrayList<>();
+
+    public Double getTotalActiveMargin() {
+        double sum = 0.0;
+        if (allActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : allActiveCycles) {
+                sum += c.getTotalMargin();
+            }
+        }
+        return sum;
+    }
+
+    public Double getTotalActivePnl() {
+        double sum = 0.0;
+        if (allActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : allActiveCycles) {
+                sum += c.getTotalPnl();
+            }
+        }
+        return sum;
+    }
+
+    public Double getTotalActiveCapital() {
+        double cuentaCap = (getSelectedAccountCapital() != null) ? getSelectedAccountCapital() : 0.0;
+        return cuentaCap;
+    }
+
+    public Double getTotalActiveEquity() {
+        return getTotalActiveCapital() + getTotalActivePnl();
+    }
+
+    public Double getMarginIndicator() {
+        double margin = getTotalActiveMargin();
+        if (margin > 0) {
+            return (getTotalActiveEquity() / margin) * 100.0;
+        }
+        return 0.0;
+    }
+
+    public String getFormattedTotalActiveCapital() {
+        return String.format(java.util.Locale.US, "%,.2f", getTotalActiveCapital());
+    }
+
+    public String getFormattedTotalActiveMargin() {
+        return String.format(java.util.Locale.US, "%,.2f", getTotalActiveMargin());
+    }
+
+    public String getFormattedTotalActivePnl() {
+        return String.format(java.util.Locale.US, "%,.2f", Math.abs(getTotalActivePnl()));
+    }
+
+    public String getTotalActivePnlSign() {
+        return (getTotalActivePnl() >= 0) ? "+" : "-";
+    }
+
+    public String getTotalActivePnlColor() {
+        return (getTotalActivePnl() >= 0) ? "#15803d" : "#b91c1c";
+    }
+
+    public String getFormattedTotalActiveEquity() {
+        return String.format(java.util.Locale.US, "%,.2f", getTotalActiveEquity());
+    }
+
+    public String getFormattedMarginIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f", getMarginIndicator());
+    }
 
     public List<ActiveCycleSummaryDto> getAllActiveCycles() { return allActiveCycles; }
     public void setAllActiveCycles(List<ActiveCycleSummaryDto> allActiveCycles) { this.allActiveCycles = allActiveCycles; }
@@ -632,7 +745,7 @@ public class DashboardBean implements Serializable {
     private Double r = 0.06;
     private Double tYears = 45.0 / 252.0;
     private Integer sigmaWindow = 30;
-    private Integer smaPeriodParam = 3;
+    private Integer smaPeriodParam = 2;
     private Integer emaSlowPeriodParam = 15;
     private Integer histogramBins = 15;
 
@@ -813,7 +926,16 @@ public class DashboardBean implements Serializable {
                         dto.setDirection(n.path("direction").asText(""));
                         dto.setFirstEntryDate(n.path("firstEntryDate").asText(""));
                         dto.setLastEntryDate(n.path("lastEntryDate").asText(""));
+                        dto.setTimeframe(n.path("timeframe").asText("1d"));
                         dto.setIsWin(dto.getTotalPnl() >= 0);
+                        dto.setSizeA(n.path("sizeA").asDouble(0.0));
+                        dto.setSizeB(n.path("sizeB").asDouble(0.0));
+                        dto.setAvgEntryPriceA(n.path("avgEntryPriceA").asDouble(0.0));
+                        dto.setAvgEntryPriceB(n.path("avgEntryPriceB").asDouble(0.0));
+                        dto.setCurrentPriceA(n.path("currentPriceA").asDouble(0.0));
+                        dto.setCurrentPriceB(n.path("currentPriceB").asDouble(0.0));
+                        dto.setDirA(n.path("dirA").asText("BUY"));
+                        dto.setDirB(n.path("dirB").asText("SELL"));
 
                         JsonNode tradesNode = n.path("trades");
                         if (tradesNode.isArray()) {
@@ -850,6 +972,9 @@ public class DashboardBean implements Serializable {
         }
         if (cycle.getPairB() != null && !cycle.getPairB().isEmpty()) {
             this.selectedPair2 = cycle.getPairB();
+        }
+        if (cycle.getTimeframe() != null && !cycle.getTimeframe().isEmpty()) {
+            this.timeframe = cycle.getTimeframe();
         }
         fetchUserRatioDetails();
         analyzePair();
@@ -934,7 +1059,7 @@ public class DashboardBean implements Serializable {
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
                     timeframe, (daysBack != null ? daysBack : 180), startStr, endStr,
-                    (smaPeriodParam != null ? smaPeriodParam : 3), (emaSlowPeriodParam != null ? emaSlowPeriodParam : 15));
+                    (smaPeriodParam != null ? smaPeriodParam : 2), (emaSlowPeriodParam != null ? emaSlowPeriodParam : 15));
 
             String responseStr = restTemplate.getForObject(url, String.class);
             if (responseStr != null && !responseStr.isEmpty()) {
@@ -1335,7 +1460,7 @@ public class DashboardBean implements Serializable {
             payload.put("denominador", selectedPair2);
             payload.put("periodo", timeframe != null ? timeframe : "1d");
             payload.put("dias", daysBack != null ? daysBack : 180);
-            payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 3);
+            payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 2);
             payload.put("EMALenta", emaSlowPeriodParam != null ? emaSlowPeriodParam : 20);
             payload.put("operar", operar != null ? operar : false);
 
@@ -1558,30 +1683,31 @@ public class DashboardBean implements Serializable {
             this.selectedAccountId = ratio.getIdCuenta();
         }
         this.selectedPair = ratio.getNumerador();
-        loadCorrelationsForSelectedPair();
         this.selectedPair2 = ratio.getDenominador();
-        if (ratio.getPeriodo() != null && !ratio.getPeriodo().isEmpty()) {
-            this.timeframe = ratio.getPeriodo();
+        loadCorrelationsForSelectedPair();
+
+        if (ratio.getPeriodo() != null && !ratio.getPeriodo().trim().isEmpty()) {
+            this.timeframe = ratio.getPeriodo().trim();
         }
-        if (ratio.getDias() != null) {
+        if (ratio.getDias() != null && ratio.getDias() > 0) {
             this.daysBack = ratio.getDias();
-            onDaysBackChange();
         }
-        if (ratio.getEmaRapida() != null) {
+        if (ratio.getEmaRapida() != null && ratio.getEmaRapida() > 0) {
             this.smaPeriodParam = ratio.getEmaRapida();
         }
-        if (ratio.getEmaLenta() != null) {
+        if (ratio.getEmaLenta() != null && ratio.getEmaLenta() > 0) {
             this.emaSlowPeriodParam = ratio.getEmaLenta();
         }
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
 
+        onDaysBackChange();
         analyzePair();
 
         javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                 new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
-                        "Ratio Cargado", "Se cargó la configuración de " + selectedPair + " / " + selectedPair2));
+                        "Ratio Cargado", "Se cargó la configuración de " + selectedPair + " / " + selectedPair2 + " (" + timeframe + ")"));
     }
 
     public void fetchUserRatioDetails() {
@@ -1597,8 +1723,8 @@ public class DashboardBean implements Serializable {
 
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
-            String url = String.format("%s/api/v1/user-ratios/buscar?idUsuario=%d&numerador=%s&denominador=%s" + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
-                    backendUrl, userId,
+            String url = String.format("%s/api/v1/user-ratios/buscar?numerador=%s&denominador=%s" + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "&idUsuario=" + userId),
+                    backendUrl,
                     java.net.URLEncoder.encode(selectedPair != null ? selectedPair : "", "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2 != null ? selectedPair2 : "", "UTF-8"));
 
@@ -1641,9 +1767,9 @@ public class DashboardBean implements Serializable {
                 } else {
                     log.info("ℹ️ No existe registro en BD para {}/{}. Aplicando valores por defecto.", selectedPair, selectedPair2);
                     this.ratioExistsInDb = false;
-                    this.smaPeriodParam = 3;
+                    this.smaPeriodParam = 2;
                     this.emaSlowPeriodParam = 15;
-                    this.timeframe = "1d";
+                    this.timeframe = "1h";
                     this.daysBack = 180;
                     this.operar = false;
                     this.hasActiveTradesInDb = false;

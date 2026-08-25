@@ -170,20 +170,32 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/user-ratios/buscar")
-def findUserRatio(idUsuario: int, numerador: str, denominador: str, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
+def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denominador: str = "", idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
-    Busca la configuración de un ratio guardado por su clave compuesta (idUsuario, idCuenta, numerador, denominador).
-    Incluye la verificación de posiciones abiertas en la tabla trades.
+    Busca la configuración de un ratio guardado por su clave compuesta (idCuenta/idUsuario, numerador, denominador).
+    Prioriza idCuenta si se suministra y ordena por id DESC para devolver la configuración más reciente.
     """
     query = db.query(UserRatio).filter(
-        UserRatio.idUsuario == idUsuario,
         UserRatio.numerador == numerador,
         UserRatio.denominador == denominador
     )
     if idCuenta:
         query = query.filter(UserRatio.idCuenta == idCuenta)
+    elif idUsuario:
+        query = query.filter(UserRatio.idUsuario == idUsuario)
     
-    ratio = query.first()
+    ratio = query.order_by(UserRatio.id.desc()).first()
+
+    if not ratio:
+        query_inv = db.query(UserRatio).filter(
+            UserRatio.numerador == denominador,
+            UserRatio.denominador == numerador
+        )
+        if idCuenta:
+            query_inv = query_inv.filter(UserRatio.idCuenta == idCuenta)
+        elif idUsuario:
+            query_inv = query_inv.filter(UserRatio.idUsuario == idUsuario)
+        ratio = query_inv.order_by(UserRatio.id.desc()).first()
 
     if not ratio:
         return {"found": False, "hasOpenTrades": False}
@@ -278,7 +290,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     from sqlalchemy import text
     sql = text("""
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
-               openTime, size, entryPrice, margin_used, pnl
+               openTime, size, entryPrice, margin_used, pnl, intervalo
         FROM trades
         WHERE idCuenta = :idc AND status = 'OPEN'
         ORDER BY setup, openTime ASC, idTrade ASC
@@ -371,8 +383,22 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             
         ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
         dir_text = f"{dirA} {pairA} + {dirB} {pairB}" if (dirA and dirB) else (dirA or dirB)
+
+        totSizeA = sum(float(t.size or 0) for t in t_list if t.symbol == pairA)
+        weightedSumA = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairA)
+        avgEntryA = (weightedSumA / totSizeA) if totSizeA > 0 else 0.0
+
+        totSizeB = sum(float(t.size or 0) for t in t_list if t.symbol == pairB)
+        weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairB)
+        avgEntryB = (weightedSumB / totSizeB) if totSizeB > 0 else 0.0
         
         results.append({
+            "sizeA": totSizeA,
+            "sizeB": totSizeB,
+            "avgEntryPriceA": round(avgEntryA, 5),
+            "avgEntryPriceB": round(avgEntryB, 5),
+            "currentPriceA": round(curA, 5),
+            "currentPriceB": round(curB, 5),
             "setup": setup,
             "pairA": pairA,
             "pairB": pairB,
@@ -386,6 +412,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "pnlB": round(pnlB, 2),
             "totalPnl": round(tot_pnl, 2),
             "returnPct": round(ret_pct, 2),
+            "dirA": dirA,
+            "dirB": dirB,
             "direction": dir_text,
             "firstEntryDate": open_dates[0] if open_dates else "",
             "lastEntryDate": open_dates[-1] if open_dates else "",
@@ -488,12 +516,13 @@ def desasignarUsuarioCuenta(payload: UsuarioCuentaDelete, db: Session = Depends(
 @router.get("/user-ratios/{idUsuario}")
 def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
-    Obtiene todos los ratios guardados para un usuario específico (y opcionalmente por cuenta),
+    Obtiene todos los ratios guardados para la cuenta especificada (prioritario) o usuario,
     incluyendo la bandera hasOpenTrades si existen órdenes activas en trades.
     """
-    query = db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario)
     if idCuenta:
-        query = query.filter(UserRatio.idCuenta == idCuenta)
+        query = db.query(UserRatio).filter(UserRatio.idCuenta == idCuenta)
+    else:
+        query = db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario)
     ratios = query.order_by(UserRatio.id.desc()).all()
 
     from sqlalchemy import text
@@ -540,7 +569,7 @@ async def get_ratio_correlation(
     r: float = 0.05,
     tYears: float = 30 / 252,
     sigmaWindow: int = 7,
-    smaPeriod: int = 3,
+    smaPeriod: int = 2,
     emaSlowPeriod: int = 20,
     histogramBins: int = 15,
     tf: str = "1d",
@@ -1224,7 +1253,7 @@ async def get_cruces_ema_pair_analysis(
     idCuenta: Optional[int] = None,
     capital: Optional[float] = None,
     leverage: float = 100.0,
-    smaPeriod: int = 3,
+    smaPeriod: int = 2,
     sigmaWindow: int = 30
 ) -> Dict[str, Any]:
     """
