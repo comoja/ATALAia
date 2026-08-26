@@ -892,7 +892,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         pairB=denominador,
         smaPeriod=emaRapida,
         sigmaWindow=emaLenta,
-        includeBoxes=False
+        includeBoxes=True
     )
 
     normInfo = evalResult.get("normData", {})
@@ -936,8 +936,11 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         closeRatioTrades(dbSession, idCuenta, setupName, dbOpenTrades, symMap, priceMap, accountData, periodo)
         return
 
-    # 5. EVALUACIÓN DE ENTRADA: Permite acumulación de posiciones si hay nueva señal coincidente en nueva vela
-    if hasBoth:
+    # 5. EVALUACIÓN DE ENTRADA: Permite acumulación de posiciones si hay nueva señal (Triángulo o Cuadro) en nueva vela
+    sigTypeRaw = latestSig.get("signalType")
+    hasEntrySignal = bool(sigTypeRaw) and not isPriceCross
+
+    if hasEntrySignal:
         entryDateStr = str(latestSig.get("date", ""))[:10]
         try:
             candleDt = datetime.strptime(entryDateStr, "%Y-%m-%d")
@@ -992,7 +995,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 f"Precios normalizados: {numerador}={nA:.4f} vs {denominador}={nB:.4f} (Dif: {abs(nA - nB):.4f}). Esperando cruce de precios (●)."
             )
         else:
-            logger.info(f"🔍 [{setupName}] Sin señales de entrada coincidentes (Triángulos) en la vela actual.")
+            logger.info(f"🔍 [{setupName}] Sin señales de entrada (Triángulos/Cuadros) en la vela actual.")
 
 
 def processAllActiveRatios() -> int:
