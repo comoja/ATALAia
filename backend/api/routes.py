@@ -4,7 +4,7 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import subprocess
@@ -23,6 +23,25 @@ from datetime import datetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+import urllib.request
+import json
+
+def get_live_price_from_mt5(symbol: str):
+    try:
+        clean_sym = symbol.replace("/", "").upper()
+        url = "http://127.0.0.1:8005/rates"
+        data = json.dumps({"symbol": clean_sym, "interval": "1day", "output_size": 1}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=2) as response:
+            if response.status == 200:
+                body = json.loads(response.read().decode())
+                rates = body.get("rates", [])
+                if rates and len(rates) > 0:
+                    return float(rates[-1]["close"])
+    except Exception as e:
+        logger.warning(f"No se pudo obtener el precio en vivo de MT5 para {symbol}: {e}")
+    return None
 
 # Dependencia para la base de datos de FastAPI
 def get_db():
@@ -307,13 +326,26 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             by_setup[setup] = []
         by_setup[setup].append(r)
         
-    def get_close_and_quote(sym):
+    def get_symbol_market_data(sym):
         clean = sym.replace("/", "").upper()
+        
+        live_price = get_live_price_from_mt5(sym)
+        row_s = db.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        if not row_s:
+            row_s = db.execute(text("SELECT quote_currency, pip FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+            
+        quote_curr = str(row_s[0]).upper() if row_s and row_s[0] else ("JPY" if "JPY" in sym else ("MXN" if "MXN" in sym else "USD"))
+        pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+        
+        if live_price is not None:
+            return float(live_price), quote_curr, pip_size
+            
         row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
-        row_s = db.execute(text("SELECT quote_currency FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        if not row_c:
+            row_c = db.execute(text("SELECT closePrice FROM stockprices WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY priceDate DESC LIMIT 1"), {"s": clean}).fetchone()
+            
         cur_close = float(row_c[0]) if row_c and row_c[0] else 1.0
-        quote_curr = str(row_s[0]).upper() if row_s and row_s[0] else ("MXN" if "MXN" in sym else "USD")
-        return cur_close, quote_curr
+        return cur_close, quote_curr, pip_size
 
     results = []
     for setup, t_list in by_setup.items():
@@ -321,8 +353,18 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         pairA = parts[0] if len(parts) >= 1 else ""
         pairB = parts[1] if len(parts) >= 2 else ""
         
-        curA, qcA = get_close_and_quote(pairA) if pairA else (1.0, "USD")
-        curB, qcB = get_close_and_quote(pairB) if pairB else (1.0, "USD")
+        # Cache de datos de mercado por símbolo directo de symbols.pip
+        sym_cache = {}
+        for t in t_list:
+            if t.symbol not in sym_cache:
+                sym_cache[t.symbol] = get_symbol_market_data(t.symbol)
+        if pairA and pairA not in sym_cache:
+            sym_cache[pairA] = get_symbol_market_data(pairA)
+        if pairB and pairB not in sym_cache:
+            sym_cache[pairB] = get_symbol_market_data(pairB)
+
+        curA, qcA, pipA = sym_cache.get(pairA, (1.0, "USD", 0.0001))
+        curB, qcB, pipB = sym_cache.get(pairB, (1.0, "USD", 0.0001))
         
         tot_margin = 0.0
         tot_marginA = 0.0
@@ -330,6 +372,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         tot_pnl = 0.0
         pnlA = 0.0
         pnlB = 0.0
+        pipsTotalA = 0.0
+        pipsTotalB = 0.0
         
         open_dates = []
         dirA = ""
@@ -344,25 +388,34 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             margin = float(t.margin_used or 0)
             tot_margin += margin
             
-            cur_px = curA if sym == pairA else (curB if sym == pairB else entry)
-            qc = qcA if sym == pairA else (qcB if sym == pairB else "USD")
+            cur_px, qc, pip_sz = sym_cache.get(sym, (entry, "USD", 0.0001))
             
-            if "LARG" in direction or "BUY" in direction:
-                diff = cur_px - entry
+            is_long = "LARG" in direction or "BUY" in direction or "LONG" in direction
+            if is_long:
+                mov = cur_px - entry
             else:
-                diff = entry - cur_px
+                mov = entry - cur_px
                 
-            pnl_quote = diff * size
-            item_pnl_usd = pnl_quote if qc == "USD" else (pnl_quote / cur_px if cur_px > 0 else pnl_quote)
+            pips = mov / pip_sz if pip_sz > 0 else 0.0
+            
+            # Valor de 1 pip en USD según metodología FOREX.com
+            if qc == "USD":
+                pip_val_usd = size * pip_sz
+            else:
+                pip_val_usd = (size * pip_sz) / cur_px if cur_px > 0 else (size * pip_sz)
+                
+            item_pnl_usd = pips * pip_val_usd
             
             if sym == pairA:
                 tot_marginA += margin
                 pnlA += item_pnl_usd
-                dirA = "BUY" if ("LARG" in direction or "BUY" in direction) else "SELL"
+                pipsTotalA += pips
+                dirA = "BUY" if is_long else "SELL"
             elif sym == pairB:
                 tot_marginB += margin
                 pnlB += item_pnl_usd
-                dirB = "BUY" if ("LARG" in direction or "BUY" in direction) else "SELL"
+                pipsTotalB += pips
+                dirB = "BUY" if is_long else "SELL"
                 
             tot_pnl += item_pnl_usd
             if t.openTime:
@@ -372,10 +425,14 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             trade_items.append({
                 "idTrade": t.idTrade,
                 "symbol": sym,
-                "direction": direction,
+                "direction": "LONG" if is_long else "SHORT",
                 "size": size,
                 "entryPrice": entry,
                 "currentPrice": cur_px,
+                "pipSize": pip_sz,
+                "movement": round(mov, 6),
+                "pips": round(pips, 2),
+                "pipValue": round(pip_val_usd, 5),
                 "margin": margin,
                 "pnl": round(item_pnl_usd, 2),
                 "openTime": str(t.openTime)
@@ -392,6 +449,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairB)
         avgEntryB = (weightedSumB / totSizeB) if totSizeB > 0 else 0.0
         
+        trade_tf = t_list[0].intervalo if (t_list and hasattr(t_list[0], 'intervalo') and t_list[0].intervalo) else "1d"
         results.append({
             "sizeA": totSizeA,
             "sizeB": totSizeB,
@@ -402,6 +460,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "setup": setup,
             "pairA": pairA,
             "pairB": pairB,
+            "timeframe": trade_tf,
             "hasActiveCycle": True,
             "totalOpenTrades": len(t_list) // 2 if len(t_list) >= 2 else len(t_list),
             "totalTradesCount": len(t_list),
@@ -423,6 +482,167 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     return results
 
 
+
+class CrearCuentaRequest(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario al que se asociará la cuenta")
+    nombre: str = Field(..., description="Nombre de la cuenta")
+    activo: Optional[bool] = Field(True, description="Estado activo de la cuenta")
+    capital: Optional[float] = Field(300.0, description="Capital de la cuenta")
+    ganancia: Optional[float] = Field(15.0, description="Porcentaje de ganancia")
+    riesgoPorOperacion: Optional[float] = Field(3.0, description="Porcentaje de riesgo por operación")
+    comision: Optional[float] = Field(0.0, description="Comisión cobrada por administración y manejo de cuenta")
+    concentradora: Optional[bool] = Field(False, description="Indica si la cuenta es concentradora (true/false)")
+
+@router.post("/cuentas/crear")
+def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db)):
+    """
+    Crea una nueva cuenta en la tabla cuenta y la asocia en usuarioCuenta al usuario especificado.
+    """
+    try:
+        nombre_clean = payload.nombre.strip() if payload.nombre else ""
+        if not nombre_clean:
+            raise HTTPException(status_code=400, detail="El nombre de la cuenta no puede estar vacío.")
+
+        nueva_cuenta = Cuenta(
+            Nombre=nombre_clean,
+            Activo=1 if payload.activo else 0,
+            Capital=payload.capital,
+            ganancia=payload.ganancia,
+            riesgoPorOperacion=payload.riesgoPorOperacion,
+            comision=payload.comision if payload.comision is not None else 0.0,
+            Concentradora=1 if payload.concentradora else 0
+        )
+        db.add(nueva_cuenta)
+        db.commit()
+        db.refresh(nueva_cuenta)
+
+        logger.info(f"✅ Nueva cuenta creada en BD: idCuenta={nueva_cuenta.idCuenta}, Nombre={nueva_cuenta.Nombre}")
+
+        # Asociar en usuarioCuenta
+        nueva_relacion = UsuarioCuenta(
+            idUsuario=payload.idUsuario,
+            idCuenta=nueva_cuenta.idCuenta,
+            activo=1 if payload.activo else 0,
+            createdAt=datetime.utcnow()
+        )
+        db.add(nueva_relacion)
+        db.commit()
+        db.refresh(nueva_relacion)
+
+        logger.info(f"✅ Cuenta {nueva_cuenta.idCuenta} asociada al usuario {payload.idUsuario} en usuarioCuenta")
+
+        return {
+            "status": "success",
+            "message": "Cuenta creada y asociada exitosamente",
+            "idCuenta": nueva_cuenta.idCuenta,
+            "nombre": nueva_cuenta.Nombre,
+            "capital": nueva_cuenta.Capital,
+            "activo": bool(nueva_cuenta.Activo),
+            "ganancia": nueva_cuenta.ganancia,
+            "riesgoPorOperacion": nueva_cuenta.riesgoPorOperacion,
+            "comision": nueva_cuenta.comision,
+            "concentradora": bool(nueva_cuenta.Concentradora)
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al crear nueva cuenta: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+class EditarCuentaRequest(BaseModel):
+    idCuenta: int = Field(..., description="ID de la cuenta a modificar")
+    nombre: Optional[str] = Field(None, description="Nombre de la cuenta")
+    activo: Optional[bool] = Field(None, description="Estado activo de la cuenta")
+    capital: Optional[float] = Field(None, description="Capital de la cuenta")
+    ganancia: Optional[float] = Field(None, description="Porcentaje de ganancia")
+    riesgoPorOperacion: Optional[float] = Field(None, description="Porcentaje de riesgo por operación")
+    comision: Optional[float] = Field(None, description="Comisión cobrada por administración y manejo de cuenta")
+    concentradora: Optional[bool] = Field(None, description="Indica si la cuenta es concentradora (true/false)")
+
+@router.get("/cuentas/has-concentradora")
+def hasConcentradora(excludeId: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Verifica si existe alguna cuenta con concentradora = True (opcionalmente excluyendo excludeId).
+    """
+    try:
+        query = db.query(Cuenta).filter(Cuenta.Concentradora == 1)
+        if excludeId is not None:
+            query = query.filter(Cuenta.idCuenta != excludeId)
+        count = query.count()
+        return {"hasConcentradora": count > 0}
+    except Exception as e:
+        logger.error(f"Error al verificar cuenta concentradora: {e}")
+        return {"hasConcentradora": False}
+
+@router.get("/cuentas/{idCuenta}")
+def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene los detalles completos de una cuenta por su ID.
+    """
+    cuenta = db.query(Cuenta).filter(Cuenta.idCuenta == idCuenta).first()
+    if not cuenta:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+    return {
+        "idCuenta": cuenta.idCuenta,
+        "nombre": cuenta.Nombre,
+        "capital": float(cuenta.Capital or 0.0),
+        "activo": bool(cuenta.Activo),
+        "ganancia": float(cuenta.ganancia or 0.0),
+        "riesgoPorOperacion": float(cuenta.riesgoPorOperacion or 3.0),
+        "comision": float(cuenta.comision or 0.0),
+        "concentradora": bool(cuenta.Concentradora)
+    }
+
+@router.post("/cuentas/editar")
+def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
+    """
+    Actualiza los datos operativos de una cuenta en la tabla cuenta.
+    """
+    try:
+        cuenta = db.query(Cuenta).filter(Cuenta.idCuenta == payload.idCuenta).first()
+        if not cuenta:
+            raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+
+        if payload.nombre is not None and payload.nombre.strip():
+            cuenta.Nombre = payload.nombre.strip()
+        if payload.activo is not None:
+            cuenta.Activo = 1 if payload.activo else 0
+        if payload.capital is not None:
+            cuenta.Capital = payload.capital
+        if payload.ganancia is not None:
+            cuenta.ganancia = payload.ganancia
+        if payload.riesgoPorOperacion is not None:
+            cuenta.riesgoPorOperacion = payload.riesgoPorOperacion
+        if payload.comision is not None:
+            cuenta.comision = payload.comision
+        if payload.concentradora is not None:
+            cuenta.Concentradora = 1 if payload.concentradora else 0
+
+        db.commit()
+        db.refresh(cuenta)
+
+        logger.info(f"✅ Cuenta {cuenta.idCuenta} ({cuenta.Nombre}) actualizada exitosamente en BD.")
+
+        return {
+            "status": "success",
+            "message": "Cuenta actualizada exitosamente",
+            "idCuenta": cuenta.idCuenta,
+            "nombre": cuenta.Nombre,
+            "capital": float(cuenta.Capital or 0.0),
+            "activo": bool(cuenta.Activo),
+            "ganancia": float(cuenta.ganancia or 0.0),
+            "riesgoPorOperacion": float(cuenta.riesgoPorOperacion or 3.0),
+            "comision": float(cuenta.comision or 0.0),
+            "concentradora": bool(cuenta.Concentradora),
+        "concentradora": bool(cuenta.Concentradora)
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al editar cuenta {payload.idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 class UsuarioCuentaAssign(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
@@ -452,6 +672,7 @@ def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
             "nombreCuenta": c.Nombre,
             "capital": float(c.Capital or 0.0),
             "activo": bool(uc.activo),
+            "concentradora": bool(getattr(c, "Concentradora", False) or False),
             "createdAt": uc.createdAt
         }
         for uc, c in relaciones
@@ -573,6 +794,7 @@ async def get_ratio_correlation(
     emaSlowPeriod: int = 20,
     histogramBins: int = 15,
     tf: str = "1d",
+    days: Optional[int] = None,
     start_date: str = "",
     end_date: str = ""
 ) -> Dict[str, Any]:
@@ -613,16 +835,29 @@ async def get_ratio_correlation(
         if resample_rule:
             df_a_daily = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
             df_b_daily = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            # Omitir la última vela incompleta (en desarrollo) para trabajar con velas terminadas
+            
+            live_a = get_live_price_from_mt5(pairA)
+            live_b = get_live_price_from_mt5(pairB)
+            
             if len(df_a_daily) > 1:
-                df_a_daily = df_a_daily.iloc[:-1]
+                if live_a is not None:
+                    df_a_daily.iloc[-1, df_a_daily.columns.get_loc('closePrice')] = live_a
+                else:
+                    df_a_daily = df_a_daily.iloc[:-1]
+                    
             if len(df_b_daily) > 1:
-                df_b_daily = df_b_daily.iloc[:-1]
+                if live_b is not None:
+                    df_b_daily.iloc[-1, df_b_daily.columns.get_loc('closePrice')] = live_b
+                else:
+                    df_b_daily = df_b_daily.iloc[:-1]
         else:
             df_a_daily = df_a
             df_b_daily = df_b
 
-        if start_date or end_date:
+        if days and days > 0:
+            df_a_daily = df_a_daily.tail(days)
+            df_b_daily = df_b_daily.tail(days)
+        elif start_date or end_date:
             try:
                 import pandas as pd
                 dt_start_filter = pd.to_datetime(start_date).tz_localize(None) if start_date else pd.Timestamp.min
@@ -631,8 +866,11 @@ async def get_ratio_correlation(
                 df_a_daily.index = df_a_daily.index.tz_localize(None)
                 df_b_daily.index = df_b_daily.index.tz_localize(None)
                 
-                df_a_daily = df_a_daily.loc[dt_start_filter:dt_end_filter]
-                df_b_daily = df_b_daily.loc[dt_start_filter:dt_end_filter]
+                df_a_filtered = df_a_daily.loc[dt_start_filter:dt_end_filter]
+                df_b_filtered = df_b_daily.loc[dt_start_filter:dt_end_filter]
+                if not df_a_filtered.empty and not df_b_filtered.empty:
+                    df_a_daily = df_a_filtered
+                    df_b_daily = df_b_filtered
             except Exception as e:
                 logger.warning(f"Error parseando fechas en optimize: {e}")
         df_a_daily = df_a_daily.rename(columns={'closePrice': 'close'})
@@ -1062,6 +1300,8 @@ class CuentaUpdate(BaseModel):
     TokenMsg: Optional[str] = None
     idGrupoMsg: Optional[str] = None
     riesgoPorOperacion: float
+    comision: Optional[float] = 0.0
+    Concentradora: Optional[int] = 0
 
 class SymbolUpdate(BaseModel):
     symbol: str
@@ -1283,8 +1523,20 @@ async def get_cruces_ema_pair_analysis(
         if resample_rule:
             df_a_tf = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
             df_b_tf = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            if len(df_a_tf) > 1: df_a_tf = df_a_tf.iloc[:-1]
-            if len(df_b_tf) > 1: df_b_tf = df_b_tf.iloc[:-1]
+            
+            live_a = get_live_price_from_mt5(pairA)
+            live_b = get_live_price_from_mt5(pairB)
+            
+            if len(df_a_tf) > 1:
+                if live_a is not None:
+                    df_a_tf.iloc[-1, df_a_tf.columns.get_loc('closePrice')] = live_a
+                else:
+                    df_a_tf = df_a_tf.iloc[:-1]
+            if len(df_b_tf) > 1:
+                if live_b is not None:
+                    df_b_tf.iloc[-1, df_b_tf.columns.get_loc('closePrice')] = live_b
+                else:
+                    df_b_tf = df_b_tf.iloc[:-1]
         else:
             df_a_tf = df_a.dropna()
             df_b_tf = df_b.dropna()
@@ -1311,6 +1563,7 @@ async def get_cruces_ema_pair_analysis(
 
         # Consultar capital real de cuenta y parámetros institucionales de symbols
         account_capital = float(capital) if capital and capital > 0 else 10000.0
+        allocation_pct = 3.0
         min_lots_a, min_lots_b = 1000.0, 1000.0
         margen_pct_a, margen_pct_b = 0.25, 1.00
         pip_a, pip_b = 0.00010, 0.01000
@@ -1321,12 +1574,21 @@ async def get_cruces_ema_pair_analysis(
             from sqlalchemy import text
             with SessionLocal() as db_session:
                 if idCuenta:
-                    row_c = db_session.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
-                    if row_c and row_c[0] is not None and float(row_c[0]) > 0:
-                        account_capital = float(row_c[0])
+                    row_c = db_session.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
+                    if row_c:
+                        if row_c[0] is not None and float(row_c[0]) > 0:
+                            account_capital = float(row_c[0])
+                        if row_c[1] is not None and float(row_c[1]) > 0:
+                            allocation_pct = float(row_c[1])
 
-                row_a = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM symbols WHERE symbol = :s"), {"s": pairA}).fetchone()
-                row_b = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM symbols WHERE symbol = :s"), {"s": pairB}).fetchone()
+                clean_a = pairA.replace("/", "").upper()
+                clean_b = pairB.replace("/", "").upper()
+                row_a = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s"), {"s": clean_a}).fetchone()
+                if not row_a:
+                    row_a = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s"), {"s": clean_a}).fetchone()
+                row_b = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s"), {"s": clean_b}).fetchone()
+                if not row_b:
+                    row_b = db_session.execute(text("SELECT min_lots, margen, pip, quote_currency FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s"), {"s": clean_b}).fetchone()
                 if row_a:
                     if row_a[0] is not None: min_lots_a = float(row_a[0])
                     if row_a[1] is not None: margen_pct_a = float(row_a[1])
@@ -1348,7 +1610,7 @@ async def get_cruces_ema_pair_analysis(
             sigmaWindow=sigmaWindow,
             includeBoxes=False,
             initialCapital=account_capital,
-            allocationPct=3.0,
+            allocationPct=allocation_pct,
             minLotsA=min_lots_a,
             minLotsB=min_lots_b,
             margenPctA=margen_pct_a,
@@ -1367,7 +1629,7 @@ async def get_cruces_ema_pair_analysis(
             sigmaWindow=sigmaWindow,
             includeBoxes=True,
             initialCapital=account_capital,
-            allocationPct=3.0,
+            allocationPct=allocation_pct,
             minLotsA=min_lots_a,
             minLotsB=min_lots_b,
             margenPctA=margen_pct_a,
@@ -1396,3 +1658,134 @@ async def get_cruces_ema_pair_analysis(
     except Exception as e:
         logger.error(f"Error en get_cruces_ema_pair_analysis: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+class CloseRatioRequest(BaseModel):
+    setup: str
+    operar: Optional[int] = 0
+
+@router.post("/trades/close-ratio/{idCuenta}")
+async def manual_close_ratio(
+    idCuenta: int,
+    request: Optional[CloseRatioRequest] = None,
+    setup: Optional[str] = None,
+    operar: Optional[int] = None,
+    raw_req: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Cierra manualmente todas las posiciones de un ratio desde la interfaz gráfica.
+    Reutiliza la lógica de microRatio para asegurar PnL, reintegración de márgenes y notificación MT5.
+    Soporta JSON Body, Query Param (?setup=...&operar=...) y Raw JSON.
+    Actualiza user_ratios.operar = operar (0 para Cierre regular, 1 para Rebalanceo).
+    """
+    setupName = None
+    targetOperar = 0
+    if request and request.setup:
+        setupName = request.setup
+        if request.operar is not None:
+            targetOperar = int(request.operar)
+    elif setup:
+        setupName = setup
+        if operar is not None:
+            targetOperar = int(operar)
+    elif raw_req:
+        try:
+            body = await raw_req.json()
+            if isinstance(body, dict):
+                setupName = body.get("setup")
+                if "operar" in body and body["operar"] is not None:
+                    targetOperar = int(body["operar"])
+        except Exception:
+            pass
+
+    if operar is not None:
+        targetOperar = int(operar)
+
+    if not setupName:
+        raise HTTPException(status_code=400, detail="Setup name is required in body or query param")
+    if not setupName or "-" not in setupName:
+        raise HTTPException(status_code=400, detail="Setup name is invalid")
+        
+    from backend.services.microRatio import (
+        checkActiveOpenTrades, fetchAccountData, fetchSymbolData, closeRatioTrades
+    )
+    
+    parts = [p.strip() for p in setupName.split("-")]
+    pairA = parts[0]
+    pairB = parts[1]
+    
+    # 1. Fetch Open Trades
+    openTrades = checkActiveOpenTrades(db, idCuenta, setupName)
+    if not openTrades:
+        raise HTTPException(status_code=404, detail="No active trades found for this ratio")
+        
+    # 2. Fetch Account Data
+    accountData = fetchAccountData(db, idCuenta)
+    if not accountData:
+        raise HTTPException(status_code=404, detail="Account not found")
+        
+    # 3. Fetch Symbol Data Map
+    symbolDataMap = {
+        pairA: fetchSymbolData(db, pairA),
+        pairB: fetchSymbolData(db, pairB)
+    }
+    
+    # 4. Fetch Live Prices from MT5 (or DB fallback)
+    live_a = get_live_price_from_mt5(pairA)
+    live_b = get_live_price_from_mt5(pairB)
+    
+    def get_fallback_price(sym):
+        from sqlalchemy import text
+        clean = sym.replace("/", "").upper()
+        row = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+        return float(row[0]) if row and row[0] else 1.0
+
+    latestPricesMap = {
+        pairA: live_a if live_a is not None else get_fallback_price(pairA),
+        pairB: live_b if live_b is not None else get_fallback_price(pairB)
+    }
+    
+    # 5. Execute closure
+    success = closeRatioTrades(
+        dbSession=db,
+        idCuenta=idCuenta,
+        setupName=setupName,
+        openTrades=openTrades,
+        symbolDataMap=symbolDataMap,
+        latestPricesMap=latestPricesMap,
+        accountData=accountData,
+        periodo="1d",  # Default timeframe used for logs
+        closeReason="POR SOLICITUD"
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to close ratio trades")
+        
+    # 6. Update user_ratios.operar = targetOperar (0 = Cerrado/Inactivo, 1 = Rebalanceo/Activo)
+    try:
+        from sqlalchemy import text
+        db.execute(text("""
+            UPDATE user_ratios
+            SET operar = :op
+            WHERE idCuenta = :idc
+              AND (
+                  (numerador = :pA AND denominador = :pB)
+                  OR (CONCAT(numerador, '-', denominador) = :stp)
+              )
+        """), {
+            "op": targetOperar,
+            "idc": idCuenta,
+            "pA": pairA,
+            "pB": pairB,
+            "stp": setupName
+        })
+        db.commit()
+        logger.info(f"✅ user_ratios actualizado a operar={targetOperar} para {setupName} en cuenta #{idCuenta}")
+    except Exception as exUpd:
+        logger.error(f"⚠️ Error actualizando operar={targetOperar} en user_ratios para {setupName}: {exUpd}")
+
+    return {
+        "status": "ok",
+        "message": f"Successfully sent close signals for {setupName}",
+        "operar": targetOperar
+    }

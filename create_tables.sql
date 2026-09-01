@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS Cuenta (
     idGrupoMsg VARCHAR(100) DEFAULT NULL,
     ganancia DOUBLE NOT NULL,
     riesgoPorOperacion DOUBLE DEFAULT 0.01,
+    comision DOUBLE DEFAULT 0.0,
+    Concentradora TINYINT(1) DEFAULT 0,
     apiKey VARCHAR(255) DEFAULT NULL,
     apiSecret VARCHAR(255) DEFAULT NULL,
     PRIMARY KEY (idCuenta)

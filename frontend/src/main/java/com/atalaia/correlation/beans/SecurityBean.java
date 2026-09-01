@@ -190,6 +190,33 @@ public class SecurityBean implements Serializable {
         return isAdmin();
     }
 
+    public boolean isCanEdit() {
+        if (this.selectedUserId != null && this.idUsuario != null) {
+            return this.selectedUserId.equals(this.idUsuario);
+        }
+        return true;
+    }
+
+    public boolean isCanCreateAccount() {
+        return idRole != null && idRole < 3;
+    }
+
+    public boolean isReadOnly() {
+        return !isCanEdit();
+    }
+
+    public String getSelectedUserName() {
+        if (selectedUserId == null) return "";
+        if (usuariosCombo != null) {
+            for (UsuarioComboItem u : usuariosCombo) {
+                if (selectedUserId.equals(u.getIdUsuario())) {
+                    return u.getNombreCompleto();
+                }
+            }
+        }
+        return "Usuario #" + selectedUserId;
+    }
+
     // --- DTOs estáticos ---
 
     @Getter

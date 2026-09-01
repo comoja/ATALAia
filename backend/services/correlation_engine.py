@@ -81,8 +81,9 @@ class CorrelationEngine:
         logger.info("Iniciando procesamiento de Par Computacional con calibración en RAM")
         df = df.copy()
         
-        if len(df) < 20: 
-            return {"error": "No hay suficientes datos. Min: 20", "success": False}
+        min_required = max(int(smaPeriod), int(emaSlowPeriod) if emaSlowPeriod else 5, 5)
+        if len(df) < min_required: 
+            return {"error": f"No hay suficientes datos. Min: {min_required} periodos", "success": False}
             
         # Asegurar orden cronológico ascendente
         df = df.sort_index()

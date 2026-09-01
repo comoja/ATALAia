@@ -1541,6 +1541,7 @@ CREATE TABLE `Cuenta` (
   `idGrupoMsg` varchar(100) DEFAULT NULL,
   `ganancia` double NOT NULL COMMENT 'Es la ganancia que desea el cliente a aganar mensualmente',
   `riesgoPorOperacion` double DEFAULT '0.01' COMMENT 'Porcentaje de riesgo por trade (ej: 0.01 para 1%)',
+  `comision` double DEFAULT '0.0' COMMENT 'Comisión cobrada a la cuenta por administración y manejo de cuenta',
   `apiKey` varchar(255) DEFAULT NULL,
   `apiSecret` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`idCuenta`)

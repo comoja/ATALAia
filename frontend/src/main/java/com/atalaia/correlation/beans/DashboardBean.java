@@ -100,6 +100,13 @@ public class DashboardBean implements Serializable {
         public String getFormattedReqMarginPerMinLot() {
             return reqMarginPerMinLot != null ? String.format(java.util.Locale.US, "%,.2f", reqMarginPerMinLot) : "0.00";
         }
+        public String getFormattedAllocationPct() {
+            if (allocationPct == null) return "3";
+            if (allocationPct == Math.floor(allocationPct)) {
+                return String.format(java.util.Locale.US, "%.0f", allocationPct);
+            }
+            return String.format(java.util.Locale.US, "%.1f", allocationPct);
+        }
     }
 
     public static class ActiveTradeItemDto implements java.io.Serializable {
@@ -227,8 +234,18 @@ public class DashboardBean implements Serializable {
         public String getFormattedSizeB() { return String.format(java.util.Locale.US, "%,.0f", sizeB); }
         public String getFormattedAvgEntryPriceA() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceA); }
         public String getFormattedAvgEntryPriceB() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceB); }
-        public String getFormattedCurrentPriceA() { return String.format(java.util.Locale.US, "%,.5f", currentPriceA); }
-        public String getFormattedCurrentPriceB() { return String.format(java.util.Locale.US, "%,.5f", currentPriceB); }
+        public String getFormattedCurrentPriceA() {
+            if (pairA != null && pairA.contains("JPY")) {
+                return String.format(java.util.Locale.US, "%,.3f", currentPriceA);
+            }
+            return String.format(java.util.Locale.US, "%,.5f", currentPriceA);
+        }
+        public String getFormattedCurrentPriceB() {
+            if (pairB != null && pairB.contains("JPY")) {
+                return String.format(java.util.Locale.US, "%,.3f", currentPriceB);
+            }
+            return String.format(java.util.Locale.US, "%,.5f", currentPriceB);
+        }
         public String getDirA() { return dirA; }
         public void setDirA(String dirA) { this.dirA = dirA; }
         public String getDirB() { return dirB; }
@@ -564,6 +581,31 @@ public class DashboardBean implements Serializable {
         return String.format(java.util.Locale.US, "%,.2f", cap != null ? cap : 0.0);
     }
 
+    public String getSelectedAccountName() {
+        if (selectedAccountId != null && userAccountsCombo != null) {
+            for (UserAccountDto acc : userAccountsCombo) {
+                if (acc.getIdCuenta() != null && acc.getIdCuenta().equals(selectedAccountId)) {
+                    if (acc.getNombreCuenta() != null && !acc.getNombreCuenta().trim().isEmpty()) {
+                        return acc.getNombreCuenta().trim();
+                    }
+                }
+            }
+        }
+        return "Cuenta #" + (selectedAccountId != null ? selectedAccountId : "-");
+    }
+
+    public String getFormattedSelectedAccountCapital() {
+        Double cap = getSelectedAccountCapital();
+        return String.format(java.util.Locale.US, "%,.2f", cap != null ? cap : 0.0);
+    }
+
+    public String getFormattedSignalBtAllocationPct() {
+        if (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getAllocationPct() != null) {
+            return signalBtCombinedMetrics.getFormattedAllocationPct();
+        }
+        return "3";
+    }
+
     public String getFormattedSignalBtFinalCapital() {
         return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getFinalCapital() != null)
                 ? String.format(java.util.Locale.US, "%,.2f", signalBtCombinedMetrics.getFinalCapital())
@@ -634,7 +676,328 @@ public class DashboardBean implements Serializable {
     }
 
     private List<UserAccountDto> userAccountsCombo = new ArrayList<>();
+
+    // --- Campos y Métodos para Modal de Nueva Cuenta ---
+    private String nuevaCuentaNombre = "";
+    private Boolean nuevaCuentaActivo = true;
+    private Double nuevaCuentaCapital = 300.0;
+    private Double nuevaCuentaGanancia = 15.0;
+    private Double nuevaCuentaRiesgo = 3.0;
+    private Double nuevaCuentaComision = 0.0;
+    private Boolean nuevaCuentaConcentradora = false;
+
+    public String getNuevaCuentaNombre() { return nuevaCuentaNombre; }
+    public void setNuevaCuentaNombre(String nuevaCuentaNombre) { this.nuevaCuentaNombre = nuevaCuentaNombre; }
+    public Boolean getNuevaCuentaActivo() { return nuevaCuentaActivo; }
+    public void setNuevaCuentaActivo(Boolean nuevaCuentaActivo) { this.nuevaCuentaActivo = nuevaCuentaActivo; }
+    public Double getNuevaCuentaCapital() { return nuevaCuentaCapital; }
+    public void setNuevaCuentaCapital(Double nuevaCuentaCapital) { this.nuevaCuentaCapital = nuevaCuentaCapital; }
+    public Double getNuevaCuentaGanancia() { return nuevaCuentaGanancia; }
+    public void setNuevaCuentaGanancia(Double nuevaCuentaGanancia) { this.nuevaCuentaGanancia = nuevaCuentaGanancia; }
+    public Double getNuevaCuentaRiesgo() { return nuevaCuentaRiesgo; }
+    public void setNuevaCuentaRiesgo(Double nuevaCuentaRiesgo) { this.nuevaCuentaRiesgo = nuevaCuentaRiesgo; }
+    public Double getNuevaCuentaComision() { return nuevaCuentaComision; }
+    public void setNuevaCuentaComision(Double nuevaCuentaComision) { this.nuevaCuentaComision = nuevaCuentaComision; }
+    public Boolean getNuevaCuentaConcentradora() { return nuevaCuentaConcentradora; }
+    public void setNuevaCuentaConcentradora(Boolean nuevaCuentaConcentradora) { this.nuevaCuentaConcentradora = nuevaCuentaConcentradora; }
+
+    public void prepararNuevaCuenta() {
+        this.nuevaCuentaNombre = "";
+        this.nuevaCuentaActivo = true;
+        this.nuevaCuentaCapital = 300.0;
+        this.nuevaCuentaGanancia = 15.0;
+        this.nuevaCuentaRiesgo = 3.0;
+        this.nuevaCuentaComision = 0.0;
+        this.nuevaCuentaConcentradora = false;
+    }
+
+    public void guardarNuevaCuenta() {
+        if (securityBean != null && securityBean.getIdRole() != null && securityBean.getIdRole() >= 3) {
+            log.warn("⚠️ Intento de crear cuenta bloqueado: Perfil no autorizado (idRole >= 3).");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "No Autorizado", "Tu perfil no tiene permisos para dar de alta cuentas."));
+            return;
+        }
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de crear cuenta bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes dar de alta cuentas para otro usuario."));
+            return;
+        }
+        if (nuevaCuentaNombre == null || nuevaCuentaNombre.trim().isEmpty()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Dato Requerido", "El nombre de la cuenta es obligatorio."));
+            return;
+        }
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("nombre", nuevaCuentaNombre.trim());
+            payload.put("activo", Boolean.TRUE.equals(nuevaCuentaActivo));
+            payload.put("capital", nuevaCuentaCapital != null ? nuevaCuentaCapital : 0.0);
+            payload.put("ganancia", nuevaCuentaGanancia != null ? nuevaCuentaGanancia : 0.0);
+            payload.put("riesgoPorOperacion", nuevaCuentaRiesgo != null ? nuevaCuentaRiesgo : 3.0);
+            payload.put("comision", nuevaCuentaComision != null ? nuevaCuentaComision : 0.0);
+            payload.put("concentradora", Boolean.TRUE.equals(nuevaCuentaConcentradora));
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+
+            String url = backendUrl + "/api/v1/cuentas/crear";
+            log.info("Creando nueva cuenta para idUsuario {}: Nombre={}, Capital={}, Ganancia={}, Riesgo={}",
+                    userId, nuevaCuentaNombre, nuevaCuentaCapital, nuevaCuentaGanancia, nuevaCuentaRiesgo);
+
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(response.getBody());
+                int createdId = root.has("idCuenta") ? root.get("idCuenta").asInt() : -1;
+
+                // Recargar combo de cuentas y seleccionar la recién creada
+                loadUserAccounts();
+                if (createdId > 0) {
+                    this.selectedAccountId = createdId;
+                }
+                loadUserRatiosList();
+                loadAllActiveCycles();
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('nuevaCuentaDlg').hide();");
+
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Cuenta Creada Exitosamente",
+                                "Se registró la cuenta '" + nuevaCuentaNombre + "' asociada al usuario."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Crear", "No se pudo registrar la cuenta en el backend."));
+            }
+        } catch (Exception e) {
+            log.error("Excepción al crear nueva cuenta: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error", "Fallo al comunicar con el servidor: " + e.getMessage()));
+        }
+    }
+
+    // --- Campos y Métodos para Modal de Edición de Cuenta ---
+    private Integer editarCuentaId;
+    private String editarCuentaNombre = "";
+    private Boolean editarCuentaActivo = true;
+    private Double editarCuentaCapital = 300.0;
+    private Double editarCuentaGanancia = 15.0;
+    private Double editarCuentaRiesgo = 3.0;
+    private Double editarCuentaComision = 0.0;
+    private Boolean editarCuentaConcentradora = false;
+
+    public Integer getEditarCuentaId() { return editarCuentaId; }
+    public void setEditarCuentaId(Integer editarCuentaId) { this.editarCuentaId = editarCuentaId; }
+    public String getEditarCuentaNombre() { return editarCuentaNombre; }
+    public void setEditarCuentaNombre(String editarCuentaNombre) { this.editarCuentaNombre = editarCuentaNombre; }
+    public Boolean getEditarCuentaActivo() { return editarCuentaActivo; }
+    public void setEditarCuentaActivo(Boolean editarCuentaActivo) { this.editarCuentaActivo = editarCuentaActivo; }
+    public Double getEditarCuentaCapital() { return editarCuentaCapital; }
+    public void setEditarCuentaCapital(Double editarCuentaCapital) { this.editarCuentaCapital = editarCuentaCapital; }
+    public Double getEditarCuentaGanancia() { return editarCuentaGanancia; }
+    public void setEditarCuentaGanancia(Double editarCuentaGanancia) { this.editarCuentaGanancia = editarCuentaGanancia; }
+    public Double getEditarCuentaRiesgo() { return editarCuentaRiesgo; }
+    public void setEditarCuentaRiesgo(Double editarCuentaRiesgo) { this.editarCuentaRiesgo = editarCuentaRiesgo; }
+    public Double getEditarCuentaComision() { return editarCuentaComision; }
+    public void setEditarCuentaComision(Double editarCuentaComision) { this.editarCuentaComision = editarCuentaComision; }
+    public boolean isConcentradoraDisabledForEdit() {
+        if (Boolean.TRUE.equals(editarCuentaConcentradora)) {
+            return false;
+        }
+        return hasConcentradoraAccount(editarCuentaId != null ? editarCuentaId : selectedAccountId);
+    }
+
+    public boolean isConcentradoraDisabledForNew() {
+        return hasConcentradoraAccount(null);
+    }
+
+    public boolean hasConcentradoraAccount(Integer excludeAccountId) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = backendUrl + "/api/v1/cuentas/has-concentradora" + (excludeAccountId != null ? "?excludeId=" + excludeAccountId : "");
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                return root.has("hasConcentradora") && root.get("hasConcentradora").asBoolean();
+            }
+        } catch (Exception e) {
+            log.error("Error al consultar si existe cuenta concentradora: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    public Boolean getEditarCuentaConcentradora() { return editarCuentaConcentradora; }
+    public void setEditarCuentaConcentradora(Boolean editarCuentaConcentradora) { this.editarCuentaConcentradora = editarCuentaConcentradora; }
+
+    public void prepararEditarCuenta() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de editar cuenta bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes editar cuentas de otro usuario."));
+            return;
+        }
+        if (selectedAccountId == null) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Sin Cuenta", "Seleccione una cuenta para editar."));
+            return;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = backendUrl + "/api/v1/cuentas/" + selectedAccountId;
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                this.editarCuentaId = selectedAccountId;
+                this.editarCuentaNombre = root.has("nombre") ? root.get("nombre").asText() : "";
+                this.editarCuentaCapital = root.has("capital") ? root.get("capital").asDouble() : 0.0;
+                this.editarCuentaActivo = root.has("activo") ? root.get("activo").asBoolean() : true;
+                this.editarCuentaGanancia = root.has("ganancia") ? root.get("ganancia").asDouble() : 15.0;
+                this.editarCuentaRiesgo = root.has("riesgoPorOperacion") ? root.get("riesgoPorOperacion").asDouble() : 3.0;
+                this.editarCuentaComision = root.has("comision") ? root.get("comision").asDouble() : 0.0;
+                this.editarCuentaConcentradora = root.has("concentradora") ? root.get("concentradora").asBoolean() : false;
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('editarCuentaDlg').show();");
+            }
+        } catch (Exception e) {
+            log.error("Error al consultar detalles de cuenta para editar: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error", "No se pudo cargar la información de la cuenta."));
+        }
+    }
+
+    public void guardarEditarCuenta() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de guardar edición de cuenta bloqueado: Modo solo lectura.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes editar cuentas de otro usuario."));
+            return;
+        }
+        if (editarCuentaNombre == null || editarCuentaNombre.trim().isEmpty()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Dato Requerido", "El nombre de la cuenta no puede estar vacío."));
+            return;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idCuenta", editarCuentaId != null ? editarCuentaId : selectedAccountId);
+            payload.put("nombre", editarCuentaNombre.trim());
+            payload.put("activo", Boolean.TRUE.equals(editarCuentaActivo));
+            payload.put("capital", editarCuentaCapital != null ? editarCuentaCapital : 0.0);
+            payload.put("ganancia", editarCuentaGanancia != null ? editarCuentaGanancia : 0.0);
+            payload.put("riesgoPorOperacion", editarCuentaRiesgo != null ? editarCuentaRiesgo : 3.0);
+            payload.put("comision", editarCuentaComision != null ? editarCuentaComision : 0.0);
+            payload.put("concentradora", Boolean.TRUE.equals(editarCuentaConcentradora));
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+
+            String url = backendUrl + "/api/v1/cuentas/editar";
+            log.info("Guardando edición de cuenta #{}: Nombre={}, Capital={}, Ganancia={}, Riesgo={}, Activo={}",
+                    editarCuentaId, editarCuentaNombre, editarCuentaCapital, editarCuentaGanancia, editarCuentaRiesgo, editarCuentaActivo);
+
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserAccounts();
+                loadUserRatiosList();
+                loadAllActiveCycles();
+                onCuentaChange();
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('editarCuentaDlg').hide();");
+
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Cuenta Actualizada",
+                                "Se actualizaron exitosamente los valores de la cuenta '" + editarCuentaNombre + "'."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Guardar", "No se pudo actualizar la cuenta en el backend."));
+            }
+        } catch (Exception e) {
+            log.error("Excepción al guardar edición de cuenta: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error", "Fallo al comunicar con el servidor: " + e.getMessage()));
+        }
+    }
     private Integer selectedAccountId;
+    
+    private String ratioToClose;
+    public String getRatioToClose() { return ratioToClose; }
+    public void setRatioToClose(String ratioToClose) { this.ratioToClose = ratioToClose; }
+
+    public void closeRatioPositionByRemote() {
+        executeCloseRatioPositionByRemote(false);
+    }
+
+    public void rebalanceRatioPositionByRemote() {
+        executeCloseRatioPositionByRemote(true);
+    }
+
+    private void executeCloseRatioPositionByRemote(boolean rebalancear) {
+        log.info("▶ executeCloseRatioPositionByRemote ejecutado con ratioToClose='{}', rebalancear={}", this.ratioToClose, rebalancear);
+        if (this.ratioToClose == null || this.ratioToClose.trim().isEmpty()) {
+            log.warn("⚠️ ratioToClose es nulo o vacío");
+            return;
+        }
+        ActiveCycleSummaryDto targetCycle = null;
+        if (allActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : allActiveCycles) {
+                if (this.ratioToClose.equalsIgnoreCase(c.getSetup()) || 
+                    (c.getSetup() != null && c.getSetup().contains(this.ratioToClose))) {
+                    targetCycle = c;
+                    break;
+                }
+            }
+        }
+        if (targetCycle == null) {
+            log.info("ℹ️ No se encontró targetCycle en la lista en memoria, creando objeto directo para '{}'", this.ratioToClose);
+            targetCycle = new ActiveCycleSummaryDto();
+            targetCycle.setSetup(this.ratioToClose);
+        }
+        closeRatioPosition(targetCycle, rebalancear);
+    }
+
+    public boolean isReadOnly() {
+        if (securityBean != null && securityBean.getSelectedUserId() != null && securityBean.getIdUsuario() != null) {
+            return !securityBean.getSelectedUserId().equals(securityBean.getIdUsuario());
+        }
+        return false;
+    }
+
+    public boolean isCanEdit() {
+        return !isReadOnly();
+    }
 
     public List<UserAccountDto> getUserAccountsCombo() {
         return userAccountsCombo;
@@ -667,6 +1030,7 @@ public class DashboardBean implements Serializable {
         private Boolean hasOpenTrades = false;
 
         public Boolean getHasOpenTrades() { return hasOpenTrades; }
+        public Boolean isHasOpenTrades() { return hasOpenTrades; }
         public void setHasOpenTrades(Boolean hasOpenTrades) { this.hasOpenTrades = hasOpenTrades; }
 
         public Integer getId() { return id; }
@@ -708,8 +1072,10 @@ public class DashboardBean implements Serializable {
             String title = event.getTab().getTitle();
             if (title != null && title.contains("1.")) {
                 this.activeAccordionIndex = "0";
-            } else {
+            } else if (title != null && title.contains("2.")) {
                 this.activeAccordionIndex = "1";
+            } else if (title != null && title.contains("3.")) {
+                this.activeAccordionIndex = "2";
             }
             log.info("Tab del acordeón cambiado a: {} (index={})", title, activeAccordionIndex);
         }
@@ -787,14 +1153,48 @@ public class DashboardBean implements Serializable {
     }
 
     public void onDaysBackChange() {
+        calculateStartDateFromPeriods();
+    }
+
+    public void calculateStartDateFromPeriods() {
         if (daysBack != null && daysBack > 0) {
             if (endDate == null) {
                 endDate = new java.util.Date();
             }
             java.util.Calendar cal = java.util.Calendar.getInstance();
             cal.setTime(endDate);
-            cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+
+            String tf = (timeframe != null) ? timeframe.toLowerCase().trim() : "1h";
+            if (tf.equals("1h") || tf.equals("1H")) {
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -daysBack);
+            } else if (tf.equals("4h") || tf.equals("4H")) {
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -(daysBack * 4));
+            } else if (tf.equals("15min") || tf.equals("15m")) {
+                cal.add(java.util.Calendar.MINUTE, -(daysBack * 15));
+            } else if (tf.equals("30min") || tf.equals("30m")) {
+                cal.add(java.util.Calendar.MINUTE, -(daysBack * 30));
+            } else if (tf.equals("1week") || tf.equals("1w") || tf.equals("1W")) {
+                cal.add(java.util.Calendar.WEEK_OF_YEAR, -daysBack);
+            } else if (tf.equals("1month") || tf.equals("1m") || tf.equals("1M")) {
+                cal.add(java.util.Calendar.MONTH, -daysBack);
+            } else { // "1d"
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+            }
             this.startDate = cal.getTime();
+        }
+    }
+
+    public String getTimeframeUnitLabel() {
+        if (timeframe == null) return "horas";
+        String tf = timeframe.toLowerCase().trim();
+        switch (tf) {
+            case "1month": case "1m": return "meses";
+            case "1week": case "1w": return "semanas";
+            case "1d": return "días";
+            case "4h": return "periodos (4h)";
+            case "15min": case "15m": return "periodos (15m)";
+            case "30min": case "30m": return "periodos (30m)";
+            case "1h": default: return "horas";
         }
     }
 
@@ -967,31 +1367,67 @@ public class DashboardBean implements Serializable {
 
     public void selectRatioFromActiveCycle(ActiveCycleSummaryDto cycle) {
         if (cycle == null) return;
+        log.info("Seleccionado ratio desde Posiciones Activas: {} / {} (setup={})", cycle.getPairA(), cycle.getPairB(), cycle.getSetup());
         if (cycle.getPairA() != null && !cycle.getPairA().isEmpty()) {
             this.selectedPair = cycle.getPairA();
         }
         if (cycle.getPairB() != null && !cycle.getPairB().isEmpty()) {
             this.selectedPair2 = cycle.getPairB();
         }
-        if (cycle.getTimeframe() != null && !cycle.getTimeframe().isEmpty()) {
-            this.timeframe = cycle.getTimeframe();
+        loadCorrelationsForSelectedPair();
+
+        UserRatioDto matchingRatio = null;
+        if (userRatiosList != null) {
+            for (UserRatioDto ur : userRatiosList) {
+                if (ur.getNumerador() != null && ur.getDenominador() != null) {
+                    if ((ur.getNumerador().equalsIgnoreCase(selectedPair) && ur.getDenominador().equalsIgnoreCase(selectedPair2))
+                        || (ur.getNumerador().equalsIgnoreCase(selectedPair2) && ur.getDenominador().equalsIgnoreCase(selectedPair))) {
+                        matchingRatio = ur;
+                        break;
+                    }
+                }
+            }
         }
-        fetchUserRatioDetails();
+
+        if (matchingRatio != null) {
+            log.info("Encontrado matching en userRatiosList: periodo={}, dias={}, fast={}, slow={}",
+                    matchingRatio.getPeriodo(), matchingRatio.getDias(), matchingRatio.getEmaRapida(), matchingRatio.getEmaLenta());
+            this.selectedUserRatio = matchingRatio;
+            if (matchingRatio.getPeriodo() != null && !matchingRatio.getPeriodo().trim().isEmpty()) {
+                this.timeframe = matchingRatio.getPeriodo().trim();
+            }
+            if (matchingRatio.getDias() != null && matchingRatio.getDias() > 0) {
+                this.daysBack = matchingRatio.getDias();
+            }
+            if (matchingRatio.getEmaRapida() != null && matchingRatio.getEmaRapida() > 0) {
+                this.smaPeriodParam = matchingRatio.getEmaRapida();
+            }
+            if (matchingRatio.getEmaLenta() != null && matchingRatio.getEmaLenta() > 0) {
+                this.emaSlowPeriodParam = matchingRatio.getEmaLenta();
+            }
+            this.operar = Boolean.TRUE.equals(matchingRatio.getOperar());
+            this.ratioExistsInDb = true;
+            this.hasActiveTradesInDb = true;
+            onDaysBackChange();
+        } else {
+            if (cycle.getTimeframe() != null && !cycle.getTimeframe().isEmpty()) {
+                this.timeframe = cycle.getTimeframe();
+            }
+            fetchUserRatioDetails();
+        }
+
+        this.activeAccordionIndex = "1";
         analyzePair();
     }
 
     public void onDatesOrTimeframeChange() {
-        if (startDate == null) {
-            java.util.Calendar cal = java.util.Calendar.getInstance();
-            cal.add(java.util.Calendar.DAY_OF_YEAR, -180);
-            startDate = cal.getTime();
-        }
         if (endDate == null) {
             endDate = new java.util.Date();
         }
         if (timeframe == null) {
             timeframe = "1h";
         }
+        calculateStartDateFromPeriods();
     }
 
     /**
@@ -1083,6 +1519,7 @@ public class DashboardBean implements Serializable {
                         if (toNode.has("totalReturnPct")) toDto.setTotalReturnPct(toNode.get("totalReturnPct").asDouble());
                         if (toNode.has("netProfit")) toDto.setNetProfit(toNode.get("netProfit").asDouble());
                         if (toNode.has("finalCapital")) toDto.setFinalCapital(toNode.get("finalCapital").asDouble());
+                        if (toNode.has("allocationPct")) toDto.setAllocationPct(toNode.get("allocationPct").asDouble());
                         this.signalBtTrianglesMetrics = toDto;
 
                         List<SignalTradeDto> toTrades = new ArrayList<>();
@@ -1162,6 +1599,7 @@ public class DashboardBean implements Serializable {
                         if (cbNode.has("totalReturnPct")) cbDto.setTotalReturnPct(cbNode.get("totalReturnPct").asDouble());
                         if (cbNode.has("netProfit")) cbDto.setNetProfit(cbNode.get("netProfit").asDouble());
                         if (cbNode.has("finalCapital")) cbDto.setFinalCapital(cbNode.get("finalCapital").asDouble());
+                        if (cbNode.has("allocationPct")) cbDto.setAllocationPct(cbNode.get("allocationPct").asDouble());
                         this.signalBtCombinedMetrics = cbDto;
 
                         List<SignalTradeDto> cbTrades = new ArrayList<>();
@@ -1261,27 +1699,21 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            if (daysBack != null && daysBack > 0) {
-                if (endDate == null) {
-                    endDate = new java.util.Date();
-                }
-                java.util.Calendar cal = java.util.Calendar.getInstance();
-                cal.setTime(endDate);
-                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
-                this.startDate = cal.getTime();
-            }
+            calculateStartDateFromPeriods();
 
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            java.text.SimpleDateFormat sdf = (timeframe != null && (timeframe.contains("h") || timeframe.contains("min") || timeframe.contains("m")))
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    : new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
             String endStr = (endDate != null) ? sdf.format(endDate) : "";
 
             // Construir URL para el endpoint de ratio de 2 pares
             String url = String.format(
-                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&smaPeriod=%d&emaSlowPeriod=%d&histogramBins=%d&tf=%s&start_date=%s&end_date=%s",
+                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&smaPeriod=%d&emaSlowPeriod=%d&histogramBins=%d&tf=%s&days=%d&start_date=%s&end_date=%s",
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, smaPeriodParam, emaSlowPeriodParam, histogramBins, timeframe, startStr, endStr);
+                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, smaPeriodParam, emaSlowPeriodParam, histogramBins, timeframe, (daysBack != null ? daysBack : 180), startStr, endStr);
 
             log.info("Llamando a FastAPI (ratio 2 pares): {}", url);
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -1380,17 +1812,11 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            if (daysBack != null && daysBack > 0) {
-                if (endDate == null) {
-                    endDate = new java.util.Date();
-                }
-                java.util.Calendar cal = java.util.Calendar.getInstance();
-                cal.setTime(endDate);
-                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
-                this.startDate = cal.getTime();
-            }
+            calculateStartDateFromPeriods();
 
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            java.text.SimpleDateFormat sdf = (timeframe != null && (timeframe.contains("h") || timeframe.contains("min") || timeframe.contains("m")))
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    : new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
             String endStr = (endDate != null) ? sdf.format(endDate) : "";
 
@@ -1440,6 +1866,13 @@ public class DashboardBean implements Serializable {
     }
 
     public void guardarRatio() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de guardar ratio bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes modificar ni guardar ratios de otro usuario."));
+            return;
+        }
         try {
             Integer userId = null;
             if (securityBean != null) {
@@ -1480,7 +1913,7 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                 "Ratio Guardado Exitosamente",
                                 "Se guardó la selección " + selectedPair + " / " + selectedPair2 +
-                                " (" + timeframe + ", " + daysBack + " días) con EMARapida=" + smaPeriodParam +
+                                " (" + timeframe + ", " + daysBack + " periodos) con EMARapida=" + smaPeriodParam +
                                 ", EMALenta=" + emaSlowPeriodParam + ", Operar=" + operarDesc + "."));
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -1584,8 +2017,10 @@ public class DashboardBean implements Serializable {
             userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
         }
         log.info("Usuario seleccionado cambiado en cabecera de configuración: idUsuario={}", userId);
+        this.selectedAccountId = null;
         loadUserAccounts();
         loadUserRatiosList();
+        loadAllActiveCycles();
 
         if (userRatiosList != null && !userRatiosList.isEmpty()) {
             UserRatioDto firstRatio = userRatiosList.get(0);
@@ -1613,6 +2048,13 @@ public class DashboardBean implements Serializable {
     }
 
     public void onOperarToggle() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de cambiar operar bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes modificar el estado de operar de otro usuario."));
+            return;
+        }
         log.info("Estado de Operar actualizado a {} para {} / {}. Guardando en BD...", operar, selectedPair, selectedPair2);
         guardarRatio();
     }
@@ -1682,6 +2124,7 @@ public class DashboardBean implements Serializable {
         if (ratio.getIdCuenta() != null) {
             this.selectedAccountId = ratio.getIdCuenta();
         }
+        loadAllActiveCycles();
         this.selectedPair = ratio.getNumerador();
         this.selectedPair2 = ratio.getDenominador();
         loadCorrelationsForSelectedPair();
@@ -1701,6 +2144,7 @@ public class DashboardBean implements Serializable {
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
+        this.activeAccordionIndex = "1";
 
         onDaysBackChange();
         analyzePair();
@@ -1782,6 +2226,13 @@ public class DashboardBean implements Serializable {
     }
 
     public void borrarRatio() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de borrar ratio bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes eliminar ratios de otro usuario."));
+            return;
+        }
         if (this.hasActiveTradesInDb) {
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                     new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
@@ -2467,5 +2918,88 @@ public class DashboardBean implements Serializable {
 
         histogramModel.setData(data);
         histogramModel.setOptions(options);
+    }
+
+    public void closeRatioPosition(ActiveCycleSummaryDto cycle) {
+        closeRatioPosition(cycle, false);
+    }
+
+    public void closeRatioPosition(ActiveCycleSummaryDto cycle, boolean rebalancear) {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de cerrar posiciones bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes cerrar operaciones de otro usuario."));
+            return;
+        }
+        try {
+            Integer accId = this.selectedAccountId;
+            if ((accId == null || accId == 0) && userAccountsCombo != null && !userAccountsCombo.isEmpty()) {
+                accId = userAccountsCombo.get(0).getIdCuenta();
+            }
+            if (accId == null || accId == 0) {
+                accId = 2; // Fallback default account
+            }
+            int targetOperar = rebalancear ? 1 : 0;
+            log.info("🚀 Enviando solicitud de cierre para setup='{}' en idCuenta={} (operar={})", cycle.getSetup(), accId, targetOperar);
+            
+            String encodedSetup = java.net.URLEncoder.encode(cycle.getSetup(), java.nio.charset.StandardCharsets.UTF_8);
+            String url = backendUrl + "/api/v1/trades/close-ratio/" + accId + "?setup=" + encodedSetup + "&operar=" + targetOperar;
+            
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("setup", cycle.getSetup());
+            payload.put("operar", targetOperar);
+            
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = 
+                new org.springframework.http.HttpEntity<>(payload, headers);
+                
+            org.springframework.http.ResponseEntity<String> response = 
+                restTemplate.postForEntity(url, requestEntity, String.class);
+                
+            log.info("📥 Respuesta de backend close-ratio: status={} body={}", response.getStatusCodeValue(), response.getBody());
+            
+            if (response.getStatusCode().is2xxSuccessful()) {
+                String titleMsg = rebalancear ? "Rebalanceo Exitoso" : "Cierre Exitoso";
+                String detailMsg = rebalancear ?
+                    "Se cerraron las posiciones de " + cycle.getSetup() + " en Forex/BD y el ratio quedó ACTIVO (operar=1) para nueva entrada balanceada." :
+                    "Se cerraron las posiciones de " + cycle.getSetup() + " en Forex/BD y se DESACTIVÓ el ratio (operar=0).";
+
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                        javax.faces.application.FacesMessage.SEVERITY_INFO,
+                        titleMsg,
+                        detailMsg
+                    )
+                );
+                loadAllActiveCycles();
+                fetchUserRatioDetails();
+                loadUserRatiosList();
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion", "aetherForm:growl");
+            } else {
+                log.error("❌ Error devuelto por backend: {}", response.getBody());
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                        javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                        "Error al procesar",
+                        response.getBody()
+                    )
+                );
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
+            }
+        } catch (Exception e) {
+            log.error("❌ Excepción en closeRatioPosition: ", e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(
+                    javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                    "Excepción",
+                    e.getMessage()
+                )
+            );
+            org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
+        }
     }
 }

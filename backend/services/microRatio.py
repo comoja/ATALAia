@@ -93,10 +93,10 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
 
 def fetchSymbolData(dbSession, symbol: str) -> Dict[str, Any]:
     """
-    Obtiene los parámetros operativos de un símbolo en la tabla 'symbols'.
+    Obtiene los parámetros operativos de un símbolo en la tabla 'symbols', incluyendo multiplo.
     """
     sqlQuery = text("""
-        SELECT min_lots, margen, pip, quote_currency
+        SELECT min_lots, margen, pip, quote_currency, multiplo
         FROM symbols
         WHERE symbol = :sym
         LIMIT 1
@@ -105,45 +105,57 @@ def fetchSymbolData(dbSession, symbol: str) -> Dict[str, Any]:
     if row:
         margenRaw = float(row[1]) if row[1] is not None else 0.25
         margenRate = (margenRaw / 100.0) if margenRaw >= 0.05 else margenRaw
+        multiploVal = int(row[4]) if (len(row) > 4 and row[4] is not None and int(row[4]) > 0) else None
         return {
             "minLots": float(row[0]) if row[0] is not None else 1000.0,
             "margenRate": margenRate,
             "margenPct": margenRaw,
             "pip": float(row[2]) if row[2] is not None else 0.0001,
-            "quoteCurrency": str(row[3]) if row[3] else "USD"
+            "quoteCurrency": str(row[3]) if row[3] else "USD",
+            "multiplo": multiploVal
         }
     return {
         "minLots": 1000.0,
         "margenRate": 0.0025,
         "margenPct": 0.25,
         "pip": 0.0001,
-        "quoteCurrency": "USD"
+        "quoteCurrency": "USD",
+        "multiplo": None
     }
 
 
 def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
     """
-    Obtiene el balance de capital actual y nombre de la cuenta.
+    Obtiene el balance de capital actual, nombre, riesgo por operación, comisión y concentradora de la cuenta.
     """
     sqlQuery = text("""
-        SELECT idCuenta, Nombre, Capital, Activo
+        SELECT idCuenta, Nombre, Capital, Activo, riesgoPorOperacion, comision, Concentradora
         FROM cuenta
         WHERE idCuenta = :idc
         LIMIT 1
     """)
     row = dbSession.execute(sqlQuery, {"idc": idCuenta}).fetchone()
     if row:
+        riesgoVal = float(row[4]) if (len(row) > 4 and row[4] is not None and float(row[4]) > 0) else 3.0
+        comisionVal = float(row[5]) if (len(row) > 5 and row[5] is not None and float(row[5]) >= 0) else 0.0
+        concentradoraVal = bool(row[6]) if (len(row) > 6 and row[6] is not None) else False
         return {
             "idCuenta": row[0],
             "nombre": str(row[1]),
             "capital": float(row[2]) if row[2] is not None else 0.0,
-            "activo": bool(row[3])
+            "activo": bool(row[3]),
+            "riesgoPorOperacion": riesgoVal,
+            "comision": comisionVal,
+            "concentradora": concentradoraVal
         }
     return {
         "idCuenta": idCuenta,
         "nombre": f"Cuenta #{idCuenta}",
         "capital": 0.0,
-        "activo": False
+        "activo": False,
+        "riesgoPorOperacion": 3.0,
+        "comision": 0.0,
+        "concentradora": False
     }
 
 
@@ -230,7 +242,7 @@ def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) ->
                s.pip, s.quote_currency
         FROM trades t
         LEFT JOIN symbols s ON t.symbol = s.symbol
-        WHERE t.idCuenta = :idc AND t.status = OPEN
+        WHERE t.idCuenta = :idc AND t.status = 'OPEN'
     """)
     rows = dbSession.execute(sqlTrades, {"idc": idCuenta}).fetchall()
     
@@ -380,21 +392,25 @@ def buildRatioExitAlertMessage(
     dirA: str,
     dirB: str,
     totalNetPnl: float,
-    totalMarginReleased: float
+    totalMarginReleased: float,
+    closeReason: str = "CONVERGENCIA"
 ) -> str:
-    """Construye el mensaje de liquidación por cruce de precios (convergencia) para Telegram."""
+    """Construye el mensaje de liquidación por cruce de precios o solicitud manual para Telegram."""
     pnlSign = "+" if totalNetPnl >= 0 else ""
     retPct = ((totalNetPnl / totalMarginReleased) * 100.0) if totalMarginReleased > 0 else 0.0
     retSign = "+" if retPct >= 0 else ""
     nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    header_reason = "POR SOLICITUD" if closeReason == "POR SOLICITUD" else "POR CRUCE DE PRECIOS"
+    body_reason = "POR SOLICITUD" if closeReason == "POR SOLICITUD" else "POR CONVERGENCIA (●)"
+
     lines = [
-        "<center>🟥<b>ATALA.ia CIERRE POR CRUCE DE PRECIOS</b>🟥</center>",
+        f"<center>🟥<b>ATALA.ia CIERRE {header_reason}</b>🟥</center>",
         f"<center><b>   {numerador} ⇄ {denominador} ({periodo.upper()})</b></center>",
         f"<center><b>   {accountName} </b></center>",
         f"<center>{nowStr}</center>",
         "━━━━━━━━━━━━━━━━━━━━",
-        "<center> <b>LIQUIDACIÓN POR CONVERGENCIA (●):</b></center>",
+        f"<center> <b>LIQUIDACIÓN {body_reason}:</b></center>",
         f"   <b>{numerador} ({dirA}):</b> {pipsA:+,.1f} pips  |  <b>{pnlA:+,.2f} USD</b>",
         f"   <b>{denominador} ({dirB}):</b> {pipsB:+,.1f} pips  |  <b>{pnlB:+,.2f} USD</b>",
         "━━━━━━━━━━━━━━━━━━━━",
@@ -435,10 +451,11 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
             return executionResults
 
         import os, time, json, requests
-        from middleware.utils.cryptoUtils import buildEncryptedAccountToken
+        from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
         
         webhookUrl = os.getenv("WEBHOOK_URL") or "http://127.0.0.1:8002/webhook/tradingview"
-        passphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+        rawPassphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+        encryptedPassphrase = encryptValue(rawPassphrase) if rawPassphrase else ""
 
         for bc in activeBrokers:
             loginUsuario = bc.get("loginUsuario", "")
@@ -462,7 +479,7 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
 
                 orderPayload = {
                     "strategy": strategy,
-                    "passphrase": passphrase,
+                    "passphrase": encryptedPassphrase,
                     "time": time.time(),
                     "action": action,
                     "ticker": symbol,
@@ -537,7 +554,13 @@ def openSingleRatioTradePair(
     accountCapital = float(accountData.get("capital", 300.0))
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
 
-    budget = max(0.0, accountCapital) * 0.03
+    # Porcentaje de riesgo dinámico tomado de cuenta.riesgoPorOperacion (ej. 3.0 -> 3.0% del capital)
+    riesgoPct = float(accountData.get("riesgoPorOperacion", 3.0))
+    allocationRate = (riesgoPct / 100.0) if riesgoPct >= 0.05 else riesgoPct
+    if allocationRate <= 0:
+        allocationRate = 0.03
+
+    budget = max(0.0, accountCapital) * allocationRate
     budgetA = budget / 2.0
     budgetB = budget / 2.0
 
@@ -577,47 +600,96 @@ def openSingleRatioTradePair(
         )
     """)
 
-    # 1. Pata 1: Numerador
-    resA = dbSession.execute(insertTradeSql, {
-        "idCuenta": idCuenta,
-        "strategy": "RATIO ATALAia",
-        "setup": setupName,
-        "symbol": numerador,
-        "status": "OPEN",
-        "direction": directionA,
-        "intervalo": periodo,
-        "pnl": 0.0,
-        "candleTime": candleDt,
-        "openTime": nowStr,
-        "size": unitsA,
-        "entryPrice": entryPxA,
-        "stopLoss": None,
-        "takeProfit": None,
-        "margin_used": marginA
-    })
-    idTradeA = resA.lastrowid
+    # Fragmentar unidades según symbols.multiplo para evitar incrementos de margen escalonado
+    multiploA = symDataA.get("multiplo")
+    chunksA = []
+    if multiploA and multiploA > 0 and unitsA > multiploA:
+        remA = float(unitsA)
+        while remA > 0:
+            cA = min(remA, float(multiploA))
+            chunksA.append(cA)
+            remA -= cA
+    else:
+        chunksA = [float(unitsA)]
 
-    # 2. Pata 2: Denominador
-    resB = dbSession.execute(insertTradeSql, {
-        "idCuenta": idCuenta,
-        "strategy": "RATIO ATALAia",
-        "setup": setupName,
-        "symbol": denominador,
-        "status": "OPEN",
-        "direction": directionB,
-        "intervalo": periodo,
-        "pnl": 0.0,
-        "candleTime": candleDt,
-        "openTime": nowStr,
-        "size": unitsB,
-        "entryPrice": entryPxB,
-        "stopLoss": None,
-        "takeProfit": None,
-        "margin_used": marginB
-    })
-    idTradeB = resB.lastrowid
+    multiploB = symDataB.get("multiplo")
+    chunksB = []
+    if multiploB and multiploB > 0 and unitsB > multiploB:
+        remB = float(unitsB)
+        while remB > 0:
+            cB = min(remB, float(multiploB))
+            chunksB.append(cB)
+            remB -= cB
+    else:
+        chunksB = [float(unitsB)]
 
-    # 3. Descontar margen retenido de cuenta.Capital
+    webhookOrders = []
+    tradeIdsA = []
+    tradeIdsB = []
+
+    # 1. Pata 1: Numerador (1 o más sub-trades según multiplo)
+    for cA in chunksA:
+        chunkMarginA = cA * margenRateA
+        resA = dbSession.execute(insertTradeSql, {
+            "idCuenta": idCuenta,
+            "strategy": "RATIO ATALAia",
+            "setup": setupName,
+            "symbol": numerador,
+            "status": "OPEN",
+            "direction": directionA,
+            "intervalo": periodo,
+            "pnl": 0.0,
+            "candleTime": candleDt,
+            "openTime": nowStr,
+            "size": cA,
+            "entryPrice": entryPxA,
+            "stopLoss": None,
+            "takeProfit": None,
+            "margin_used": chunkMarginA
+        })
+        tIdA = resA.lastrowid
+        tradeIdsA.append(tIdA)
+        webhookOrders.append({
+            "idTrade": tIdA,
+            "strategy": "RATIO ATALAia",
+            "symbol": numerador,
+            "action": "buy" if directionA == "LARGO" else "sell",
+            "size": cA,
+            "entryPrice": entryPxA
+        })
+
+    # 2. Pata 2: Denominador (1 o más sub-trades según multiplo)
+    for cB in chunksB:
+        chunkMarginB = cB * margenRateB
+        resB = dbSession.execute(insertTradeSql, {
+            "idCuenta": idCuenta,
+            "strategy": "RATIO ATALAia",
+            "setup": setupName,
+            "symbol": denominador,
+            "status": "OPEN",
+            "direction": directionB,
+            "intervalo": periodo,
+            "pnl": 0.0,
+            "candleTime": candleDt,
+            "openTime": nowStr,
+            "size": cB,
+            "entryPrice": entryPxB,
+            "stopLoss": None,
+            "takeProfit": None,
+            "margin_used": chunkMarginB
+        })
+        tIdB = resB.lastrowid
+        tradeIdsB.append(tIdB)
+        webhookOrders.append({
+            "idTrade": tIdB,
+            "strategy": "RATIO ATALAia",
+            "symbol": denominador,
+            "action": "buy" if directionB == "LARGO" else "sell",
+            "size": cB,
+            "entryPrice": entryPxB
+        })
+
+    # 3. Descontar margen retenido total de cuenta.Capital
     updateCapitalSql = text("""
         UPDATE cuenta
         SET Capital = Capital - :margenRetenido
@@ -629,28 +701,16 @@ def openSingleRatioTradePair(
     })
     dbSession.commit()
 
+    if len(chunksA) > 1 or len(chunksB) > 1:
+        logger.info(
+            f"🧩 [multiplo] Orden fragmentada: {numerador} ({unitsA:,.0f} u -> {len(chunksA)} trades: {chunksA}) | "
+            f"{denominador} ({unitsB:,.0f} u -> {len(chunksB)} trades: {chunksB})"
+        )
+
     # 4. Despachar Órdenes al Webhook y recibir ID de Transacción (ticketId) y Precio Real
-    webhookOrders = [
-        {
-            "idTrade": idTradeA,
-            "strategy": "RATIO ATALAia",
-            "symbol": numerador,
-            "action": "buy" if directionA == "LARGO" else "sell",
-            "size": unitsA,
-            "entryPrice": entryPxA
-        },
-        {
-            "idTrade": idTradeB,
-            "strategy": "RATIO ATALAia",
-            "symbol": denominador,
-            "action": "buy" if directionB == "LARGO" else "sell",
-            "size": unitsB,
-            "entryPrice": entryPxB
-        }
-    ]
     execResults = sendRatioWebhookOrders(dbSession, idCuenta, webhookOrders)
 
-    # 5. Corregir precio real de ejecución y guardar TicketID en la BD MySQL
+    # 5. Corregir precio real de ejecución y guardar TicketID en cada registro individual en MySQL
     realPxA, realPxB = entryPxA, entryPxB
     for res in execResults:
         tId = res.get("idTrade")
@@ -668,16 +728,18 @@ def openSingleRatioTradePair(
                 "fillPrice": float(fPx) if fPx else None,
                 "idt": tId
             })
-            if tId == idTradeA and fPx:
+            if tId in tradeIdsA and fPx:
                 realPxA = float(fPx)
-            elif tId == idTradeB and fPx:
+            elif tId in tradeIdsB and fPx:
                 realPxB = float(fPx)
 
     dbSession.commit()
+    tradeIdsA_str = ",".join(str(i) for i in tradeIdsA)
+    tradeIdsB_str = ",".join(str(i) for i in tradeIdsB)
     logger.info(
-        f"🚀 [{setupName}] SEÑAL EJECUTADA (2 REGISTROS): {signalType} en Cuenta #{idCuenta} "
-        f"| Pata 1 ({numerador}, Trade #{idTradeA}): {directionA} {unitsA:,.0f} lotes @ {realPxA} (Margen: ${marginA:,.2f}) "
-        f"| Pata 2 ({denominador}, Trade #{idTradeB}): {directionB} {unitsB:,.0f} lotes @ {realPxB} (Margen: ${marginB:,.2f}) "
+        f"🚀 [{setupName}] SEÑAL EJECUTADA: {signalType} en Cuenta #{idCuenta} "
+        f"| Pata 1 ({numerador}, Trades #[{tradeIdsA_str}]): {directionA} {unitsA:,.0f} lotes @ {realPxA} (Margen: ${marginA:,.2f}) "
+        f"| Pata 2 ({denominador}, Trades #[{tradeIdsB_str}]): {directionB} {unitsB:,.0f} lotes @ {realPxB} (Margen: ${marginB:,.2f}) "
         f"| Margen Total Retenido: ${totalMargin:,.2f} USD (Cap. restante: ${(accountCapital - totalMargin):,.2f})"
     )
 
@@ -716,32 +778,90 @@ def closeRatioTrades(
     symbolDataMap: Dict[str, Dict[str, Any]],
     latestPricesMap: Dict[str, float],
     accountData: Dict[str, Any],
-    periodo: str = "1d"
+    periodo: str = "1d",
+    closeReason: str = "POR CRUCE DE PRECIOS"
 ) -> bool:
     """
-    Cierra todas las operaciones abiertas del setup al ocurrir el cruce de precios (●),
-    liquida el PnL neto por pips, reincorpora el margen y la ganancia/pérdida a 'cuenta.Capital'
-    y envía la alerta de cierre a Telegram y la orden de cierre al Webhook.
+    Cierra todas las operaciones abiertas del setup al ocurrir el cruce de precios (●) o rebalanceo,
+    liquida el PnL neto por pips, calcula la comisión (%) sobre ganancias positivas y la guarda en trades.commission,
+    reincorpora el margen y la ganancia/pérdida a 'cuenta.Capital', genera el registro de comisión en la cuenta
+    concentradora del usuario que administra la cuenta y envía la alerta de cierre a Telegram y la orden de cierre al Webhook.
     """
     if not openTrades:
         return False
 
-    nowStr = datetime.now()
+    import calendar
+    nowDt = datetime.now()
+    nowStr = nowDt
     totalMarginToRelease = 0.0
     totalNetPnl = 0.0
+    totalCommissionCharged = 0.0
     pnlA, pnlB = 0.0, 0.0
     pipsA, pipsB = 0.0, 0.0
     dirA, dirB = "", ""
     numerador, denominador = setupName.split(" - ")[0], setupName.split(" - ")[1]
+
+    # Comisión porcentual configurada en la cuenta (ej. 20.0 = 20%)
+    comision_pct = float(accountData.get("comision", 0.0) or 0.0)
+
+    # Identificar la cuenta concentradora del usuario que administra la cuenta
+    idCuentaConcentradora = None
+    try:
+        userRow = dbSession.execute(text("""
+            SELECT idUsuario FROM usuarioCuenta 
+            WHERE idCuenta = :idc AND activo = 1 
+            ORDER BY idUsuarioCuenta ASC LIMIT 1
+        """), {"idc": idCuenta}).fetchone()
+        idUsuario = userRow[0] if userRow else None
+
+        if idUsuario:
+            concAccRow = dbSession.execute(text("""
+                SELECT c.idCuenta FROM cuenta c
+                JOIN usuarioCuenta uc ON c.idCuenta = uc.idCuenta
+                WHERE uc.idUsuario = :idu AND c.Concentradora = 1 AND c.Activo = 1
+                LIMIT 1
+            """), {"idu": idUsuario}).fetchone()
+            if concAccRow:
+                idCuentaConcentradora = concAccRow[0]
+        
+        if not idCuentaConcentradora:
+            fallbackConc = dbSession.execute(text("""
+                SELECT idCuenta FROM cuenta 
+                WHERE Concentradora = 1 AND Activo = 1 
+                LIMIT 1
+            """)).fetchone()
+            if fallbackConc:
+                idCuentaConcentradora = fallbackConc[0]
+    except Exception as exConc:
+        logger.error(f"Error al determinar cuenta concentradora para idCuenta={idCuenta}: {exConc}")
 
     updateTradeSql = text("""
         UPDATE trades
         SET status = 'CLOSED',
             exitPrice = :exitPrice,
             closeTime = :closeTime,
-            pnl = :pnl
+            pnl = :pnl,
+            commission = :commission
         WHERE idTrade = :idt
     """)
+
+    insertCommTradeSql = text("""
+        INSERT INTO trades (
+            idCuenta, strategy, setup, symbol, status, direction,
+            intervalo, size, entryPrice, exitPrice, stopLoss, takeProfit,
+            isBreakEven, pnl, slippage, commission, margin_used,
+            openTime, closeTime, candleTime, sentAt, ticketId
+        ) VALUES (
+            :idCuenta, :strategy, :setup, :symbol, 'CLOSED', :direction,
+            :intervalo, :size, :entryPrice, :exitPrice, NULL, NULL,
+            0, :pnl, 0.0, 0.0, 0.0,
+            :openTime, :closeTime, :candleTime, :sentAt, NULL
+        )
+    """)
+
+    openTimeMes = datetime(nowDt.year, nowDt.month, 1, 0, 0, 0)
+    lastDayOfMonth = calendar.monthrange(nowDt.year, nowDt.month)[1]
+    closeTimeMes = datetime(nowDt.year, nowDt.month, lastDayOfMonth, 23, 59, 59)
 
     for tr in openTrades:
         tradeId = tr["idTrade"]
@@ -771,6 +891,14 @@ def closeRatioTrades(
         costs = (size * exitPx) * 0.0003
         tradePnl = round((pips * pipMoneyValue) - costs, 2)
 
+        # Cálculo de comisión en $ sobre ganancia positiva sólo si la estrategia contiene 'ATALAia'
+        tradeStrategy = str(tr.get("strategy") or "RATIO ATALAia")
+        isAtalaiaStrategy = "ATALAIA" in tradeStrategy.upper()
+
+        tradeCommission = 0.0
+        if isAtalaiaStrategy and tradePnl > 0 and comision_pct > 0:
+            tradeCommission = round(tradePnl * (comision_pct / 100.0), 2)
+
         if sym == numerador:
             pnlA += tradePnl
             pipsA += pips
@@ -784,18 +912,67 @@ def closeRatioTrades(
             "exitPrice": exitPx,
             "closeTime": nowStr,
             "pnl": tradePnl,
+            "commission": tradeCommission,
             "idt": tradeId
         })
 
         totalMarginToRelease += marginUsed
         totalNetPnl += tradePnl
+        totalCommissionCharged += tradeCommission
+
+        # Si se cobró comisión y la cuenta no es la misma concentradora, registrar en cuenta concentradora
+        if tradeCommission > 0 and idCuentaConcentradora and idCuentaConcentradora != idCuenta:
+            origStrategy = tr.get("strategy") or "RATIO ATALAia"
+            strategyComision = f"{origStrategy} Comision"
+            origSetup = tr.get("setup") or setupName
+
+            try:
+                dbSession.execute(text("""
+                    INSERT IGNORE INTO strategyconfig (strategy, enabled, created_at, updated_at)
+                    VALUES (:strategy, 1, NOW(), NOW())
+                """), {"strategy": strategyComision})
+            except Exception as exStrat:
+                pass
+
+            dbSession.execute(insertCommTradeSql, {
+                "idCuenta": idCuentaConcentradora,
+                "strategy": strategyComision,
+                "setup": origSetup,
+                "symbol": sym,
+                "direction": direction,
+                "intervalo": tr.get("intervalo") or periodo or "1d",
+                "size": size,
+                "entryPrice": entryPx,
+                "exitPrice": exitPx,
+                "pnl": tradeCommission,
+                "openTime": openTimeMes,
+                "closeTime": closeTimeMes,
+                "candleTime": tr.get("candleTime") or openTimeMes,
+                "sentAt": nowStr
+            })
+
+            # Acreditar la comisión cobrada en el capital de la cuenta concentradora
+            dbSession.execute(text("""
+                UPDATE cuenta
+                SET Capital = Capital + :comm
+                WHERE idCuenta = :idConc
+            """), {
+                "comm": tradeCommission,
+                "idConc": idCuentaConcentradora
+            })
+
+            logger.info(
+                f"   💰 COMISIÓN GENERADA:  USD ({comision_pct}%) del Trade #{tradeId} "
+                f"registrada en Cuenta Concentradora #{idCuentaConcentradora} (Estrategia: '{strategyComision}')"
+            )
 
         logger.info(
             f"   ● Trade #{tradeId} [{sym}] CERRADO @ {exitPx} "
-            f"| PnL: ${tradePnl:+,.2f} USD ({pips:+,.1f} pips) | Margen Liberado: ${marginUsed:,.2f}"
+            f"| PnL:  USD ({pips:+,.1f} pips) | Comision:  USD | Margen Liberado: "
         )
 
-    netReintegration = totalMarginToRelease + totalNetPnl
+    # Capital a reintegrar en la cuenta: Capital + margen + pnl - comision
+    netReintegration = totalMarginToRelease + totalNetPnl - totalCommissionCharged
     updateAccountSql = text("""
         UPDATE cuenta
         SET Capital = Capital + :netReintegration
@@ -812,19 +989,20 @@ def closeRatioTrades(
 
     logger.info(
         f"🎯 [{setupName}] CRUCE DE PRECIOS (●): {len(openTrades)} trades liquidados en Cuenta #{idCuenta} "
-        f"| PnL Total: ${totalNetPnl:+,.2f} USD | Margen Reintegrado: ${totalMarginToRelease:,.2f} "
-        f"| Impacto Neto en Cuenta: ${netReintegration:+,.2f} USD"
+        f"| PnL Total:  USD | Comision Total:  USD "
+        f"| Margen Reintegrado:  | Impacto Neto en Cuenta:  USD"
     )
 
-    # Despachar Órdenes de Cierre al Webhook de Brókers
+    # Despachar Órdenes de Cierre al Webhook de Brókers (1 orden por símbolo único del ratio)
     webhookCloseOrders = []
-    for tr in openTrades:
+    uniqueSymbols = list(dict.fromkeys([tr.get("symbol") for tr in openTrades if tr.get("symbol")]))
+    for sym in uniqueSymbols:
         webhookCloseOrders.append({
             "strategy": "RATIO ATALAia",
-            "symbol": tr.get("symbol"),
+            "symbol": sym,
             "action": "close",
-            "size": float(tr.get("size", 0.0)),
-            "entryPrice": float(tr.get("entryPrice", 0.0))
+            "size": 0.0,
+            "entryPrice": 0.0
         })
     sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
 
@@ -842,7 +1020,8 @@ def closeRatioTrades(
         dirA=dirA,
         dirB=dirB,
         totalNetPnl=totalNetPnl,
-        totalMarginReleased=totalMarginToRelease
+        totalMarginReleased=totalMarginToRelease,
+        closeReason=closeReason
     )
     try:
         asyncio.run(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
@@ -850,6 +1029,7 @@ def closeRatioTrades(
         logger.error(f"Error despachando alerta Telegram de cierre para Cuenta #{idCuenta}: {exTel}")
 
     return True
+
 
 
 def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
@@ -868,21 +1048,33 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     emaRapida = ratioRecord["EMARapida"] or 2
     emaLenta = ratioRecord["EMALenta"] or 20
 
-    # 1. Historial de precios
-    dfA = fetchPriceHistory(dbSession, numerador, daysLimit=max(dias, 180))
-    dfB = fetchPriceHistory(dbSession, denominador, daysLimit=max(dias, 180))
-
-    if dfA.empty or dfB.empty:
-        logger.warning(f"⚠️ [{setupName}] Historial insuficiente para {numerador} o {denominador}.")
-        return
-
-    dfATf = resamplePriceData(dfA, periodo).tail(dias)
-    dfBTf = resamplePriceData(dfB, periodo).tail(dias)
-
     # 2. Datos de símbolos y cuenta
     symDataA = fetchSymbolData(dbSession, numerador)
     symDataB = fetchSymbolData(dbSession, denominador)
     accountData = fetchAccountData(dbSession, idCuenta)
+    accountName = accountData.get("nombre", f"Cuenta #{idCuenta}")
+    accHeader = f"Cuenta #{idCuenta} ({accountName}) | {setupName} ({periodo})"
+
+    # 1. Historial de precios: filtrar a los últimos 'dias' periodos (velas) configurados
+    pLower = str(periodo).lower()
+    if "month" in pLower or "1m" == pLower:
+        neededDays = max((dias * 32) + 60, 730)
+    elif "week" in pLower or "1w" == pLower:
+        neededDays = max((dias * 8) + 60, 365)
+    elif "1d" in pLower:
+        neededDays = max(dias + 60, 365)
+    else:  # 1h, 4h, 15m, 30m
+        neededDays = max((dias // 24) + 15, 60)
+
+    dfA = fetchPriceHistory(dbSession, numerador, daysLimit=neededDays)
+    dfB = fetchPriceHistory(dbSession, denominador, daysLimit=neededDays)
+
+    if dfA.empty or dfB.empty:
+        logger.warning(f"⚠️ [{accHeader}] Historial insuficiente para {numerador} o {denominador}.")
+        return
+
+    dfATf = resamplePriceData(dfA, periodo).tail(dias)
+    dfBTf = resamplePriceData(dfB, periodo).tail(dias)
 
     # 3. Evaluación matemática con signalEngine
     evalResult = signalEngine.evaluateRatioSignals(
@@ -896,29 +1088,42 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     )
 
     normInfo = evalResult.get("normData", {})
+    signalsList = evalResult.get("signals", [])
     latestSig = evalResult.get("latestSignal", {})
 
     if not latestSig:
-        logger.warning(f"⚠️ [{setupName}] No se obtuvieron señales del motor signalEngine.")
+        logger.warning(f"⚠️ [{accHeader}] No se obtuvieron señales del motor signalEngine.")
         return
 
-    pA = latestSig.get("priceA", 0.0)
-    pB = latestSig.get("priceB", 0.0)
-    nA = latestSig.get("normA", 0.0)
-    nB = latestSig.get("normB", 0.0)
-    eA = latestSig.get("emaA", 0.0)
-    eB = latestSig.get("emaB", 0.0)
+    # Si la vela más reciente en formación aún no tiene señal, verificar la vela cerrada inmediatamente anterior
+    targetSignal = latestSig
+    if not latestSig.get("signalType") and len(signalsList) >= 2:
+        prevCandleSig = signalsList[-2]
+        prevCandleDateStr = str(prevCandleSig.get("date", ""))[:10]
+        try:
+            prevCandleDt = datetime.strptime(prevCandleDateStr, "%Y-%m-%d")
+        except Exception:
+            prevCandleDt = datetime.now()
+        if prevCandleSig.get("signalType") and not checkTradeExistsForCandle(dbSession, idCuenta, setupName, prevCandleDt):
+            targetSignal = prevCandleSig
+
+    pA = targetSignal.get("priceA", 0.0)
+    pB = targetSignal.get("priceB", 0.0)
+    nA = targetSignal.get("normA", 0.0)
+    nB = targetSignal.get("normB", 0.0)
+    eA = targetSignal.get("emaA", 0.0)
+    eB = targetSignal.get("emaB", 0.0)
     stdUpA = normInfo.get("stdAboveA", 0.0)
     stdDownA = normInfo.get("stdBelowA", 0.0)
     stdUpB = normInfo.get("stdAboveB", 0.0)
     stdDownB = normInfo.get("stdBelowB", 0.0)
-    hasSigA = latestSig.get("hasSignalA", False)
-    hasSigB = latestSig.get("hasSignalB", False)
-    hasBoth = latestSig.get("hasSignalBoth", False)
-    isPriceCross = latestSig.get("isPriceCross", False)
+    hasSigA = targetSignal.get("hasSignalA", False)
+    hasSigB = targetSignal.get("hasSignalB", False)
+    hasBoth = targetSignal.get("hasSignalBoth", False)
+    isPriceCross = targetSignal.get("isPriceCross", False)
 
     logger.info(
-        f"📊 [{setupName}] EVALUACIÓN: "
+        f"📊 [{accHeader}] EVALUACIÓN: "
         f"{numerador} [Px: {pA:.5f} | Norm: {nA:.4f} | EMA: {eA:.4f} | +1σ: {stdUpA:.4f} | -1σ: {stdDownA:.4f} | Sig: {hasSigA}] ⇄ "
         f"{denominador} [Px: {pB:.5f} | Norm: {nB:.4f} | EMA: {eB:.4f} | +1σ: {stdUpB:.4f} | -1σ: {stdDownB:.4f} | Sig: {hasSigB}] "
         f"| Coincidente (Triángulo): {hasBoth} | Cruce Precios (●): {isPriceCross}"
@@ -928,17 +1133,10 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     latestPriceA = float(dfATf["closePrice"].iloc[-1])
     latestPriceB = float(dfBTf["closePrice"].iloc[-1])
 
-    # 4. EVALUACIÓN DE CIERRE: ¿Ocurrió el cruce entre los dos precios (convergencia ●)?
-    if dbOpenTrades and isPriceCross:
-        logger.info(f"🔄 [{setupName}] ¡CRUCE DE PRECIOS CONFIRMADO (●)! Cerrando {len(dbOpenTrades)} posiciones abiertas en BD...")
-        symMap = {numerador: symDataA, denominador: symDataB}
-        priceMap = {numerador: latestPriceA, denominador: latestPriceB}
-        closeRatioTrades(dbSession, idCuenta, setupName, dbOpenTrades, symMap, priceMap, accountData, periodo)
-        return
-
-    # 5. EVALUACIÓN DE ENTRADA: Permite acumulación de posiciones si hay nueva señal (Triángulo o Cuadro) en nueva vela
-    sigTypeRaw = latestSig.get("signalType")
-    hasEntrySignal = bool(sigTypeRaw) and not isPriceCross
+    # 4. EVALUACIÓN DE ENTRADA, REVERSAL (CAMBIO DE DIRECCIÓN) O ACUMULACIÓN
+    sigTypeRaw = targetSignal.get("signalType")
+    hasEntrySignal = bool(sigTypeRaw)
+    latestSig = targetSignal
 
     if hasEntrySignal:
         entryDateStr = str(latestSig.get("date", ""))[:10]
@@ -946,6 +1144,37 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             candleDt = datetime.strptime(entryDateStr, "%Y-%m-%d")
         except Exception:
             candleDt = datetime.now()
+
+        sigType = latestSig.get("signalType", "TRIANGULO")
+        dirA = "CORTO" if latestSig.get("symbolAAction") == "SELL" else "LARGO"
+        dirB = "CORTO" if latestSig.get("symbolBAction") == "SELL" else "LARGO"
+
+        # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP)
+        if dbOpenTrades:
+            firstTrade = dbOpenTrades[0]
+            currDirA = firstTrade.get("direction", "")
+            isReversal = (dirA != currDirA)
+
+            if isReversal:
+                logger.info(
+                    f"🔄 [{accHeader}] ¡CAMBIO DE DIRECCIÓN DETECTADO ({sigType})! "
+                    f"Cerrando {len(dbOpenTrades)} posiciones anteriores ({currDirA}) para girar a {dirA}..."
+                )
+                symMap = {numerador: symDataA, denominador: symDataB}
+                priceMap = {numerador: latestPriceA, denominador: latestPriceB}
+                closeRatioTrades(
+                    dbSession=dbSession,
+                    idCuenta=idCuenta,
+                    setupName=setupName,
+                    openTrades=dbOpenTrades,
+                    symbolDataMap=symMap,
+                    latestPricesMap=priceMap,
+                    accountData=accountData,
+                    periodo=periodo,
+                    closeReason=f"POR CAMBIO DE DIRECCIÓN ({dirA})"
+                )
+                accountData = fetchAccountData(dbSession, idCuenta)
+                dbOpenTrades = []
 
         alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt)
         if not alreadyEntered:
@@ -957,17 +1186,14 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 logger.warning(
                     f"⛔ [{setupName}] Apertura SUSPENDIDA para Cuenta #{idCuenta}: "
                     f"Indicador de Margen {marginInd:.1f}% es menor al 200% requerido "
-                    f"(Capital: ${accountData.get("capital", 0.0):,.2f} | Margen: ${totalMargin:,.2f} | Equidad: ${equity:,.2f})."
+                    f"(Capital: ${accountData.get('capital', 0.0):,.2f} | Margen: ${totalMargin:,.2f} | Equidad: ${equity:,.2f})."
                 )
                 return
 
-            sigType = latestSig.get("signalType", "TRIANGULO")
-            dirA = "CORTO" if latestSig.get("symbolAAction") == "SELL" else "LARGO"
-            dirB = "CORTO" if latestSig.get("symbolBAction") == "SELL" else "LARGO"
-
             logger.info(
-                f"🎯 [{setupName}] NUEVA SEÑAL COINCIDENTE ({sigType}, fecha {entryDateStr} | "
-                f"Ind. Margen: {marginInd:.1f}% >= 200%). Generando 2 registros en trades..."
+                f"🎯 [{setupName}] NUEVA SEÑAL ({sigType}, fecha {entryDateStr} | "
+                f"Dirección: {numerador} {dirA} + {denominador} {dirB} | "
+                f"Ind. Margen: {marginInd:.1f}% >= 200%). Registrando en trades..."
             )
             openSingleRatioTradePair(
                 dbSession=dbSession,
@@ -987,15 +1213,15 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 symDataB=symDataB
             )
         else:
-            logger.info(f"ℹ️ [{setupName}] Señal coincidente de fecha {entryDateStr} ya fue registrada previamente en trades.")
+            logger.info(f"ℹ️ [{accHeader}] Señal ({sigType}) de fecha {entryDateStr} ya fue registrada previamente en trades.")
     else:
         if dbOpenTrades:
             logger.info(
-                f"⏳ [{setupName}] Posición activa en curso ({len(dbOpenTrades)} trades en Cuenta #{idCuenta}). "
-                f"Precios normalizados: {numerador}={nA:.4f} vs {denominador}={nB:.4f} (Dif: {abs(nA - nB):.4f}). Esperando cruce de precios (●)."
+                f"⏳ [{accHeader}] Posición activa en curso ({len(dbOpenTrades)} trades). "
+                f"Precios normalizados: {numerador}={nA:.4f} vs {denominador}={nB:.4f} (Dif: {abs(nA - nB):.4f}). Corriendo inercia/divergencia hasta cambio de dirección."
             )
         else:
-            logger.info(f"🔍 [{setupName}] Sin señales de entrada (Triángulos/Cuadros) en la vela actual.")
+            logger.info(f"🔍 [{accHeader}] Sin señales de entrada (Triángulos/Cuadros) en la vela actual.")
 
 
 def processAllActiveRatios() -> int:

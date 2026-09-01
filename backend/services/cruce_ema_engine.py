@@ -178,11 +178,22 @@ class CruceEmaEngine:
                 includeBoxes=includeBoxes
             )
 
-            isMeanCross = candleSig["isMeanCross"]
+            isMeanCross = candleSig.get("isMeanCross", False)
+            sigType = candleSig.get("signalType")
+            direction = candleSig.get("direction")
 
-            # 1. CIERRE DE TODAS LAS ENTRADAS DEL CICLO EN LA MEDIA (●) -> LIQUIDACIÓN POR PIPS Y REINVERSIÓN
-            if isMeanCross:
+            # 1. EVALUAR ENTRADA, REVERSAL (CAMBIO DE DIRECCIÓN) O ACUMULACIÓN
+            if sigType and direction:
+                # Verificar si existen posiciones activas en DIRECCIÓN OPUESTA
+                isOpposite = False
                 if activeTrades:
+                    prevDir = activeTrades[0]["direction"]
+                    isPrevLongA = ("LONG " + nameA in prevDir) or ("LONG A" in prevDir) or (prevDir.startswith("LONG"))
+                    isCurrLongA = ("LONG " + nameA in direction) or ("LONG A" in direction) or (direction.startswith("LONG"))
+                    isOpposite = (isPrevLongA != isCurrLongA)
+
+                if isOpposite:
+                    # Liquidación de todas las operaciones previas al cambiar de dirección
                     cycleCounter += 1
                     cycleTrades = []
                     cyclePnl = 0.0
@@ -194,7 +205,7 @@ class CruceEmaEngine:
 
                     for t in activeTrades:
                         rawTradesCount += 1
-                        if "LONG " + nameA in t["direction"] or "LONG A" in t["direction"]:
+                        if ("LONG " + nameA in t["direction"]) or ("LONG A" in t["direction"]) or t["direction"].startswith("LONG"):
                             deltaA = (pxA - t["entryPxA"])
                             deltaB = (t["entryPxB"] - pxB)
                         else:
@@ -255,7 +266,7 @@ class CruceEmaEngine:
                             "durationBars": i - t["entryIndex"],
                             "returnPct": round(float(tradeNetRet * 100.0), 2),
                             "pnl": round(float(tradePnl), 2),
-                            "exitReason": "CRUCE_MEDIA_CIRCULO",
+                            "exitReason": "CAMBIO_DIRECCION",
                             "isWin": bool(tradePnl > 0)
                         })
 
@@ -269,7 +280,7 @@ class CruceEmaEngine:
                         "isSubtotal": True,
                         "cycleNum": cycleCounter,
                         "signalType": f"SUBTOTAL CIERRE #{cycleCounter}",
-                        "direction": f"● Salida Media ({len(cycleTrades)} ops)",
+                        "direction": f"🔄 Reversal ({len(cycleTrades)} ops cerradas)",
                         "entryDate": entrySpan,
                         "exitDate": d,
                         "allocatedCapital": round(float(cycleMargin), 2),
@@ -292,7 +303,7 @@ class CruceEmaEngine:
                         "durationBars": len(cycleTrades),
                         "returnPct": cycleAvgRet,
                         "pnl": round(float(cyclePnl), 2),
-                        "exitReason": f"CIERRE EN MEDIA (●) {d}",
+                        "exitReason": f"CAMBIO DE DIRECCIÓN ({direction}) {d}",
                         "isWin": bool(cyclePnl > 0)
                     })
 
@@ -301,21 +312,13 @@ class CruceEmaEngine:
                     cycleAvailableEquity = equity
                     activeTrades = []
 
-                # EL CRUCE DE MEDIA PREDOMINA: No se abren órdenes en fecha de cruce de media
-                continue
-
-            # 2. EVALUAR ENTRADA CON 3% DE CAPITAL, symbols.margen Y NOMBRES REALES DE PARES
-            sigType = candleSig.get("signalType")
-            direction = candleSig.get("direction")
-
-            if sigType and direction:
+                # 2. ABRIR NUEVA ENTRADA (O ACUMULACIÓN) CON EL CAPITAL DISPONIBLE
                 totalEntryBudget = max(0.0, cycleAvailableEquity) * allocationRate
                 budgetA = totalEntryBudget / 2.0
                 budgetB = totalEntryBudget / 2.0
 
                 margen1LotA = minLotsA * margenRateA
                 margen1LotB = minLotsB * margenRateB
-                sampleReqMarginLot = margen1LotA + margen1LotB
 
                 multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA) else 1
                 multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB) else 1

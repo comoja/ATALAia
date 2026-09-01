@@ -1,3 +1,4 @@
+import re
 import os
 import base64
 import hashlib
@@ -97,21 +98,34 @@ def decryptValue(cipherText: str, customKey: Optional[str] = None) -> str:
     Intenta desencriptar una cadena de texto.
     Si la cadena es un token cifrado válido, devuelve el texto en claro.
     Si es texto normal (o no se puede desencriptar con ninguna clave), devuelve la cadena original sin alterarla.
+    Incluye tolerancia automática a prefijos accidentales (ej: 'ggAAAAAB', comillas, espacios).
     """
     if not cipherText or not isinstance(cipherText, str):
         return cipherText
         
-    cleaned = cipherText.strip()
+    cleaned = cipherText.strip().strip("'\"")
     if cleaned.lower().startswith("enc:"):
         cleaned = cleaned[4:].strip()
         
-    for k in getAllDecryptionKeys(customKey):
-        try:
-            cipher = Fernet(k)
-            decryptedBytes = cipher.decrypt(cleaned.encode("utf-8"))
-            return decryptedBytes.decode("utf-8")
-        except (InvalidToken, Exception):
-            continue
+    candidates = [cleaned]
+    idx = cleaned.find("gAAAAAB")
+    if idx != -1:
+        candidates.append(cleaned[idx:])
+        m = re.search(r'(gAAAAAB[A-Za-z0-9_-]+={0,2})', cleaned)
+        if m:
+            candidates.append(m.group(1))
+
+    if cleaned.startswith("gg"):
+        candidates.append(re.sub(r"^g+", "g", cleaned))
+
+    for cand in candidates:
+        for k in getAllDecryptionKeys(customKey):
+            try:
+                cipher = Fernet(k)
+                decryptedBytes = cipher.decrypt(cand.encode("utf-8"))
+                return decryptedBytes.decode("utf-8")
+            except (InvalidToken, Exception):
+                continue
             
     return cipherText
 

@@ -125,6 +125,8 @@ class Cuenta(Base):
     TokenMsg = Column(String(255), nullable=True)
     idGrupoMsg = Column(String(50), nullable=True)
     riesgoPorOperacion = Column(Float, default=1.0)
+    comision = Column(Float, default=0.0)
+    Concentradora = Column(Integer, default=0)
 
 class SentinelSymbol(Base):
     """

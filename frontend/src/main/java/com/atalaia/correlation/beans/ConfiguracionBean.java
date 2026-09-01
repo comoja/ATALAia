@@ -47,6 +47,22 @@ public class ConfiguracionBean implements Serializable {
         checkBacktestStatus();
     }
 
+    public boolean isConcentradoraDisabled(CuentaDto cta) {
+        if (cta != null && Boolean.TRUE.equals(cta.getConcentradora())) {
+            return false;
+        }
+        if (cuentas != null) {
+            for (CuentaDto c : cuentas) {
+                if (c != null && (cta == null || !c.getIdCuenta().equals(cta.getIdCuenta()))) {
+                    if (Boolean.TRUE.equals(c.getConcentradora())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     public void loadCuentas() {
         try {
             RestTemplate restTemplate = new RestTemplate();
@@ -241,6 +257,14 @@ public class ConfiguracionBean implements Serializable {
 
         private String idGrupoMsg;
         private Double riesgoPorOperacion;
+        private Double comision;
+
+        @JsonProperty("Concentradora")
+        private Boolean concentradora = false;
+
+        public Boolean isConcentradora() { return Boolean.TRUE.equals(concentradora); }
+        public Boolean getConcentradora() { return concentradora; }
+        public void setConcentradora(Boolean concentradora) { this.concentradora = concentradora; }
     }
 
     @Getter

@@ -117,27 +117,10 @@ class SignalEngine:
         3. Caso Coincidente (ambos pares cumplen simultáneamente -> Triángulos Verde/Rojo).
         4. Caso No Coincidente (un solo par cumple -> Cuadros Verde/Rojo si includeBoxes=True).
         """
-        # 1. Detección de Cruce entre los dos precios (Convergencia / Cierre de Posiciones ●)
+        # 1. Detección de Cruce entre los dos precios / Media (Hito informativo ●)
         prevDiff = prevNormA - prevNormB
         currDiff = currNormA - currNormB
-        isPriceCross = (prevDiff > 0 and currDiff <= 0) or (prevDiff < 0 and currDiff >= 0)
-
-        if isPriceCross:
-            return {
-                "isPriceCross": True,
-                "isMeanCross": True,
-                "hasSignalA": False,
-                "hasSignalB": False,
-                "hasSignalBoth": False,
-                "isCrossDownHighA": False,
-                "isCrossUpLowA": False,
-                "isCrossDownHighB": False,
-                "isCrossUpLowB": False,
-                "signalType": "CRUCE_PRECIOS_CONVERGENCIA",
-                "direction": "CLOSE_ALL",
-                "symbolAAction": None,
-                "symbolBAction": None
-            }
+        isPriceCross = bool((prevDiff > 0 and currDiff <= 0) or (prevDiff < 0 and currDiff >= 0))
 
         # 2. Condiciones individuales por par en zonas extremas (+1σ o -1σ)
         isCrossDownHighA = bool(
@@ -211,8 +194,8 @@ class SignalEngine:
                     symbolBAction = "SELL"
 
         return {
-            "isPriceCross": False,
-            "isMeanCross": False,
+            "isPriceCross": isPriceCross,
+            "isMeanCross": isPriceCross,
             "hasSignalA": hasSignalA,
             "hasSignalB": hasSignalB,
             "hasSignalBoth": hasSignalBoth,
