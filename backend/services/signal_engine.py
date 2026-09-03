@@ -122,20 +122,22 @@ class SignalEngine:
         currDiff = currNormA - currNormB
         isPriceCross = bool((prevDiff > 0 and currDiff <= 0) or (prevDiff < 0 and currDiff >= 0))
 
-        # 2. Condiciones individuales por par en zonas extremas (+1σ o -1σ)
+        # 2. Condiciones individuales por par: cruce que ocurre en zonas extremas
+        # Cruce arriba de +1σ: precio cruza de arriba hacia abajo a la EMA estando arriba de la desviación estándar superior
         isCrossDownHighA = bool(
-            prevPriceA >= prevEmaA and currPriceA < currEmaA and (prevPriceA >= stdAboveA or currPriceA >= stdAboveA)
+            prevPriceA >= prevEmaA and currPriceA < currEmaA and prevPriceA >= stdAboveA and (currPriceA >= stdAboveA or currEmaA >= stdAboveA)
         )
+        # Cruce abajo de -1σ: precio cruza de abajo hacia arriba a la EMA estando abajo de la desviación estándar inferior
         isCrossUpLowA = bool(
-            prevPriceA <= prevEmaA and currPriceA > currEmaA and (prevPriceA <= stdBelowA or currPriceA <= stdBelowA)
+            prevPriceA <= prevEmaA and currPriceA > currEmaA and prevPriceA <= stdBelowA and (currPriceA <= stdBelowA or currEmaA <= stdBelowA)
         )
         hasSignalA = isCrossDownHighA or isCrossUpLowA
 
         isCrossDownHighB = bool(
-            prevPriceB >= prevEmaB and currPriceB < currEmaB and (prevPriceB >= stdAboveB or currPriceB >= stdAboveB)
+            prevPriceB >= prevEmaB and currPriceB < currEmaB and prevPriceB >= stdAboveB and (currPriceB >= stdAboveB or currEmaB >= stdAboveB)
         )
         isCrossUpLowB = bool(
-            prevPriceB <= prevEmaB and currPriceB > currEmaB and (prevPriceB <= stdBelowB or currPriceB <= stdBelowB)
+            prevPriceB <= prevEmaB and currPriceB > currEmaB and prevPriceB <= stdBelowB and (currPriceB <= stdBelowB or currEmaB <= stdBelowB)
         )
         hasSignalB = isCrossDownHighB or isCrossUpLowB
 
@@ -243,7 +245,7 @@ class SignalEngine:
         emaA = self.calculateEmaSeries(normA, smaPeriod)
         emaB = self.calculateEmaSeries(normB, smaPeriod)
 
-        dates = [str(d)[:10] for d in commonIdx]
+        dates = [str(d) for d in commonIdx]
         pricesA = sA.values
         pricesB = sB.values
         normAVals = normA.values

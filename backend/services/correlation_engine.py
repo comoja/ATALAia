@@ -73,7 +73,7 @@ class CorrelationEngine:
             
         return price
 
-    def process_pair(self, df: pd.DataFrame, amplitude: float = 1.0, freq: float = 0.1, phase: float = 0.0, offset: float = 0.0, r: float = 0.05, tYears: float = 30 / 252, sigmaWindow: int = 7, smaPeriod: int = 20, emaSlowPeriod: int = 50) -> dict:
+    def process_pair(self, df: pd.DataFrame, amplitude: float = 1.0, freq: float = 0.1, phase: float = 0.0, offset: float = 0.0, r: float = 0.05, tYears: float = 30 / 252, sigmaWindow: int = 7, smaPeriod: int = 2, emaSlowPeriod: int = 0) -> dict:
         """
         Función principal que orquesta todos los cálculos equivalentes a la hoja 'EURGBPUSD'
         utilizando parámetros dinámicos y fórmulas financieras precisas.
@@ -81,7 +81,7 @@ class CorrelationEngine:
         logger.info("Iniciando procesamiento de Par Computacional con calibración en RAM")
         df = df.copy()
         
-        min_required = max(int(smaPeriod), int(emaSlowPeriod) if emaSlowPeriod else 5, 5)
+        min_required = max(int(smaPeriod), 5)
         if len(df) < min_required: 
             return {"error": f"No hay suficientes datos. Min: {min_required} periodos", "success": False}
             
@@ -92,10 +92,8 @@ class CorrelationEngine:
         df = self.calculate_volatility(df, 7)
         df = self.calculate_volatility(df, 60) # Equivalente a 2M
         df = self.calculate_moving_average(df, 'price', smaPeriod)
-        df = self.calculate_moving_average(df, 'price', emaSlowPeriod)
         
         sma_fast_col = f'sma_{smaPeriod}'
-        sma_slow_col = f'sma_{emaSlowPeriod}'
         
         # Eliminar NaNs generados por los shifts y rollings
         df = df.dropna()
@@ -143,7 +141,6 @@ class CorrelationEngine:
             "vol7DAnnualized": float(latestRow['vol_7D']),
             "vol60DAnnualized": float(latestRow['vol_60D']),
             "strikeAvg20": float(latestRow[sma_fast_col]),
-            "smaSlow": float(latestRow[sma_slow_col]),
             "cicloStLatest": float(latestRow['ciclo_st']),
             "bsCallLatest": float(latestRow['bsCall']),
             "bsPutLatest": float(latestRow['bsPut']),
@@ -161,7 +158,6 @@ class CorrelationEngine:
                 "vol7D": float(row['vol_7D']),
                 "vol60D": float(row['vol_60D']),
                 "sma20": float(row[sma_fast_col]),
-                "smaSlow": float(row[sma_slow_col]),
                 "cicloSt": float(row['ciclo_st']),
                 "bsCall": float(row['bsCall']),
                 "bsPut": float(row['bsPut']),

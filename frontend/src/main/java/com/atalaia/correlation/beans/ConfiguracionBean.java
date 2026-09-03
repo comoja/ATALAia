@@ -47,6 +47,22 @@ public class ConfiguracionBean implements Serializable {
         checkBacktestStatus();
     }
 
+    public void onTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getTab() != null) {
+            String title = event.getTab().getTitle();
+            if (title != null) {
+                if (title.contains("Cuentas")) {
+                    loadCuentas();
+                } else if (title.contains("Símbolos")) {
+                    loadSimbolos();
+                } else if (title.contains("Matriz")) {
+                    loadMatrizRendimiento();
+                }
+                log.info("Pestaña de configuración cambiada a: {}, datos recargados desde BD", title);
+            }
+        }
+    }
+
     public boolean isConcentradoraDisabled(CuentaDto cta) {
         if (cta != null && Boolean.TRUE.equals(cta.getConcentradora())) {
             return false;
@@ -243,6 +259,12 @@ public class ConfiguracionBean implements Serializable {
 
         @JsonProperty("Nombre")
         private String nombre;
+
+        @JsonProperty("correo")
+        private String correo;
+
+        public String getCorreo() { return correo; }
+        public void setCorreo(String correo) { this.correo = correo; }
 
         @JsonProperty("Capital")
         private Double capital;

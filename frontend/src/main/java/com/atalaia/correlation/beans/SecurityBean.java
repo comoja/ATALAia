@@ -12,6 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.web.client.HttpClientErrorException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.io.Serializable;
 import java.util.List;
@@ -30,6 +33,15 @@ public class SecurityBean implements Serializable {
     private String username;
     private String password;
     private boolean loggedIn = false;
+
+    // Campos para cambio de contraseña
+    private String currentPassword;
+    private String newPassword;
+    private String confirmPassword;
+    private boolean passwordExpired = false;
+    private int daysSincePasswordUpdate = 0;
+    private boolean mustChangePassword = false;
+    private boolean showChangePasswordDialog = false;
 
     private Integer idUsuario;
     private String email;
@@ -60,7 +72,7 @@ public class SecurityBean implements Serializable {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            LoginRequest requestPayload = new LoginRequest(username.trim(), password);
+            LoginRequest requestPayload = new LoginRequest(this.username, this.password);
             HttpEntity<LoginRequest> requestEntity = new HttpEntity<>(requestPayload, headers);
 
             ResponseEntity<UserResponse> response = restTemplate.postForEntity(
@@ -79,12 +91,31 @@ public class SecurityBean implements Serializable {
                     this.apellidoMaterno  = user.getApellidoMaterno();
                     this.idRole           = user.getIdRole();
                     this.nameRole         = user.getNameRole();
-                    this.loggedIn         = true;
+                    this.passwordExpired  = Boolean.TRUE.equals(user.getPasswordExpired());
+                    this.daysSincePasswordUpdate = user.getDaysSincePasswordUpdate() != null ? user.getDaysSincePasswordUpdate() : 0;
+                    this.mustChangePassword = Boolean.TRUE.equals(user.getMustChangePassword());
 
                     // Construir nombre completo con fallback al username
                     String fullName = buildNombreCompleto(nombre, apellidoPaterno, apellidoMaterno);
                     this.nombreCompleto = fullName.isEmpty() ? this.username : fullName;
 
+                    // Si la contraseña expiró (más de 120 días / 4 meses) o tiene cambio forzado
+                    if (this.passwordExpired) {
+                        log.warn("Usuario {} autenticado pero su contraseña ha expirado (hace {} días). Se requiere renovación.", 
+                                 username, daysSincePasswordUpdate);
+                        this.currentPassword = this.password;
+                        this.newPassword = null;
+                        this.confirmPassword = null;
+                        this.showChangePasswordDialog = true;
+                        this.loggedIn = false;
+                        
+                        FacesContext.getCurrentInstance().addMessage(null,
+                            new FacesMessage(FacesMessage.SEVERITY_WARN, "Contraseña Expirada", 
+                                "Su clave de acceso ha superado el límite de 4 meses (120 días). Por favor actualícela ahora."));
+                        return null;
+                    }
+
+                    this.loggedIn = true;
                     log.info("Usuario {} autenticado correctamente. Rol: {}", username, nameRole);
                     
                     // Cargar menús autorizados
@@ -103,11 +134,11 @@ public class SecurityBean implements Serializable {
                     return "/dashboard.xhtml?faces-redirect=true";
                 }
             }
-        } catch (org.springframework.web.client.HttpClientErrorException.Unauthorized e) {
+        } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Credenciales incorrectas para usuario: {}", username);
             FacesContext.getCurrentInstance().addMessage(null,
                 new FacesMessage(FacesMessage.SEVERITY_ERROR, "Acceso Denegado", "Usuario o contraseña incorrectos."));
-        } catch (org.springframework.web.client.HttpClientErrorException.Forbidden e) {
+        } catch (HttpClientErrorException.Forbidden e) {
             log.warn("Cuenta inactiva para usuario: {}", username);
             FacesContext.getCurrentInstance().addMessage(null,
                 new FacesMessage(FacesMessage.SEVERITY_ERROR, "Cuenta Desactivada", "Esta cuenta está temporalmente inactiva."));
@@ -119,6 +150,189 @@ public class SecurityBean implements Serializable {
         return null;
     }
 
+    /**
+     * Procesa el cambio de contraseña tanto por expiración periódica como por solicitud voluntaria.
+     */
+    public String changePassword() {
+        log.info("Procesando cambio de contraseña para el usuario: {}", username);
+
+        if (currentPassword == null || currentPassword.trim().isEmpty()) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación", "Debe ingresar la contraseña actual."));
+            return null;
+        }
+
+        if (newPassword == null || newPassword.trim().isEmpty()) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación", "Debe ingresar la nueva contraseña."));
+            return null;
+        }
+
+        if (confirmPassword == null || confirmPassword.trim().isEmpty()) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación", "Debe confirmar la nueva contraseña."));
+            return null;
+        }
+
+        if (!newPassword.equals(confirmPassword)) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación", "La nueva contraseña y su confirmación no coinciden."));
+            return null;
+        }
+
+        if (newPassword.equals(currentPassword)) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación", "La nueva contraseña debe ser diferente a la contraseña actual."));
+            return null;
+        }
+
+        // Validación de Política de Contraseñas institucional (8+ caracteres, número, mayúscula, minúscula, símbolo)
+        String policyError = validatePasswordPolicy(newPassword);
+        if (policyError != null) {
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Política de Seguridad", policyError));
+            return null;
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            ChangePasswordRequest payload = new ChangePasswordRequest(
+                this.username,
+                this.currentPassword,
+                this.newPassword,
+                this.confirmPassword
+            );
+
+            HttpEntity<ChangePasswordRequest> requestEntity = new HttpEntity<>(payload, headers);
+
+            ResponseEntity<ActionResponse> response = restTemplate.postForEntity(
+                backendApiUrl + "/auth/change-password",
+                requestEntity,
+                ActionResponse.class
+            );
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                ActionResponse actionResp = response.getBody();
+                if (actionResp.isSuccess()) {
+                    log.info("Contraseña actualizada exitosamente para: {}", username);
+                    
+                    this.passwordExpired = false;
+                    this.mustChangePassword = false;
+                    this.showChangePasswordDialog = false;
+                    this.currentPassword = null;
+                    this.newPassword = null;
+                    this.confirmPassword = null;
+                    this.password = null;
+
+                    UserResponse user = actionResp.getUser();
+                    if (user != null) {
+                        this.idUsuario        = user.getIdUsuario();
+                        this.email            = user.getEmail();
+                        this.nombre           = user.getNombre();
+                        this.apellidoPaterno  = user.getApellidoPaterno();
+                        this.apellidoMaterno  = user.getApellidoMaterno();
+                        this.idRole           = user.getIdRole();
+                        this.nameRole         = user.getNameRole();
+                        this.loggedIn         = true;
+
+                        String fullName = buildNombreCompleto(nombre, apellidoPaterno, apellidoMaterno);
+                        this.nombreCompleto = fullName.isEmpty() ? this.username : fullName;
+
+                        loadAuthorizedMenus();
+                        loadUsuariosCombo();
+                        this.selectedUserId = this.idUsuario;
+                    }
+
+                    FacesContext.getCurrentInstance().getExternalContext().getFlash().setKeepMessages(true);
+                    FacesContext.getCurrentInstance().addMessage(null,
+                        new FacesMessage(FacesMessage.SEVERITY_INFO, "Éxito", "Contraseña actualizada exitosamente."));
+
+                    return "/dashboard.xhtml?faces-redirect=true";
+                }
+            }
+        } catch (HttpClientErrorException e) {
+            String errorDetail = "Error al actualizar la contraseña.";
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(e.getResponseBodyAsString());
+                if (root.has("detail")) {
+                    errorDetail = root.get("detail").asText();
+                }
+            } catch (Exception parseEx) {
+                errorDetail = e.getResponseBodyAsString();
+            }
+            log.warn("Error devuelto por el backend al cambiar contraseña: {}", errorDetail);
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error de Validación", errorDetail));
+        } catch (Exception e) {
+            log.error("Excepción inesperada al cambiar contraseña: {}", e.getMessage(), e);
+            FacesContext.getCurrentInstance().addMessage(null,
+                new FacesMessage(FacesMessage.SEVERITY_FATAL, "Error del Servidor", "No se pudo completar el cambio de contraseña."));
+        }
+
+        return null;
+    }
+
+    /**
+     * Valida los 4 criterios institucionales de seguridad de contraseñas:
+     * 1. Mínimo 8 caracteres.
+     * 2. Mínimo 1 número (0-9).
+     * 3. Letras mayúsculas (A-Z) y minúsculas (a-z).
+     * 4. Mínimo 1 símbolo / caracter especial.
+     */
+    public static String validatePasswordPolicy(String pass) {
+        if (pass == null || pass.length() < 8) {
+            return "La contraseña debe tener al menos 8 caracteres.";
+        }
+        boolean hasDigit = false;
+        boolean hasUpper = false;
+        boolean hasLower = false;
+        boolean hasSymbol = false;
+
+        for (char ch : pass.toCharArray()) {
+            if (Character.isDigit(ch)) {
+                hasDigit = true;
+            } else if (Character.isUpperCase(ch)) {
+                hasUpper = true;
+            } else if (Character.isLowerCase(ch)) {
+                hasLower = true;
+            } else if (!Character.isWhitespace(ch)) {
+                hasSymbol = true;
+            }
+        }
+
+        if (!hasDigit) {
+            return "La contraseña debe contener al menos 1 número (0-9).";
+        }
+        if (!hasUpper) {
+            return "La contraseña debe contener al menos 1 letra mayúscula (A-Z).";
+        }
+        if (!hasLower) {
+            return "La contraseña debe contener al menos 1 letra minúscula (a-z).";
+        }
+        if (!hasSymbol) {
+            return "La contraseña debe contener al menos 1 símbolo especial (!@#$%^&*...).";
+        }
+        return null; // Válida
+    }
+
+    public void openChangePasswordDialog() {
+        this.currentPassword = null;
+        this.newPassword = null;
+        this.confirmPassword = null;
+        this.showChangePasswordDialog = true;
+    }
+
+    public void closeChangePasswordDialog() {
+        this.showChangePasswordDialog = false;
+        this.currentPassword = null;
+        this.newPassword = null;
+        this.confirmPassword = null;
+    }
+
     public String logout() {
         log.info("Cerrando sesión para el usuario: {}", username);
         
@@ -127,6 +341,9 @@ public class SecurityBean implements Serializable {
         this.loggedIn       = false;
         this.username       = null;
         this.password       = null;
+        this.currentPassword = null;
+        this.newPassword    = null;
+        this.confirmPassword = null;
         this.nombre         = null;
         this.apellidoPaterno = null;
         this.apellidoMaterno = null;
@@ -134,6 +351,8 @@ public class SecurityBean implements Serializable {
         this.idRole         = null;
         this.nameRole       = null;
         this.selectedUserId = null;
+        this.passwordExpired = false;
+        this.showChangePasswordDialog = false;
         this.authorizedMenus.clear();
         this.usuariosCombo.clear();
 
@@ -236,6 +455,34 @@ public class SecurityBean implements Serializable {
 
     @Getter
     @Setter
+    public static class ChangePasswordRequest implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private String username;
+        private String currentPassword;
+        private String newPassword;
+        private String confirmPassword;
+
+        public ChangePasswordRequest() {}
+
+        public ChangePasswordRequest(String username, String currentPassword, String newPassword, String confirmPassword) {
+            this.username = username;
+            this.currentPassword = currentPassword;
+            this.newPassword = newPassword;
+            this.confirmPassword = confirmPassword;
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class ActionResponse implements Serializable {
+        private static final long serialVersionUID = 1L;
+        private boolean success;
+        private String  message;
+        private UserResponse user;
+    }
+
+    @Getter
+    @Setter
     public static class UserResponse implements Serializable {
         private static final long serialVersionUID = 1L;
         private Integer idUsuario;
@@ -247,6 +494,9 @@ public class SecurityBean implements Serializable {
         private Integer idRole;
         private String  nameRole;
         private Integer status;
+        private Boolean passwordExpired;
+        private Integer daysSincePasswordUpdate;
+        private Boolean mustChangePassword;
     }
 
     @Getter

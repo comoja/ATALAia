@@ -2,10 +2,17 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 import logging
 
 from backend.database.models import SessionLocal, Usuario, Role, Menu, RoleMenu
-from backend.services.security_service import verifyPassword
+from backend.services.security_service import (
+    verifyPassword, 
+    calculateSha256, 
+    validatePasswordPolicy, 
+    isPasswordExpired, 
+    getDaysSincePasswordUpdate
+)
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 logger = logging.getLogger(__name__)
@@ -23,6 +30,12 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class ChangePasswordRequest(BaseModel):
+    username: str
+    currentPassword: str
+    newPassword: str
+    confirmPassword: str
+
 class UserResponse(BaseModel):
     idUsuario: int
     username: str
@@ -33,6 +46,9 @@ class UserResponse(BaseModel):
     idRole: int
     nameRole: str
     status: int
+    passwordExpired: bool = False
+    daysSincePasswordUpdate: int = 0
+    mustChangePassword: bool = False
 
 class UsuarioComboItem(BaseModel):
     """DTO liviano para el combo selector de usuarios en el dashboard."""
@@ -46,11 +62,17 @@ class MenuResponse(BaseModel):
     icon: Optional[str] = None
     parentId: Optional[int] = None
 
+class ActionResponse(BaseModel):
+    success: bool
+    message: str
+    user: Optional[UserResponse] = None
+
 @router.post("/login", response_model=UserResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     """
     Endpoint institucional para validación de credenciales.
-    Verifica el hash SHA-256 en la base de datos y retorna el perfil seguro.
+    Verifica el hash SHA-256 en la base de datos, valida expiración periódica (cada 4 meses / 120 días)
+    y retorna el perfil seguro con el estatus de vigencia de la clave.
     """
     logger.info(f"Intento de inicio de sesión institucional para el usuario: {payload.username}")
     
@@ -74,7 +96,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     roleInfo = db.query(Role).filter(Role.idRole == usuario.idRole).first()
     nameRole = roleInfo.nameRole if roleInfo else "Desconocido"
     
-    logger.info(f"Autenticación exitosa. Usuario: {payload.username}, Rol: {nameRole}")
+    # 5. Evaluar expiración periódica de la clave (cada 120 días / 4 meses) o cambio forzado
+    passExpired = isPasswordExpired(usuario.passwordUpdatedAt, maxDays=120) or bool(usuario.mustChangePassword)
+    daysSinceUpdate = getDaysSincePasswordUpdate(usuario.passwordUpdatedAt)
+    
+    logger.info(f"Autenticación exitosa. Usuario: {payload.username}, Rol: {nameRole}, Clave Expirada: {passExpired} (hace {daysSinceUpdate} días)")
     
     return UserResponse(
         idUsuario=usuario.idUsuario,
@@ -85,7 +111,90 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         apellidoMaterno=usuario.apellidoMaterno,
         idRole=usuario.idRole,
         nameRole=nameRole,
-        status=usuario.status
+        status=usuario.status,
+        passwordExpired=passExpired,
+        daysSincePasswordUpdate=daysSinceUpdate,
+        mustChangePassword=bool(usuario.mustChangePassword)
+    )
+
+@router.post("/change-password", response_model=ActionResponse)
+def changePassword(payload: ChangePasswordRequest, db: Session = Depends(get_db)):
+    """
+    Endpoint institucional para cambio seguro de contraseña.
+    Valida:
+    1. Que la contraseña actual coincida con el hash en base de datos.
+    2. Que la nueva contraseña y su confirmación sean idénticas.
+    3. Que la nueva contraseña sea diferente a la contraseña actual.
+    4. Que la nueva contraseña cumpla los 4 requisitos de complejidad:
+       - Mínimo 8 caracteres.
+       - Al menos 1 número.
+       - Mayúsculas y minúsculas.
+       - Al menos 1 símbolo especial válido.
+    5. Actualiza el hash SHA-256, actualiza passwordUpdatedAt al timestamp actual y limpia mustChangePassword.
+    """
+    logger.info(f"Solicitud de cambio de contraseña para usuario: {payload.username}")
+    
+    # 1. Buscar usuario
+    usuario = db.query(Usuario).filter(Usuario.username == payload.username).first()
+    if not usuario:
+        logger.warning(f"Usuario no encontrado para cambio de clave: {payload.username}")
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    if usuario.status != 1:
+        raise HTTPException(status_code=403, detail="La cuenta se encuentra desactivada")
+        
+    # 2. Validar contraseña actual
+    if not verifyPassword(payload.currentPassword, usuario.passwordHash):
+        logger.warning(f"Contraseña actual incorrecta para usuario: {payload.username}")
+        raise HTTPException(status_code=400, detail="La contraseña actual ingresada es incorrecta.")
+        
+    # 3. Validar confirmación
+    if payload.newPassword != payload.confirmPassword:
+        raise HTTPException(status_code=400, detail="La nueva contraseña y su confirmación no coinciden.")
+        
+    # 4. Validar que no sea igual a la actual
+    if payload.newPassword == payload.currentPassword:
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe ser diferente a la contraseña actual.")
+        
+    # 5. Validar política estricta de complejidad
+    isValid, errorMsg = validatePasswordPolicy(payload.newPassword)
+    if not isValid:
+        logger.warning(f"Contraseña rechazada por política para {payload.username}: {errorMsg}")
+        raise HTTPException(status_code=400, detail=errorMsg)
+        
+    # 6. Calcular nuevo hash SHA-256 y actualizar fecha
+    newHash = calculateSha256(payload.newPassword)
+    usuario.passwordHash = newHash
+    usuario.passwordUpdatedAt = datetime.now()
+    usuario.mustChangePassword = 0
+    
+    db.commit()
+    db.refresh(usuario)
+    
+    roleInfo = db.query(Role).filter(Role.idRole == usuario.idRole).first()
+    nameRole = roleInfo.nameRole if roleInfo else "Desconocido"
+    
+    logger.info(f"✅ Contraseña actualizada exitosamente para usuario: {payload.username}")
+    
+    userResp = UserResponse(
+        idUsuario=usuario.idUsuario,
+        username=usuario.username,
+        email=usuario.email,
+        nombre=usuario.nombre,
+        apellidoPaterno=usuario.apellidoPaterno,
+        apellidoMaterno=usuario.apellidoMaterno,
+        idRole=usuario.idRole,
+        nameRole=nameRole,
+        status=usuario.status,
+        passwordExpired=False,
+        daysSincePasswordUpdate=0,
+        mustChangePassword=False
+    )
+    
+    return ActionResponse(
+        success=True,
+        message="Contraseña actualizada exitosamente.",
+        user=userResp
     )
 
 @router.get("/menu/{idRole}", response_model=List[MenuResponse])
@@ -96,7 +205,6 @@ def getMenuByRole(idRole: int, db: Session = Depends(get_db)):
     logger.info(f"Cargando menús dinámicos autorizados para el rol ID: {idRole}")
     
     try:
-        # Consulta relacional con JOIN entre Menu y RoleMenu
         menusAutorizados = (
             db.query(Menu)
             .join(RoleMenu, Menu.idMenu == RoleMenu.idMenu)
@@ -105,7 +213,6 @@ def getMenuByRole(idRole: int, db: Session = Depends(get_db)):
             .all()
         )
         
-        # Mapeo a respuesta DTO respetando camelCase
         listaMenu = []
         for menu in menusAutorizados:
             listaMenu.append(
@@ -141,7 +248,6 @@ def getUsuariosCombo(db: Session = Depends(get_db)):
 
         listaUsuarios = []
         for u in usuarios:
-            # Construir nombre completo con fallback al username si los campos son nulos
             partes = [p for p in [u.nombre, u.apellidoPaterno, u.apellidoMaterno] if p]
             nombreCompleto = " ".join(partes) if partes else u.username
             listaUsuarios.append(

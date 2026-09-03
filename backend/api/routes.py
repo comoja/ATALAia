@@ -1,4 +1,5 @@
 import os
+import asyncio
 import sys
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if rutaRaiz not in sys.path:
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -311,7 +312,10 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
                openTime, size, entryPrice, margin_used, pnl, intervalo
         FROM trades
-        WHERE idCuenta = :idc AND status = 'OPEN'
+        WHERE idCuenta = :idc 
+          AND status = 'OPEN' 
+          AND strategy = 'RATIO ATALAia' 
+          AND setup LIKE '%-%'
         ORDER BY setup, openTime ASC, idTrade ASC
     """)
     rows = db.execute(sql, {"idc": idCuenta}).fetchall()
@@ -350,8 +354,10 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     results = []
     for setup, t_list in by_setup.items():
         parts = [p.strip() for p in setup.split("-") if p.strip()]
-        pairA = parts[0] if len(parts) >= 1 else ""
-        pairB = parts[1] if len(parts) >= 2 else ""
+        if len(parts) < 2:
+            continue
+        pairA = parts[0]
+        pairB = parts[1]
         
         # Cache de datos de mercado por símbolo directo de symbols.pip
         sym_cache = {}
@@ -486,6 +492,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
 class CrearCuentaRequest(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario al que se asociará la cuenta")
     nombre: str = Field(..., description="Nombre de la cuenta")
+    correo: Optional[str] = Field(None, description="Correo electrónico asociado a la cuenta")
     activo: Optional[bool] = Field(True, description="Estado activo de la cuenta")
     capital: Optional[float] = Field(300.0, description="Capital de la cuenta")
     ganancia: Optional[float] = Field(15.0, description="Porcentaje de ganancia")
@@ -505,6 +512,7 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
 
         nueva_cuenta = Cuenta(
             Nombre=nombre_clean,
+            correo=payload.correo.strip() if payload.correo and payload.correo.strip() else None,
             Activo=1 if payload.activo else 0,
             Capital=payload.capital,
             ganancia=payload.ganancia,
@@ -536,6 +544,7 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
             "message": "Cuenta creada y asociada exitosamente",
             "idCuenta": nueva_cuenta.idCuenta,
             "nombre": nueva_cuenta.Nombre,
+            "correo": nueva_cuenta.correo or "",
             "capital": nueva_cuenta.Capital,
             "activo": bool(nueva_cuenta.Activo),
             "ganancia": nueva_cuenta.ganancia,
@@ -553,6 +562,7 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
 class EditarCuentaRequest(BaseModel):
     idCuenta: int = Field(..., description="ID de la cuenta a modificar")
     nombre: Optional[str] = Field(None, description="Nombre de la cuenta")
+    correo: Optional[str] = Field(None, description="Correo electrónico asociado a la cuenta")
     activo: Optional[bool] = Field(None, description="Estado activo de la cuenta")
     capital: Optional[float] = Field(None, description="Capital de la cuenta")
     ganancia: Optional[float] = Field(None, description="Porcentaje de ganancia")
@@ -586,6 +596,7 @@ def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
     return {
         "idCuenta": cuenta.idCuenta,
         "nombre": cuenta.Nombre,
+        "correo": getattr(cuenta, "correo", "") or "", 
         "capital": float(cuenta.Capital or 0.0),
         "activo": bool(cuenta.Activo),
         "ganancia": float(cuenta.ganancia or 0.0),
@@ -606,6 +617,8 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
 
         if payload.nombre is not None and payload.nombre.strip():
             cuenta.Nombre = payload.nombre.strip()
+        if payload.correo is not None:
+            cuenta.correo = payload.correo.strip() if payload.correo.strip() else None
         if payload.activo is not None:
             cuenta.Activo = 1 if payload.activo else 0
         if payload.capital is not None:
@@ -629,6 +642,7 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
             "message": "Cuenta actualizada exitosamente",
             "idCuenta": cuenta.idCuenta,
             "nombre": cuenta.Nombre,
+            "correo": getattr(cuenta, "correo", "") or "",
             "capital": float(cuenta.Capital or 0.0),
             "activo": bool(cuenta.Activo),
             "ganancia": float(cuenta.ganancia or 0.0),
@@ -670,6 +684,7 @@ def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
             "idUsuario": uc.idUsuario,
             "idCuenta": c.idCuenta,
             "nombreCuenta": c.Nombre,
+            "correo": getattr(c, "correo", "") or "", 
             "capital": float(c.Capital or 0.0),
             "activo": bool(uc.activo),
             "concentradora": bool(getattr(c, "Concentradora", False) or False),
@@ -813,46 +828,87 @@ async def get_ratio_correlation(
     try:
         candle_limit = 100000
 
-        # Cargar todo el historial posible según el request
-        df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
-        df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+        # Cargar historial de precios: si es intradía (1h, 4h, 15m), consultar 'candles'
+        tf_lower = str(tf).lower().strip()
+        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
 
-        if df_a.empty:
-            raise HTTPException(status_code=404, detail=f"Sin precios para Par A: {pairA}")
-        if df_b.empty:
-            raise HTTPException(status_code=404, detail=f"Sin precios para Par B: {pairB}")
+        if is_intraday:
+            # Determinar rango de fechas para velas intradía
+            import pandas as pd
+            if start_date:
+                dt_start = pd.to_datetime(start_date).tz_localize(None)
+            else:
+                hrs = (days if days else 180) * (4 if "4h" in tf_lower else 1)
+                dt_start = datetime.now() - timedelta(hours=hrs + 96)
 
-        # Lógica de Agrupación (Resample)
-        resample_rule = None
-        if tf == "1month":
-            resample_rule = 'ME'  # Monthly End
-        elif tf == "1week":
-            resample_rule = 'W'   # Weekly
-        elif tf == "1d":
-            resample_rule = 'D'   # Daily
-        # Para "1h", resample_rule = None (ya que StockPrices es horario por defecto)
+            if end_date:
+                dt_end = pd.to_datetime(end_date).tz_localize(None)
+            else:
+                dt_end = datetime.now() + timedelta(days=1)
 
-        if resample_rule:
-            df_a_daily = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            df_b_daily = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            
-            live_a = get_live_price_from_mt5(pairA)
-            live_b = get_live_price_from_mt5(pairB)
-            
-            if len(df_a_daily) > 1:
-                if live_a is not None:
-                    df_a_daily.iloc[-1, df_a_daily.columns.get_loc('closePrice')] = live_a
-                else:
-                    df_a_daily = df_a_daily.iloc[:-1]
-                    
-            if len(df_b_daily) > 1:
-                if live_b is not None:
-                    df_b_daily.iloc[-1, df_b_daily.columns.get_loc('closePrice')] = live_b
-                else:
-                    df_b_daily = df_b_daily.iloc[:-1]
-        else:
+            def query_candles_for_pair(sym: str):
+                import pymysql
+                conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                try:
+                    sql = """
+                        SELECT timestamp, close as closePrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
+                    """
+                    df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if df_res.empty:
+                        return pd.DataFrame()
+                    df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
+                    df_res = df_res.set_index('timestamp')
+                    df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule = rule_map.get(tf_lower, "1h")
+                    return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
+                finally:
+                    conn.close()
+
+            df_a = await asyncio.to_thread(query_candles_for_pair, pairA)
+            df_b = await asyncio.to_thread(query_candles_for_pair, pairB)
+
+            if df_a.empty:
+                df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+            if df_b.empty:
+                df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+
             df_a_daily = df_a
             df_b_daily = df_b
+        else:
+            # Diario o mayor: stockprices
+            df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+            df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+
+            if df_a.empty:
+                raise HTTPException(status_code=404, detail=f"Sin precios para Par A: {pairA}")
+            if df_b.empty:
+                raise HTTPException(status_code=404, detail=f"Sin precios para Par B: {pairB}")
+
+            resample_rule = None
+            if tf == "1month":
+                resample_rule = 'ME'
+            elif tf == "1week":
+                resample_rule = 'W'
+            elif tf == "1d":
+                resample_rule = 'D'
+
+            if resample_rule:
+                df_a_daily = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+                df_b_daily = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+            else:
+                df_a_daily = df_a
+                df_b_daily = df_b
+
+        live_a = get_live_price_from_mt5(pairA)
+        live_b = get_live_price_from_mt5(pairB)
+        if len(df_a_daily) > 1 and live_a is not None:
+            df_a_daily.iloc[-1, df_a_daily.columns.get_loc('closePrice')] = live_a
+        if len(df_b_daily) > 1 and live_b is not None:
+            df_b_daily.iloc[-1, df_b_daily.columns.get_loc('closePrice')] = live_b
 
         if days and days > 0:
             df_a_daily = df_a_daily.tail(days)
@@ -1294,6 +1350,7 @@ from pydantic import BaseModel
 class CuentaUpdate(BaseModel):
     idCuenta: int
     Nombre: str
+    correo: Optional[str] = None
     Capital: float
     ganancia: float
     Activo: int
@@ -1703,16 +1760,14 @@ async def manual_close_ratio(
 
     if not setupName:
         raise HTTPException(status_code=400, detail="Setup name is required in body or query param")
-    if not setupName or "-" not in setupName:
-        raise HTTPException(status_code=400, detail="Setup name is invalid")
         
     from backend.services.microRatio import (
         checkActiveOpenTrades, fetchAccountData, fetchSymbolData, closeRatioTrades
     )
     
-    parts = [p.strip() for p in setupName.split("-")]
+    parts = [p.strip() for p in setupName.split("-")] if "-" in setupName else [setupName.strip()]
     pairA = parts[0]
-    pairB = parts[1]
+    pairB = parts[1] if len(parts) > 1 else None
     
     # 1. Fetch Open Trades
     openTrades = checkActiveOpenTrades(db, idCuenta, setupName)
@@ -1726,13 +1781,10 @@ async def manual_close_ratio(
         
     # 3. Fetch Symbol Data Map
     symbolDataMap = {
-        pairA: fetchSymbolData(db, pairA),
-        pairB: fetchSymbolData(db, pairB)
+        pairA: fetchSymbolData(db, pairA)
     }
-    
-    # 4. Fetch Live Prices from MT5 (or DB fallback)
-    live_a = get_live_price_from_mt5(pairA)
-    live_b = get_live_price_from_mt5(pairB)
+    if pairB:
+        symbolDataMap[pairB] = fetchSymbolData(db, pairB)
     
     def get_fallback_price(sym):
         from sqlalchemy import text
@@ -1740,10 +1792,14 @@ async def manual_close_ratio(
         row = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
         return float(row[0]) if row and row[0] else 1.0
 
+    # 4. Fetch Live Prices from MT5 (or DB fallback)
+    live_a = get_live_price_from_mt5(pairA)
     latestPricesMap = {
-        pairA: live_a if live_a is not None else get_fallback_price(pairA),
-        pairB: live_b if live_b is not None else get_fallback_price(pairB)
+        pairA: live_a if live_a is not None else get_fallback_price(pairA)
     }
+    if pairB:
+        live_b = get_live_price_from_mt5(pairB)
+        latestPricesMap[pairB] = live_b if live_b is not None else get_fallback_price(pairB)
     
     # 5. Execute closure
     success = closeRatioTrades(

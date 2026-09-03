@@ -232,8 +232,54 @@ public class DashboardBean implements Serializable {
 
         public String getFormattedSizeA() { return String.format(java.util.Locale.US, "%,.0f", sizeA); }
         public String getFormattedSizeB() { return String.format(java.util.Locale.US, "%,.0f", sizeB); }
-        public String getFormattedAvgEntryPriceA() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceA); }
-        public String getFormattedAvgEntryPriceB() { return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceB); }
+        public String getFormattedAvgEntryPriceA() {
+            if (pairA != null && pairA.contains("JPY")) {
+                return String.format(java.util.Locale.US, "%,.3f", avgEntryPriceA);
+            }
+            return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceA);
+        }
+        public String getFormattedAvgEntryPriceB() {
+            if (pairB != null && pairB.contains("JPY")) {
+                return String.format(java.util.Locale.US, "%,.3f", avgEntryPriceB);
+            }
+            return String.format(java.util.Locale.US, "%,.5f", avgEntryPriceB);
+        }
+
+        public double getRatioEntryPrice() {
+            if (avgEntryPriceB > 0) {
+                return avgEntryPriceA / avgEntryPriceB;
+            }
+            return 0.0;
+        }
+
+        public String getFormattedRatioEntryPrice() {
+            double r = getRatioEntryPrice();
+            if (r > 0) {
+                if ((pairA != null && pairA.contains("JPY")) || (pairB != null && pairB.contains("JPY"))) {
+                    return String.format(java.util.Locale.US, "%,.3f", r);
+                }
+                return String.format(java.util.Locale.US, "%,.5f", r);
+            }
+            return "-";
+        }
+
+        public double getRatioCurrentPrice() {
+            if (currentPriceB > 0) {
+                return currentPriceA / currentPriceB;
+            }
+            return 0.0;
+        }
+
+        public String getFormattedRatioCurrentPrice() {
+            double r = getRatioCurrentPrice();
+            if (r > 0) {
+                if ((pairA != null && pairA.contains("JPY")) || (pairB != null && pairB.contains("JPY"))) {
+                    return String.format(java.util.Locale.US, "%,.3f", r);
+                }
+                return String.format(java.util.Locale.US, "%,.5f", r);
+            }
+            return "-";
+        }
         public String getFormattedCurrentPriceA() {
             if (pairA != null && pairA.contains("JPY")) {
                 return String.format(java.util.Locale.US, "%,.3f", currentPriceA);
@@ -658,6 +704,7 @@ public class DashboardBean implements Serializable {
         private Integer idUsuario;
         private Integer idCuenta;
         private String nombreCuenta;
+        private String correo;
         private Double capital;
         private Boolean activo;
 
@@ -669,6 +716,8 @@ public class DashboardBean implements Serializable {
         public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
         public String getNombreCuenta() { return nombreCuenta; }
         public void setNombreCuenta(String nombreCuenta) { this.nombreCuenta = nombreCuenta; }
+        public String getCorreo() { return correo; }
+        public void setCorreo(String correo) { this.correo = correo; }
         public Double getCapital() { return capital; }
         public void setCapital(Double capital) { this.capital = capital; }
         public Boolean getActivo() { return activo; }
@@ -679,6 +728,7 @@ public class DashboardBean implements Serializable {
 
     // --- Campos y Métodos para Modal de Nueva Cuenta ---
     private String nuevaCuentaNombre = "";
+    private String nuevaCuentaCorreo = "";
     private Boolean nuevaCuentaActivo = true;
     private Double nuevaCuentaCapital = 300.0;
     private Double nuevaCuentaGanancia = 15.0;
@@ -688,6 +738,8 @@ public class DashboardBean implements Serializable {
 
     public String getNuevaCuentaNombre() { return nuevaCuentaNombre; }
     public void setNuevaCuentaNombre(String nuevaCuentaNombre) { this.nuevaCuentaNombre = nuevaCuentaNombre; }
+    public String getNuevaCuentaCorreo() { return nuevaCuentaCorreo; }
+    public void setNuevaCuentaCorreo(String nuevaCuentaCorreo) { this.nuevaCuentaCorreo = nuevaCuentaCorreo; }
     public Boolean getNuevaCuentaActivo() { return nuevaCuentaActivo; }
     public void setNuevaCuentaActivo(Boolean nuevaCuentaActivo) { this.nuevaCuentaActivo = nuevaCuentaActivo; }
     public Double getNuevaCuentaCapital() { return nuevaCuentaCapital; }
@@ -703,6 +755,7 @@ public class DashboardBean implements Serializable {
 
     public void prepararNuevaCuenta() {
         this.nuevaCuentaNombre = "";
+        this.nuevaCuentaCorreo = "";
         this.nuevaCuentaActivo = true;
         this.nuevaCuentaCapital = 300.0;
         this.nuevaCuentaGanancia = 15.0;
@@ -748,6 +801,7 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idUsuario", userId);
             payload.put("nombre", nuevaCuentaNombre.trim());
+            payload.put("correo", nuevaCuentaCorreo != null && !nuevaCuentaCorreo.trim().isEmpty() ? nuevaCuentaCorreo.trim() : null);
             payload.put("activo", Boolean.TRUE.equals(nuevaCuentaActivo));
             payload.put("capital", nuevaCuentaCapital != null ? nuevaCuentaCapital : 0.0);
             payload.put("ganancia", nuevaCuentaGanancia != null ? nuevaCuentaGanancia : 0.0);
@@ -798,6 +852,7 @@ public class DashboardBean implements Serializable {
     // --- Campos y Métodos para Modal de Edición de Cuenta ---
     private Integer editarCuentaId;
     private String editarCuentaNombre = "";
+    private String editarCuentaCorreo = "";
     private Boolean editarCuentaActivo = true;
     private Double editarCuentaCapital = 300.0;
     private Double editarCuentaGanancia = 15.0;
@@ -809,6 +864,8 @@ public class DashboardBean implements Serializable {
     public void setEditarCuentaId(Integer editarCuentaId) { this.editarCuentaId = editarCuentaId; }
     public String getEditarCuentaNombre() { return editarCuentaNombre; }
     public void setEditarCuentaNombre(String editarCuentaNombre) { this.editarCuentaNombre = editarCuentaNombre; }
+    public String getEditarCuentaCorreo() { return editarCuentaCorreo; }
+    public void setEditarCuentaCorreo(String editarCuentaCorreo) { this.editarCuentaCorreo = editarCuentaCorreo; }
     public Boolean getEditarCuentaActivo() { return editarCuentaActivo; }
     public void setEditarCuentaActivo(Boolean editarCuentaActivo) { this.editarCuentaActivo = editarCuentaActivo; }
     public Double getEditarCuentaCapital() { return editarCuentaCapital; }
@@ -872,6 +929,7 @@ public class DashboardBean implements Serializable {
                 JsonNode root = mapper.readTree(resp);
                 this.editarCuentaId = selectedAccountId;
                 this.editarCuentaNombre = root.has("nombre") ? root.get("nombre").asText() : "";
+                this.editarCuentaCorreo = root.has("correo") && !root.get("correo").isNull() ? root.get("correo").asText() : "";
                 this.editarCuentaCapital = root.has("capital") ? root.get("capital").asDouble() : 0.0;
                 this.editarCuentaActivo = root.has("activo") ? root.get("activo").asBoolean() : true;
                 this.editarCuentaGanancia = root.has("ganancia") ? root.get("ganancia").asDouble() : 15.0;
@@ -911,6 +969,7 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idCuenta", editarCuentaId != null ? editarCuentaId : selectedAccountId);
             payload.put("nombre", editarCuentaNombre.trim());
+            payload.put("correo", editarCuentaCorreo != null && !editarCuentaCorreo.trim().isEmpty() ? editarCuentaCorreo.trim() : null);
             payload.put("activo", Boolean.TRUE.equals(editarCuentaActivo));
             payload.put("capital", editarCuentaCapital != null ? editarCuentaCapital : 0.0);
             payload.put("ganancia", editarCuentaGanancia != null ? editarCuentaGanancia : 0.0);
@@ -1072,12 +1131,18 @@ public class DashboardBean implements Serializable {
             String title = event.getTab().getTitle();
             if (title != null && title.contains("1.")) {
                 this.activeAccordionIndex = "0";
+                loadUserAccounts();
+                loadUserRatiosList();
             } else if (title != null && title.contains("2.")) {
                 this.activeAccordionIndex = "1";
+                loadCatalogo();
+                fetchUserRatioDetails();
             } else if (title != null && title.contains("3.")) {
                 this.activeAccordionIndex = "2";
+                loadUserAccounts();
+                loadAllActiveCycles();
             }
-            log.info("Tab del acordeón cambiado a: {} (index={})", title, activeAccordionIndex);
+            log.info("Sección de Configuración del dashboard cambiada a: {} (index={}), datos recargados desde BD", title, activeAccordionIndex);
         }
     }
 
@@ -1314,6 +1379,9 @@ public class DashboardBean implements Serializable {
                         dto.setSetup(n.path("setup").asText(""));
                         dto.setPairA(n.path("pairA").asText(""));
                         dto.setPairB(n.path("pairB").asText(""));
+                        if (dto.getSetup() == null || !dto.getSetup().contains("-") || dto.getPairA().trim().isEmpty() || dto.getPairB().trim().isEmpty()) {
+                            continue; // Exclusivo para posiciones de ratio (2 patas)
+                        }
                         dto.setHasActiveCycle(n.path("hasActiveCycle").asBoolean(true));
                         dto.setTotalOpenTrades(n.path("totalOpenTrades").asInt(0));
                         dto.setTotalMargin(n.path("totalMargin").asDouble(0.0));
@@ -1894,14 +1962,14 @@ public class DashboardBean implements Serializable {
             payload.put("periodo", timeframe != null ? timeframe : "1d");
             payload.put("dias", daysBack != null ? daysBack : 180);
             payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 2);
-            payload.put("EMALenta", emaSlowPeriodParam != null ? emaSlowPeriodParam : 20);
+            payload.put("EMALenta", null);
             payload.put("operar", operar != null ? operar : false);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
             String url = backendUrl + "/api/v1/user-ratios/guardar";
-            log.info("Guardando ratio para idUsuario {}: {}/{} ({}, {} días) [EMARapida={}, EMALenta={}, Operar={}] en {}",
-                    userId, selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar, url);
+            log.info("Guardando ratio para idUsuario {}: {}/{} ({}, {} días) [EMARapida={}, Operar={}] en {}",
+                    userId, selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, operar, url);
 
             org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
 
@@ -1913,8 +1981,8 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                 "Ratio Guardado Exitosamente",
                                 "Se guardó la selección " + selectedPair + " / " + selectedPair2 +
-                                " (" + timeframe + ", " + daysBack + " periodos) con EMARapida=" + smaPeriodParam +
-                                ", EMALenta=" + emaSlowPeriodParam + ", Operar=" + operarDesc + "."));
+                                " (" + timeframe + ", " + daysBack + " periodos) con EMA=" + smaPeriodParam +
+                                ", Operar=" + operarDesc + "."));
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
@@ -1954,6 +2022,7 @@ public class DashboardBean implements Serializable {
                         if (item.has("idUsuario")) dto.setIdUsuario(item.get("idUsuario").asInt());
                         if (item.has("idCuenta")) dto.setIdCuenta(item.get("idCuenta").asInt());
                         if (item.has("nombreCuenta")) dto.setNombreCuenta(item.get("nombreCuenta").asText());
+                        if (item.has("correo") && !item.get("correo").isNull()) dto.setCorreo(item.get("correo").asText());
                         if (item.has("capital") && !item.get("capital").isNull()) dto.setCapital(item.get("capital").asDouble());
                         if (item.has("activo") && !item.get("activo").isNull()) dto.setActivo(item.get("activo").asBoolean());
                         list.add(dto);

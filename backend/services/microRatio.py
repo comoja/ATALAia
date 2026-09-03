@@ -23,7 +23,7 @@ import math
 import asyncio
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 import pandas as pd
@@ -159,10 +159,28 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
     }
 
 
-def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365) -> pd.DataFrame:
+def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365, timeframe: str = "1d") -> pd.DataFrame:
     """
-    Carga el historial de precios desde la tabla 'stockprices' indexado por fecha.
+    Carga el historial de precios: si es intradía (1h, 4h, etc.), consulta 'candles' (5min).
+    Si es diario (1d, 1w), consulta 'stockprices'.
     """
+    pLower = str(timeframe).lower().strip()
+    isIntraday = pLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+    if isIntraday:
+        cutoff = datetime.now() - timedelta(days=daysLimit)
+        sqlQuery = text("""
+            SELECT timestamp as priceDate, close as closePrice
+            FROM candles
+            WHERE symbol = :sym AND timeframe = '5min' AND timestamp >= :cutoff
+            ORDER BY timestamp ASC
+        """)
+        rows = dbSession.execute(sqlQuery, {"sym": symbol, "cutoff": cutoff}).fetchall()
+        if rows:
+            df = pd.DataFrame(rows, columns=["priceDate", "closePrice"])
+            df["priceDate"] = pd.to_datetime(df["priceDate"])
+            df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
+            return df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+
     sqlQuery = text("""
         SELECT priceDate, closePrice
         FROM stockprices
@@ -211,16 +229,94 @@ def resamplePriceData(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return df
 
 
-def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt: datetime) -> bool:
-    """Verifica si ya existe un trade abierto registrado para la misma fecha de vela."""
-    sqlQuery = text("""
-        SELECT COUNT(*)
-        FROM trades
-        WHERE idCuenta = :idc
-          AND setup = :stp
-          AND status = 'OPEN'
-          AND DATE(candleTime) = DATE(:cdt)
-    """)
+def parseCandleDateTime(dtVal: Any) -> datetime:
+    """Parsea de forma robusta la fecha y hora de la vela preservando horas y minutos."""
+    s = str(dtVal).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s[:19], fmt)
+        except Exception:
+            pass
+    return datetime.now()
+
+
+def isCandleSignalFresh(candleDt: datetime, timeframe: str) -> bool:
+    """
+    Valida estrictamente que el cruce haya sucedido en el periodo actual:
+    - 1h: solo cruces de esa hora (máx 1.5 horas).
+    - 4h: solo cruces de esa barra de 4h (máx 4.5 horas).
+    - 15m/30m: solo cruces de esa fracción horaria.
+    - 1d: solo cruces de ese día.
+    - 1week: solo cruces de esa semana.
+    - 1month: solo cruces de ese mes.
+    """
+    tf = str(timeframe).lower().strip()
+    now = datetime.now()
+    deltaSecs = abs((now - candleDt).total_seconds())
+
+    if tf in ["1h", "1h"]:
+        return deltaSecs <= 5400  # Máximo 1 hora y media
+    elif tf in ["4h", "4h"]:
+        return deltaSecs <= 18000  # Máximo 5 horas
+    elif tf in ["15min", "15m"]:
+        return deltaSecs <= 1800   # Máximo 30 min
+    elif tf in ["30min", "30m"]:
+        return deltaSecs <= 3600   # Máximo 1 hora
+    elif tf in ["1d", "1d"]:
+        return deltaSecs <= 36 * 3600  # Cruces de hoy o cierre inmediato
+    elif tf in ["1week", "1w", "1w"]:
+        return deltaSecs <= 8 * 86400  # Cruces de la semana actual
+    elif tf in ["1month", "1m", "1m"]:
+        return deltaSecs <= 35 * 86400 # Cruces del mes actual
+
+    return deltaSecs <= 36 * 3600
+
+def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt: datetime, timeframe: str = "1d") -> bool:
+    """
+    Verifica si ya existe un trade abierto para el mismo periodo según la temporalidad:
+    - En horas (1h, 4h, 15m): busca coincidencia exacta de fecha y hora (candleTime = :cdt).
+    - En días (1d): busca coincidencia por día (DATE(candleTime) = DATE(:cdt)).
+    - En semanas (1w): busca coincidencia por semana (YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)).
+    - En meses (1m): busca coincidencia por mes (YEAR/MONTH).
+    """
+    tf = str(timeframe).lower().strip()
+    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]:
+        sqlQuery = text("""
+            SELECT COUNT(*)
+            FROM trades
+            WHERE idCuenta = :idc
+              AND setup = :stp
+              AND status = 'OPEN'
+              AND candleTime = :cdt
+        """)
+    elif tf in ["1week", "1w"]:
+        sqlQuery = text("""
+            SELECT COUNT(*)
+            FROM trades
+            WHERE idCuenta = :idc
+              AND setup = :stp
+              AND status = 'OPEN'
+              AND YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)
+        """)
+    elif tf in ["1month", "1m"]:
+        sqlQuery = text("""
+            SELECT COUNT(*)
+            FROM trades
+            WHERE idCuenta = :idc
+              AND setup = :stp
+              AND status = 'OPEN'
+              AND YEAR(candleTime) = YEAR(:cdt)
+              AND MONTH(candleTime) = MONTH(:cdt)
+        """)
+    else:
+        sqlQuery = text("""
+            SELECT COUNT(*)
+            FROM trades
+            WHERE idCuenta = :idc
+              AND setup = :stp
+              AND status = 'OPEN'
+              AND DATE(candleTime) = DATE(:cdt)
+        """)
     cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "stp": setupName, "cdt": candleDt}).scalar()
     return bool(cnt and cnt > 0)
 
@@ -328,6 +424,44 @@ def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict
             "ticketId": str(r[8]) if r[8] else None
         })
     return openTrades
+
+
+def buildRatioLotEntryAlertMessage(
+    accountName: str,
+    numerador: str,
+    denominador: str,
+    periodo: str,
+    symbol: str,
+    direction: str,
+    size: float,
+    fillPrice: float,
+    ticketId: str,
+    chunkMargin: float,
+    currentLotIndex: int,
+    totalLots: int,
+    signalType: str,
+    accountCapitalRemaining: float
+) -> str:
+    """Construye el mensaje formal de Telegram para un lote confirmado en FOREX.com."""
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    dirBadge = "🟢 COMPRA" if ("LARG" in str(direction).upper() or "BUY" in str(direction).upper()) else "🔴 VENTA"
+
+    lines = [
+        f"<center>🟩 <b>ATALA.ia ORDEN EJECUTADA</b> 🟩</center>",
+        f"<center><b> {numerador} ⇄ {denominador} ({periodo.upper()}) </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Señal:</b> {signalType} | <b>Lote {currentLotIndex}/{totalLots}</b>",
+        f"📍 <b>Orden:</b> {dirBadge} <b>{symbol}</b>",
+        f"🔹 <b>Precio Ejecución:</b> <b>{fillPrice:,.5f}</b>",
+        f"📦 <b>Volumen:</b> <b>{size:,.0f} unidades</b>",
+        f"🎟️ <b>Ticket ID (Broker):</b> <code>{ticketId}</code>",
+        f"💼 <b>Margen Retenido:</b> <b>${chunkMargin:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${accountCapitalRemaining:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━"
+    ]
+    return "\n".join(lines)
 
 
 def buildRatioEntryAlertMessage(
@@ -468,7 +602,11 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                 tokenAcceso=tokenAcceso
             )
 
-            for ordInfo in orders:
+            for idx, ordInfo in enumerate(orders):
+                if idx > 0:
+                    logger.info(f"⏳ [Webhook] Pausando 5.0s antes de enviar la siguiente orden ({ordInfo.get('symbol')}) para respetar candado anti-spam...")
+                    time.sleep(5.0)
+
                 symbol = ordInfo.get("symbol")
                 action = ordInfo.get("action")
                 size = float(ordInfo.get("size", 0.0))
@@ -494,20 +632,29 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
 
                 logger.info(f"🌐 [Webhook] Enviando orden {action.upper()} {symbol} ({size:,.0f} lotes) para cuenta {loginUsuario} ({nombreBroker})...")
                 try:
-                    resp = requests.post(webhookUrl, json=orderPayload, timeout=30)
+                    resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
                     if resp.status_code == 200:
                         resData = resp.json() if resp.text else {}
-                        orderId = resData.get("order_id")
-                        fillPrice = resData.get("fill_price") or entryPx
-                        logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} confirmada en FOREX.com -> OrderId: {orderId}, FillPrice: {fillPrice}")
-                        executionResults.append({
-                            "idTrade": idTrade,
-                            "symbol": symbol,
-                            "action": action,
-                            "order_id": orderId,
-                            "fill_price": fillPrice,
-                            "success": True
-                        })
+                        if resData.get("status") == "ignored":
+                            logger.warning(f"⚠️ [Webhook] Orden ignorada por candado: {resData.get('message')}")
+                            executionResults.append({
+                                "idTrade": idTrade,
+                                "symbol": symbol,
+                                "action": action,
+                                "success": False
+                            })
+                        else:
+                            orderId = resData.get("order_id")
+                            fillPrice = resData.get("fill_price") or entryPx
+                            logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} confirmada en FOREX.com -> OrderId: {orderId}, FillPrice: {fillPrice}")
+                            executionResults.append({
+                                "idTrade": idTrade,
+                                "symbol": symbol,
+                                "action": action,
+                                "order_id": orderId,
+                                "fill_price": fillPrice,
+                                "success": True
+                            })
                     else:
                         logger.error(f"❌ [Webhook] Error {resp.status_code} para {loginUsuario} en {symbol}: {resp.text}")
                         executionResults.append({
@@ -547,10 +694,19 @@ def openSingleRatioTradePair(
     symDataB: Dict[str, Any]
 ) -> bool:
     """
-    Registra EXACTAMENTE 2 registros (Pata 1: Numerador y Pata 2: Denominador) en 'trades',
-    calcula el dimensionamiento proporcional exacto (3% del capital disponible de la cuenta),
-    descuenta el margen retenido de 'cuenta.Capital' y envía la alerta de Cruces EMA por Telegram.
+    Ejecuta el ciclo de apertura de órdenes:
+    1. Se calcula el dimensionamiento y fragmentación de lotes.
+    2. Si la cuenta tiene broker activo en brokercuenta:
+       - Se envía a FOREX.com lote por lote (con 5s de pausa).
+       - Se confirma con el broker.
+       - Si hay confirmación -> se inserta en trades con TicketID real, se descuenta margen y se alerta por Telegram.
+       - Si no hay confirmación -> NO se inserta en BD.
+    3. Si la cuenta NO tiene broker en brokercuenta (cuenta interna/simulada):
+       - Se inserta en trades con ticketId=NULL, se descuenta margen de cuenta.Capital y se envía alerta a Telegram.
     """
+    import requests
+    from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
+
     accountCapital = float(accountData.get("capital", 300.0))
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
 
@@ -577,28 +733,10 @@ def openSingleRatioTradePair(
 
     unitsA = multA * minLotsA
     unitsB = multB * minLotsB
-    marginA = multA * margen1LotA
-    marginB = multB * margen1LotB
-    totalMargin = marginA + marginB
 
-    try:
-        candleDt = datetime.strptime(str(candleDateStr)[:10], "%Y-%m-%d")
-    except Exception:
-        candleDt = datetime.now()
+    candleDt = parseCandleDateTime(candleDateStr)
 
     nowStr = datetime.now()
-
-    insertTradeSql = text("""
-        INSERT INTO trades (
-            idCuenta, strategy, setup, symbol, status, direction,
-            intervalo, pnl, candleTime, openTime, size, entryPrice,
-            stopLoss, takeProfit, margin_used
-        ) VALUES (
-            :idCuenta, :strategy, :setup, :symbol, :status, :direction,
-            :intervalo, :pnl, :candleTime, :openTime, :size, :entryPrice,
-            :stopLoss, :takeProfit, :margin_used
-        )
-    """)
 
     # Fragmentar unidades según symbols.multiplo para evitar incrementos de margen escalonado
     multiploA = symDataA.get("multiplo")
@@ -623,151 +761,238 @@ def openSingleRatioTradePair(
     else:
         chunksB = [float(unitsB)]
 
-    webhookOrders = []
-    tradeIdsA = []
-    tradeIdsB = []
-
-    # 1. Pata 1: Numerador (1 o más sub-trades según multiplo)
+    # Construir lista ordenada de todos los lotes a despachar
+    lotsToExecute = []
     for cA in chunksA:
-        chunkMarginA = cA * margenRateA
-        resA = dbSession.execute(insertTradeSql, {
-            "idCuenta": idCuenta,
-            "strategy": "RATIO ATALAia",
-            "setup": setupName,
+        lotsToExecute.append({
             "symbol": numerador,
-            "status": "OPEN",
             "direction": directionA,
-            "intervalo": periodo,
-            "pnl": 0.0,
-            "candleTime": candleDt,
-            "openTime": nowStr,
-            "size": cA,
-            "entryPrice": entryPxA,
-            "stopLoss": None,
-            "takeProfit": None,
-            "margin_used": chunkMarginA
-        })
-        tIdA = resA.lastrowid
-        tradeIdsA.append(tIdA)
-        webhookOrders.append({
-            "idTrade": tIdA,
-            "strategy": "RATIO ATALAia",
-            "symbol": numerador,
             "action": "buy" if directionA == "LARGO" else "sell",
             "size": cA,
-            "entryPrice": entryPxA
+            "entryPrice": entryPxA,
+            "margenRate": margenRateA,
+            "leg": "1"
         })
-
-    # 2. Pata 2: Denominador (1 o más sub-trades según multiplo)
     for cB in chunksB:
-        chunkMarginB = cB * margenRateB
-        resB = dbSession.execute(insertTradeSql, {
-            "idCuenta": idCuenta,
-            "strategy": "RATIO ATALAia",
-            "setup": setupName,
+        lotsToExecute.append({
             "symbol": denominador,
-            "status": "OPEN",
             "direction": directionB,
-            "intervalo": periodo,
-            "pnl": 0.0,
-            "candleTime": candleDt,
-            "openTime": nowStr,
-            "size": cB,
-            "entryPrice": entryPxB,
-            "stopLoss": None,
-            "takeProfit": None,
-            "margin_used": chunkMarginB
-        })
-        tIdB = resB.lastrowid
-        tradeIdsB.append(tIdB)
-        webhookOrders.append({
-            "idTrade": tIdB,
-            "strategy": "RATIO ATALAia",
-            "symbol": denominador,
             "action": "buy" if directionB == "LARGO" else "sell",
             "size": cB,
-            "entryPrice": entryPxB
+            "entryPrice": entryPxB,
+            "margenRate": margenRateB,
+            "leg": "2"
         })
 
-    # 3. Descontar margen retenido total de cuenta.Capital
-    updateCapitalSql = text("""
-        UPDATE cuenta
-        SET Capital = Capital - :margenRetenido
-        WHERE idCuenta = :idc
+    # Consultar brokers activos para la cuenta
+    queryBrokers = text("""
+        SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
+        FROM brokercuenta bc
+        LEFT JOIN broker b ON bc.idBroker = b.idBroker
+        WHERE bc.idCuenta = :idc AND bc.activo = 1
     """)
-    dbSession.execute(updateCapitalSql, {
-        "margenRetenido": totalMargin,
-        "idc": idCuenta
-    })
-    dbSession.commit()
+    activeBrokers = dbSession.execute(queryBrokers, {"idc": idCuenta}).mappings().fetchall()
 
-    if len(chunksA) > 1 or len(chunksB) > 1:
-        logger.info(
-            f"🧩 [multiplo] Orden fragmentada: {numerador} ({unitsA:,.0f} u -> {len(chunksA)} trades: {chunksA}) | "
-            f"{denominador} ({unitsB:,.0f} u -> {len(chunksB)} trades: {chunksB})"
+    webhookUrl = os.getenv("WEBHOOK_URL") or "http://127.0.0.1:8002/webhook/tradingview"
+    rawPassphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+    encryptedPassphrase = encryptValue(rawPassphrase) if rawPassphrase else ""
+
+    insertTradeSql = text("""
+        INSERT INTO trades (
+            idCuenta, strategy, setup, symbol, status, direction,
+            intervalo, pnl, candleTime, openTime, size, entryPrice,
+            stopLoss, takeProfit, margin_used, ticketId
+        ) VALUES (
+            :idCuenta, 'RATIO ATALAia', :setup, :symbol, 'OPEN', :direction,
+            :intervalo, 0.0, :candleTime, :openTime, :size, :entryPrice,
+            NULL, NULL, :margin_used, :ticketId
         )
+    """)
 
-    # 4. Despachar Órdenes al Webhook y recibir ID de Transacción (ticketId) y Precio Real
-    execResults = sendRatioWebhookOrders(dbSession, idCuenta, webhookOrders)
+    totalLotsCount = len(lotsToExecute)
+    insertedTrades = []
 
-    # 5. Corregir precio real de ejecución y guardar TicketID en cada registro individual en MySQL
-    realPxA, realPxB = entryPxA, entryPxB
-    for res in execResults:
-        tId = res.get("idTrade")
-        ordId = res.get("order_id")
-        fPx = res.get("fill_price")
-        if tId and (ordId or fPx):
-            updateTradeSyncSql = text("""
-                UPDATE trades
-                SET ticketId = COALESCE(:ticketId, ticketId),
-                    entryPrice = COALESCE(:fillPrice, entryPrice)
-                WHERE idTrade = :idt
-            """)
-            dbSession.execute(updateTradeSyncSql, {
-                "ticketId": str(ordId) if ordId else None,
-                "fillPrice": float(fPx) if fPx else None,
-                "idt": tId
+    logger.info(f"🧩 [{setupName}] Iniciando secuencia de {totalLotsCount} lote(s) para Cuenta #{idCuenta} ({accountName})...")
+
+    # CASO 1: Cuenta con Broker Conectado (FOREX.com / Webhook)
+    if activeBrokers:
+        for idx, lot in enumerate(lotsToExecute):
+            if idx > 0:
+                logger.info(f"⏳ [FOREX] Esperando 5.0s antes de despachar lote {idx+1}/{totalLotsCount} ({lot['symbol']})...")
+                time.sleep(5.0)
+
+            sym = lot["symbol"]
+            act = lot["action"]
+            dirStr = lot["direction"]
+            sz = float(lot["size"])
+            px = float(lot["entryPrice"])
+            rate = float(lot["margenRate"])
+            chunkMargin = sz * rate
+
+            for bc in activeBrokers:
+                loginUsuario = bc.get("loginUsuario", "")
+                tokenAcceso = bc.get("tokenAcceso", "")
+                nombreBroker = bc.get("nombreBroker", "Broker")
+
+                encryptedAccountToken = buildEncryptedAccountToken(
+                    idCuenta=idCuenta,
+                    loginUsuario=loginUsuario,
+                    tokenAcceso=tokenAcceso
+                )
+
+                orderPayload = {
+                    "strategy": "RATIO ATALAia",
+                    "passphrase": encryptedPassphrase,
+                    "time": time.time(),
+                    "action": act,
+                    "ticker": sym,
+                    "entry": px,
+                    "quantity": sz,
+                    "tp": 0.0,
+                    "sl": 0.0,
+                    "sync": True,
+                    "ticketId": None,
+                    "FOREX_USERNAME": encryptedAccountToken
+                }
+
+                logger.info(f"🌐 [Lote {idx+1}/{totalLotsCount}] Enviando a FOREX.com: {act.upper()} {sym} ({sz:,.0f} u) para {loginUsuario} ({nombreBroker})...")
+
+                isConfirmed = False
+                orderId = None
+                fillPrice = px
+
+                try:
+                    resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
+                    if resp.status_code == 200:
+                        resData = resp.json() if resp.text else {}
+                        if resData.get("status") == "success" and resData.get("order_id"):
+                            isConfirmed = True
+                            orderId = str(resData.get("order_id"))
+                            fillPrice = float(resData.get("fill_price") or px)
+                            logger.info(f"✅ [FOREX] Lote {idx+1}/{totalLotsCount} confirmado -> OrderId: {orderId}, FillPrice: {fillPrice}")
+                        elif resData.get("status") == "ignored":
+                            logger.warning(f"⚠️ [FOREX] Orden ignorada por candado anti-spam: {resData.get('message')}")
+                        else:
+                            logger.error(f"❌ [FOREX] Error devuelto por FOREX.com: {resData}")
+                    else:
+                        logger.error(f"❌ [FOREX] Error HTTP {resp.status_code} al despachar lote: {resp.text}")
+                except Exception as exReq:
+                    logger.error(f"❌ [FOREX] Excepción de conexión enviando lote a {webhookUrl}: {exReq}")
+
+                if isConfirmed and orderId:
+                    resInsert = dbSession.execute(insertTradeSql, {
+                        "idCuenta": idCuenta,
+                        "setup": setupName,
+                        "symbol": sym,
+                        "direction": dirStr,
+                        "intervalo": periodo,
+                        "candleTime": candleDt,
+                        "openTime": nowStr,
+                        "size": sz,
+                        "entryPrice": fillPrice,
+                        "margin_used": chunkMargin,
+                        "ticketId": orderId
+                    })
+                    tId = resInsert.lastrowid
+                    insertedTrades.append(tId)
+
+                    dbSession.execute(text("""
+                        UPDATE cuenta
+                        SET Capital = Capital - :chunkMargin
+                        WHERE idCuenta = :idc
+                    """), {"chunkMargin": chunkMargin, "idc": idCuenta})
+                    dbSession.commit()
+
+                    capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
+                    curCapital = float(capRow["Capital"]) if capRow else accountCapital
+
+                    logger.info(f"💾 [BD] Trade #{tId} guardado exitosamente en BD (TicketId: {orderId}, Margen: ${chunkMargin:,.2f} USD).")
+
+                    alertMsg = buildRatioLotEntryAlertMessage(
+                        accountName=accountName,
+                        numerador=numerador,
+                        denominador=denominador,
+                        periodo=periodo,
+                        symbol=sym,
+                        direction=dirStr,
+                        size=sz,
+                        fillPrice=fillPrice,
+                        ticketId=orderId,
+                        chunkMargin=chunkMargin,
+                        currentLotIndex=idx + 1,
+                        totalLots=totalLotsCount,
+                        signalType=signalType,
+                        accountCapitalRemaining=curCapital
+                    )
+                    try:
+                        asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
+                    except Exception as exTel:
+                        logger.error(f"Error despachando alerta Telegram para lote #{tId}: {exTel}")
+                else:
+                    logger.error(f"⛔ [RECHAZADO] Lote {idx+1}/{totalLotsCount} ({act.upper()} {sym}, {sz:,.0f} u) NO confirmado por FOREX.com. NO se inserta en BD.")
+
+    # CASO 2: Cuenta Interna / Simulada (Sin Broker en brokercuenta)
+    else:
+        logger.info(f"ℹ️ [Simulado/Interno] Cuenta #{idCuenta} ({accountName}) sin broker conectado. Registrando operaciones directamente en BD...")
+        for idx, lot in enumerate(lotsToExecute):
+            sym = lot["symbol"]
+            dirStr = lot["direction"]
+            sz = float(lot["size"])
+            px = float(lot["entryPrice"])
+            rate = float(lot["margenRate"])
+            chunkMargin = sz * rate
+
+            resInsert = dbSession.execute(insertTradeSql, {
+                "idCuenta": idCuenta,
+                "setup": setupName,
+                "symbol": sym,
+                "direction": dirStr,
+                "intervalo": periodo,
+                "candleTime": candleDt,
+                "openTime": nowStr,
+                "size": sz,
+                "entryPrice": px,
+                "margin_used": chunkMargin,
+                "ticketId": None
             })
-            if tId in tradeIdsA and fPx:
-                realPxA = float(fPx)
-            elif tId in tradeIdsB and fPx:
-                realPxB = float(fPx)
+            tId = resInsert.lastrowid
+            insertedTrades.append(tId)
 
-    dbSession.commit()
-    tradeIdsA_str = ",".join(str(i) for i in tradeIdsA)
-    tradeIdsB_str = ",".join(str(i) for i in tradeIdsB)
-    logger.info(
-        f"🚀 [{setupName}] SEÑAL EJECUTADA: {signalType} en Cuenta #{idCuenta} "
-        f"| Pata 1 ({numerador}, Trades #[{tradeIdsA_str}]): {directionA} {unitsA:,.0f} lotes @ {realPxA} (Margen: ${marginA:,.2f}) "
-        f"| Pata 2 ({denominador}, Trades #[{tradeIdsB_str}]): {directionB} {unitsB:,.0f} lotes @ {realPxB} (Margen: ${marginB:,.2f}) "
-        f"| Margen Total Retenido: ${totalMargin:,.2f} USD (Cap. restante: ${(accountCapital - totalMargin):,.2f})"
-    )
+            dbSession.execute(text("""
+                UPDATE cuenta
+                SET Capital = Capital - :chunkMargin
+                WHERE idCuenta = :idc
+            """), {"chunkMargin": chunkMargin, "idc": idCuenta})
+            dbSession.commit()
 
-    # 5. Despachar Alerta por Telegram
-    alertMsg = buildRatioEntryAlertMessage(
-        accountName=accountName,
-        accountCapital=accountCapital,
-        numerador=numerador,
-        denominador=denominador,
-        periodo=periodo,
-        signalType=signalType,
-        directionA=directionA,
-        directionB=directionB,
-        unitsA=unitsA,
-        unitsB=unitsB,
-        priceA=entryPxA,
-        priceB=entryPxB,
-        marginA=marginA,
-        marginB=marginB,
-        totalMargin=totalMargin,
-        entryDate=str(candleDateStr)[:10]
-    )
-    try:
-        asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
-    except Exception as exTel:
-        logger.error(f"Error despachando alerta Telegram para Cuenta #{idCuenta}: {exTel}")
+            capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
+            curCapital = float(capRow["Capital"]) if capRow else accountCapital
 
-    return True
+            logger.info(f"💾 [BD] Trade simulado #{tId} ({dirStr} {sz:,.0f} {sym} @ {px}) guardado exitosamente en BD.")
+
+            alertMsg = buildRatioLotEntryAlertMessage(
+                accountName=accountName,
+                numerador=numerador,
+                denominador=denominador,
+                periodo=periodo,
+                symbol=sym,
+                direction=dirStr,
+                size=sz,
+                fillPrice=px,
+                ticketId="INTERNO",
+                chunkMargin=chunkMargin,
+                currentLotIndex=idx + 1,
+                totalLots=totalLotsCount,
+                signalType=signalType,
+                accountCapitalRemaining=curCapital
+            )
+            try:
+                asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
+            except Exception as exTel:
+                logger.error(f"Error despachando alerta Telegram para lote #{tId}: {exTel}")
+
+    logger.info(f"🎯 [{setupName}] Secuencia de lotes finalizada para Cuenta #{idCuenta}. Total registros creados en BD: {len(insertedTrades)}/{totalLotsCount}.")
+    return len(insertedTrades) > 0
 
 
 def closeRatioTrades(
@@ -1066,8 +1291,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     else:  # 1h, 4h, 15m, 30m
         neededDays = max((dias // 24) + 15, 60)
 
-    dfA = fetchPriceHistory(dbSession, numerador, daysLimit=neededDays)
-    dfB = fetchPriceHistory(dbSession, denominador, daysLimit=neededDays)
+    dfA = fetchPriceHistory(dbSession, numerador, daysLimit=neededDays, timeframe=periodo)
+    dfB = fetchPriceHistory(dbSession, denominador, daysLimit=neededDays, timeframe=periodo)
 
     if dfA.empty or dfB.empty:
         logger.warning(f"⚠️ [{accHeader}] Historial insuficiente para {numerador} o {denominador}.")
@@ -1076,14 +1301,14 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     dfATf = resamplePriceData(dfA, periodo).tail(dias)
     dfBTf = resamplePriceData(dfB, periodo).tail(dias)
 
-    # 3. Evaluación matemática con signalEngine
+    # 3. Evaluación matemática con signalEngine (sin EMA lenta, ventana fija 20 para sigma)
     evalResult = signalEngine.evaluateRatioSignals(
         dfA=dfATf,
         dfB=dfBTf,
         pairA=numerador,
         pairB=denominador,
         smaPeriod=emaRapida,
-        sigmaWindow=emaLenta,
+        sigmaWindow=20,
         includeBoxes=True
     )
 
@@ -1095,17 +1320,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         logger.warning(f"⚠️ [{accHeader}] No se obtuvieron señales del motor signalEngine.")
         return
 
-    # Si la vela más reciente en formación aún no tiene señal, verificar la vela cerrada inmediatamente anterior
+    # Evaluar ÚNICAMENTE la vela actual (sin retroceder a velas del pasado)
     targetSignal = latestSig
-    if not latestSig.get("signalType") and len(signalsList) >= 2:
-        prevCandleSig = signalsList[-2]
-        prevCandleDateStr = str(prevCandleSig.get("date", ""))[:10]
-        try:
-            prevCandleDt = datetime.strptime(prevCandleDateStr, "%Y-%m-%d")
-        except Exception:
-            prevCandleDt = datetime.now()
-        if prevCandleSig.get("signalType") and not checkTradeExistsForCandle(dbSession, idCuenta, setupName, prevCandleDt):
-            targetSignal = prevCandleSig
 
     pA = targetSignal.get("priceA", 0.0)
     pB = targetSignal.get("priceB", 0.0)
@@ -1139,11 +1355,16 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     latestSig = targetSignal
 
     if hasEntrySignal:
-        entryDateStr = str(latestSig.get("date", ""))[:10]
-        try:
-            candleDt = datetime.strptime(entryDateStr, "%Y-%m-%d")
-        except Exception:
-            candleDt = datetime.now()
+        entryDateStr = str(latestSig.get("date", "")).strip()
+        candleDt = parseCandleDateTime(entryDateStr)
+
+        # Validación estricta por temporalidad: solo insertar si el cruce sucedió en esa hora / día
+        if not isCandleSignalFresh(candleDt, periodo):
+            logger.info(
+                f"⏳ [{accHeader}] Cruce de fecha/hora {entryDateStr} no pertenece al periodo actual ({periodo}). "
+                f"Solo se insertan cruces ocurridos en esa hora/día. Omitiendo entrada."
+            )
+            return
 
         sigType = latestSig.get("signalType", "TRIANGULO")
         dirA = "CORTO" if latestSig.get("symbolAAction") == "SELL" else "LARGO"
@@ -1176,7 +1397,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 accountData = fetchAccountData(dbSession, idCuenta)
                 dbOpenTrades = []
 
-        alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt)
+        alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt, timeframe=periodo)
         if not alreadyEntered:
             # Control de Gestión de Riesgo: Indicador de Margen >= 200%
             canOperate, marginInd, totalMargin, equity = checkAccountMarginHealth(

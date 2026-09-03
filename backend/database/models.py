@@ -52,15 +52,17 @@ class Usuario(Base):
     """
     __tablename__ = "usuario"
 
-    idUsuario      = Column(Integer, primary_key=True, autoincrement=True)
-    username       = Column(String(50), unique=True, nullable=False)
-    passwordHash   = Column(String(255), nullable=False)
-    email          = Column(String(100))
-    nombre         = Column(String(100), nullable=True)
-    apellidoPaterno = Column(String(100), nullable=True)
-    apellidoMaterno = Column(String(100), nullable=True)
-    idRole         = Column(Integer, nullable=False)
-    status         = Column(Integer, default=1)
+    idUsuario          = Column(Integer, primary_key=True, autoincrement=True)
+    username           = Column(String(50), unique=True, nullable=False)
+    passwordHash       = Column(String(255), nullable=False)
+    passwordUpdatedAt  = Column(DateTime, nullable=True)
+    mustChangePassword = Column(Integer, default=0)
+    email              = Column(String(100))
+    nombre             = Column(String(100), nullable=True)
+    apellidoPaterno    = Column(String(100), nullable=True)
+    apellidoMaterno    = Column(String(100), nullable=True)
+    idRole             = Column(Integer, nullable=False)
+    status             = Column(Integer, default=1)
 
 class Menu(Base):
     """
@@ -119,6 +121,7 @@ class Cuenta(Base):
 
     idCuenta = Column(Integer, primary_key=True, autoincrement=True)
     Nombre = Column(String(100), nullable=False)
+    correo = Column(String(150), nullable=True)
     Capital = Column(Float, default=0.0)
     ganancia = Column(Float, default=1.0) # Representa el riesgo base de la cuenta
     Activo = Column(Integer, default=1)
