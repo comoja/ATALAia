@@ -1357,6 +1357,15 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     if hasEntrySignal:
         entryDateStr = str(latestSig.get("date", "")).strip()
         candleDt = parseCandleDateTime(entryDateStr)
+        
+        # Para temporalidad horaria, redondear candleDt a la hora en punto para que el candado de 1 orden por hora sea exacto
+        tf_clean = str(periodo).lower().strip()
+        if tf_clean in ["1h", "1H"]:
+            candleDt = candleDt.replace(minute=0, second=0, microsecond=0)
+            entryDateStr = candleDt.strftime("%Y-%m-%d %H:00:00")
+        elif tf_clean in ["1d", "1D"]:
+            candleDt = candleDt.replace(hour=0, minute=0, second=0, microsecond=0)
+            entryDateStr = candleDt.strftime("%Y-%m-%d")
 
         # Validación estricta por temporalidad: solo insertar si el cruce sucedió en esa hora / día
         if not isCandleSignalFresh(candleDt, periodo):
@@ -1445,12 +1454,15 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             logger.info(f"🔍 [{accHeader}] Sin señales de entrada (Triángulos/Cuadros) en la vela actual.")
 
 
-def processAllActiveRatios() -> int:
+def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
     """
-    Punto de entrada principal para un ciclo de evaluación de los ratios activos con operar=1.
+    Punto de entrada para la evaluación de ratios:
+    - Ratios en 1h (o menor): se evalúan en cada censo de 5 minutos.
+    - Ratios en 1d o mayor: solo se evalúan en el censo horario (is_hourly_tick=True).
     """
+    cycle_type = "HORARIO (1h y Diario)" if is_hourly_tick else "INTRA-HORA (5 min para 1h)"
     logger.info("=================================================================")
-    logger.info("📡 [microRatio] INICIANDO CICLO HORARIO DE EVALUACIÓN DE RATIOS...")
+    logger.info(f"📡 [microRatio] INICIANDO CENSO {cycle_type} DE RATIOS...")
     startTime = time.time()
     processedCount = 0
 
@@ -1458,9 +1470,16 @@ def processAllActiveRatios() -> int:
         try:
             ensureStrategyRegistered(dbSession)
             activeRatios = fetchActiveUserRatios(dbSession)
-            logger.info(f"📋 Ratios activos encontrados con operar=1: {len(activeRatios)}")
+            logger.info(f"📋 Ratios activos totales con operar=1: {len(activeRatios)}")
 
             for r in activeRatios:
+                tf = str(r.get("timeframe", "1h")).lower().strip()
+                is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+
+                # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar
+                if not is_intraday and not is_hourly_tick:
+                    continue
+
                 try:
                     processSingleUserRatio(dbSession, r)
                     processedCount += 1
@@ -1476,21 +1495,30 @@ def processAllActiveRatios() -> int:
     return processedCount
 
 
-async def runHourlyScheduler():
+async def runAdaptiveScheduler():
     """
-    Bucle asíncrono para ejecutar la evaluación cada hora en punto.
+    Bucle asíncrono adaptable:
+    - Censa cada 5 minutos para ratios en temporalidad horaria (1h).
+    - En el minuto :00 (hora en punto), censa además los ratios en temporalidad diaria (1d) o mayor.
+    - Candado estricto: máximo 1 orden por temporalidad (1 por hora en 1h, 1 por día en 1d).
     """
-    logger.info("🚀 [microRatio] Demonio de ejecución horaria iniciado.")
+    logger.info("🚀 [microRatio] Demonio adaptativo iniciado: censo cada 5 min (1h) y cada hora (1d).")
     while True:
+        now = datetime.now()
+        # Se considera censo horario si estamos en los primeros 4 minutos de la hora
+        is_hourly_tick = (now.minute < 5)
+
         try:
-            processAllActiveRatios()
+            processAllActiveRatios(is_hourly_tick=is_hourly_tick)
         except Exception as e:
-            logger.error(f"Error en ejecución horaria de microRatio: {e}", exc_info=True)
+            logger.error(f"Error en ejecución de microRatio: {e}", exc_info=True)
 
         now = datetime.now()
-        secondsUntilNextHour = (60 - now.minute - 1) * 60 + (60 - now.second)
-        logger.info(f"💤 Próxima evaluación en {secondsUntilNextHour // 60}m {secondsUntilNextHour % 60}s (en la siguiente hora en punto).")
-        await asyncio.sleep(max(10, secondsUntilNextHour))
+        # Calcular segundos restantes hasta el próximo bloque de 5 minutos (:00, :05, :10, :15, etc.)
+        secondsUntilNext5Min = (5 - (now.minute % 5) - 1) * 60 + (60 - now.second)
+        nextMin = (now.minute + (secondsUntilNext5Min // 60) + 1) % 60
+        logger.info(f"💤 Próximo censo en {secondsUntilNext5Min // 60}m {secondsUntilNext5Min % 60}s (en el minuto :{nextMin:02d}).")
+        await asyncio.sleep(max(5, secondsUntilNext5Min))
 
 
 def main():
@@ -1500,10 +1528,10 @@ def main():
 
     if args.once:
         logger.info("▶️ Modo de ejecución única activado (--once).")
-        processAllActiveRatios()
+        processAllActiveRatios(is_hourly_tick=True)
     else:
         try:
-            asyncio.run(runHourlyScheduler())
+            asyncio.run(runAdaptiveScheduler())
         except KeyboardInterrupt:
             logger.info("🛑 Detención manual del microservicio microRatio.")
 

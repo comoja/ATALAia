@@ -23,6 +23,14 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing ATALA.ia Pair Correlation Backend...")
+    from backend.database.models import init_db
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, init_db)
+        logger.info("Database schemas verified successfully.")
+    except Exception as e:
+        logger.warning(f"Could not verify DB schemas during startup: {e}")
     # scheduler.start() # TODO: Lo encederemos después cuando el cronjob esté 100% definido
     logger.info("Scheduler ready (paused).")
     yield

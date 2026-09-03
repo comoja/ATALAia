@@ -207,8 +207,9 @@ stopServices() {
         kill -9 "$portPid" 2>/dev/null
     fi
     wineserver -k 2>/dev/null || true
-    pkill -f "winedevice.exe" 2>/dev/null || true
-    pkill -f "terminal64.exe" 2>/dev/null || true
+    pkill -9 -f "winedevice.exe" 2>/dev/null || true
+    pkill -9 -f "terminal64.exe" 2>/dev/null || true
+    pkill -9 -f "wine" 2>/dev/null || true
 
     echo "✅ Servicios de ATALA.ia detenidos."
     echo "=========================================================="

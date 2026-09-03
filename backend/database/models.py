@@ -178,5 +178,23 @@ class UsuarioCuenta(Base):
     activo = Column(Boolean, default=True, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
 
-# Crea las tablas si no existen en la BD "ATALAia"
-Base.metadata.create_all(bind=engine)
+# Crea las tablas si no existen en la BD "ATALAia" de forma resiliente
+def init_db(max_retries=15, delay=2):
+    """
+    Intenta crear/verificar las tablas de BD de forma resiliente
+    sin tumbar la aplicación si MySQL aún está iniciando.
+    """
+    import time
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            return True
+        except Exception as exc:
+            if attempt == max_retries:
+                print(f"❌ Error al inicializar tablas en MySQL tras {max_retries} intentos: {exc}")
+                return False
+            time.sleep(delay)
+    return False
+
+# Inicialización segura
+init_db(max_retries=5, delay=1)
