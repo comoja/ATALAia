@@ -79,6 +79,17 @@ startServices() {
     echo "🚀 Levantando Sistema ATALA.ia (Aetherial UI)..."
     echo "=========================================================="
 
+    # 1.1 Verificar disponibilidad de MySQL antes de levantar servicios
+    echo "🔍 Verificando disponibilidad de MySQL en 127.0.0.1:3306..."
+    for i in {1..30}; do
+        if timeout 1 bash -c "</dev/tcp/127.0.0.1/3306" 2>/dev/null; then
+            echo "✅ Conexión con MySQL establecida."
+            break
+        fi
+        echo "⏳ Esperando a que MySQL esté disponible ($i/30)..."
+        sleep 1
+    done
+
     # 2. Levantar MT5 Bridge si existe Wine Python (puerto 8005)
     if [ -f "$winePython" ]; then
         echo "⚡ Iniciando MT5 Wine Bridge en puerto 8005..."
@@ -102,6 +113,15 @@ startServices() {
     disown $backendPid 2>/dev/null || true
     echo "$backendPid" > "$backendPidFile"
     echo "✅ Backend levantado con éxito (PID: $backendPid)."
+
+    # Verificar que el backend responda en puerto 8004
+    for i in {1..15}; do
+        if timeout 1 bash -c "</dev/tcp/127.0.0.1/8004" 2>/dev/null; then
+            echo "✅ Backend FastAPI respondiendo en http://localhost:8004"
+            break
+        fi
+        sleep 1
+    done
 
     # 4. Preparar y compilar Frontend solo si falta el JAR o si se pide rebuild
     cacheTarget="$HOME/.build-cache/atalaia-frontend/target"
@@ -147,7 +167,26 @@ startServices() {
 
     if [ "$isDaemon" = "daemon" ] || [ "$isDaemon" = "--daemon" ]; then
         trap cleanupAndExit INT TERM
-        while true; do sleep 3600 & wait $!; done
+        while true; do
+            # Watchdog Backend FastAPI (Puerto 8004)
+            if [ -n "$backendPid" ] && ! kill -0 "$backendPid" 2>/dev/null; then
+                echo "⚠️ [Daemon Watchdog] Backend FastAPI (PID $backendPid) no responde o terminó. Reiniciando..."
+                cd "$scriptDir" || exit 1
+                nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload >> "$logsDir/backend_output.log" 2>&1 &
+                backendPid=$!
+                disown $backendPid 2>/dev/null || true
+                echo "$backendPid" > "$backendPidFile"
+            fi
+            # Watchdog Frontend Tomcat (Puerto 8080)
+            if [ -n "$frontendPid" ] && ! kill -0 "$frontendPid" 2>/dev/null; then
+                echo "⚠️ [Daemon Watchdog] Frontend Tomcat (PID $frontendPid) no responde o terminó. Reiniciando..."
+                nohup "$javaCmd" -jar "$jarPath" >> "$logsDir/frontend_output.log" 2>&1 &
+                frontendPid=$!
+                disown $frontendPid 2>/dev/null || true
+                echo "$frontendPid" > "$frontendPidFile"
+            fi
+            sleep 5 & wait $!
+        done
     fi
 }
 
