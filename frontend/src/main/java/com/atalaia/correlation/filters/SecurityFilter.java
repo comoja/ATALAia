@@ -50,6 +50,32 @@ public class SecurityFilter implements Filter {
             return;
         }
 
+        // 0. Endpoint ligero de verificación de sesión activa
+        if (relativeUri.equals("/api/session-check")) {
+            httpResponse.setContentType("application/json");
+            httpResponse.setCharacterEncoding("UTF-8");
+            httpResponse.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            httpResponse.setHeader("Pragma", "no-cache");
+            httpResponse.setDateHeader("Expires", 0);
+
+            HttpSession session = httpRequest.getSession(false);
+            SecurityBean securityBean = null;
+            if (session != null) {
+                securityBean = (SecurityBean) session.getAttribute("securityBean");
+            }
+
+            boolean isActive = (session != null && securityBean != null && securityBean.isLoggedIn());
+            if (isActive) {
+                httpResponse.setStatus(HttpServletResponse.SC_OK);
+                httpResponse.getWriter().write("{\"active\":true,\"username\":\"" + (securityBean.getUsername() != null ? securityBean.getUsername() : "") + "\"}");
+            } else {
+                httpResponse.setStatus(HttpServletResponse.SC_OK);
+                httpResponse.getWriter().write("{\"active\":false,\"redirectUrl\":\"" + contextPath + "/login.xhtml\"}");
+            }
+            httpResponse.getWriter().flush();
+            return;
+        }
+
         // 1. Permitir acceso a recursos estáticos (CSS, JS, imágenes de PrimeFaces, etc.)
         boolean isStaticResource = relativeUri.contains("/javax.faces.resource/") ||
                                    relativeUri.contains("/resources/") ||
@@ -80,7 +106,24 @@ public class SecurityFilter implements Filter {
 
             if (securityBean == null || !securityBean.isLoggedIn()) {
                 log.warn("Acceso no autorizado bloqueado a: {}. Redirigiendo a login.xhtml", relativeUri);
-                // Redireccionar al login
+
+                String facesRequest = httpRequest.getHeader("Faces-Request");
+                boolean isAjax = "partial/ajax".equals(facesRequest) || 
+                                 "XMLHttpRequest".equals(httpRequest.getHeader("X-Requested-With"));
+
+                if (isAjax) {
+                    httpResponse.setContentType("text/xml");
+                    httpResponse.setCharacterEncoding("UTF-8");
+                    httpResponse.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+                    httpResponse.getWriter().write(
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                        "<partial-response id=\"j_id1\"><redirect url=\"" + contextPath + "/login.xhtml\"></redirect></partial-response>"
+                    );
+                    httpResponse.getWriter().flush();
+                    return;
+                }
+
+                // Redireccionar al login para peticiones estándar
                 httpResponse.sendRedirect(contextPath + "/login.xhtml");
                 return;
             }

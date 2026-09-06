@@ -1,3 +1,5 @@
+from fastapi.responses import StreamingResponse
+import io
 import os
 import asyncio
 import sys
@@ -161,10 +163,11 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
             existingRatio.EMARapida = emaRapida
             existingRatio.EMALenta = emaLenta
             existingRatio.operar = operar
+            existingRatio.borrado = False
             existingRatio.createdAt = datetime.utcnow()
             db.commit()
             db.refresh(existingRatio)
-            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, Borrado: False]")
             return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "idCuenta": cuentaId, "action": "updated"}
         else:
             nuevoRatio = UserRatio(
@@ -177,6 +180,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
                 EMARapida=emaRapida,
                 EMALenta=emaLenta,
                 operar=operar,
+                borrado=False,
                 createdAt=datetime.utcnow()
             )
             db.add(nuevoRatio)
@@ -197,7 +201,8 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
     """
     query = db.query(UserRatio).filter(
         UserRatio.numerador == numerador,
-        UserRatio.denominador == denominador
+        UserRatio.denominador == denominador,
+        (UserRatio.borrado == False) | (UserRatio.borrado == None)
     )
     if idCuenta:
         query = query.filter(UserRatio.idCuenta == idCuenta)
@@ -209,7 +214,8 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
     if not ratio:
         query_inv = db.query(UserRatio).filter(
             UserRatio.numerador == denominador,
-            UserRatio.denominador == numerador
+            UserRatio.denominador == numerador,
+            (UserRatio.borrado == False) | (UserRatio.borrado == None)
         )
         if idCuenta:
             query_inv = query_inv.filter(UserRatio.idCuenta == idCuenta)
@@ -257,7 +263,9 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
 def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
     """
     Elimina por el índice compuesto (idUsuario, idCuenta, numerador, denominador) el registro correspondiente.
-    Valida que NO tenga registros activos (status = 'OPEN') en la tabla trades.
+    - Si tiene posiciones OPEN: Bloquea y solicita cerrarlas primero en Posiciones Activas.
+    - Si tiene registros históricos en la tabla trades: Borrado LÓGICO (borrado = 1, operar = 0).
+    - Si NO tiene ningún registro en trades: Borrado FÍSICO (DELETE).
     """
     try:
         query = db.query(UserRatio).filter(
@@ -273,27 +281,57 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
         if not ratioToDelete:
             raise HTTPException(status_code=404, detail="No se encontró la combinación de ratio especificada para eliminar.")
 
-        # Validar si tiene posiciones activas en la tabla trades
-        if ratioToDelete.idCuenta:
-            s1 = f"{payload.numerador} - {payload.denominador}"
-            s2 = f"{payload.denominador} - {payload.numerador}"
-            from sqlalchemy import text
-            cnt = db.execute(text("""
+        targetAccount = ratioToDelete.idCuenta or payload.idCuenta
+        from sqlalchemy import text
+        s1 = f"{payload.numerador} - {payload.denominador}"
+        s2 = f"{payload.denominador} - {payload.numerador}"
+        s3 = f"{payload.numerador.replace("//", "")} - {payload.denominador.replace("//", "")}"
+        s4 = f"{payload.denominador.replace("//", "")} - {payload.numerador.replace("//", "")}"
+
+        # 1. Validar si tiene posiciones activas (OPEN) en trades
+        if targetAccount:
+            open_cnt = db.execute(text("""
                 SELECT COUNT(*) FROM trades 
                 WHERE idCuenta = :idc 
-                  AND (setup = :s1 OR setup = :s2)
+                  AND (setup = :s1 OR setup = :s2 OR setup = :s3 OR setup = :s4)
                   AND status = 'OPEN'
-            """), {"idc": ratioToDelete.idCuenta, "s1": s1, "s2": s2}).scalar()
-            if cnt and cnt > 0:
+            """), {"idc": targetAccount, "s1": s1, "s2": s2, "s3": s3, "s4": s4}).scalar()
+            if open_cnt and open_cnt > 0:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"No se puede borrar el ratio porque tiene {cnt} posiciones activas (no cerradas) en la tabla trades."
+                    detail=f"No se puede borrar el ratio porque tiene {open_cnt} posiciones abiertas en mercado. Primero ciérralas desde la pestaña Posiciones Activas."
                 )
 
-        db.delete(ratioToDelete)
-        db.commit()
-        logger.info(f"Ratio eliminado para usuario {payload.idUsuario} (cuenta {ratioToDelete.idCuenta}): {payload.numerador}/{payload.denominador}")
-        return {"status": "success", "message": "Ratio eliminado exitosamente"}
+            # 2. Validar si existen registros históricos en trades (cualquier status)
+            total_trades = db.execute(text("""
+                SELECT COUNT(*) FROM trades 
+                WHERE idCuenta = :idc 
+                  AND (setup = :s1 OR setup = :s2 OR setup = :s3 OR setup = :s4)
+            """), {"idc": targetAccount, "s1": s1, "s2": s2, "s3": s3, "s4": s4}).scalar() or 0
+        else:
+            total_trades = 0
+
+        if total_trades > 0:
+            # Borrado LÓGICO: Preservar en BD para historial, pero marcar borrado = True y operar = False
+            ratioToDelete.borrado = True
+            ratioToDelete.operar = False
+            db.commit()
+            logger.info(f"Ratio marcado como borrado LÓGICO para usuario {payload.idUsuario} (cuenta {targetAccount}): {payload.numerador}/{payload.denominador} ({total_trades} trades históricos preservados)")
+            return {
+                "status": "success",
+                "action": "logical_delete",
+                "message": f"Ratio {payload.numerador} / {payload.denominador} archivado lógicamente. Se conservaron {total_trades} registros históricos en trades."
+            }
+        else:
+            # Borrado FÍSICO: No hay trades asociados
+            db.delete(ratioToDelete)
+            db.commit()
+            logger.info(f"Ratio eliminado FÍSICAMENTE para usuario {payload.idUsuario} (cuenta {targetAccount}): {payload.numerador}/{payload.denominador} (sin historial de trades)")
+            return {
+                "status": "success",
+                "action": "physical_delete",
+                "message": f"Ratio {payload.numerador} / {payload.denominador} eliminado físicamente de la base de datos."
+            }
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -753,12 +791,18 @@ def desasignarUsuarioCuenta(payload: UsuarioCuentaDelete, db: Session = Depends(
 def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
     Obtiene todos los ratios guardados para la cuenta especificada (prioritario) o usuario,
-    incluyendo la bandera hasOpenTrades si existen órdenes activas en trades.
+    excluyendo aquellos con borrado = True (borrados lógicamente).
     """
     if idCuenta:
-        query = db.query(UserRatio).filter(UserRatio.idCuenta == idCuenta)
+        query = db.query(UserRatio).filter(
+            UserRatio.idCuenta == idCuenta,
+            (UserRatio.borrado == False) | (UserRatio.borrado == None)
+        )
     else:
-        query = db.query(UserRatio).filter(UserRatio.idUsuario == idUsuario)
+        query = db.query(UserRatio).filter(
+            UserRatio.idUsuario == idUsuario,
+            (UserRatio.borrado == False) | (UserRatio.borrado == None)
+        )
     ratios = query.order_by(UserRatio.id.desc()).all()
 
     from sqlalchemy import text
@@ -843,6 +887,12 @@ async def get_ratio_correlation(
 
             if end_date:
                 dt_end = pd.to_datetime(end_date).tz_localize(None)
+                if len(str(end_date).strip()) <= 10 or (dt_end.hour == 0 and dt_end.minute == 0 and dt_end.second == 0):
+                    now_dt = datetime.now()
+                    if dt_end.date() >= now_dt.date():
+                        dt_end = now_dt + timedelta(minutes=5)
+                    else:
+                        dt_end = dt_end.replace(hour=23, minute=59, second=59)
             else:
                 dt_end = datetime.now() + timedelta(days=1)
 
@@ -975,6 +1025,12 @@ async def get_ratio_correlation(
                     try:
                         dt_start_filter = pd.to_datetime(start_date, utc=True).tz_localize(None) if start_date else pd.Timestamp.min
                         dt_end_filter = pd.to_datetime(end_date, utc=True).tz_localize(None) if end_date else pd.Timestamp.max
+                        if len(str(end_date).strip()) <= 10 or (dt_end_filter.hour == 0 and dt_end_filter.minute == 0 and dt_end_filter.second == 0):
+                            now_dt = datetime.now()
+                            if dt_end_filter.date() >= now_dt.date():
+                                dt_end_filter = now_dt + timedelta(minutes=5)
+                            else:
+                                dt_end_filter = dt_end_filter.replace(hour=23, minute=59, second=59)
                         
                         for item in history_real:
                             item_dt = pd.to_datetime(item["datetime"], utc=True).tz_localize(None)
@@ -1561,42 +1617,99 @@ async def get_cruces_ema_pair_analysis(
     pairB = unquote(pairB)
 
     try:
+        import pandas as pd
         candle_limit = 100000
-        df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
-        df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+        tf_lower = str(timeframe).lower().strip()
+        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+
+        if is_intraday:
+            # Cargar historial de velas intradía desde la tabla candles (5min -> resampled)
+            if start_date:
+                dt_start = pd.to_datetime(start_date).tz_localize(None)
+            else:
+                hrs = (days if days else 180) * (4 if "4h" in tf_lower else 1)
+                dt_start = datetime.now() - timedelta(hours=hrs + 96)
+
+            if end_date:
+                dt_end = pd.to_datetime(end_date).tz_localize(None)
+            else:
+                dt_end = datetime.now() + timedelta(days=1)
+
+            def query_candles_for_pair(sym: str):
+                import pymysql
+                conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                try:
+                    sql = """
+                        SELECT timestamp, close as closePrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
+                    """
+                    df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if df_res.empty:
+                        return pd.DataFrame()
+                    df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
+                    df_res = df_res.set_index('timestamp')
+                    df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule = rule_map.get(tf_lower, "1h")
+                    return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
+                finally:
+                    conn.close()
+
+            df_a = await asyncio.to_thread(query_candles_for_pair, pairA)
+            df_b = await asyncio.to_thread(query_candles_for_pair, pairB)
+
+            if df_a.empty or df_b.empty:
+                df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+                df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+                is_intraday = False
+        else:
+            df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
+            df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
 
         if df_a.empty or df_b.empty:
             raise HTTPException(status_code=404, detail="Datos no encontrados para uno de los pares")
 
-        # Resample según temporalidad
-        resample_rule = None
-        if timeframe in ["1month", "1M"]:
-            resample_rule = "ME"
-        elif timeframe in ["1week", "1w", "1W"]:
-            resample_rule = "W"
-        elif timeframe in ["1d", "1D"]:
-            resample_rule = "D"
+        if not is_intraday:
+            # Resample según temporalidad diaria, semanal o mensual
+            resample_rule = None
+            if timeframe in ["1month", "1M"]:
+                resample_rule = "ME"
+            elif timeframe in ["1week", "1w", "1W"]:
+                resample_rule = "W"
+            elif timeframe in ["1d", "1D"]:
+                resample_rule = "D"
 
-        if resample_rule:
-            df_a_tf = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            df_b_tf = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
-            
-            live_a = get_live_price_from_mt5(pairA)
-            live_b = get_live_price_from_mt5(pairB)
-            
-            if len(df_a_tf) > 1:
-                if live_a is not None:
-                    df_a_tf.iloc[-1, df_a_tf.columns.get_loc('closePrice')] = live_a
-                else:
-                    df_a_tf = df_a_tf.iloc[:-1]
-            if len(df_b_tf) > 1:
-                if live_b is not None:
-                    df_b_tf.iloc[-1, df_b_tf.columns.get_loc('closePrice')] = live_b
-                else:
-                    df_b_tf = df_b_tf.iloc[:-1]
+            if resample_rule:
+                df_a_tf = df_a.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+                df_b_tf = df_b.resample(resample_rule).agg({'closePrice': 'last'}).dropna()
+                
+                live_a = get_live_price_from_mt5(pairA)
+                live_b = get_live_price_from_mt5(pairB)
+                
+                if len(df_a_tf) > 1:
+                    if live_a is not None:
+                        df_a_tf.iloc[-1, df_a_tf.columns.get_loc('closePrice')] = live_a
+                    else:
+                        df_a_tf = df_a_tf.iloc[:-1]
+                if len(df_b_tf) > 1:
+                    if live_b is not None:
+                        df_b_tf.iloc[-1, df_b_tf.columns.get_loc('closePrice')] = live_b
+                    else:
+                        df_b_tf = df_b_tf.iloc[:-1]
+            else:
+                df_a_tf = df_a.dropna()
+                df_b_tf = df_b.dropna()
         else:
             df_a_tf = df_a.dropna()
             df_b_tf = df_b.dropna()
+            live_a = get_live_price_from_mt5(pairA)
+            live_b = get_live_price_from_mt5(pairB)
+            if len(df_a_tf) > 1 and live_a is not None:
+                df_a_tf.iloc[-1, df_a_tf.columns.get_loc('closePrice')] = live_a
+            if len(df_b_tf) > 1 and live_b is not None:
+                df_b_tf.iloc[-1, df_b_tf.columns.get_loc('closePrice')] = live_b
 
         # Alinear fechas comunes (intersección)
         common_idx = df_a_tf.index.intersection(df_b_tf.index)
@@ -1704,6 +1817,15 @@ async def get_cruces_ema_pair_analysis(
             "pairA": pairA,
             "pairB": pairB,
             "timeframe": timeframe,
+            "days": days,
+            "startDate": combinedBt.get("startDate", "-"),
+            "endDate": combinedBt.get("endDate", "-"),
+            "totalBars": combinedBt.get("totalBars", 0),
+            "totalDays": combinedBt.get("totalDays", 0),
+            "totalCycles": combinedBt.get("totalCycles", 0),
+            "avgCycleHours": combinedBt.get("avgCycleHours", 0.0),
+            "avgCycleDays": combinedBt.get("avgCycleDays", 0.0),
+            "emaRapida": smaPeriod,
             "signalBacktest": {
                 "trianglesOnly": trianglesOnlyBt,
                 "combined": combinedBt
@@ -1845,3 +1967,422 @@ async def manual_close_ratio(
         "message": f"Successfully sent close signals for {setupName}",
         "operar": targetOperar
     }
+
+
+def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional[int] = None, strategy: Optional[str] = None, startDate: Optional[str] = None, endDate: Optional[str] = None) -> Dict[str, Any]:
+    from backend.database.models import SessionLocal
+    from sqlalchemy import text
+    from datetime import datetime
+
+    pairA = unquote(pairA).strip()
+    pairB = unquote(pairB).strip()
+    setup_ab = f"{pairA} - {pairB}"
+    setup_ba = f"{pairB} - {pairA}"
+
+    with SessionLocal() as db_session:
+        current_capital = 10000.0
+        account_name = ""
+        if idCuenta:
+            row_acc = db_session.execute(
+                text("SELECT Capital, Nombre FROM cuenta WHERE idCuenta = :idc"),
+                {"idc": idCuenta}
+            ).fetchone()
+            if row_acc:
+                if row_acc[0] is not None:
+                    current_capital = float(row_acc[0])
+                if row_acc[1] is not None:
+                    account_name = str(row_acc[1])
+
+        query = """
+            SELECT 
+                idTrade, idCuenta, strategy, setup, symbol, status, direction,
+                intervalo, pnl, candleTime, openTime, closeTime, size,
+                entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
+                commission, margin_used, ticketId
+            FROM trades
+            WHERE (
+                setup = :setupAB 
+                OR setup = :setupBA
+                OR (symbol IN (:pA, :pB) AND (strategy LIKE '%%RATIO%%' OR (:strat IS NOT NULL AND strategy = :strat)))
+            )
+        """
+        params = {
+            "setupAB": setup_ab,
+            "setupBA": setup_ba,
+            "pA": pairA,
+            "pB": pairB,
+            "strat": strategy
+        }
+        if idCuenta:
+            query += " AND idCuenta = :idc"
+            params["idc"] = idCuenta
+
+        if startDate and startDate.strip():
+            query += " AND COALESCE(openTime, candleTime) >= :start_dt"
+            params["start_dt"] = startDate.strip()
+
+        if endDate and endDate.strip():
+            end_val = endDate.strip()
+            if len(end_val) <= 10 or end_val.endswith(" 00:00:00"):
+                end_val = end_val[:10] + " 23:59:59"
+            query += " AND COALESCE(openTime, candleTime) <= :end_dt"
+            params["end_dt"] = end_val
+
+        query += " ORDER BY COALESCE(openTime, candleTime, idTrade) ASC"
+
+        rows = db_session.execute(text(query), params).fetchall()
+
+        trades_list = []
+        closed_trades = []
+        open_trades = []
+
+        total_pnl = 0.0
+        total_comm = 0.0
+        gross_win = 0.0
+        gross_loss = 0.0
+        total_margin_open = 0.0
+
+        current_cycle = 0
+        last_directions = {}
+        min_dt = None
+        max_dt = None
+        now_dt = datetime.now()
+
+        for r in rows:
+            pnl_val = float(r.pnl or 0.0)
+            comm_val = float(r.commission or 0.0)
+            net_trade_pnl = pnl_val - comm_val
+            status_val = str(r.status or "OPEN").upper()
+            margin_val = float(r.margin_used or 0.0)
+
+            t_open = r.openTime or r.candleTime
+            t_close = r.closeTime
+
+            if t_open:
+                if min_dt is None or t_open < min_dt:
+                    min_dt = t_open
+            if t_close and t_close <= now_dt:
+                if max_dt is None or t_close > max_dt:
+                    max_dt = t_close
+            elif t_open and t_open <= now_dt:
+                if max_dt is None or t_open > max_dt:
+                    max_dt = t_open
+
+            sym = r.symbol
+            direction_str = str(r.direction or "").upper()
+            if current_cycle == 0:
+                current_cycle = 1
+                last_directions = {sym: direction_str}
+            elif sym in last_directions and last_directions[sym] != direction_str:
+                current_cycle += 1
+                last_directions = {sym: direction_str}
+            else:
+                last_directions[sym] = direction_str
+
+            t_dict = {
+                "idTrade": r.idTrade,
+                "idCuenta": r.idCuenta,
+                "strategy": r.strategy,
+                "setup": r.setup or setup_ab,
+                "symbol": r.symbol,
+                "status": status_val,
+                "direction": str(r.direction or "").upper(),
+                "intervalo": r.intervalo or "1h",
+                "size": float(r.size or 0.0),
+                "entryPrice": float(r.entryPrice) if r.entryPrice is not None else None,
+                "exitPrice": float(r.exitPrice) if r.exitPrice is not None else None,
+                "pnl": round(pnl_val, 2),
+                "commission": round(comm_val, 2),
+                "netPnl": round(net_trade_pnl, 2),
+                "marginUsed": round(margin_val, 2),
+                "ticketId": str(r.ticketId or ""),
+                "openTime": r.openTime.strftime("%Y-%m-%d %H:%M") if r.openTime else (r.candleTime.strftime("%Y-%m-%d %H:%M") if r.candleTime else ""),
+                "closeTime": r.closeTime.strftime("%Y-%m-%d %H:%M") if r.closeTime else "",
+                "isWin": (net_trade_pnl > 0),
+                "cycleNum": current_cycle
+            }
+            trades_list.append(t_dict)
+
+            if status_val == "CLOSED":
+                closed_trades.append(t_dict)
+                total_pnl += pnl_val
+                total_comm += comm_val
+                if net_trade_pnl > 0:
+                    gross_win += net_trade_pnl
+                elif net_trade_pnl < 0:
+                    gross_loss += abs(net_trade_pnl)
+            elif status_val == "OPEN":
+                open_trades.append(t_dict)
+                total_margin_open += margin_val
+
+        # Configuración del Ratio desde user_ratios
+        ratio_cfg = db_session.execute(text("""
+            SELECT periodo, dias, EMARapida, EMALenta, operar 
+            FROM user_ratios
+            WHERE ((numerador = :pA AND denominador = :pB) OR (numerador = :pB AND denominador = :pA))
+            ORDER BY id DESC LIMIT 1
+        """), {"pA": pairA, "pB": pairB}).fetchone()
+
+        if ratio_cfg:
+            ratio_timeframe = str(ratio_cfg[0] or "1h")
+            ratio_days_back = int(ratio_cfg[1] or 180)
+            ratio_ema_rapida = int(ratio_cfg[2] or 2)
+            ratio_ema_lenta = int(ratio_cfg[3] or 15)
+            ratio_operar = bool(ratio_cfg[4])
+        else:
+            ratio_timeframe = "1h"
+            ratio_days_back = 180
+            ratio_ema_rapida = 2
+            ratio_ema_lenta = 15
+            ratio_operar = False
+
+        if min_dt and max_dt and current_cycle > 0:
+            start_date_str = min_dt.strftime("%Y-%m-%d %H:%M")
+            end_date_str = max_dt.strftime("%Y-%m-%d %H:%M")
+            total_days = max(1, (max_dt.date() - min_dt.date()).days + 1)
+            total_seconds = (max_dt - min_dt).total_seconds()
+            total_hours = max(1.0, total_seconds / 3600.0)
+            avg_cycle_hours = round(total_hours / current_cycle, 1)
+            avg_cycle_days = round(total_days / current_cycle, 1)
+        elif min_dt and max_dt:
+            start_date_str = min_dt.strftime("%Y-%m-%d %H:%M")
+            end_date_str = max_dt.strftime("%Y-%m-%d %H:%M")
+            total_days = max(1, (max_dt.date() - min_dt.date()).days + 1)
+            avg_cycle_hours = 0.0
+            avg_cycle_days = 0.0
+        else:
+            start_date_str = "-"
+            end_date_str = "-"
+            total_days = 0
+            avg_cycle_hours = 0.0
+            avg_cycle_days = 0.0
+
+        net_profit_total = total_pnl - total_comm
+        winning_count = sum(1 for t in closed_trades if t["netPnl"] > 0)
+        losing_count = sum(1 for t in closed_trades if t["netPnl"] < 0)
+        total_closed = len(closed_trades)
+        win_rate = round((winning_count / total_closed * 100.0), 1) if total_closed > 0 else 0.0
+        profit_factor = round((gross_win / gross_loss), 2) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
+
+        initial_capital = round(current_capital - net_profit_total, 2)
+        total_return_pct = round((net_profit_total / initial_capital * 100.0), 2) if initial_capital > 0 else 0.0
+
+        sorted_closed = sorted(closed_trades, key=lambda x: x["closeTime"] or x["openTime"])
+        equity_curve = [{"x": "Inicio", "y": initial_capital}]
+        acc_eq = initial_capital
+        for ct in sorted_closed:
+            acc_eq += ct["netPnl"]
+            d_label = ct["closeTime"] if ct["closeTime"] else ct["openTime"]
+            equity_curve.append({"x": d_label, "y": round(acc_eq, 2)})
+
+        summary = {
+            "totalTrades": len(trades_list),
+            "openTrades": len(open_trades),
+            "closedTrades": len(closed_trades),
+            "winningTrades": winning_count,
+            "losingTrades": losing_count,
+            "winRate": win_rate,
+            "profitFactor": profit_factor,
+            "totalPnl": round(total_pnl, 2),
+            "totalCommission": round(total_comm, 2),
+            "netProfit": round(net_profit_total, 2),
+            "totalReturnPct": total_return_pct,
+            "initialCapital": initial_capital,
+            "currentCapital": round(current_capital, 2),
+            "totalMarginUsed": round(total_margin_open, 2),
+            "accountName": account_name,
+            "totalCycles": current_cycle,
+            "startDate": start_date_str,
+            "endDate": end_date_str,
+            "totalDays": total_days,
+            "avgCycleHours": avg_cycle_hours,
+            "avgCycleDays": avg_cycle_days,
+            "ratioTimeframe": ratio_timeframe,
+            "ratioDaysBack": ratio_days_back,
+            "ratioEmaRapida": ratio_ema_rapida,
+            "ratioEmaLenta": ratio_ema_lenta,
+            "ratioOperar": ratio_operar
+        }
+
+        return {
+            "status": "success",
+            "pairA": pairA,
+            "pairB": pairB,
+            "idCuenta": idCuenta,
+            "summary": summary,
+            "equityCurve": equity_curve,
+            "trades": trades_list
+        }
+
+
+@router.get("/trades/movimientos/{pairA:path}")
+async def get_real_trades_movimientos(
+    pairA: str,
+    pairB: str,
+    idCuenta: Optional[int] = None,
+    strategy: Optional[str] = None,
+    startDate: Optional[str] = None,
+    endDate: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Consulta las operaciones reales ejecutadas en la tabla trades
+    para la estrategia de Ratio / Arbitraje, cuenta y pares seleccionados.
+    """
+    try:
+        return _get_real_trades_movimientos_data(pairA, pairB, idCuenta, strategy, startDate, endDate)
+    except Exception as e:
+        logger.error(f"Error consultando movimientos reales: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades/movimientos-excel/{pairA:path}")
+def export_real_trades_movimientos_excel(
+    pairA: str,
+    pairB: str,
+    idCuenta: Optional[int] = None,
+    strategy: Optional[str] = None,
+    startDate: Optional[str] = None,
+    endDate: Optional[str] = None
+):
+    """
+    Genera y descarga un archivo Excel (.xlsx) con los movimientos reales,
+    resumen del ratio, ciclos de arbitraje y métricas de desempeño.
+    """
+    try:
+        data = _get_real_trades_movimientos_data(pairA, pairB, idCuenta, strategy, startDate, endDate)
+        summary = data["summary"]
+        trades = data["trades"]
+
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Movimientos Reales"
+        ws.views.sheetView[0].showGridLines = True
+
+        # Tipografías y Colores Institucionales
+        font_title = Font(name="Calibri", size=14, bold=True, color="065F46")
+        font_meta_lbl = Font(name="Calibri", size=10, bold=True, color="1E293B")
+        font_meta_val = Font(name="Calibri", size=10, color="0F172A")
+        border_thin = Border(left=Side(style='thin', color='CBD5E1'),
+                             right=Side(style='thin', color='CBD5E1'),
+                             top=Side(style='thin', color='CBD5E1'),
+                             bottom=Side(style='thin', color='CBD5E1'))
+
+        # Encabezado Principal
+        ws["A1"] = "ATALAia - Registro de Movimientos Reales de la Estrategia (Trades)"
+        ws["A1"].font = font_title
+
+        # Bloque de Resumen y Características del Ratio
+        pA_clean = data.get("pairA", pairA)
+        pB_clean = data.get("pairB", pairB)
+        metadata = [
+            ("Ratio:", f"{pA_clean} / {pB_clean}", "Cuenta:", summary.get("accountName", f"Cuenta #{idCuenta}" if idCuenta else "Global")),
+            ("Temporalidad:", summary.get("ratioTimeframe", "1h"), "Periodo de Datos:", f"{summary.get('startDate')} al {summary.get('endDate')} ({summary.get('totalDays')} días)"),
+            ("EMAs:", f"Rápida: {summary.get('ratioEmaRapida')} | Lenta: {summary.get('ratioEmaLenta')}", "Estado Operar:", "Activo (ON)" if summary.get("ratioOperar") else "Inactivo (OFF)"),
+            ("Total Ciclos:", f"{summary.get('totalCycles')} Ciclos", "Total Trades:", f"{summary.get('totalTrades')} ({summary.get('closedTrades')} Cerradas / {summary.get('openTrades')} Activas)"),
+            ("PnL Neto Total:", f"${summary.get('netProfit', 0):,.2f} USD", "Retorno Real:", f"{summary.get('totalReturnPct', 0):.2f}%"),
+            ("Win Rate:", f"{summary.get('winRate', 0):.1f}%", "Profit Factor:", str(summary.get("profitFactor", 0)))
+        ]
+
+        curr_row = 3
+        for r in metadata:
+            ws.cell(row=curr_row, column=1, value=r[0]).font = font_meta_lbl
+            ws.cell(row=curr_row, column=2, value=r[1]).font = font_meta_val
+            ws.cell(row=curr_row, column=4, value=r[2]).font = font_meta_lbl
+            ws.cell(row=curr_row, column=5, value=r[3]).font = font_meta_val
+            curr_row += 1
+
+        curr_row += 1
+
+        # Cabeceras de la Tabla
+        headers = [
+            "Ciclo", "ID / Ticket", "Símbolo", "Dirección", "Estatus",
+            "Volumen", "Px Entrada", "Px Salida", "Fecha Apertura", "Fecha Cierre",
+            "Comisión ($)", "PnL Neto ($)"
+        ]
+        fill_header = PatternFill(start_color="065F46", end_color="065F46", fill_type="solid")
+        font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+
+        for c_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=curr_row, column=c_idx, value=h)
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border_thin
+
+        curr_row += 1
+
+        # Renglones de Trades
+        fill_even = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        fill_odd = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        font_row = Font(name="Calibri", size=10)
+
+        for i, t in enumerate(trades):
+            row_fill = fill_even if i % 2 == 0 else fill_odd
+            vals = [
+                f"Ciclo #{t.get('cycleNum', 1)}",
+                t.get('ticketId') or f"#{t.get('idTrade')}",
+                t.get('symbol', ''),
+                t.get('direction', ''),
+                "ACTIVA" if t.get('status') == "OPEN" else "CERRADA",
+                t.get('size', 0.0),
+                t.get('entryPrice') or "-",
+                t.get('exitPrice') or "-",
+                t.get('openTime', ''),
+                t.get('closeTime', '') or "-",
+                t.get('commission', 0.0),
+                t.get('netPnl', 0.0)
+            ]
+
+            for c_idx, val in enumerate(vals, 1):
+                cell = ws.cell(row=curr_row, column=c_idx, value=val)
+                cell.font = font_row
+                cell.fill = row_fill
+                cell.border = border_thin
+
+                if c_idx in [1, 2, 3, 4, 5]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif c_idx == 6:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    if isinstance(val, (int, float)):
+                        cell.number_format = "#,##0.00"
+                elif c_idx in [7, 8]:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    if isinstance(val, (int, float)):
+                        cell.number_format = "#,##0.00000"
+                elif c_idx in [9, 10]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif c_idx in [11, 12]:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    if isinstance(val, (int, float)):
+                        cell.number_format = "$#,##0.00;($#,##0.00);\"$0.00\""
+                        if c_idx == 12:
+                            if val > 0:
+                                cell.font = Font(name="Calibri", size=10, bold=True, color="15803D")
+                            elif val < 0:
+                                cell.font = Font(name="Calibri", size=10, bold=True, color="B91C1C")
+
+            curr_row += 1
+
+        # Ancho automático de columnas
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 13)
+
+        excel_buf = io.BytesIO()
+        wb.save(excel_buf)
+        excel_buf.seek(0)
+
+        clean_fn = f"movimientos_{pA_clean.replace('/', '')}_{pB_clean.replace('/', '')}.xlsx"
+        return StreamingResponse(
+            excel_buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={clean_fn}"}
+        )
+    except Exception as e:
+        logger.error(f"Error exportando movimientos reales a Excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

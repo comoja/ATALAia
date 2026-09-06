@@ -1,7 +1,7 @@
 package com.atalaia.correlation.beans;
 
 import javax.annotation.PostConstruct;
-import javax.enterprise.context.SessionScoped;
+import javax.faces.view.ViewScoped;
 import javax.inject.Named;
 import lombok.Getter;
 import lombok.Setter;
@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.ArrayList;
 import org.primefaces.model.charts.ChartData;
 import org.primefaces.model.charts.axes.cartesian.CartesianScales;
@@ -26,7 +28,7 @@ import org.primefaces.model.charts.line.LineChartOptions;
 import org.primefaces.model.charts.data.NumericPoint;
 
 @Named("dashboardBean")
-@SessionScoped
+@ViewScoped
 @Getter
 @Setter
 @Slf4j
@@ -167,6 +169,10 @@ public class DashboardBean implements Serializable {
         private double availableCapital = 0.0;
         private double accumCapital = 0.0;
         private boolean isWin = true;
+        private int cycleNum = 1;
+
+        public int getCycleNum() { return cycleNum; }
+        public void setCycleNum(int cycleNum) { this.cycleNum = cycleNum; }
         private double sizeA = 0.0;
         private double sizeB = 0.0;
         private double avgEntryPriceA = 0.0;
@@ -312,6 +318,16 @@ public class DashboardBean implements Serializable {
 
         public List<ActiveTradeItemDto> getTrades() { return trades; }
         public void setTrades(List<ActiveTradeItemDto> trades) { this.trades = trades; }
+
+        public String getTradesJson() {
+            try {
+                if (trades == null || trades.isEmpty()) return "[]";
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                return mapper.writeValueAsString(trades);
+            } catch (Exception e) {
+                return "[]";
+            }
+        }
 
         public String getPnlSign() { return totalPnl >= 0 ? "+" : ""; }
         public String getRetSign() { return returnPct >= 0 ? "+" : ""; }
@@ -506,6 +522,248 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    public static class RealTradesSummaryDto implements java.io.Serializable {
+        private int totalTrades = 0;
+        private int openTrades = 0;
+        private int closedTrades = 0;
+        private int winningTrades = 0;
+        private int losingTrades = 0;
+        private double winRate = 0.0;
+        private double profitFactor = 0.0;
+        private double totalPnl = 0.0;
+        private double totalCommission = 0.0;
+        private double netProfit = 0.0;
+        private double totalReturnPct = 0.0;
+        private double initialCapital = 10000.0;
+        private double currentCapital = 10000.0;
+        private double totalMarginUsed = 0.0;
+        private String accountName = "";
+
+        public int getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(int totalTrades) { this.totalTrades = totalTrades; }
+        public int getOpenTrades() { return openTrades; }
+        public void setOpenTrades(int openTrades) { this.openTrades = openTrades; }
+        public int getClosedTrades() { return closedTrades; }
+        public void setClosedTrades(int closedTrades) { this.closedTrades = closedTrades; }
+        public int getWinningTrades() { return winningTrades; }
+        public void setWinningTrades(int winningTrades) { this.winningTrades = winningTrades; }
+        public int getLosingTrades() { return losingTrades; }
+        public void setLosingTrades(int losingTrades) { this.losingTrades = losingTrades; }
+        public double getWinRate() { return winRate; }
+        public void setWinRate(double winRate) { this.winRate = winRate; }
+        public double getProfitFactor() { return profitFactor; }
+        public void setProfitFactor(double profitFactor) { this.profitFactor = profitFactor; }
+        public double getTotalPnl() { return totalPnl; }
+        public void setTotalPnl(double totalPnl) { this.totalPnl = totalPnl; }
+        public double getTotalCommission() { return totalCommission; }
+        public void setTotalCommission(double totalCommission) { this.totalCommission = totalCommission; }
+        public double getNetProfit() { return netProfit; }
+        public void setNetProfit(double netProfit) { this.netProfit = netProfit; }
+        public double getTotalReturnPct() { return totalReturnPct; }
+        public void setTotalReturnPct(double totalReturnPct) { this.totalReturnPct = totalReturnPct; }
+        public double getInitialCapital() { return initialCapital; }
+        public void setInitialCapital(double initialCapital) { this.initialCapital = initialCapital; }
+        public double getCurrentCapital() { return currentCapital; }
+        public void setCurrentCapital(double currentCapital) { this.currentCapital = currentCapital; }
+        public double getTotalMarginUsed() { return totalMarginUsed; }
+        public void setTotalMarginUsed(double totalMarginUsed) { this.totalMarginUsed = totalMarginUsed; }
+        public String getAccountName() { return accountName; }
+        public void setAccountName(String accountName) { this.accountName = accountName; }
+
+        public String getFormattedNetProfit() { return String.format(java.util.Locale.US, "%,.2f", netProfit); }
+        public String getFormattedTotalPnl() { return String.format(java.util.Locale.US, "%,.2f", totalPnl); }
+        public String getFormattedTotalCommission() { return String.format(java.util.Locale.US, "%,.2f", totalCommission); }
+        public String getFormattedCurrentCapital() { return String.format(java.util.Locale.US, "%,.2f", currentCapital); }
+        public String getFormattedInitialCapital() { return String.format(java.util.Locale.US, "%,.2f", initialCapital); }
+        public String getFormattedTotalMarginUsed() { return String.format(java.util.Locale.US, "%,.2f", totalMarginUsed); }
+
+        private String startDate = "-";
+        private String endDate = "-";
+        private int totalDays = 0;
+        private int totalCycles = 0;
+        private String ratioTimeframe = "1h";
+        private int ratioEmaRapida = 2;
+        private int ratioEmaLenta = 15;
+        private boolean ratioOperar = false;
+
+        public String getStartDate() { return startDate; }
+        public void setStartDate(String startDate) { this.startDate = startDate; }
+        public String getEndDate() { return endDate; }
+        public void setEndDate(String endDate) { this.endDate = endDate; }
+        public int getTotalDays() { return totalDays; }
+        public void setTotalDays(int totalDays) { this.totalDays = totalDays; }
+        public int getTotalCycles() { return totalCycles; }
+        public void setTotalCycles(int totalCycles) { this.totalCycles = totalCycles; }
+        public String getRatioTimeframe() { return ratioTimeframe; }
+        public void setRatioTimeframe(String ratioTimeframe) { this.ratioTimeframe = ratioTimeframe; }
+        public int getRatioEmaRapida() { return ratioEmaRapida; }
+        public void setRatioEmaRapida(int ratioEmaRapida) { this.ratioEmaRapida = ratioEmaRapida; }
+        public int getRatioEmaLenta() { return ratioEmaLenta; }
+        public void setRatioEmaLenta(int ratioEmaLenta) { this.ratioEmaLenta = ratioEmaLenta; }
+        public boolean isRatioOperar() { return ratioOperar; }
+        public void setRatioOperar(boolean ratioOperar) { this.ratioOperar = ratioOperar; }
+
+        private double avgCycleHours = 0.0;
+        private double avgCycleDays = 0.0;
+
+        public double getAvgCycleHours() { return avgCycleHours; }
+        public void setAvgCycleHours(double avgCycleHours) { this.avgCycleHours = avgCycleHours; }
+        public double getAvgCycleDays() { return avgCycleDays; }
+        public void setAvgCycleDays(double avgCycleDays) { this.avgCycleDays = avgCycleDays; }
+
+        public String getFormattedAvgCycleTime() {
+            if (totalCycles <= 0) {
+                return "-";
+            }
+            String tf = (ratioTimeframe != null && !ratioTimeframe.trim().isEmpty()) ? ratioTimeframe.toLowerCase().trim() : "1h";
+            if (tf.contains("d") || tf.contains("day") || tf.contains("dia")) {
+                double daysVal = avgCycleDays > 0 ? avgCycleDays : ((double) totalDays / totalCycles);
+                if (Math.abs(daysVal - Math.round(daysVal)) < 0.05) {
+                    return String.format(java.util.Locale.US, "%d %s", Math.round(daysVal), Math.round(daysVal) == 1 ? "Día" : "Días");
+                }
+                return String.format(java.util.Locale.US, "%.1f Días", daysVal);
+            } else {
+                double hrsVal = avgCycleHours > 0 ? avgCycleHours : (((double) totalDays * 24.0) / totalCycles);
+                if (Math.abs(hrsVal - Math.round(hrsVal)) < 0.05) {
+                    return String.format(java.util.Locale.US, "%d %s", Math.round(hrsVal), Math.round(hrsVal) == 1 ? "hora" : "horas");
+                }
+                return String.format(java.util.Locale.US, "%.1f horas", hrsVal);
+            }
+        }
+    }
+
+    public static class RealTradeItemDto implements java.io.Serializable {
+        private Integer idTrade;
+        private Integer idCuenta;
+        private String strategy = "";
+        private String setup = "";
+        private String symbol = "";
+        private String status = "OPEN";
+        private String direction = "";
+        private String intervalo = "";
+        private double size = 0.0;
+        private Double entryPrice;
+        private Double exitPrice;
+        private double pnl = 0.0;
+        private double commission = 0.0;
+        private double netPnl = 0.0;
+        private double marginUsed = 0.0;
+        private String ticketId = "";
+        private String openTime = "";
+        private String closeTime = "";
+        private boolean isWin = true;
+        private int cycleNum = 1;
+        private boolean isSubtotal = false;
+        private boolean subtotal = false;
+        private int tradeCount = 0;
+
+        public boolean isSubtotal() { return subtotal || isSubtotal; }
+        public boolean getIsSubtotal() { return subtotal || isSubtotal; }
+        public boolean isIsSubtotal() { return subtotal || isSubtotal; }
+        public boolean getSubtotal() { return subtotal || isSubtotal; }
+        public void setSubtotal(boolean subtotal) { this.subtotal = subtotal; this.isSubtotal = subtotal; }
+        public void setIsSubtotal(boolean isSubtotal) { this.isSubtotal = isSubtotal; this.subtotal = isSubtotal; }
+        public int getTradeCount() { return tradeCount; }
+        public void setTradeCount(int tradeCount) { this.tradeCount = tradeCount; }
+
+        public int getCycleNum() { return cycleNum; }
+        public void setCycleNum(int cycleNum) { this.cycleNum = cycleNum; }
+
+        public Integer getIdTrade() { return idTrade; }
+        public void setIdTrade(Integer idTrade) { this.idTrade = idTrade; }
+        public Integer getIdCuenta() { return idCuenta; }
+        public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
+        public String getStrategy() { return strategy; }
+        public void setStrategy(String strategy) { this.strategy = strategy; }
+        public String getSetup() { return setup; }
+        public void setSetup(String setup) { this.setup = setup; }
+        public String getSymbol() { return symbol; }
+        public void setSymbol(String symbol) { this.symbol = symbol; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+        public String getDirection() { return direction; }
+        public void setDirection(String direction) { this.direction = direction; }
+        public String getIntervalo() { return intervalo; }
+        public void setIntervalo(String intervalo) { this.intervalo = intervalo; }
+        public double getSize() { return size; }
+        public void setSize(double size) { this.size = size; }
+        public Double getEntryPrice() { return entryPrice; }
+        public void setEntryPrice(Double entryPrice) { this.entryPrice = entryPrice; }
+        public Double getExitPrice() { return exitPrice; }
+        public void setExitPrice(Double exitPrice) { this.exitPrice = exitPrice; }
+        public double getPnl() { return pnl; }
+        public void setPnl(double pnl) { this.pnl = pnl; }
+        public double getCommission() { return commission; }
+        public void setCommission(double commission) { this.commission = commission; }
+        public double getNetPnl() { return netPnl; }
+        public void setNetPnl(double netPnl) { this.netPnl = netPnl; }
+        public double getMarginUsed() { return marginUsed; }
+        public void setMarginUsed(double marginUsed) { this.marginUsed = marginUsed; }
+        public String getTicketId() { return ticketId; }
+        public void setTicketId(String ticketId) { this.ticketId = ticketId; }
+        public String getOpenTime() { return openTime; }
+        public void setOpenTime(String openTime) { this.openTime = openTime; }
+        public String getCloseTime() { return closeTime; }
+        public void setCloseTime(String closeTime) { this.closeTime = closeTime; }
+        public boolean isWin() { return isWin; }
+        public void setWin(boolean isWin) { this.isWin = isWin; }
+
+        public boolean isBuy() {
+            return direction != null && (direction.equalsIgnoreCase("LARGO") || direction.equalsIgnoreCase("BUY"));
+        }
+        public String getDirectionColor() {
+            return isBuy() ? "#15803d" : "#dc2626";
+        }
+        public boolean isOpen() {
+            return "OPEN".equalsIgnoreCase(status);
+        }
+        public String getStatusColor() {
+            if (isOpen()) return "#0284c7";
+            return netPnl >= 0 ? "#15803d" : "#dc2626";
+        }
+        public String getStatusLabel() {
+            if (isOpen()) return "EN CURSO";
+            return "CERRADO";
+        }
+        public String getPnlColor() {
+            return netPnl >= 0 ? "#15803d" : "#dc2626";
+        }
+
+        public String getFormattedSize() { return String.format(java.util.Locale.US, "%,.0f", size); }
+        public String getFormattedEntryPrice() { return entryPrice != null ? String.format(java.util.Locale.US, "%.5f", entryPrice) : "-"; }
+        public String getFormattedExitPrice() { return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-"; }
+        public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
+        public String getFormattedNetPnl() { return String.format(java.util.Locale.US, "%,.2f", netPnl); }
+        public String getFormattedMarginUsed() { return String.format(java.util.Locale.US, "%,.2f", marginUsed); }
+        public String getFormattedCommission() { return String.format(java.util.Locale.US, "%,.2f", commission); }
+    }
+
+    public static class CycleSubtotalDto implements java.io.Serializable {
+        private int cycleNum = 0;
+        private double totalCommission = 0.0;
+        private double netPnl = 0.0;
+        private double totalSize = 0.0;
+        private boolean open = false;
+        private int tradeCount = 0;
+
+        public int getCycleNum() { return cycleNum; }
+        public void setCycleNum(int cycleNum) { this.cycleNum = cycleNum; }
+        public double getTotalCommission() { return totalCommission; }
+        public void setTotalCommission(double totalCommission) { this.totalCommission = totalCommission; }
+        public double getNetPnl() { return netPnl; }
+        public void setNetPnl(double netPnl) { this.netPnl = netPnl; }
+        public double getTotalSize() { return totalSize; }
+        public void setTotalSize(double totalSize) { this.totalSize = totalSize; }
+        public boolean isOpen() { return open; }
+        public void setOpen(boolean open) { this.open = open; }
+        public int getTradeCount() { return tradeCount; }
+        public void setTradeCount(int tradeCount) { this.tradeCount = tradeCount; }
+
+        public String getStatusLabel() { return open ? "EN CURSO" : "CERRADO"; }
+        public String getFormattedCommission() { return String.format(java.util.Locale.US, "%,.2f", totalCommission); }
+        public String getFormattedNetPnl() { return String.format(java.util.Locale.US, "%,.2f", netPnl); }
+    }
+
     
 
     // --- Campos y DTOs para el Backtest de Señales Gráficas de Cruces EMA ---
@@ -517,6 +775,184 @@ public class DashboardBean implements Serializable {
     private String signalBtStrategySelected = "COMBINED";
     private String signalBtComparisonCurveJson = "{}";
     private List<ActiveCycleSummaryDto> allActiveCycles = new ArrayList<>();
+
+    // Parámetros y periodo efectivo evaluados en el Backtest de Cruces EMA
+    private String signalBtTimeframe = "1h";
+    private Integer signalBtDays = 180;
+    private String signalBtStartDate = "-";
+    private String signalBtEndDate = "-";
+    private Integer signalBtTotalBars = 0;
+    private Integer signalBtTotalDays = 0;
+    private Integer signalBtEmaRapida = 2;
+    private Boolean signalBtOperar = true;
+    private Integer signalBtTotalCycles = 0;
+    private Double signalBtAvgCycleHours = 0.0;
+    private Double signalBtAvgCycleDays = 0.0;
+
+    // --- Movimientos Reales de la Estrategia (tabla trades) ---
+    private RealTradesSummaryDto realTradesSummary = new RealTradesSummaryDto();
+    private List<RealTradeItemDto> realTradesList = new ArrayList<>();
+    private String realTradesEquityCurveJson = "[]";
+
+    public RealTradesSummaryDto getRealTradesSummary() { return realTradesSummary; }
+    public void setRealTradesSummary(RealTradesSummaryDto realTradesSummary) { this.realTradesSummary = realTradesSummary; }
+    public List<RealTradeItemDto> getRealTradesList() { return realTradesList; }
+
+    private java.util.Date realTradesStartDate;
+    private java.util.Date realTradesEndDate;
+    private boolean realTradesAllHistory = false;
+
+    public void initRealTradesDates() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1);
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        this.realTradesStartDate = cal.getTime();
+        this.realTradesEndDate = new java.util.Date();
+        this.realTradesAllHistory = false;
+    }
+
+    public java.util.Date getRealTradesStartDate() {
+        if (realTradesStartDate == null && !realTradesAllHistory) {
+            initRealTradesDates();
+        }
+        return realTradesStartDate;
+    }
+    public void setRealTradesStartDate(java.util.Date realTradesStartDate) {
+        this.realTradesStartDate = realTradesStartDate;
+    }
+
+    public java.util.Date getRealTradesEndDate() {
+        if (realTradesEndDate == null && !realTradesAllHistory) {
+            initRealTradesDates();
+        }
+        return realTradesEndDate;
+    }
+    public void setRealTradesEndDate(java.util.Date realTradesEndDate) {
+        this.realTradesEndDate = realTradesEndDate;
+    }
+
+    public boolean isRealTradesAllHistory() {
+        return realTradesAllHistory;
+    }
+    public void setRealTradesAllHistory(boolean realTradesAllHistory) {
+        this.realTradesAllHistory = realTradesAllHistory;
+    }
+
+    public void setMovimientosFilterMesActual() {
+        initRealTradesDates();
+        loadRealTradesMovimientos();
+    }
+
+    public void setMovimientosFilterTodo() {
+        this.realTradesAllHistory = true;
+        this.realTradesStartDate = null;
+        this.realTradesEndDate = null;
+        loadRealTradesMovimientos();
+    }
+
+    private Map<Integer, CycleSubtotalDto> cycleSubtotals = new HashMap<>();
+
+    public Map<Integer, CycleSubtotalDto> getCycleSubtotals() { return cycleSubtotals; }
+    public CycleSubtotalDto getCycleSubtotal(int cycleNum) {
+        return cycleSubtotals.getOrDefault(cycleNum, new CycleSubtotalDto());
+    }
+
+    public org.primefaces.model.StreamedContent getExcelFile() {
+        if (selectedPair == null || selectedPair.isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String dateParams = "";
+            if (getRealTradesStartDate() != null) {
+                java.util.Calendar c1 = java.util.Calendar.getInstance();
+                c1.setTime(getRealTradesStartDate());
+                c1.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                c1.set(java.util.Calendar.MINUTE, 0);
+                c1.set(java.util.Calendar.SECOND, 0);
+                dateParams += "&startDate=" + java.net.URLEncoder.encode(sdf.format(c1.getTime()), "UTF-8");
+            }
+            if (getRealTradesEndDate() != null) {
+                java.util.Calendar c2 = java.util.Calendar.getInstance();
+                c2.setTime(getRealTradesEndDate());
+                c2.set(java.util.Calendar.HOUR_OF_DAY, 23);
+                c2.set(java.util.Calendar.MINUTE, 59);
+                c2.set(java.util.Calendar.SECOND, 59);
+                dateParams += "&endDate=" + java.net.URLEncoder.encode(sdf.format(c2.getTime()), "UTF-8");
+            }
+
+            String url = String.format(
+                    "%s/api/v1/trades/movimientos-excel/%s?pairB=%s%s%s",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
+                    dateParams);
+
+            log.info("Descargando archivo Excel de movimientos desde backend: {}", url);
+            RestTemplate restTemplate = new RestTemplate();
+            byte[] bytes = restTemplate.getForObject(url, byte[].class);
+
+            if (bytes == null || bytes.length == 0) {
+                log.warn("El backend retornó 0 bytes para la exportación de Excel.");
+                return null;
+            }
+
+            String cleanA = selectedPair.replace("/", "").replace(" ", "");
+            String cleanB = selectedPair2.replace("/", "").replace(" ", "");
+            String filename = String.format("movimientos_%s_%s.xlsx", cleanA, cleanB);
+
+            return org.primefaces.model.DefaultStreamedContent.builder()
+                    .name(filename)
+                    .contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    .stream(() -> new java.io.ByteArrayInputStream(bytes))
+                    .build();
+        } catch (Exception e) {
+            log.error("Error al generar descarga de Excel: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    public String getExcelExportUrl() {
+        if (selectedPair == null || selectedPair.isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            return "#";
+        }
+        try {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String dateParams = "";
+            if (getRealTradesStartDate() != null) {
+                java.util.Calendar c1 = java.util.Calendar.getInstance();
+                c1.setTime(getRealTradesStartDate());
+                c1.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                c1.set(java.util.Calendar.MINUTE, 0);
+                c1.set(java.util.Calendar.SECOND, 0);
+                dateParams += "&startDate=" + java.net.URLEncoder.encode(sdf.format(c1.getTime()), "UTF-8");
+            }
+            if (getRealTradesEndDate() != null) {
+                java.util.Calendar c2 = java.util.Calendar.getInstance();
+                c2.setTime(getRealTradesEndDate());
+                c2.set(java.util.Calendar.HOUR_OF_DAY, 23);
+                c2.set(java.util.Calendar.MINUTE, 59);
+                c2.set(java.util.Calendar.SECOND, 59);
+                dateParams += "&endDate=" + java.net.URLEncoder.encode(sdf.format(c2.getTime()), "UTF-8");
+            }
+            return String.format(
+                    "%s/api/v1/trades/movimientos-excel/%s?pairB=%s%s%s",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
+                    dateParams);
+        } catch (Exception e) {
+            return "#";
+        }
+    }
+    public void setRealTradesList(List<RealTradeItemDto> realTradesList) { this.realTradesList = realTradesList; }
+    public String getRealTradesEquityCurveJson() { return realTradesEquityCurveJson; }
+    public void setRealTradesEquityCurveJson(String realTradesEquityCurveJson) { this.realTradesEquityCurveJson = realTradesEquityCurveJson; }
 
     public Double getTotalActiveMargin() {
         double sum = 0.0;
@@ -606,6 +1042,87 @@ public class DashboardBean implements Serializable {
         }
     }
     public String getSignalBtComparisonCurveJson() { return signalBtComparisonCurveJson; }
+
+    public String getSignalBtTimeframe() { return signalBtTimeframe; }
+    public void setSignalBtTimeframe(String signalBtTimeframe) { this.signalBtTimeframe = signalBtTimeframe; }
+    public Integer getSignalBtDays() { return signalBtDays; }
+    public void setSignalBtDays(Integer signalBtDays) { this.signalBtDays = signalBtDays; }
+    public String getSignalBtStartDate() { return signalBtStartDate; }
+    public void setSignalBtStartDate(String signalBtStartDate) { this.signalBtStartDate = signalBtStartDate; }
+    public String getSignalBtEndDate() { return signalBtEndDate; }
+    public void setSignalBtEndDate(String signalBtEndDate) { this.signalBtEndDate = signalBtEndDate; }
+    public Integer getSignalBtTotalBars() { return signalBtTotalBars; }
+    public void setSignalBtTotalBars(Integer signalBtTotalBars) { this.signalBtTotalBars = signalBtTotalBars; }
+    public Integer getSignalBtTotalDays() { return signalBtTotalDays; }
+    public void setSignalBtTotalDays(Integer signalBtTotalDays) { this.signalBtTotalDays = signalBtTotalDays; }
+    public Integer getSignalBtEmaRapida() { return signalBtEmaRapida; }
+    public void setSignalBtEmaRapida(Integer signalBtEmaRapida) { this.signalBtEmaRapida = signalBtEmaRapida; }
+    public Boolean getSignalBtOperar() { return signalBtOperar != null ? signalBtOperar : (this.operar != null ? this.operar : false); }
+    public void setSignalBtOperar(Boolean signalBtOperar) { this.signalBtOperar = signalBtOperar; }
+    public Integer getSignalBtTotalCycles() { return signalBtTotalCycles; }
+    public void setSignalBtTotalCycles(Integer signalBtTotalCycles) { this.signalBtTotalCycles = signalBtTotalCycles; }
+    public Double getSignalBtAvgCycleHours() { return signalBtAvgCycleHours; }
+    public void setSignalBtAvgCycleHours(Double signalBtAvgCycleHours) { this.signalBtAvgCycleHours = signalBtAvgCycleHours; }
+    public Double getSignalBtAvgCycleDays() { return signalBtAvgCycleDays; }
+    public void setSignalBtAvgCycleDays(Double signalBtAvgCycleDays) { this.signalBtAvgCycleDays = signalBtAvgCycleDays; }
+
+    public String getSignalBtFormattedAvgCycleTime() {
+        if (signalBtTotalCycles == null || signalBtTotalCycles <= 0) {
+            return "-";
+        }
+        String tf = (signalBtTimeframe != null && !signalBtTimeframe.trim().isEmpty())
+                ? signalBtTimeframe.toLowerCase().trim()
+                : (timeframe != null ? timeframe.toLowerCase().trim() : "1h");
+
+        if (tf.contains("d") || tf.contains("day") || tf.contains("dia")) {
+            double daysVal = (signalBtAvgCycleDays != null && signalBtAvgCycleDays > 0)
+                    ? signalBtAvgCycleDays
+                    : ((signalBtTotalDays != null ? (double) signalBtTotalDays : 0.0) / signalBtTotalCycles);
+            if (Math.abs(daysVal - Math.round(daysVal)) < 0.05) {
+                return String.format(java.util.Locale.US, "%d %s", Math.round(daysVal), Math.round(daysVal) == 1 ? "Día" : "Días");
+            }
+            return String.format(java.util.Locale.US, "%.1f Días", daysVal);
+        } else if (tf.contains("w") || tf.contains("week") || tf.contains("sem")) {
+            double daysVal = (signalBtAvgCycleDays != null && signalBtAvgCycleDays > 0)
+                    ? signalBtAvgCycleDays
+                    : ((signalBtTotalDays != null ? (double) signalBtTotalDays : 0.0) / signalBtTotalCycles);
+            double weeksVal = daysVal / 7.0;
+            if (Math.abs(weeksVal - Math.round(weeksVal)) < 0.05) {
+                return String.format(java.util.Locale.US, "%d %s", Math.round(weeksVal), Math.round(weeksVal) == 1 ? "Semana" : "Semanas");
+            }
+            return String.format(java.util.Locale.US, "%.1f Semanas", weeksVal);
+        } else if (tf.contains("month") || tf.contains("mes")) {
+            double daysVal = (signalBtAvgCycleDays != null && signalBtAvgCycleDays > 0)
+                    ? signalBtAvgCycleDays
+                    : ((signalBtTotalDays != null ? (double) signalBtTotalDays : 0.0) / signalBtTotalCycles);
+            double monthsVal = daysVal / 30.0;
+            if (Math.abs(monthsVal - Math.round(monthsVal)) < 0.05) {
+                return String.format(java.util.Locale.US, "%d %s", Math.round(monthsVal), Math.round(monthsVal) == 1 ? "Mes" : "Meses");
+            }
+            return String.format(java.util.Locale.US, "%.1f Meses", monthsVal);
+        } else {
+            double hrsVal = (signalBtAvgCycleHours != null && signalBtAvgCycleHours > 0)
+                    ? signalBtAvgCycleHours
+                    : (((signalBtTotalDays != null ? (double) signalBtTotalDays : 0.0) * 24.0) / signalBtTotalCycles);
+            if (Math.abs(hrsVal - Math.round(hrsVal)) < 0.05) {
+                return String.format(java.util.Locale.US, "%d %s", Math.round(hrsVal), Math.round(hrsVal) == 1 ? "hora" : "horas");
+            }
+            return String.format(java.util.Locale.US, "%.1f horas", hrsVal);
+        }
+    }
+
+    public String getSignalBtTimeframeLabel() {
+        String tf = (signalBtTimeframe != null) ? signalBtTimeframe.toLowerCase().trim() : (timeframe != null ? timeframe.toLowerCase().trim() : "1h");
+        switch (tf) {
+            case "1month": case "1m": return "1 Mes";
+            case "1week": case "1w": return "1 Semana";
+            case "1d": return "1 Día";
+            case "4h": return "4 Horas";
+            case "15min": case "15m": return "15 Min";
+            case "30min": case "30m": return "30 Min";
+            case "1h": default: return "1 Hora";
+        }
+    }
     public Double getSelectedAccountCapital() {
         if (selectedAccountId != null && userAccountsCombo != null) {
             for (UserAccountDto acc : userAccountsCombo) {
@@ -1114,6 +1631,10 @@ public class DashboardBean implements Serializable {
         public void setOperar(Boolean operar) { this.operar = operar; }
         public String getCreatedAt() { return createdAt; }
         public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
+        private Boolean borrado = false;
+        public Boolean getBorrado() { return borrado; }
+        public Boolean isBorrado() { return borrado; }
+        public void setBorrado(Boolean borrado) { this.borrado = borrado; }
     }
 
         private String activeAccordionIndex = "0";
@@ -1124,6 +1645,61 @@ public class DashboardBean implements Serializable {
 
     public void setActiveAccordionIndex(String activeAccordionIndex) {
         this.activeAccordionIndex = activeAccordionIndex;
+    }
+
+    private int activeMainTabIndex = 0;
+    private boolean crucesEmaLoaded = false;
+    private boolean realTradesLoaded = false;
+
+    public int getActiveMainTabIndex() { return activeMainTabIndex; }
+    public void setActiveMainTabIndex(int activeMainTabIndex) { this.activeMainTabIndex = activeMainTabIndex; }
+    public boolean isCrucesEmaLoaded() { return crucesEmaLoaded; }
+    public void setCrucesEmaLoaded(boolean crucesEmaLoaded) { this.crucesEmaLoaded = crucesEmaLoaded; }
+    public boolean isRealTradesLoaded() { return realTradesLoaded; }
+    public void setRealTradesLoaded(boolean realTradesLoaded) { this.realTradesLoaded = realTradesLoaded; }
+
+    public void onMainTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event == null || event.getTab() == null) return;
+        org.primefaces.component.tabview.Tab activeTab = event.getTab();
+        org.primefaces.component.tabview.TabView tabView = (org.primefaces.component.tabview.TabView) event.getComponent();
+
+        int tabIdx = 0;
+        int activeIdx = 0;
+        for (javax.faces.component.UIComponent comp : tabView.getChildren()) {
+            if (comp instanceof org.primefaces.component.tabview.Tab) {
+                if (comp.equals(activeTab)) {
+                    activeIdx = tabIdx;
+                    break;
+                }
+                tabIdx++;
+            }
+        }
+        this.activeMainTabIndex = activeIdx;
+        String title = activeTab.getTitle();
+        log.info("▶ onMainTabChange: tabIdx={}, título='{}'", activeIdx, title);
+
+        boolean isBacktest = (activeIdx == 2) || (title != null && title.toLowerCase().contains("backtest"));
+        boolean isHechos = (activeIdx == 3) || (title != null && title.toLowerCase().contains("hechos"));
+
+        if (isBacktest) {
+            this.activeMainTabIndex = 2;
+            if (!crucesEmaLoaded) {
+                loadCrucesEmaAnalysis();
+                this.crucesEmaLoaded = true;
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:crucesEmaWrapper", "aetherForm:signalBtComparisonCurveJsonData");
+                org.primefaces.PrimeFaces.current().executeScript("setTimeout(renderSignalComparisonChart, 60);");
+            }
+        } else if (isHechos) {
+            this.activeMainTabIndex = 3;
+            if (!realTradesLoaded) {
+                loadRealTradesMovimientos();
+                this.realTradesLoaded = true;
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:movimientosWrapper", "aetherForm:realTradesEquityCurveJsonData");
+                org.primefaces.PrimeFaces.current().executeScript("setTimeout(renderRealTradesEquityChart, 60);");
+            }
+        } else if (activeIdx == 0 || activeIdx == 1) {
+            org.primefaces.PrimeFaces.current().executeScript("setTimeout(renderAetherChart, 50);");
+        }
     }
 
     public void onTabChange(org.primefaces.event.TabChangeEvent event) {
@@ -1219,15 +1795,39 @@ public class DashboardBean implements Serializable {
 
     public void onDaysBackChange() {
         calculateStartDateFromPeriods();
+        this.crucesEmaLoaded = false;
+    }
+
+    public java.util.Date getEffectiveEndDate() {
+        if (this.endDate == null) {
+            return new java.util.Date();
+        }
+        java.util.Calendar calEnd = java.util.Calendar.getInstance();
+        calEnd.setTime(this.endDate);
+
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        if (calEnd.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) &&
+            calEnd.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)) {
+            return now.getTime();
+        }
+        if (calEnd.after(now)) {
+            return now.getTime();
+        }
+        if (calEnd.get(java.util.Calendar.HOUR_OF_DAY) == 0 &&
+            calEnd.get(java.util.Calendar.MINUTE) == 0 &&
+            calEnd.get(java.util.Calendar.SECOND) == 0) {
+            calEnd.set(java.util.Calendar.HOUR_OF_DAY, 23);
+            calEnd.set(java.util.Calendar.MINUTE, 59);
+            calEnd.set(java.util.Calendar.SECOND, 59);
+        }
+        return calEnd.getTime();
     }
 
     public void calculateStartDateFromPeriods() {
         if (daysBack != null && daysBack > 0) {
-            if (endDate == null) {
-                endDate = new java.util.Date();
-            }
+            java.util.Date effEnd = getEffectiveEndDate();
             java.util.Calendar cal = java.util.Calendar.getInstance();
-            cal.setTime(endDate);
+            cal.setTime(effEnd);
 
             String tf = (timeframe != null) ? timeframe.toLowerCase().trim() : "1h";
             if (tf.equals("1h") || tf.equals("1H")) {
@@ -1496,6 +2096,15 @@ public class DashboardBean implements Serializable {
             timeframe = "1h";
         }
         calculateStartDateFromPeriods();
+        this.crucesEmaLoaded = false;
+    }
+
+    public void onManualDateChange() {
+        this.crucesEmaLoaded = false;
+    }
+
+    public void onSmaChange() {
+        this.crucesEmaLoaded = false;
     }
 
     /**
@@ -1540,6 +2149,189 @@ public class DashboardBean implements Serializable {
     }
 
     
+    public void loadRealTradesMovimientos() {
+        if (selectedPair == null || selectedPair.isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            return;
+        }
+        try {
+            log.info("Cargando movimientos reales para {} / {} (idCuenta={})...", selectedPair, selectedPair2, selectedAccountId);
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String dateParams = "";
+            if (!realTradesAllHistory) {
+                if (getRealTradesStartDate() != null) {
+                    java.util.Calendar c1 = java.util.Calendar.getInstance();
+                    c1.setTime(getRealTradesStartDate());
+                    c1.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                    c1.set(java.util.Calendar.MINUTE, 0);
+                    c1.set(java.util.Calendar.SECOND, 0);
+                    dateParams += "&startDate=" + java.net.URLEncoder.encode(sdf.format(c1.getTime()), "UTF-8");
+                }
+                if (getRealTradesEndDate() != null) {
+                    java.util.Calendar c2 = java.util.Calendar.getInstance();
+                    c2.setTime(getRealTradesEndDate());
+                    c2.set(java.util.Calendar.HOUR_OF_DAY, 23);
+                    c2.set(java.util.Calendar.MINUTE, 59);
+                    c2.set(java.util.Calendar.SECOND, 59);
+                    dateParams += "&endDate=" + java.net.URLEncoder.encode(sdf.format(c2.getTime()), "UTF-8");
+                }
+            }
+
+            String url = String.format(
+                    "%s/api/v1/trades/movimientos/%s?pairB=%s%s%s",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
+                    dateParams);
+
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode root = mapper.readTree(responseStr);
+                
+                if (root.has("summary")) {
+                    JsonNode sumNode = root.get("summary");
+                    RealTradesSummaryDto s = new RealTradesSummaryDto();
+                    if (sumNode.has("totalTrades")) s.setTotalTrades(sumNode.get("totalTrades").asInt());
+                    if (sumNode.has("openTrades")) s.setOpenTrades(sumNode.get("openTrades").asInt());
+                    if (sumNode.has("closedTrades")) s.setClosedTrades(sumNode.get("closedTrades").asInt());
+                    if (sumNode.has("winningTrades")) s.setWinningTrades(sumNode.get("winningTrades").asInt());
+                    if (sumNode.has("losingTrades")) s.setLosingTrades(sumNode.get("losingTrades").asInt());
+                    if (sumNode.has("winRate")) s.setWinRate(sumNode.get("winRate").asDouble());
+                    if (sumNode.has("profitFactor")) s.setProfitFactor(sumNode.get("profitFactor").asDouble());
+                    if (sumNode.has("totalPnl")) s.setTotalPnl(sumNode.get("totalPnl").asDouble());
+                    if (sumNode.has("totalCommission")) s.setTotalCommission(sumNode.get("totalCommission").asDouble());
+                    if (sumNode.has("netProfit")) s.setNetProfit(sumNode.get("netProfit").asDouble());
+                    if (sumNode.has("totalReturnPct")) s.setTotalReturnPct(sumNode.get("totalReturnPct").asDouble());
+                    if (sumNode.has("initialCapital")) s.setInitialCapital(sumNode.get("initialCapital").asDouble());
+                    if (sumNode.has("currentCapital")) s.setCurrentCapital(sumNode.get("currentCapital").asDouble());
+                    if (sumNode.has("totalMarginUsed")) s.setTotalMarginUsed(sumNode.get("totalMarginUsed").asDouble());
+                    if (sumNode.has("accountName")) s.setAccountName(sumNode.get("accountName").asText());
+                    if (sumNode.has("totalCycles")) s.setTotalCycles(sumNode.get("totalCycles").asInt());
+                    if (sumNode.has("startDate")) s.setStartDate(sumNode.get("startDate").asText());
+                    if (sumNode.has("endDate")) s.setEndDate(sumNode.get("endDate").asText());
+                    if (sumNode.has("totalDays")) s.setTotalDays(sumNode.get("totalDays").asInt());
+                    if (sumNode.has("ratioTimeframe")) s.setRatioTimeframe(sumNode.get("ratioTimeframe").asText());
+                    if (sumNode.has("ratioEmaRapida")) s.setRatioEmaRapida(sumNode.get("ratioEmaRapida").asInt());
+                    if (sumNode.has("ratioEmaLenta")) s.setRatioEmaLenta(sumNode.get("ratioEmaLenta").asInt());
+                    if (sumNode.has("ratioOperar")) s.setRatioOperar(sumNode.get("ratioOperar").asBoolean());
+                    if (sumNode.has("avgCycleHours")) s.setAvgCycleHours(sumNode.get("avgCycleHours").asDouble());
+                    if (sumNode.has("avgCycleDays")) s.setAvgCycleDays(sumNode.get("avgCycleDays").asDouble());
+                    this.realTradesSummary = s;
+                }
+
+                List<RealTradeItemDto> rawList = new ArrayList<>();
+                if (root.has("trades") && root.get("trades").isArray()) {
+                    for (JsonNode tn : root.get("trades")) {
+                        RealTradeItemDto item = new RealTradeItemDto();
+                        if (tn.has("idTrade")) item.setIdTrade(tn.get("idTrade").asInt());
+                        if (tn.has("idCuenta")) item.setIdCuenta(tn.get("idCuenta").asInt());
+                        if (tn.has("strategy")) item.setStrategy(tn.get("strategy").asText());
+                        if (tn.has("setup")) item.setSetup(tn.get("setup").asText());
+                        if (tn.has("symbol")) item.setSymbol(tn.get("symbol").asText());
+                        if (tn.has("status")) item.setStatus(tn.get("status").asText());
+                        if (tn.has("direction")) item.setDirection(tn.get("direction").asText());
+                        if (tn.has("intervalo")) item.setIntervalo(tn.get("intervalo").asText());
+                        if (tn.has("size")) item.setSize(tn.get("size").asDouble());
+                        if (tn.has("entryPrice") && !tn.get("entryPrice").isNull()) item.setEntryPrice(tn.get("entryPrice").asDouble());
+                        if (tn.has("exitPrice") && !tn.get("exitPrice").isNull()) item.setExitPrice(tn.get("exitPrice").asDouble());
+                        if (tn.has("pnl")) item.setPnl(tn.get("pnl").asDouble());
+                        if (tn.has("commission")) item.setCommission(tn.get("commission").asDouble());
+                        if (tn.has("netPnl")) item.setNetPnl(tn.get("netPnl").asDouble());
+                        if (tn.has("marginUsed")) item.setMarginUsed(tn.get("marginUsed").asDouble());
+                        if (tn.has("ticketId")) item.setTicketId(tn.get("ticketId").asText());
+                        if (tn.has("openTime")) item.setOpenTime(tn.get("openTime").asText());
+                        if (tn.has("closeTime")) item.setCloseTime(tn.get("closeTime").asText());
+                        if (tn.has("isWin")) item.setWin(tn.get("isWin").asBoolean());
+                        if (tn.has("cycleNum")) item.setCycleNum(tn.get("cycleNum").asInt());
+                        rawList.add(item);
+                    }
+                }
+
+                // Intercalar subtotales por ciclo preservando orden cronológico (más vieja arriba, más reciente abajo)
+                List<RealTradeItemDto> listWithSubtotals = new ArrayList<>();
+                Map<Integer, CycleSubtotalDto> subs = new HashMap<>();
+
+                int currentCycleNum = -1;
+                List<RealTradeItemDto> cycleAccum = new ArrayList<>();
+
+                for (int i = 0; i < rawList.size(); i++) {
+                    RealTradeItemDto item = rawList.get(i);
+                    int cn = item.getCycleNum();
+
+                    if (currentCycleNum != -1 && cn != currentCycleNum && !cycleAccum.isEmpty()) {
+                        RealTradeItemDto sub = createCycleSubtotalRow(currentCycleNum, cycleAccum, subs);
+                        listWithSubtotals.add(sub);
+                        cycleAccum.clear();
+                    }
+
+                    currentCycleNum = cn;
+                    cycleAccum.add(item);
+                    listWithSubtotals.add(item);
+                }
+                if (!cycleAccum.isEmpty()) {
+                    RealTradeItemDto sub = createCycleSubtotalRow(currentCycleNum, cycleAccum, subs);
+                    listWithSubtotals.add(sub);
+                    cycleAccum.clear();
+                }
+
+                this.realTradesList = listWithSubtotals;
+                this.cycleSubtotals = subs;
+
+                if (root.has("equityCurve")) {
+                    this.realTradesEquityCurveJson = mapper.writeValueAsString(root.get("equityCurve"));
+                } else {
+                    this.realTradesEquityCurveJson = "[]";
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error cargando movimientos reales: {}", e.getMessage());
+        }
+    }
+
+    private RealTradeItemDto createCycleSubtotalRow(int cycleNum, List<RealTradeItemDto> cycleTrades, Map<Integer, CycleSubtotalDto> subs) {
+        double totalComm = 0.0;
+        double totalNet = 0.0;
+        double totalPnl = 0.0;
+        double totalSz = 0.0;
+        boolean hasOpen = false;
+
+        for (RealTradeItemDto t : cycleTrades) {
+            totalComm += t.getCommission();
+            totalNet += t.getNetPnl();
+            totalPnl += t.getPnl();
+            totalSz += t.getSize();
+            if (t.isOpen()) {
+                hasOpen = true;
+            }
+        }
+
+        CycleSubtotalDto s = new CycleSubtotalDto();
+        s.setCycleNum(cycleNum);
+        s.setTotalCommission(totalComm);
+        s.setNetPnl(totalNet);
+        s.setTotalSize(totalSz);
+        s.setOpen(hasOpen);
+        s.setTradeCount(cycleTrades.size());
+        subs.put(cycleNum, s);
+
+        RealTradeItemDto sub = new RealTradeItemDto();
+        sub.setSubtotal(true);
+        sub.setCycleNum(cycleNum);
+        sub.setTradeCount(cycleTrades.size());
+        sub.setSymbol("SUBTOTAL");
+        sub.setDirection(hasOpen ? "● EN CURSO" : "CERRADO");
+        sub.setStatus(hasOpen ? "OPEN" : "CLOSED");
+        sub.setSize(totalSz);
+        sub.setCommission(totalComm);
+        sub.setNetPnl(totalNet);
+        sub.setPnl(totalPnl);
+        sub.setOpenTime("Subtotal Ciclo #" + cycleNum + " (" + cycleTrades.size() + " ops)");
+        return sub;
+    }
+
     public void loadCrucesEmaAnalysis() {
         if (selectedPair == null || selectedPair.isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
             return;
@@ -1549,9 +2341,17 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            if (this.startDate == null) {
+                calculateStartDateFromPeriods();
+            }
+
+            boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
+            java.text.SimpleDateFormat sdf = isIntradayTf
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    : new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
-            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+            java.util.Date effEndCruces = getEffectiveEndDate();
+            String endStr = (effEndCruces != null) ? sdf.format(effEndCruces) : "";
 
             Double curAccCap = getSelectedAccountCapital();
             String url = String.format(
@@ -1568,6 +2368,22 @@ public class DashboardBean implements Serializable {
             String responseStr = restTemplate.getForObject(url, String.class);
             if (responseStr != null && !responseStr.isEmpty()) {
                 JsonNode root = mapper.readTree(responseStr);
+
+                if (root.has("timeframe")) this.signalBtTimeframe = root.get("timeframe").asText();
+                else this.signalBtTimeframe = this.timeframe;
+                if (root.has("days")) this.signalBtDays = root.get("days").asInt();
+                else this.signalBtDays = this.daysBack;
+                if (root.has("startDate")) this.signalBtStartDate = root.get("startDate").asText();
+                if (root.has("endDate")) this.signalBtEndDate = root.get("endDate").asText();
+                if (root.has("totalBars")) this.signalBtTotalBars = root.get("totalBars").asInt();
+                if (root.has("totalDays")) this.signalBtTotalDays = root.get("totalDays").asInt();
+                if (root.has("totalCycles")) this.signalBtTotalCycles = root.get("totalCycles").asInt();
+                if (root.has("avgCycleHours")) this.signalBtAvgCycleHours = root.get("avgCycleHours").asDouble();
+                if (root.has("avgCycleDays")) this.signalBtAvgCycleDays = root.get("avgCycleDays").asDouble();
+                if (root.has("emaRapida")) this.signalBtEmaRapida = root.get("emaRapida").asInt();
+                else this.signalBtEmaRapida = (this.smaPeriodParam != null ? this.smaPeriodParam : 2);
+                this.signalBtOperar = (this.operar != null ? this.operar : false);
+
                 if (root.has("signalBacktest")) {
                     JsonNode sbNode = root.get("signalBacktest");
                     
@@ -1729,6 +2545,42 @@ public class DashboardBean implements Serializable {
                             }
                         }
                         this.signalBtCombinedTrades = cbTrades;
+
+                        if (cbNode.has("startDate") && (this.signalBtStartDate == null || "-".equals(this.signalBtStartDate))) {
+                            this.signalBtStartDate = cbNode.get("startDate").asText();
+                        }
+                        if (cbNode.has("endDate") && (this.signalBtEndDate == null || "-".equals(this.signalBtEndDate))) {
+                            this.signalBtEndDate = cbNode.get("endDate").asText();
+                        }
+                        if (cbNode.has("totalBars") && (this.signalBtTotalBars == null || this.signalBtTotalBars == 0)) {
+                            this.signalBtTotalBars = cbNode.get("totalBars").asInt();
+                        }
+                        if (cbNode.has("totalDays") && (this.signalBtTotalDays == null || this.signalBtTotalDays == 0)) {
+                            this.signalBtTotalDays = cbNode.get("totalDays").asInt();
+                        }
+                        if (cbNode.has("totalCycles") && (this.signalBtTotalCycles == null || this.signalBtTotalCycles == 0)) {
+                            this.signalBtTotalCycles = cbNode.get("totalCycles").asInt();
+                        }
+                        if (cbNode.has("avgCycleHours") && (this.signalBtAvgCycleHours == null || this.signalBtAvgCycleHours == 0.0)) {
+                            this.signalBtAvgCycleHours = cbNode.get("avgCycleHours").asDouble();
+                        }
+                        if (cbNode.has("avgCycleDays") && (this.signalBtAvgCycleDays == null || this.signalBtAvgCycleDays == 0.0)) {
+                            this.signalBtAvgCycleDays = cbNode.get("avgCycleDays").asDouble();
+                        }
+
+                        if ((this.signalBtTotalCycles == null || this.signalBtTotalCycles == 0) && this.signalBtCombinedTrades != null && !this.signalBtCombinedTrades.isEmpty()) {
+                            int maxCycle = 0;
+                            for (SignalTradeDto st : this.signalBtCombinedTrades) {
+                                if (st.getCycleNum() != null && st.getCycleNum() > maxCycle) {
+                                    maxCycle = st.getCycleNum();
+                                }
+                            }
+                            this.signalBtTotalCycles = maxCycle;
+                            if (this.signalBtTotalCycles > 0 && this.signalBtTotalDays != null && this.signalBtTotalDays > 0) {
+                                this.signalBtAvgCycleDays = Math.round(((double) this.signalBtTotalDays / this.signalBtTotalCycles) * 10.0) / 10.0;
+                                this.signalBtAvgCycleHours = Math.round((((double) this.signalBtTotalDays * 24.0) / this.signalBtTotalCycles) * 10.0) / 10.0;
+                            }
+                        }
                     }
 
                     // Establecer lista activa según selección
@@ -1773,7 +2625,8 @@ public class DashboardBean implements Serializable {
                     ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
                     : new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
-            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+            java.util.Date effEndAnalyze = getEffectiveEndDate();
+            String endStr = (effEndAnalyze != null) ? sdf.format(effEndAnalyze) : "";
 
             // Construir URL para el endpoint de ratio de 2 pares
             String url = String.format(
@@ -1842,7 +2695,15 @@ public class DashboardBean implements Serializable {
                 }
 
                 analysisResult = "";
-                loadCrucesEmaAnalysis();
+                this.crucesEmaLoaded = false;
+                this.realTradesLoaded = false;
+                if (this.activeMainTabIndex == 2) {
+                    loadCrucesEmaAnalysis();
+                    this.crucesEmaLoaded = true;
+                } else if (this.activeMainTabIndex == 3) {
+                    loadRealTradesMovimientos();
+                    this.realTradesLoaded = true;
+                }
             } else {
                 String errorMsg = rootNode.has("error") ? rootNode.get("error").asText() : "Error desconocido";
                 analysisResult = "Fallo en motor de correlación: " + errorMsg;
@@ -1886,7 +2747,8 @@ public class DashboardBean implements Serializable {
                     ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
                     : new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startStr = (startDate != null) ? sdf.format(startDate) : "";
-            String endStr = (endDate != null) ? sdf.format(endDate) : "";
+            java.util.Date effEndOpt = getEffectiveEndDate();
+            String endStr = (effEndOpt != null) ? sdf.format(effEndOpt) : "";
 
             String url = String.format(
                     "%s/api/v1/optimize/ratio/%s?pairB=%s&tf=%s&start_date=%s&end_date=%s",
@@ -2057,6 +2919,12 @@ public class DashboardBean implements Serializable {
         log.info("Cuenta cambiada en panel lateral a idCuenta={}", selectedAccountId);
         loadUserRatiosList();
         loadAllActiveCycles();
+        this.crucesEmaLoaded = false;
+        this.realTradesLoaded = false;
+        if (this.activeMainTabIndex == 3) {
+            loadRealTradesMovimientos();
+            this.realTradesLoaded = true;
+        }
         if (userRatiosList != null && !userRatiosList.isEmpty()) {
             UserRatioDto firstRatio = userRatiosList.get(0);
             onSelectUserRatio(firstRatio);
@@ -2163,6 +3031,11 @@ public class DashboardBean implements Serializable {
                         else dto.setOperar(false);
                         if (item.has("hasOpenTrades") && !item.get("hasOpenTrades").isNull()) dto.setHasOpenTrades(item.get("hasOpenTrades").asBoolean());
                         else dto.setHasOpenTrades(false);
+                        if (item.has("borrado") && !item.get("borrado").isNull()) {
+                            boolean isBorrado = item.get("borrado").asBoolean();
+                            dto.setBorrado(isBorrado);
+                            if (isBorrado) continue;
+                        }
                         list.add(dto);
                     }
                 }
@@ -2194,6 +3067,8 @@ public class DashboardBean implements Serializable {
             this.selectedAccountId = ratio.getIdCuenta();
         }
         loadAllActiveCycles();
+        this.crucesEmaLoaded = false;
+        this.realTradesLoaded = false;
         this.selectedPair = ratio.getNumerador();
         this.selectedPair2 = ratio.getDenominador();
         loadCorrelationsForSelectedPair();
@@ -2338,9 +3213,17 @@ public class DashboardBean implements Serializable {
                 this.ratioExistsInDb = false;
                 this.operar = false;
                 loadUserRatiosList();
+                String msgText = "Se eliminó el ratio " + selectedPair + " / " + selectedPair2 + ".";
+                try {
+                    ObjectMapper respMapper = new ObjectMapper();
+                    JsonNode respJson = respMapper.readTree(response.getBody());
+                    if (respJson.has("message")) {
+                        msgText = respJson.get("message").asText();
+                    }
+                } catch (Exception ignored) {}
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
-                                "Ratio Eliminado Exitosamente", "Se eliminó el ratio " + selectedPair + " / " + selectedPair2 + "."));
+                                "Ratio Eliminado", msgText));
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,

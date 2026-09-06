@@ -70,7 +70,7 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
     sqlQuery = text("""
         SELECT id, idUsuario, idCuenta, numerador, denominador, periodo, dias, EMARapida, EMALenta, operar
         FROM user_ratios
-        WHERE operar = 1
+        WHERE operar = 1 AND (borrado = 0 OR borrado IS NULL)
         ORDER BY id ASC
     """)
     rows = dbSession.execute(sqlQuery).fetchall()

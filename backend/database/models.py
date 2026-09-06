@@ -161,6 +161,7 @@ class UserRatio(Base):
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
     operar = Column(Boolean, default=False)
+    borrado = Column(Boolean, default=False, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
 
 class UsuarioCuenta(Base):

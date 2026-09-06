@@ -1,6 +1,6 @@
 package com.atalaia.correlation.beans;
 
-import javax.enterprise.context.SessionScoped;
+import javax.faces.view.ViewScoped;
 import javax.faces.application.FacesMessage;
 import javax.faces.context.FacesContext;
 import javax.inject.Named;
@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 @Named("configuracionBean")
-@SessionScoped
+@ViewScoped
 @Getter
 @Setter
 @Slf4j

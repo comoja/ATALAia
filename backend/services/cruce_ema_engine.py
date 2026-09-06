@@ -85,7 +85,12 @@ class CruceEmaEngine:
         emaA = signalEngine.calculateEmaSeries(normA, smaPeriod)
         emaB = signalEngine.calculateEmaSeries(normB, smaPeriod)
 
-        dates = [str(d)[:10] for d in commonIdx]
+        # Formatear fechas con horas y minutos si es intradía para que cada vela sea única
+        has_time = any(hasattr(d, "hour") and (d.hour != 0 or d.minute != 0) for d in commonIdx[:10])
+        if has_time:
+            dates = [d.strftime("%Y-%m-%d %H:%M") if hasattr(d, "strftime") else str(d)[:16] for d in commonIdx]
+        else:
+            dates = [d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)[:10] for d in commonIdx]
         pricesA = sA.values
         pricesB = sB.values
         normAVals = normA.values
@@ -476,6 +481,18 @@ class CruceEmaEngine:
         else:
             sharpeRatio = 0.0
 
+        totalDays = (int((commonIdx[-1].date() - commonIdx[0].date()).days) + 1) if len(commonIdx) > 0 and hasattr(commonIdx[0], "date") else (totalBars if totalBars > 0 else 0)
+
+        # Cálculo de ciclos detectados y promedios temporales por ciclo (como en Hechos)
+        totalCycles = (cycleCounter + 1) if len(openCycleTrades) > 0 else cycleCounter
+        if totalTrades == 0:
+            totalCycles = 0
+
+        total_seconds = (commonIdx[-1] - commonIdx[0]).total_seconds() if len(commonIdx) > 1 else 0.0
+        total_hours = max(1.0, total_seconds / 3600.0) if total_seconds > 0 else float(totalBars)
+        avg_cycle_hours = round(total_hours / totalCycles, 1) if totalCycles > 0 else 0.0
+        avg_cycle_days = round(totalDays / totalCycles, 1) if totalCycles > 0 else 0.0
+
         return {
             "mode": "TRIANGLES_AND_BOXES" if includeBoxes else "TRIANGLES_ONLY",
             "modeLabel": "Triángulos + Cuadros (Con Equidad)" if includeBoxes else "Solo Triángulos (Coincidentes)",
@@ -486,6 +503,9 @@ class CruceEmaEngine:
             "margenPctB": margenPctB,
             "reqMarginPerMinLot": round(float(sampleReqMarginLot), 2),
             "totalTrades": totalTrades,
+            "totalCycles": totalCycles,
+            "avgCycleHours": avg_cycle_hours,
+            "avgCycleDays": avg_cycle_days,
             "winningTrades": len(wins),
             "losingTrades": len(losses),
             "winRate": round(float(winRate), 2),
@@ -496,6 +516,10 @@ class CruceEmaEngine:
             "initialCapital": float(initialCapital),
             "finalCapital": round(float(equity), 2),
             "netProfit": round(float(equity - initialCapital), 2),
+            "startDate": dates[0] if len(dates) > 0 else "-",
+            "endDate": dates[-1] if len(dates) > 0 else "-",
+            "totalBars": totalBars,
+            "totalDays": totalDays,
             "equityCurve": equityCurve,
             "trades": finishedTrades
         }
