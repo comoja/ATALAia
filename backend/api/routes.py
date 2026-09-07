@@ -2115,13 +2115,35 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 open_trades.append(t_dict)
                 total_margin_open += margin_val
 
-        # Configuración del Ratio desde user_ratios
-        ratio_cfg = db_session.execute(text("""
-            SELECT periodo, dias, EMARapida, EMALenta, operar 
-            FROM user_ratios
-            WHERE ((numerador = :pA AND denominador = :pB) OR (numerador = :pB AND denominador = :pA))
-            ORDER BY id DESC LIMIT 1
-        """), {"pA": pairA, "pB": pairB}).fetchone()
+        # Configuración del Ratio desde user_ratios respetando la cuenta seleccionada y excluyendo borrados
+        cleanA = pairA.replace("/", "").strip()
+        cleanB = pairB.replace("/", "").strip()
+
+        ratio_cfg = None
+        if idCuenta:
+            ratio_cfg = db_session.execute(text("""
+                SELECT periodo, dias, EMARapida, EMALenta, operar 
+                FROM user_ratios
+                WHERE (
+                    (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
+                    OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
+                )
+                AND idCuenta = :idc
+                AND (borrado = 0 OR borrado IS NULL)
+                ORDER BY id DESC LIMIT 1
+            """), {"cleanA": cleanA, "cleanB": cleanB, "idc": idCuenta}).fetchone()
+
+        if not ratio_cfg:
+            ratio_cfg = db_session.execute(text("""
+                SELECT periodo, dias, EMARapida, EMALenta, operar 
+                FROM user_ratios
+                WHERE (
+                    (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
+                    OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
+                )
+                AND (borrado = 0 OR borrado IS NULL)
+                ORDER BY id DESC LIMIT 1
+            """), {"cleanA": cleanA, "cleanB": cleanB}).fetchone()
 
         if ratio_cfg:
             ratio_timeframe = str(ratio_cfg[0] or "1h")
