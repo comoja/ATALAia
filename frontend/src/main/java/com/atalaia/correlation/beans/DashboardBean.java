@@ -148,6 +148,43 @@ public class DashboardBean implements Serializable {
         public String getFormattedUnits() { return String.format(java.util.Locale.US, "%,.0f", size); }
     }
 
+    public static class ActiveEntryGroupDto implements java.io.Serializable {
+        private String date = "";
+        private String openTime = "";
+        private String badgeLabel = "";
+        private String fullLabel = "";
+        private double sizeA = 0.0;
+        private double sizeB = 0.0;
+        private double weightedPriceA = 0.0;
+        private double weightedPriceB = 0.0;
+        private String dirA = "BUY";
+        private String dirB = "SELL";
+        private int tradeCount = 0;
+
+        public String getDate() { return date; }
+        public void setDate(String date) { this.date = date; }
+        public String getOpenTime() { return openTime; }
+        public void setOpenTime(String openTime) { this.openTime = openTime; }
+        public String getBadgeLabel() { return badgeLabel; }
+        public void setBadgeLabel(String badgeLabel) { this.badgeLabel = badgeLabel; }
+        public String getFullLabel() { return fullLabel; }
+        public void setFullLabel(String fullLabel) { this.fullLabel = fullLabel; }
+        public double getSizeA() { return sizeA; }
+        public void setSizeA(double sizeA) { this.sizeA = sizeA; }
+        public double getSizeB() { return sizeB; }
+        public void setSizeB(double sizeB) { this.sizeB = sizeB; }
+        public double getWeightedPriceA() { return weightedPriceA; }
+        public void setWeightedPriceA(double weightedPriceA) { this.weightedPriceA = weightedPriceA; }
+        public double getWeightedPriceB() { return weightedPriceB; }
+        public void setWeightedPriceB(double weightedPriceB) { this.weightedPriceB = weightedPriceB; }
+        public String getDirA() { return dirA; }
+        public void setDirA(String dirA) { this.dirA = dirA; }
+        public String getDirB() { return dirB; }
+        public void setDirB(String dirB) { this.dirB = dirB; }
+        public int getTradeCount() { return tradeCount; }
+        public void setTradeCount(int tradeCount) { this.tradeCount = tradeCount; }
+    }
+
     public static class ActiveCycleSummaryDto implements java.io.Serializable {
         private String setup = "";
         private String pairA = "";
@@ -319,6 +356,23 @@ public class DashboardBean implements Serializable {
         public List<ActiveTradeItemDto> getTrades() { return trades; }
         public void setTrades(List<ActiveTradeItemDto> trades) { this.trades = trades; }
 
+        private List<ActiveEntryGroupDto> entryGroups = new ArrayList<>();
+        public List<ActiveEntryGroupDto> getEntryGroups() { return entryGroups; }
+        public void setEntryGroups(List<ActiveEntryGroupDto> entryGroups) { this.entryGroups = entryGroups; }
+
+        public String getEntryGroupsJson() {
+            try {
+                if (entryGroups == null || entryGroups.isEmpty()) return "[]";
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                return mapper.writeValueAsString(entryGroups);
+            } catch (Exception e) {
+                return "[]";
+            }
+        }
+        public void setEntryGroupsJson(String entryGroupsJson) {
+            // Setter no-op para evitar javax.el.PropertyNotWritableException en fases JSF
+        }
+
         public String getTradesJson() {
             try {
                 if (trades == null || trades.isEmpty()) return "[]";
@@ -327,6 +381,9 @@ public class DashboardBean implements Serializable {
             } catch (Exception e) {
                 return "[]";
             }
+        }
+        public void setTradesJson(String tradesJson) {
+            // Setter no-op para evitar javax.el.PropertyNotWritableException en fases JSF
         }
 
         public String getPnlSign() { return totalPnl >= 0 ? "+" : ""; }
@@ -1745,6 +1802,10 @@ public class DashboardBean implements Serializable {
     // --- Parámetros de Calibración (Entrada camelCase) ---
     private String selectedPair = "EUR/USD"; // Par A (Numerador)
     private String selectedPair2 = "GBP/USD"; // Par B (Denominador) — ratio sintético A/B
+    private Map<String, String> denominatorReturnsMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private Map<String, Boolean> denominatorIsPositiveMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private String lastDenominatorsReturnSignature = "";
+    private long lastDenominatorsReturnTime = 0;
     private Double amplitude = 1.5;
     private Double freq = 0.05;
     private Double phase = 1.2;
@@ -1796,6 +1857,8 @@ public class DashboardBean implements Serializable {
     public void onDaysBackChange() {
         calculateStartDateFromPeriods();
         this.crucesEmaLoaded = false;
+        loadDenominatorsReturns();
+        analyzePair();
     }
 
     public java.util.Date getEffectiveEndDate() {
@@ -1831,19 +1894,24 @@ public class DashboardBean implements Serializable {
 
             String tf = (timeframe != null) ? timeframe.toLowerCase().trim() : "1h";
             if (tf.equals("1h") || tf.equals("1H")) {
-                cal.add(java.util.Calendar.HOUR_OF_DAY, -daysBack);
+                int calHours = (int) Math.ceil(daysBack * 1.5) + 48;
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -calHours);
             } else if (tf.equals("4h") || tf.equals("4H")) {
-                cal.add(java.util.Calendar.HOUR_OF_DAY, -(daysBack * 4));
+                int calHours = (int) Math.ceil(daysBack * 4 * 1.5) + 48;
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -calHours);
             } else if (tf.equals("15min") || tf.equals("15m")) {
-                cal.add(java.util.Calendar.MINUTE, -(daysBack * 15));
+                int calMinutes = (int) Math.ceil(daysBack * 15 * 1.5) + 2880;
+                cal.add(java.util.Calendar.MINUTE, -calMinutes);
             } else if (tf.equals("30min") || tf.equals("30m")) {
-                cal.add(java.util.Calendar.MINUTE, -(daysBack * 30));
+                int calMinutes = (int) Math.ceil(daysBack * 30 * 1.5) + 2880;
+                cal.add(java.util.Calendar.MINUTE, -calMinutes);
             } else if (tf.equals("1week") || tf.equals("1w") || tf.equals("1W")) {
                 cal.add(java.util.Calendar.WEEK_OF_YEAR, -daysBack);
             } else if (tf.equals("1month") || tf.equals("1m") || tf.equals("1M")) {
                 cal.add(java.util.Calendar.MONTH, -daysBack);
             } else { // "1d"
-                cal.add(java.util.Calendar.DAY_OF_YEAR, -daysBack);
+                int calDays = (int) Math.ceil(daysBack * 1.45) + 2;
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -calDays);
             }
             this.startDate = cal.getTime();
         }
@@ -1957,6 +2025,8 @@ public class DashboardBean implements Serializable {
         loadUserRatiosList();
         loadAllActiveCycles();
         fetchUserRatioDetails();
+        loadCorrelationsForSelectedPair();
+        loadDenominatorsReturns();
         analyzePair(); // Cargar datos iniciales
     }
 
@@ -2022,6 +2092,26 @@ public class DashboardBean implements Serializable {
                                 tList.add(item);
                             }
                             dto.setTrades(tList);
+                        }
+                        JsonNode egNode = n.path("entryGroups");
+                        if (egNode.isArray()) {
+                            List<ActiveEntryGroupDto> egList = new ArrayList<>();
+                            for (JsonNode egn : egNode) {
+                                ActiveEntryGroupDto eg = new ActiveEntryGroupDto();
+                                eg.setDate(egn.path("date").asText(""));
+                                eg.setOpenTime(egn.path("openTime").asText(""));
+                                eg.setBadgeLabel(egn.path("badgeLabel").asText(""));
+                                eg.setFullLabel(egn.path("fullLabel").asText(""));
+                                eg.setSizeA(egn.path("sizeA").asDouble(0.0));
+                                eg.setSizeB(egn.path("sizeB").asDouble(0.0));
+                                eg.setWeightedPriceA(egn.path("weightedPriceA").asDouble(0.0));
+                                eg.setWeightedPriceB(egn.path("weightedPriceB").asDouble(0.0));
+                                eg.setDirA(egn.path("dirA").asText("BUY"));
+                                eg.setDirB(egn.path("dirB").asText("SELL"));
+                                eg.setTradeCount(egn.path("tradeCount").asInt(1));
+                                egList.add(eg);
+                            }
+                            dto.setEntryGroups(egList);
                         }
                         allActiveCycles.add(dto);
                     }
@@ -2097,10 +2187,14 @@ public class DashboardBean implements Serializable {
         }
         calculateStartDateFromPeriods();
         this.crucesEmaLoaded = false;
+        loadDenominatorsReturns();
+        analyzePair();
     }
 
     public void onManualDateChange() {
         this.crucesEmaLoaded = false;
+        loadDenominatorsReturns();
+        analyzePair();
     }
 
     public void onSmaChange() {
@@ -2601,7 +2695,12 @@ public class DashboardBean implements Serializable {
     }
 
     public void analyzePair() {
-        onDatesOrTimeframeChange();
+        if (endDate == null) {
+            endDate = new java.util.Date();
+        }
+        if (timeframe == null) {
+            timeframe = "1h";
+        }
         if (selectedPair == null || selectedPair.isEmpty()) {
             analysisResult = "Por favor, seleccione un par válido.";
             return;
@@ -2619,7 +2718,9 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            calculateStartDateFromPeriods();
+            if (this.startDate == null) {
+                calculateStartDateFromPeriods();
+            }
 
             java.text.SimpleDateFormat sdf = (timeframe != null && (timeframe.contains("h") || timeframe.contains("min") || timeframe.contains("m")))
                     ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
@@ -2803,6 +2904,20 @@ public class DashboardBean implements Serializable {
                             "Modo Solo Lectura", "No puedes modificar ni guardar ratios de otro usuario."));
             return;
         }
+        if (selectedPair == null || selectedPair.trim().isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
+            log.warn("⚠️ Intento de guardar ratio con símbolos incompletos: selectedPair='{}' , selectedPair2='{}'", selectedPair, selectedPair2);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Símbolos Incompletos", "Debe seleccionar un Numerador y un Denominador válidos para guardar el ratio."));
+            return;
+        }
+        if (selectedPair.equalsIgnoreCase(selectedPair2)) {
+            log.warn("⚠️ Intento de guardar ratio con símbolos idénticos.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Pares Idénticos", "El Numerador y Denominador deben ser diferentes."));
+            return;
+        }
         try {
             Integer userId = null;
             if (securityBean != null) {
@@ -2810,6 +2925,10 @@ public class DashboardBean implements Serializable {
             }
             if (userId == null) {
                 userId = 1;
+            }
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
             }
 
             RestTemplate restTemplate = new RestTemplate();
@@ -3249,6 +3368,134 @@ public class DashboardBean implements Serializable {
         return null;
     }
 
+    public String getDenominatorReturnFormatted(Object pairObj) {
+        if (pairObj == null) return "";
+        String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        String val = denominatorReturnsMap.get(pairName);
+        if (val == null) return "";
+        Boolean isPos = denominatorIsPositiveMap.get(pairName);
+        if (Boolean.FALSE.equals(isPos) || val.startsWith("-") || "Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val)) {
+            return "Pérdida";
+        }
+        return val;
+    }
+
+    public String getDenominatorReturnStyle(Object pairObj) {
+        if (pairObj == null) return "color: #64748b;";
+        String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        String val = denominatorReturnsMap.get(pairName);
+        if ("Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val) || (val != null && val.startsWith("-"))) {
+            return "color: #dc2626; font-weight: 800;";
+        }
+        Boolean isPos = denominatorIsPositiveMap.get(pairName);
+        if (isPos == null) return "color: #64748b;";
+        return isPos ? "color: #16a34a; font-weight: 800;" : "color: #dc2626; font-weight: 800;";
+    }
+
+    public String getDenominatorReturnClass(Object pairObj) {
+        if (pairObj == null) return "neutral";
+        String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        String val = denominatorReturnsMap.get(pairName);
+        if (val == null || "0.00%".equals(val) || val.isEmpty()) {
+            return "neutral";
+        }
+        if ("Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val) || val.startsWith("-")) {
+            return "negative";
+        }
+        Boolean isPos = denominatorIsPositiveMap.get(pairName);
+        if (isPos == null) return "neutral";
+        return isPos ? "positive" : "negative";
+    }
+
+    public void loadDenominatorsReturns() {
+        loadDenominatorsReturns(false);
+    }
+
+    public void loadDenominatorsReturns(boolean forceRefresh) {
+        if (selectedPair == null || selectedPair.trim().isEmpty()) {
+            return;
+        }
+        try {
+            if (this.startDate == null) {
+                calculateStartDateFromPeriods();
+            }
+            boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
+            java.text.SimpleDateFormat sdf = isIntradayTf
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    : new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startStr = (startDate != null) ? sdf.format(startDate) : "";
+            java.util.Date effEndCruces = getEffectiveEndDate();
+            String endStr = (effEndCruces != null) ? sdf.format(effEndCruces) : "";
+
+            java.text.SimpleDateFormat sdfSign = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm");
+            String signStart = (startDate != null) ? sdfSign.format(startDate) : "";
+            String signEnd = (effEndCruces != null) ? sdfSign.format(effEndCruces) : "";
+            String signature = selectedPair + "|" + (timeframe != null ? timeframe : "1h") + "|" + (daysBack != null ? daysBack : 180) + "|" + signStart + "|" + signEnd + "|" + (smaPeriodParam != null ? smaPeriodParam : 2) + "|" + selectedAccountId;
+            long now = System.currentTimeMillis();
+            if (!forceRefresh && signature.equals(lastDenominatorsReturnSignature) && (now - lastDenominatorsReturnTime < 10000)) {
+                return;
+            }
+            lastDenominatorsReturnSignature = signature;
+            lastDenominatorsReturnTime = now;
+
+            log.info("Cargando retorno total de denominadores para par base: {}, tf: {}, días: {}", selectedPair, timeframe, daysBack);
+
+            Double curAccCap = getSelectedAccountCapital();
+            String url = String.format(
+                    "%s/api/v1/cruces-ema/denominators-return/%s?timeframe=%s&days=%d&start_date=%s&end_date=%s&smaPeriod=%d" +
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
+                    (curAccCap != null ? "&capital=" + curAccCap : "") +
+                    "&leverage=100.0",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
+                    (timeframe != null ? timeframe : "1h"),
+                    (daysBack != null ? daysBack : 180),
+                    startStr, endStr,
+                    (smaPeriodParam != null ? smaPeriodParam : 2));
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode root = mapper.readTree(responseStr);
+                if (root.has("returns") && root.get("returns").isObject()) {
+                    JsonNode returnsNode = root.get("returns");
+                    denominatorReturnsMap.clear();
+                    denominatorIsPositiveMap.clear();
+                    java.util.Iterator<Map.Entry<String, JsonNode>> fields = returnsNode.fields();
+                    while (fields.hasNext()) {
+                        Map.Entry<String, JsonNode> entry = fields.next();
+                        String sym = entry.getKey();
+                        JsonNode valNode = entry.getValue();
+                        String fmt = valNode.has("formatted") ? valNode.get("formatted").asText() : "";
+                        boolean isPos = valNode.has("isPositive") ? valNode.get("isPositive").asBoolean() : true;
+                        double retPct = valNode.has("totalReturnPct") ? valNode.get("totalReturnPct").asDouble() : 0.0;
+                        double netProf = valNode.has("netProfit") ? valNode.get("netProfit").asDouble() : 0.0;
+                        if (retPct < 0.0 || netProf < 0.0 || !isPos || fmt.startsWith("-") || "Pérdida".equalsIgnoreCase(fmt)) {
+                            fmt = "Pérdida";
+                            isPos = false;
+                        }
+                        denominatorReturnsMap.put(sym, fmt);
+                        denominatorIsPositiveMap.put(sym, isPos);
+
+                        if (availablePairs != null) {
+                            for (RatioSymbolDto dto : availablePairs) {
+                                if (sym.equals(dto.getPairName())) {
+                                    dto.setReturnFormatted(fmt);
+                                    if (valNode.has("totalReturnPct")) dto.setTotalReturnPct(retPct);
+                                    if (valNode.has("netProfit")) dto.setNetProfit(netProf);
+                                }
+                            }
+                        }
+                    }
+                    log.info("Retornos de denominadores cargados exitosamente: {} registros", denominatorReturnsMap.size());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar retornos de denominadores: {}", e.getMessage());
+        }
+    }
+
     public List<RatioSymbolDto> getCompatibleDenominators() {
         List<RatioSymbolDto> list = new ArrayList<>();
         if (selectedPair == null || availablePairs == null) {
@@ -3523,8 +3770,9 @@ public class DashboardBean implements Serializable {
             return;
         }
 
-        // Cargar las nuevas correlaciones del numerador
+        // Cargar las nuevas correlaciones del numerador y retornos de denominadores
         loadCorrelationsForSelectedPair();
+        loadDenominatorsReturns();
 
         // Si el denominador actual es incompatible o es el mismo par, reajustar automáticamente
         if (selectedPair2 == null || selectedPair2.equals(selectedPair)) {
@@ -3565,6 +3813,9 @@ public class DashboardBean implements Serializable {
         private String desc;
         private String tipo;
         private Double correlationScore = 0.0;
+        private Double totalReturnPct = null;
+        private Double netProfit = null;
+        private String returnFormatted = "";
     }
 
     private void createGaussianModel(JsonNode bellCurveNode) {

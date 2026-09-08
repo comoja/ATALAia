@@ -355,6 +355,7 @@ class CruceEmaEngine:
                 })
 
         # 3. PROCESAR POSICIONES ABIERTAS / EN CURSO AL FINAL DEL HISTORIAL
+        openCycleTrades = []
         if activeTrades:
             lastPxA = pricesA[-1]
             lastPxB = pricesB[-1]

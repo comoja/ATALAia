@@ -493,6 +493,61 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairB)
         avgEntryB = (weightedSumB / totSizeB) if totSizeB > 0 else 0.0
         
+        # Agrupar trades por fecha (YYYY-MM-DD) para consolidar entradas múltiples (múltiplos) en cada día
+        from collections import OrderedDict
+        date_groups = OrderedDict()
+        for t in t_list:
+            if not t.openTime:
+                continue
+            if hasattr(t.openTime, "strftime"):
+                day_key = t.openTime.strftime("%Y-%m-%d")
+                full_time = t.openTime.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                s_ot = str(t.openTime)
+                day_key = s_ot[:10]
+                full_time = s_ot
+            if day_key not in date_groups:
+                date_groups[day_key] = []
+            date_groups[day_key].append((t, full_time))
+
+        month_names = {
+            "01": "Ene", "02": "Feb", "03": "Mar", "04": "Abr",
+            "05": "May", "06": "Jun", "07": "Jul", "08": "Ago",
+            "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dic"
+        }
+        entry_groups = []
+        for day_key, group_trades in date_groups.items():
+            first_trade, first_time = group_trades[0]
+            parts = day_key.split("-")
+            month_str = month_names.get(parts[1], parts[1]) if len(parts) > 1 else ""
+            day_str = parts[2] if len(parts) > 2 else ""
+            time_part = first_time[11:16] if len(first_time) >= 16 else ""
+            badge_label = f"{day_str}/{month_str}"
+
+            trades_A = [t for t, _ in group_trades if t.symbol == pairA]
+            size_A = sum(float(t.size or 0) for t in trades_A)
+            w_sum_A = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in trades_A)
+            w_px_A = (w_sum_A / size_A) if size_A > 0 else 0.0
+
+            trades_B = [t for t, _ in group_trades if t.symbol == pairB]
+            size_B = sum(float(t.size or 0) for t in trades_B)
+            w_sum_B = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in trades_B)
+            w_px_B = (w_sum_B / size_B) if size_B > 0 else 0.0
+
+            entry_groups.append({
+                "date": day_key,
+                "openTime": first_time,
+                "badgeLabel": badge_label,
+                "fullLabel": f"{badge_label} {time_part}".strip(),
+                "sizeA": size_A,
+                "sizeB": size_B,
+                "weightedPriceA": round(w_px_A, 5),
+                "weightedPriceB": round(w_px_B, 5),
+                "dirA": dirA,
+                "dirB": dirB,
+                "tradeCount": len(group_trades)
+            })
+
         trade_tf = t_list[0].intervalo if (t_list and hasattr(t_list[0], 'intervalo') and t_list[0].intervalo) else "1d"
         results.append({
             "sizeA": totSizeA,
@@ -520,7 +575,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "direction": dir_text,
             "firstEntryDate": open_dates[0] if open_dates else "",
             "lastEntryDate": open_dates[-1] if open_dates else "",
-            "trades": trade_items
+            "trades": trade_items,
+            "entryGroups": entry_groups
         })
         
     return results
@@ -877,13 +933,24 @@ async def get_ratio_correlation(
         is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
 
         if is_intraday:
-            # Determinar rango de fechas para velas intradía
+            # Determinar rango de fechas para velas intradía con buffer de warmup
             import pandas as pd
+            hrs_per_candle = 1
+            if "4h" in tf_lower: hrs_per_candle = 4
+            elif "15m" in tf_lower: hrs_per_candle = 0.25
+            elif "30m" in tf_lower: hrs_per_candle = 0.5
+            elif "5m" in tf_lower: hrs_per_candle = 0.0833
+
+            warmup_bars = 70
+            total_bars_needed = (days if days else 180) + warmup_bars
+            calendar_hours_needed = int(total_bars_needed * hrs_per_candle * 1.55) + 96
+
             if start_date:
-                dt_start = pd.to_datetime(start_date).tz_localize(None)
+                dt_req_start = pd.to_datetime(start_date).tz_localize(None)
+                # Incluir buffer hacia atrás para que los indicadores (volatilidad de 60 periodos) tengan datos previos
+                dt_start = dt_req_start - timedelta(hours=int(warmup_bars * hrs_per_candle * 1.55) + 48)
             else:
-                hrs = (days if days else 180) * (4 if "4h" in tf_lower else 1)
-                dt_start = datetime.now() - timedelta(hours=hrs + 96)
+                dt_start = datetime.now() - timedelta(hours=calendar_hours_needed)
 
             if end_date:
                 dt_end = pd.to_datetime(end_date).tz_localize(None)
@@ -961,8 +1028,8 @@ async def get_ratio_correlation(
             df_b_daily.iloc[-1, df_b_daily.columns.get_loc('closePrice')] = live_b
 
         if days and days > 0:
-            df_a_daily = df_a_daily.tail(days)
-            df_b_daily = df_b_daily.tail(days)
+            df_a_daily = df_a_daily.tail(days + 70)
+            df_b_daily = df_b_daily.tail(days + 70)
         elif start_date or end_date:
             try:
                 import pandas as pd
@@ -1041,6 +1108,9 @@ async def get_ratio_correlation(
                     except Exception as e:
                         logger.warning(f"Error parseando fechas para el filtro: {e}")
                 
+                if days and days > 0 and len(history_real) > days:
+                    history_real = history_real[-days:]
+
                 # Historial real sin proyecciones
                 resultado["history"] = history_real
                     
@@ -1836,6 +1906,90 @@ async def get_cruces_ema_pair_analysis(
         raise he
     except Exception as e:
         logger.error(f"Error en get_cruces_ema_pair_analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cruces-ema/denominators-return/{pairA:path}")
+async def get_cruces_ema_denominators_return(
+    pairA: str,
+    timeframe: str = "1h",
+    days: int = 180,
+    start_date: str = "",
+    end_date: str = "",
+    smaPeriod: int = 2,
+    sigmaWindow: int = 30,
+    idCuenta: Optional[int] = None,
+    capital: Optional[float] = None,
+    leverage: float = 100.0,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Calcula de manera paralela el retorno total (porcentaje y monto neto) de todos
+    los denominadores compatibles respecto a un par base (numerador), según la
+    temporalidad y el período especificados.
+    """
+    pairA = unquote(pairA)
+    try:
+        # 1. Obtener todos los pares activos excepto el numerador
+        pares_activos = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
+        denominadores = [p.symbol for p in pares_activos if p.symbol != pairA]
+
+        async def run_pair_bt(sym_b: str):
+            try:
+                res = await get_cruces_ema_pair_analysis(
+                    pairA=pairA,
+                    pairB=sym_b,
+                    timeframe=timeframe,
+                    days=days,
+                    start_date=start_date,
+                    end_date=end_date,
+                    idCuenta=idCuenta,
+                    capital=capital,
+                    leverage=leverage,
+                    smaPeriod=smaPeriod,
+                    sigmaWindow=sigmaWindow
+                )
+                cb = res.get("signalBacktest", {}).get("combined", {})
+                ret_pct = float(cb.get("totalReturnPct", 0.0) or 0.0)
+                net_profit = float(cb.get("netProfit", 0.0) or 0.0)
+                if ret_pct < 0 or net_profit < 0:
+                    formatted = "Pérdida"
+                    is_pos = False
+                elif ret_pct > 0:
+                    formatted = f"+{ret_pct:,.2f}%"
+                    is_pos = True
+                else:
+                    formatted = "0.00%"
+                    is_pos = True
+                return sym_b, {
+                    "totalReturnPct": ret_pct,
+                    "netProfit": net_profit,
+                    "formatted": formatted,
+                    "isPositive": is_pos
+                }
+            except Exception as e:
+                logger.warning(f"No se pudo calcular retorno para {pairA} / {sym_b}: {e}")
+                return sym_b, {
+                    "totalReturnPct": 0.0,
+                    "netProfit": 0.0,
+                    "formatted": "0.00%",
+                    "isPositive": True
+                }
+
+        tasks = [run_pair_bt(sym_b) for sym_b in denominadores]
+        completed = await asyncio.gather(*tasks)
+
+        returns_dict = {sym_b: data for sym_b, data in completed}
+
+        return {
+            "status": "success",
+            "pairA": pairA,
+            "timeframe": timeframe,
+            "days": days,
+            "returns": returns_dict
+        }
+    except Exception as e:
+        logger.error(f"Error en get_cruces_ema_denominators_return: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 class CloseRatioRequest(BaseModel):
