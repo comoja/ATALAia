@@ -7,7 +7,7 @@ rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if rutaRaiz not in sys.path:
     sys.path.insert(0, rutaRaiz)
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 import subprocess
@@ -580,6 +580,198 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         })
         
     return results
+
+
+
+
+@router.get("/trades/hechos-ratio/{idCuenta}")
+def getRatioHechos(idCuenta: int, setup: str = Query(...), db: Session = Depends(get_db)):
+    """
+    Obtiene todos los hechos (operaciones ejecutadas) que corresponden a un ratio específico,
+    ordenados estrictamente por par (símbolo) y por fecha de apertura (openTime).
+    Calcula precio actual de mercado y PnL flotante para operaciones en curso (OPEN).
+    """
+    from urllib.parse import unquote
+    from sqlalchemy import text
+
+    setup_decoded = unquote(setup).strip()
+    parts = [p.strip() for p in setup_decoded.split("-") if p.strip()]
+    if len(parts) < 2:
+        return {"summary": {}, "hechos": []}
+
+    pairA = parts[0]
+    pairB = parts[1]
+    setupAB = f"{pairA} - {pairB}"
+    setupBA = f"{pairB} - {pairA}"
+    cleanAB = setupAB.replace(" ", "")
+    cleanBA = setupBA.replace(" ", "")
+
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, status, direction, 
+               intervalo, pnl, candleTime, openTime, closeTime, size, 
+               entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven, 
+               commission, margin_used, ticketId
+        FROM trades
+        WHERE idCuenta = :idc 
+          AND (
+            setup = :sAB OR setup = :sBA 
+            OR REPLACE(setup, ' ', '') = :cleanAB
+            OR REPLACE(setup, ' ', '') = :cleanBA
+          )
+        ORDER BY symbol ASC, COALESCE(openTime, candleTime) ASC, idTrade ASC
+    """)
+    rows = db.execute(sql, {
+        "idc": idCuenta,
+        "sAB": setupAB,
+        "sBA": setupBA,
+        "cleanAB": cleanAB,
+        "cleanBA": cleanBA
+    }).fetchall()
+
+    if not rows:
+        return {
+            "summary": {
+                "setup": setupAB,
+                "pairA": pairA,
+                "pairB": pairB,
+                "totalHechos": 0,
+                "openHechos": 0,
+                "closedHechos": 0,
+                "totalMargin": 0.0,
+                "totalPnl": 0.0,
+                "pnlOpen": 0.0,
+                "pnlClosed": 0.0,
+                "totalSizeA": 0.0,
+                "totalSizeB": 0.0,
+                "firstEntryDate": "",
+                "lastEntryDate": ""
+            },
+            "hechos": []
+        }
+
+    sym_cache = {}
+    symbols_present = set(r.symbol for r in rows)
+    symbols_present.add(pairA)
+    symbols_present.add(pairB)
+
+    def get_sym_data(sym):
+        clean = sym.replace("/", "").upper()
+        live_price = get_live_price_from_mt5(sym)
+        row_s = db.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        if not row_s:
+            row_s = db.execute(text("SELECT quote_currency, pip FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+            
+        quote_curr = str(row_s[0]).upper() if row_s and row_s[0] else ("JPY" if "JPY" in sym else ("MXN" if "MXN" in sym else "USD"))
+        pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+        
+        if live_price is not None:
+            return float(live_price), quote_curr, pip_size
+            
+        row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+        if not row_c:
+            row_c = db.execute(text("SELECT closePrice FROM stockprices WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY priceDate DESC LIMIT 1"), {"s": clean}).fetchone()
+            
+        cur_close = float(row_c[0]) if row_c and row_c[0] else 1.0
+        return cur_close, quote_curr, pip_size
+
+    for s in symbols_present:
+        sym_cache[s] = get_sym_data(s)
+
+    items = []
+    tot_margin = 0.0
+    tot_pnl = 0.0
+    pnl_open = 0.0
+    pnl_closed = 0.0
+    open_count = 0
+    closed_count = 0
+    tot_size_A = 0.0
+    tot_size_B = 0.0
+
+    for r in rows:
+        sym = r.symbol
+        st = str(r.status).upper() if r.status else "OPEN"
+        is_open = (st == "OPEN")
+        direction = str(r.direction).upper() if r.direction else "LARGO"
+        is_long = "LARG" in direction or "BUY" in direction or "LONG" in direction
+        size = float(r.size or 0)
+        entry = float(r.entryPrice or 0)
+        margin = float(r.margin_used or 0)
+        comm = float(r.commission or 0)
+
+        cur_px, qc, pip_sz = sym_cache.get(sym, (entry, "USD", 0.0001))
+
+        if is_open:
+            open_count += 1
+            tot_margin += margin
+            if is_long:
+                mov = cur_px - entry
+            else:
+                mov = entry - cur_px
+            pips = mov / pip_sz if pip_sz > 0 else 0.0
+            if qc == "USD":
+                pip_val_usd = size * pip_sz
+            else:
+                pip_val_usd = (size * pip_sz) / cur_px if cur_px > 0 else (size * pip_sz)
+            calc_pnl = round(pips * pip_val_usd, 2)
+            pnl_open += calc_pnl
+            exit_px = None
+        else:
+            closed_count += 1
+            calc_pnl = float(r.pnl or 0)
+            pnl_closed += calc_pnl
+            exit_px = float(r.exitPrice) if r.exitPrice is not None else None
+
+        tot_pnl += calc_pnl
+
+        if sym == pairA:
+            tot_size_A += size
+        elif sym == pairB:
+            tot_size_B += size
+
+        ot_str = r.openTime.strftime("%Y-%m-%d %H:%M:%S") if (r.openTime and hasattr(r.openTime, "strftime")) else (str(r.openTime) if r.openTime else (str(r.candleTime) if r.candleTime else ""))
+        ct_str = r.closeTime.strftime("%Y-%m-%d %H:%M:%S") if (r.closeTime and hasattr(r.closeTime, "strftime")) else (str(r.closeTime) if r.closeTime else "")
+
+        items.append({
+            "idTrade": r.idTrade,
+            "idCuenta": r.idCuenta,
+            "strategy": r.strategy or "",
+            "setup": r.setup or setupAB,
+            "symbol": sym,
+            "status": st,
+            "direction": "LARGO" if is_long else "CORTO",
+            "intervalo": r.intervalo or "",
+            "size": size,
+            "entryPrice": entry,
+            "exitPrice": exit_px,
+            "currentPrice": round(cur_px, 5) if cur_px is not None else None,
+            "marginUsed": margin,
+            "pnl": calc_pnl,
+            "commission": comm,
+            "netPnl": round(calc_pnl - comm, 2),
+            "ticketId": str(r.ticketId or ""),
+            "openTime": ot_str,
+            "closeTime": ct_str,
+            "isWin": (calc_pnl >= 0)
+        })
+
+    summary = {
+        "setup": setupAB,
+        "pairA": pairA,
+        "pairB": pairB,
+        "totalHechos": len(items),
+        "openHechos": open_count,
+        "closedHechos": closed_count,
+        "totalMargin": round(tot_margin, 2),
+        "totalPnl": round(tot_pnl, 2),
+        "pnlOpen": round(pnl_open, 2),
+        "pnlClosed": round(pnl_closed, 2),
+        "totalSizeA": tot_size_A,
+        "totalSizeB": tot_size_B,
+        "firstEntryDate": items[0]["openTime"] if items else "",
+        "lastEntryDate": items[-1]["openTime"] if items else ""
+    }
+
+    return {"summary": summary, "hechos": items}
 
 
 

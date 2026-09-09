@@ -701,8 +701,8 @@ def openSingleRatioTradePair(
        - Se confirma con el broker.
        - Si hay confirmación -> se inserta en trades con TicketID real, se descuenta margen y se alerta por Telegram.
        - Si no hay confirmación -> NO se inserta en BD.
-    3. Si la cuenta NO tiene broker en brokercuenta (cuenta interna/simulada):
-       - Se inserta en trades con ticketId=NULL, se descuenta margen de cuenta.Capital y se envía alerta a Telegram.
+    3. Si la cuenta NO tiene broker activo en brokercuenta:
+       - NO OPERA: Se cancela la apertura y no se registra ninguna operación.
     """
     import requests
     from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
@@ -814,8 +814,11 @@ def openSingleRatioTradePair(
 
     logger.info(f"🧩 [{setupName}] Iniciando secuencia de {totalLotsCount} lote(s) para Cuenta #{idCuenta} ({accountName})...")
 
-    # CASO 1: Cuenta con Broker Conectado (FOREX.com / Webhook)
+    # CASO 1: Cuenta con Broker Conectado (FOREX.com / Webhook) - EJECUCIÓN TRANSACCIONAL ESTRICTA
     if activeBrokers:
+        confirmedBrokerLots = []
+        allConfirmed = True
+
         for idx, lot in enumerate(lotsToExecute):
             if idx > 0:
                 logger.info(f"⏳ [FOREX] Esperando 5.0s antes de despachar lote {idx+1}/{totalLotsCount} ({lot['symbol']})...")
@@ -829,6 +832,7 @@ def openSingleRatioTradePair(
             rate = float(lot["margenRate"])
             chunkMargin = sz * rate
 
+            lotConfirmedForAccount = False
             for bc in activeBrokers:
                 loginUsuario = bc.get("loginUsuario", "")
                 tokenAcceso = bc.get("tokenAcceso", "")
@@ -880,116 +884,150 @@ def openSingleRatioTradePair(
                     logger.error(f"❌ [FOREX] Excepción de conexión enviando lote a {webhookUrl}: {exReq}")
 
                 if isConfirmed and orderId:
-                    resInsert = dbSession.execute(insertTradeSql, {
-                        "idCuenta": idCuenta,
-                        "setup": setupName,
+                    confirmedBrokerLots.append({
                         "symbol": sym,
                         "direction": dirStr,
-                        "intervalo": periodo,
-                        "candleTime": candleDt,
-                        "openTime": nowStr,
                         "size": sz,
-                        "entryPrice": fillPrice,
-                        "margin_used": chunkMargin,
-                        "ticketId": orderId
+                        "fillPrice": fillPrice,
+                        "chunkMargin": chunkMargin,
+                        "ticketId": orderId,
+                        "loginUsuario": loginUsuario,
+                        "encryptedAccountToken": encryptedAccountToken,
+                        "lotIdx": idx + 1
                     })
-                    tId = resInsert.lastrowid
-                    insertedTrades.append(tId)
-
-                    dbSession.execute(text("""
-                        UPDATE cuenta
-                        SET Capital = Capital - :chunkMargin
-                        WHERE idCuenta = :idc
-                    """), {"chunkMargin": chunkMargin, "idc": idCuenta})
-                    dbSession.commit()
-
-                    capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
-                    curCapital = float(capRow["Capital"]) if capRow else accountCapital
-
-                    logger.info(f"💾 [BD] Trade #{tId} guardado exitosamente en BD (TicketId: {orderId}, Margen: ${chunkMargin:,.2f} USD).")
-
-                    alertMsg = buildRatioLotEntryAlertMessage(
-                        accountName=accountName,
-                        numerador=numerador,
-                        denominador=denominador,
-                        periodo=periodo,
-                        symbol=sym,
-                        direction=dirStr,
-                        size=sz,
-                        fillPrice=fillPrice,
-                        ticketId=orderId,
-                        chunkMargin=chunkMargin,
-                        currentLotIndex=idx + 1,
-                        totalLots=totalLotsCount,
-                        signalType=signalType,
-                        accountCapitalRemaining=curCapital
-                    )
-                    try:
-                        asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
-                    except Exception as exTel:
-                        logger.error(f"Error despachando alerta Telegram para lote #{tId}: {exTel}")
+                    lotConfirmedForAccount = True
                 else:
-                    logger.error(f"⛔ [RECHAZADO] Lote {idx+1}/{totalLotsCount} ({act.upper()} {sym}, {sz:,.0f} u) NO confirmado por FOREX.com. NO se inserta en BD.")
+                    logger.error(f"⛔ [FALLO FOREX] Lote {idx+1}/{totalLotsCount} ({act.upper()} {sym}, {sz:,.0f} u) NO confirmado por FOREX.com.")
+                    allConfirmed = False
+                    break
 
-    # CASO 2: Cuenta Interna / Simulada (Sin Broker en brokercuenta)
-    else:
-        logger.info(f"ℹ️ [Simulado/Interno] Cuenta #{idCuenta} ({accountName}) sin broker conectado. Registrando operaciones directamente en BD...")
-        for idx, lot in enumerate(lotsToExecute):
-            sym = lot["symbol"]
-            dirStr = lot["direction"]
-            sz = float(lot["size"])
-            px = float(lot["entryPrice"])
-            rate = float(lot["margenRate"])
-            chunkMargin = sz * rate
+            if not allConfirmed or not lotConfirmedForAccount:
+                allConfirmed = False
+                break
 
-            resInsert = dbSession.execute(insertTradeSql, {
-                "idCuenta": idCuenta,
-                "setup": setupName,
-                "symbol": sym,
-                "direction": dirStr,
-                "intervalo": periodo,
-                "candleTime": candleDt,
-                "openTime": nowStr,
-                "size": sz,
-                "entryPrice": px,
-                "margin_used": chunkMargin,
-                "ticketId": None
-            })
-            tId = resInsert.lastrowid
-            insertedTrades.append(tId)
+        # EVALUACIÓN DE TRANSACCIONALIDAD:
+        # Si falló cualquier lote, ejecutar ROLLBACK completo de las patas que sí se confirmaron
+        if not allConfirmed or len(confirmedBrokerLots) < totalLotsCount:
+            logger.error(f"🚨 [ROLLBACK TRANSACCIONAL] Secuencia para {setupName} INCOMPLETA ({len(confirmedBrokerLots)}/{totalLotsCount}). Ejecutando reversión/cierre de patas abiertas en FOREX.com...")
+            
+            for rbLot in confirmedBrokerLots:
+                rbSym = rbLot["symbol"]
+                rbTicket = rbLot["ticketId"]
+                rbSz = rbLot["size"]
+                rbToken = rbLot["encryptedAccountToken"]
+                
+                closePayload = {
+                    "strategy": "RATIO ATALAia",
+                    "passphrase": encryptedPassphrase,
+                    "time": time.time(),
+                    "action": "close",
+                    "ticker": rbSym,
+                    "entry": 0.0,
+                    "quantity": rbSz,
+                    "tp": 0.0,
+                    "sl": 0.0,
+                    "sync": True,
+                    "ticketId": rbTicket,
+                    "FOREX_USERNAME": rbToken
+                }
+                try:
+                    logger.warning(f"🔄 [ROLLBACK FOREX] Cerrando lote previo {rbSym} (Ticket: {rbTicket}, {rbSz:,.0f} u) en FOREX.com...")
+                    respRb = requests.post(webhookUrl, json=closePayload, timeout=25)
+                    logger.info(f"🔄 [ROLLBACK FOREX] Respuesta de cierre para {rbTicket}: {respRb.status_code}")
+                except Exception as exRb:
+                    logger.error(f"❌ [ROLLBACK FOREX] Error cerrando lote {rbTicket} en FOREX.com: {exRb}")
 
-            dbSession.execute(text("""
-                UPDATE cuenta
-                SET Capital = Capital - :chunkMargin
-                WHERE idCuenta = :idc
-            """), {"chunkMargin": chunkMargin, "idc": idCuenta})
+            rollbackMsg = (
+                f"🚨 <b>[ROLLBACK TRANSACCIONAL RATIO]</b>\n\n"
+                f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
+                f"Ratio: <b>{setupName}</b>\n"
+                f"Causa: Falló la confirmación en FOREX.com del lote {len(confirmedBrokerLots)+1}/{totalLotsCount}.\n"
+                f"Acción: Se ejecutó cierre de emergencia para {len(confirmedBrokerLots)} lote(s) en Forex. La Base de Datos permanece intacta (sin posiciones huérfanas)."
+            )
+            try:
+                asyncio.run(sendRatioTelegramAlert(idCuenta, rollbackMsg))
+            except Exception as exTel:
+                logger.error(f"Error despachando alerta Telegram de rollback: {exTel}")
+                
+            return False
+
+        # FASE 2: PERSISTENCIA ATÓMICA EN BASE DE DATOS (MYSQL)
+        # Solo se ejecuta si TODOS los lotes del ratio están 100% confirmados por Forex
+        try:
+            for cLot in confirmedBrokerLots:
+                resInsert = dbSession.execute(insertTradeSql, {
+                    "idCuenta": idCuenta,
+                    "setup": setupName,
+                    "symbol": cLot["symbol"],
+                    "direction": cLot["direction"],
+                    "intervalo": periodo,
+                    "candleTime": candleDt,
+                    "openTime": nowStr,
+                    "size": cLot["size"],
+                    "entryPrice": cLot["fillPrice"],
+                    "margin_used": cLot["chunkMargin"],
+                    "ticketId": cLot["ticketId"]
+                })
+                tId = resInsert.lastrowid
+                insertedTrades.append(tId)
+                cLot["tId"] = tId
+
+                dbSession.execute(text("""
+                    UPDATE cuenta
+                    SET Capital = Capital - :chunkMargin
+                    WHERE idCuenta = :idc
+                """), {"chunkMargin": cLot["chunkMargin"], "idc": idCuenta})
+
             dbSession.commit()
+            logger.info(f"💾 [TRANSACCIÓN BD COMMIT] {len(insertedTrades)} trades de ratio guardados y capital actualizado en MySQL.")
 
             capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
             curCapital = float(capRow["Capital"]) if capRow else accountCapital
 
-            logger.info(f"💾 [BD] Trade simulado #{tId} ({dirStr} {sz:,.0f} {sym} @ {px}) guardado exitosamente en BD.")
+            for cLot in confirmedBrokerLots:
+                alertMsg = buildRatioLotEntryAlertMessage(
+                    accountName=accountName,
+                    numerador=numerador,
+                    denominador=denominador,
+                    periodo=periodo,
+                    symbol=cLot["symbol"],
+                    direction=cLot["direction"],
+                    size=cLot["size"],
+                    fillPrice=cLot["fillPrice"],
+                    ticketId=cLot["ticketId"],
+                    chunkMargin=cLot["chunkMargin"],
+                    currentLotIndex=cLot["lotIdx"],
+                    totalLots=totalLotsCount,
+                    signalType=signalType,
+                    accountCapitalRemaining=curCapital
+                )
+                try:
+                    asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
+                except Exception as exTel:
+                    logger.error(f"Error despachando alerta Telegram para lote #{cLot.get('tId')}: {exTel}")
 
-            alertMsg = buildRatioLotEntryAlertMessage(
-                accountName=accountName,
-                numerador=numerador,
-                denominador=denominador,
-                periodo=periodo,
-                symbol=sym,
-                direction=dirStr,
-                size=sz,
-                fillPrice=px,
-                ticketId="INTERNO",
-                chunkMargin=chunkMargin,
-                currentLotIndex=idx + 1,
-                totalLots=totalLotsCount,
-                signalType=signalType,
-                accountCapitalRemaining=curCapital
+        except Exception as exDb:
+            dbSession.rollback()
+            logger.error(f"❌ [TRANSACCIÓN BD ROLLBACK] Falló la inserción en MySQL. Rollback ejecutado: {exDb}", exc_info=True)
+            dbFailMsg = (
+                f"🚨 <b>[ALERTA CRÍTICA - ERROR BASE DE DATOS]</b>\n\n"
+                f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
+                f"Ratio: <b>{setupName}</b>\n"
+                f"Las órdenes fueron confirmadas en FOREX.com ({[c['ticketId'] for c in confirmedBrokerLots]}), pero falló el registro en MySQL. Error: {exDb}"
             )
             try:
-                asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
-            except Exception as exTel:
-                logger.error(f"Error despachando alerta Telegram para lote #{tId}: {exTel}")
+                asyncio.run(sendRatioTelegramAlert(idCuenta, dbFailMsg))
+            except Exception:
+                pass
+            return False
+
+    # CASO 2: Cuenta Sin Bróker activo en brokercuenta -> NO OPERA
+    else:
+        logger.warning(
+            f"🚫 [SIN BRÓKER] Cuenta #{idCuenta} ({accountName}) no tiene bróker activo configurado en brokercuenta. "
+            f"NO opera: No se abrirán operaciones ni se registrarán órdenes."
+        )
+        return False
 
     logger.info(f"🎯 [{setupName}] Secuencia de lotes finalizada para Cuenta #{idCuenta}. Total registros creados en BD: {len(insertedTrades)}/{totalLotsCount}.")
     return len(insertedTrades) > 0
@@ -1218,16 +1256,19 @@ def closeRatioTrades(
         f"| Margen Reintegrado:  | Impacto Neto en Cuenta:  USD"
     )
 
-    # Despachar Órdenes de Cierre al Webhook de Brókers (1 orden por símbolo único del ratio)
+    # Despachar Órdenes de Cierre al Webhook de Brókers (con ticketId si está presente)
     webhookCloseOrders = []
-    uniqueSymbols = list(dict.fromkeys([tr.get("symbol") for tr in openTrades if tr.get("symbol")]))
-    for sym in uniqueSymbols:
+    for tr in openTrades:
+        tId = tr.get("ticketId")
+        sym = tr.get("symbol")
+        sz = float(tr.get("size", 0.0) or 0.0)
         webhookCloseOrders.append({
             "strategy": "RATIO ATALAia",
             "symbol": sym,
             "action": "close",
-            "size": 0.0,
-            "entryPrice": 0.0
+            "size": sz,
+            "entryPrice": 0.0,
+            "ticketId": tId
         })
     sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
 
@@ -1279,6 +1320,23 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     accountData = fetchAccountData(dbSession, idCuenta)
     accountName = accountData.get("nombre", f"Cuenta #{idCuenta}")
     accHeader = f"Cuenta #{idCuenta} ({accountName}) | {setupName} ({periodo})"
+
+    # 2.1 Verificación de Bróker Activo en brokercuenta: Si la cuenta no tiene bróker activo, NO opera
+    queryBrokers = text("""
+        SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, b.nombre AS nombreBroker
+        FROM brokercuenta bc
+        LEFT JOIN broker b ON bc.idBroker = b.idBroker
+        WHERE bc.idCuenta = :idc AND bc.activo = 1
+    """)
+    activeBrokers = dbSession.execute(queryBrokers, {"idc": idCuenta}).mappings().fetchall()
+
+    if not activeBrokers:
+        openTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
+        if not openTrades:
+            logger.info(f"🚫 [{accHeader}] Cuenta #{idCuenta} ({accountName}) no tiene bróker activo configurado en brokercuenta. NO opera (evaluación omitida).")
+            return
+        else:
+            logger.info(f"⚠️ [{accHeader}] Cuenta #{idCuenta} ({accountName}) sin bróker activo en brokercuenta, pero con {len(openTrades)} trade(s) abierto(s). Se evaluará únicamente para cierre por cruce de precios.")
 
     # 1. Historial de precios: filtrar a los últimos 'dias' periodos (velas) configurados
     pLower = str(periodo).lower()

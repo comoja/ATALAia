@@ -701,6 +701,7 @@ public class DashboardBean implements Serializable {
         private double size = 0.0;
         private Double entryPrice;
         private Double exitPrice;
+        private Double currentPrice;
         private double pnl = 0.0;
         private double commission = 0.0;
         private double netPnl = 0.0;
@@ -746,6 +747,16 @@ public class DashboardBean implements Serializable {
         public void setSize(double size) { this.size = size; }
         public Double getEntryPrice() { return entryPrice; }
         public void setEntryPrice(Double entryPrice) { this.entryPrice = entryPrice; }
+        public Double getCurrentPrice() { return currentPrice; }
+        public void setCurrentPrice(Double currentPrice) { this.currentPrice = currentPrice; }
+        public String getFormattedCurrentPrice() { return currentPrice != null ? String.format(java.util.Locale.US, "%.5f", currentPrice) : "-"; }
+        public String getFormattedPriceDisplay() {
+            if (isOpen()) {
+                return currentPrice != null ? String.format(java.util.Locale.US, "%.5f", currentPrice) : getFormattedEntryPrice();
+            } else {
+                return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-";
+            }
+        }
         public Double getExitPrice() { return exitPrice; }
         public void setExitPrice(Double exitPrice) { this.exitPrice = exitPrice; }
         public double getPnl() { return pnl; }
@@ -792,6 +803,16 @@ public class DashboardBean implements Serializable {
         public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
         public String getFormattedNetPnl() { return String.format(java.util.Locale.US, "%,.2f", netPnl); }
         public String getFormattedMarginUsed() { return String.format(java.util.Locale.US, "%,.2f", marginUsed); }
+        public String getFormattedMarginWithDollar() {
+            return String.format(java.util.Locale.US, "$%,.2f", marginUsed);
+        }
+        public String getFormattedPnlWithDollar() {
+            if (pnl >= 0) {
+                return String.format(java.util.Locale.US, "+$%,.2f", pnl);
+            } else {
+                return String.format(java.util.Locale.US, "-$%,.2f", Math.abs(pnl));
+            }
+        }
         public String getFormattedCommission() { return String.format(java.util.Locale.US, "%,.2f", commission); }
     }
 
@@ -4205,4 +4226,397 @@ public class DashboardBean implements Serializable {
             org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
         }
     }
+
+    // =========================================================================
+    // MODAL DE HECHOS DEL RATIO (OPERACIONES POR PAR Y FECHA)
+    // =========================================================================
+    private String ratioHechosSetup = "";
+    private String ratioHechosPairA = "";
+    private String ratioHechosPairB = "";
+    private List<RealTradeItemDto> ratioHechosListAll = new ArrayList<>();
+    private List<RealTradeItemDto> ratioHechosList = new ArrayList<>();
+    private String ratioHechosFilter = "ALL";
+    private int ratioHechosOpenCount = 0;
+    private int ratioHechosClosedCount = 0;
+    private double ratioHechosTotalMargin = 0.0;
+    private double ratioHechosTotalPnl = 0.0;
+    private double ratioHechosPnlOpen = 0.0;
+    private double ratioHechosPnlClosed = 0.0;
+    private double ratioHechosSizeA = 0.0;
+    private double ratioHechosSizeB = 0.0;
+    private double ratioHechosPnlA = 0.0;
+    private double ratioHechosPnlB = 0.0;
+    private double ratioHechosMarginA = 0.0;
+    private double ratioHechosMarginB = 0.0;
+    private String ratioHechosDirA = "";
+    private String ratioHechosDirB = "";
+    private String ratioHechosFirstEntry = "";
+    private String ratioHechosLastEntry = "";
+
+    public String getRatioHechosSetup() { return ratioHechosSetup; }
+    public void setRatioHechosSetup(String ratioHechosSetup) { this.ratioHechosSetup = ratioHechosSetup; }
+    public String getRatioHechosPairA() { return ratioHechosPairA; }
+    public void setRatioHechosPairA(String ratioHechosPairA) { this.ratioHechosPairA = ratioHechosPairA; }
+    public String getRatioHechosPairB() { return ratioHechosPairB; }
+    public void setRatioHechosPairB(String ratioHechosPairB) { this.ratioHechosPairB = ratioHechosPairB; }
+    public List<RealTradeItemDto> getRatioHechosListAll() { return ratioHechosListAll; }
+    public void setRatioHechosListAll(List<RealTradeItemDto> ratioHechosListAll) { this.ratioHechosListAll = ratioHechosListAll; }
+    public List<RealTradeItemDto> getRatioHechosList() { return ratioHechosList; }
+    public void setRatioHechosList(List<RealTradeItemDto> ratioHechosList) { this.ratioHechosList = ratioHechosList; }
+    public String getRatioHechosFilter() { return ratioHechosFilter; }
+    public void setRatioHechosFilter(String ratioHechosFilter) { this.ratioHechosFilter = ratioHechosFilter; }
+    public int getRatioHechosOpenCount() { return ratioHechosOpenCount; }
+    public void setRatioHechosOpenCount(int ratioHechosOpenCount) { this.ratioHechosOpenCount = ratioHechosOpenCount; }
+    public int getRatioHechosClosedCount() { return ratioHechosClosedCount; }
+    public void setRatioHechosClosedCount(int ratioHechosClosedCount) { this.ratioHechosClosedCount = ratioHechosClosedCount; }
+    public double getRatioHechosTotalMargin() { return ratioHechosTotalMargin; }
+    public void setRatioHechosTotalMargin(double ratioHechosTotalMargin) { this.ratioHechosTotalMargin = ratioHechosTotalMargin; }
+    public double getRatioHechosTotalPnl() { return ratioHechosTotalPnl; }
+    public void setRatioHechosTotalPnl(double ratioHechosTotalPnl) { this.ratioHechosTotalPnl = ratioHechosTotalPnl; }
+    public double getRatioHechosPnlOpen() { return ratioHechosPnlOpen; }
+    public void setRatioHechosPnlOpen(double ratioHechosPnlOpen) { this.ratioHechosPnlOpen = ratioHechosPnlOpen; }
+    public double getRatioHechosPnlClosed() { return ratioHechosPnlClosed; }
+    public void setRatioHechosPnlClosed(double ratioHechosPnlClosed) { this.ratioHechosPnlClosed = ratioHechosPnlClosed; }
+    public double getRatioHechosSizeA() { return ratioHechosSizeA; }
+    public void setRatioHechosSizeA(double ratioHechosSizeA) { this.ratioHechosSizeA = ratioHechosSizeA; }
+    public double getRatioHechosSizeB() { return ratioHechosSizeB; }
+    public void setRatioHechosSizeB(double ratioHechosSizeB) { this.ratioHechosSizeB = ratioHechosSizeB; }
+    public String getRatioHechosFirstEntry() { return ratioHechosFirstEntry; }
+    public void setRatioHechosFirstEntry(String ratioHechosFirstEntry) { this.ratioHechosFirstEntry = ratioHechosFirstEntry; }
+    public String getRatioHechosLastEntry() { return ratioHechosLastEntry; }
+    public void setRatioHechosLastEntry(String ratioHechosLastEntry) { this.ratioHechosLastEntry = ratioHechosLastEntry; }
+
+    public double getRatioHechosPnlA() { return ratioHechosPnlA; }
+    public double getRatioHechosPnlB() { return ratioHechosPnlB; }
+    public double getRatioHechosMarginA() { return ratioHechosMarginA; }
+    public double getRatioHechosMarginB() { return ratioHechosMarginB; }
+    public String getRatioHechosDirA() { return ratioHechosDirA; }
+    public String getRatioHechosDirB() { return ratioHechosDirB; }
+
+    public boolean isRatioHechosBuyA() {
+        return ratioHechosDirA != null && (ratioHechosDirA.toUpperCase().contains("BUY") || ratioHechosDirA.toUpperCase().contains("LARG"));
+    }
+    public boolean isRatioHechosBuyB() {
+        return ratioHechosDirB != null && (ratioHechosDirB.toUpperCase().contains("BUY") || ratioHechosDirB.toUpperCase().contains("LARG"));
+    }
+
+    public String getRatioHechosDirLabelA() {
+        return isRatioHechosBuyA() ? "COMPRA" : "VENTA";
+    }
+    public String getRatioHechosDirLabelB() {
+        return isRatioHechosBuyB() ? "COMPRA" : "VENTA";
+    }
+
+    public String getRatioHechosDirColorA() {
+        return isRatioHechosBuyA() ? "#15803d" : "#dc2626";
+    }
+    public String getRatioHechosDirColorB() {
+        return isRatioHechosBuyB() ? "#15803d" : "#dc2626";
+    }
+
+    public String getRatioHechosPnlColorA() {
+        return ratioHechosPnlA >= 0 ? "#15803d" : "#dc2626";
+    }
+    public String getRatioHechosPnlColorB() {
+        return ratioHechosPnlB >= 0 ? "#15803d" : "#dc2626";
+    }
+
+    public String getFormattedRatioHechosTotalPnl() {
+        return String.format(java.util.Locale.US, "%s$%,.2f", (ratioHechosTotalPnl >= 0 ? "+" : ""), ratioHechosTotalPnl);
+    }
+    public String getFormattedRatioHechosPnlOpen() {
+        return String.format(java.util.Locale.US, "%s$%,.2f", (ratioHechosPnlOpen >= 0 ? "+" : ""), ratioHechosPnlOpen);
+    }
+    public String getFormattedRatioHechosTotalMargin() {
+        return String.format(java.util.Locale.US, "$%,.2f", ratioHechosTotalMargin);
+    }
+    public String getFormattedRatioHechosSizeA() {
+        return String.format(java.util.Locale.US, "%,.0f", ratioHechosSizeA);
+    }
+    public String getFormattedRatioHechosSizeB() {
+        return String.format(java.util.Locale.US, "%,.0f", ratioHechosSizeB);
+    }
+    public String getFormattedRatioHechosSizeTotal() {
+        return String.format(java.util.Locale.US, "%,.0f", (ratioHechosSizeA + ratioHechosSizeB));
+    }
+    public String getFormattedRatioHechosPnlA() {
+        return String.format(java.util.Locale.US, "%s$%,.2f", (ratioHechosPnlA >= 0 ? "+" : ""), ratioHechosPnlA);
+    }
+    public String getFormattedRatioHechosPnlB() {
+        return String.format(java.util.Locale.US, "%s$%,.2f", (ratioHechosPnlB >= 0 ? "+" : ""), ratioHechosPnlB);
+    }
+    public String getFormattedRatioHechosMarginA() {
+        return String.format(java.util.Locale.US, "$%,.2f", ratioHechosMarginA);
+    }
+    public String getFormattedRatioHechosMarginB() {
+        return String.format(java.util.Locale.US, "$%,.2f", ratioHechosMarginB);
+    }
+    public String getRatioHechosPnlColor() {
+        return ratioHechosTotalPnl >= 0 ? "#15803d" : "#dc2626";
+    }
+
+    public void calculateRatioHechosMetrics() {
+        // Métricas ya consolidadas dentro de filterRatioHechos
+    }
+
+    public void openRatioHechosModal(String setup) {
+        if (setup == null || setup.trim().isEmpty()) {
+            setup = (selectedPair != null ? selectedPair : "") + " - " + (selectedPair2 != null ? selectedPair2 : "");
+        }
+        this.ratioHechosSetup = setup.trim();
+        this.ratioHechosFilter = "ALL";
+        this.ratioHechosListAll.clear();
+        this.ratioHechosList.clear();
+        this.ratioHechosOpenCount = 0;
+        this.ratioHechosClosedCount = 0;
+        this.ratioHechosTotalMargin = 0.0;
+        this.ratioHechosTotalPnl = 0.0;
+        this.ratioHechosPnlOpen = 0.0;
+        this.ratioHechosPnlClosed = 0.0;
+        this.ratioHechosSizeA = 0.0;
+        this.ratioHechosSizeB = 0.0;
+        this.ratioHechosPairA = "";
+        this.ratioHechosPairB = "";
+
+        Integer accId = selectedAccountId;
+        if (accId == null) {
+            log.warn("⚠️ No hay cuenta seleccionada para consultar hechos del ratio {}", setup);
+            return;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String encodedSetup = java.net.URLEncoder.encode(this.ratioHechosSetup, "UTF-8");
+            String url = backendUrl + "/api/v1/trades/hechos-ratio/" + accId + "?setup=" + encodedSetup;
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.trim().isEmpty()) {
+                JsonNode root = mapper.readTree(responseStr);
+                if (root.has("summary")) {
+                    JsonNode sNode = root.get("summary");
+                    this.ratioHechosPairA = sNode.path("pairA").asText("");
+                    this.ratioHechosPairB = sNode.path("pairB").asText("");
+                    this.ratioHechosOpenCount = sNode.path("openHechos").asInt(0);
+                    this.ratioHechosClosedCount = sNode.path("closedHechos").asInt(0);
+                    this.ratioHechosTotalMargin = sNode.path("totalMargin").asDouble(0.0);
+                    this.ratioHechosTotalPnl = sNode.path("totalPnl").asDouble(0.0);
+                    this.ratioHechosPnlOpen = sNode.path("pnlOpen").asDouble(0.0);
+                    this.ratioHechosPnlClosed = sNode.path("pnlClosed").asDouble(0.0);
+                    this.ratioHechosSizeA = sNode.path("totalSizeA").asDouble(0.0);
+                    this.ratioHechosSizeB = sNode.path("totalSizeB").asDouble(0.0);
+                    this.ratioHechosFirstEntry = sNode.path("firstEntryDate").asText("");
+                    this.ratioHechosLastEntry = sNode.path("lastEntryDate").asText("");
+                }
+                if (root.has("hechos") && root.get("hechos").isArray()) {
+                    for (JsonNode tn : root.get("hechos")) {
+                        RealTradeItemDto item = new RealTradeItemDto();
+                        item.setIdTrade(tn.path("idTrade").asInt());
+                        item.setIdCuenta(tn.path("idCuenta").asInt());
+                        item.setStrategy(tn.path("strategy").asText(""));
+                        item.setSetup(tn.path("setup").asText(""));
+                        item.setSymbol(tn.path("symbol").asText(""));
+                        item.setStatus(tn.path("status").asText("OPEN"));
+                        item.setDirection(tn.path("direction").asText(""));
+                        item.setIntervalo(tn.path("intervalo").asText(""));
+                        item.setSize(tn.path("size").asDouble(0.0));
+                        if (!tn.path("entryPrice").isNull()) item.setEntryPrice(tn.path("entryPrice").asDouble());
+                        if (!tn.path("exitPrice").isNull()) item.setExitPrice(tn.path("exitPrice").asDouble());
+                        if (!tn.path("currentPrice").isNull()) item.setCurrentPrice(tn.path("currentPrice").asDouble());
+                        item.setMarginUsed(tn.path("marginUsed").asDouble(0.0));
+                        item.setPnl(tn.path("pnl").asDouble(0.0));
+                        item.setCommission(tn.path("commission").asDouble(0.0));
+                        item.setNetPnl(tn.path("netPnl").asDouble(0.0));
+                        item.setTicketId(tn.path("ticketId").asText(""));
+                        item.setOpenTime(tn.path("openTime").asText(""));
+                        item.setCloseTime(tn.path("closeTime").asText(""));
+                        item.setWin(tn.path("isWin").asBoolean(true));
+                        ratioHechosListAll.add(item);
+                    }
+                }
+                filterRatioHechos("OPEN");
+                log.info("Cargados {} hechos para el ratio {} en idCuenta {}", ratioHechosListAll.size(), this.ratioHechosSetup, accId);
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar hechos del ratio {}: {}", setup, e.getMessage());
+        }
+    }
+
+    private String calculateRatioHechosElapsedTime(List<RealTradeItemDto> trades, String fallbackIntervalo) {
+        if (trades == null || trades.isEmpty()) return "—";
+
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        java.text.SimpleDateFormat sdfShort = new java.text.SimpleDateFormat("yyyy-MM-dd");
+
+        java.util.Date earliest = null;
+        String detectedIntervalo = fallbackIntervalo;
+
+        for (RealTradeItemDto t : trades) {
+            if (t.isSubtotal()) continue;
+            if ((detectedIntervalo == null || detectedIntervalo.trim().isEmpty()) && t.getIntervalo() != null && !t.getIntervalo().trim().isEmpty()) {
+                detectedIntervalo = t.getIntervalo().trim();
+            }
+            if (t.getOpenTime() != null && !t.getOpenTime().trim().isEmpty()) {
+                try {
+                    String ot = t.getOpenTime().trim();
+                    java.util.Date d = null;
+                    if (ot.length() >= 19) {
+                        d = sdf.parse(ot);
+                    } else if (ot.length() >= 10) {
+                        d = sdfShort.parse(ot.substring(0, 10));
+                    }
+                    if (d != null) {
+                        if (earliest == null || d.before(earliest)) {
+                            earliest = d;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (earliest == null) return "—";
+
+        long diffMillis = System.currentTimeMillis() - earliest.getTime();
+        if (diffMillis < 0) diffMillis = 0;
+
+        boolean isDaily = false;
+        if (detectedIntervalo != null) {
+            String iv = detectedIntervalo.toLowerCase().trim();
+            if (iv.contains("d") || iv.contains("day") || iv.contains("month") || iv.contains("week") || iv.contains("1d")) {
+                isDaily = true;
+            }
+        } else if (this.timeframe != null) {
+            String tf = this.timeframe.toLowerCase().trim();
+            if (tf.contains("d") || tf.contains("day") || tf.contains("month") || tf.contains("week") || tf.contains("1d")) {
+                isDaily = true;
+            }
+        }
+
+        if (isDaily) {
+            long days = diffMillis / (1000L * 60 * 60 * 24);
+            if (days <= 0) return "1 día";
+            return days + (days == 1 ? " día" : " días");
+        } else {
+            long hours = diffMillis / (1000L * 60 * 60);
+            if (hours <= 0) return "1 hora";
+            return hours + (hours == 1 ? " hora" : " horas");
+        }
+    }
+
+    public void filterRatioHechos(String filter) {
+        this.ratioHechosFilter = (filter != null && !filter.trim().isEmpty()) ? filter : "OPEN";
+        this.ratioHechosList.clear();
+
+        List<RealTradeItemDto> rawList = new ArrayList<>();
+        if ("CLOSED".equalsIgnoreCase(this.ratioHechosFilter)) {
+            for (RealTradeItemDto t : ratioHechosListAll) {
+                if (!t.isOpen() && !t.isSubtotal()) rawList.add(t);
+            }
+        } else if ("ALL".equalsIgnoreCase(this.ratioHechosFilter)) {
+            for (RealTradeItemDto t : ratioHechosListAll) {
+                if (!t.isSubtotal()) rawList.add(t);
+            }
+        } else {
+            for (RealTradeItemDto t : ratioHechosListAll) {
+                if (t.isOpen() && !t.isSubtotal()) rawList.add(t);
+            }
+        }
+
+        this.ratioHechosTotalPnl = 0.0;
+        this.ratioHechosTotalMargin = 0.0;
+        this.ratioHechosSizeA = 0.0;
+        this.ratioHechosSizeB = 0.0;
+        this.ratioHechosPnlA = 0.0;
+        this.ratioHechosPnlB = 0.0;
+        this.ratioHechosMarginA = 0.0;
+        this.ratioHechosMarginB = 0.0;
+        this.ratioHechosDirA = "";
+        this.ratioHechosDirB = "";
+        this.ratioHechosOpenCount = 0;
+
+        List<RealTradeItemDto> listA = new ArrayList<>();
+        List<RealTradeItemDto> listB = new ArrayList<>();
+
+        for (RealTradeItemDto t : rawList) {
+            this.ratioHechosOpenCount++;
+            double p = t.getPnl();
+            double m = t.getMarginUsed();
+            double s = t.getSize();
+            this.ratioHechosTotalPnl += p;
+            this.ratioHechosTotalMargin += m;
+
+            String sym = (t.getSymbol() != null ? t.getSymbol().trim() : "");
+            if (sym.equalsIgnoreCase(this.ratioHechosPairA)) {
+                listA.add(t);
+                this.ratioHechosSizeA += s;
+                this.ratioHechosPnlA += p;
+                this.ratioHechosMarginA += m;
+                if (this.ratioHechosDirA.isEmpty() && t.getDirection() != null) {
+                    this.ratioHechosDirA = t.getDirection();
+                }
+            } else {
+                listB.add(t);
+                this.ratioHechosSizeB += s;
+                this.ratioHechosPnlB += p;
+                this.ratioHechosMarginB += m;
+                if (this.ratioHechosDirB.isEmpty() && t.getDirection() != null) {
+                    this.ratioHechosDirB = t.getDirection();
+                }
+            }
+        }
+
+        String elapsedA = calculateRatioHechosElapsedTime(listA, null);
+        String elapsedB = calculateRatioHechosElapsedTime(listB, null);
+        String elapsedTotal = calculateRatioHechosElapsedTime(rawList, null);
+
+        // Subtotales insertados directamente DENTRO de la tabla
+        // 1. Operaciones de Pata A
+        this.ratioHechosList.addAll(listA);
+        if (!listA.isEmpty()) {
+            RealTradeItemDto subA = new RealTradeItemDto();
+            subA.setIsSubtotal(true);
+            subA.setStrategy("SUBTOTAL_A");
+            subA.setTicketId("SUBTOTAL");
+            subA.setSymbol("");
+            subA.setDirection("");
+            subA.setOpenTime(elapsedA);
+            subA.setSize(this.ratioHechosSizeA);
+            subA.setMarginUsed(this.ratioHechosMarginA);
+            subA.setPnl(this.ratioHechosPnlA);
+            subA.setNetPnl(this.ratioHechosPnlA);
+            this.ratioHechosList.add(subA);
+        }
+
+        // 2. Operaciones de Pata B
+        this.ratioHechosList.addAll(listB);
+        if (!listB.isEmpty()) {
+            RealTradeItemDto subB = new RealTradeItemDto();
+            subB.setIsSubtotal(true);
+            subB.setStrategy("SUBTOTAL_B");
+            subB.setTicketId("SUBTOTAL");
+            subB.setSymbol("");
+            subB.setDirection("");
+            subB.setOpenTime(elapsedB);
+            subB.setSize(this.ratioHechosSizeB);
+            subB.setMarginUsed(this.ratioHechosMarginB);
+            subB.setPnl(this.ratioHechosPnlB);
+            subB.setNetPnl(this.ratioHechosPnlB);
+            this.ratioHechosList.add(subB);
+        }
+
+        // 3. Fila de Total General Consolidado
+        if (!rawList.isEmpty()) {
+            RealTradeItemDto totalRow = new RealTradeItemDto();
+            totalRow.setIsSubtotal(true);
+            totalRow.setStrategy("TOTAL");
+            totalRow.setTicketId("TOTAL");
+            totalRow.setSymbol("");
+            totalRow.setDirection("");
+            totalRow.setOpenTime(elapsedTotal);
+            totalRow.setSize(this.ratioHechosSizeA + this.ratioHechosSizeB);
+            totalRow.setMarginUsed(this.ratioHechosTotalMargin);
+            totalRow.setPnl(this.ratioHechosTotalPnl);
+            totalRow.setNetPnl(this.ratioHechosTotalPnl);
+            this.ratioHechosList.add(totalRow);
+        }
+    }
+
 }
