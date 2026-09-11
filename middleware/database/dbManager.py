@@ -117,7 +117,7 @@ def is_alert_sent(symbol, strategy, candle_time, id_cuenta=None):
         logger.error(f"Error en is_alert_sent: {e}")
         return False
 
-def is_trade_duplicate(symbol, strategy, intervalo, direction, size=None, id_cuenta=None):
+def is_trade_duplicate(symbol, strategy, intervalo, direction, size=None, id_cuenta=None, setup=None):
     """Verifica si ya existe un trade con los mismos parámetros y status=OPEN mediante ConnectionPool."""
     try:
         params = {
@@ -128,6 +128,8 @@ def is_trade_duplicate(symbol, strategy, intervalo, direction, size=None, id_cue
         }
         if id_cuenta:
             params["id_cuenta"] = id_cuenta
+        if setup:
+            params["setup"] = setup
         res = _call_connection_pool("GET", "/trades/check-duplicate", params=params)
         if res and isinstance(res, dict) and "duplicate" in res:
             return bool(res["duplicate"])
@@ -422,7 +424,8 @@ def buscaTrade(tradeData):
             strategy=tradeData.get('strategy', ''),
             intervalo=tradeData.get('intervalo', '15min'),
             direction=tradeData['direction'],
-            id_cuenta=tradeData.get('idCuenta')
+            id_cuenta=tradeData.get('idCuenta'),
+            setup=tradeData.get('setup')
         )
         if dup:
             logger.info(f"⚠️ Trade ya existente para {tradeData['symbol']} - se omite actualización")
@@ -456,6 +459,7 @@ def insertarTrade(data):
             "takeProfit": float(data.get('takeProfit')) if data.get('takeProfit') else None,
             "intervalo": data.get('intervalo', '15min'),
             "strategy": data.get('strategy', ''),
+            "setup": data.get('setup'),
             "margin_used": float(data.get('margin_used', 0.0)),
             "candleTime": str(data.get('candleTime')) if data.get('candleTime') else None,
             "ticketId": str(data.get('ticketId')) if data.get('ticketId') else None

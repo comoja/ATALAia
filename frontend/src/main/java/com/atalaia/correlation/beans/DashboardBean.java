@@ -43,6 +43,178 @@ public class DashboardBean implements Serializable {
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
             // --- DTOs del Motor Cuantitativo (Pair Trading & Reversión a la Media) ---
         // --- DTOs para el Backtest de Señales Gráficas (Triángulos y Cuadros) ---
+    // ==========================================
+    // --- Balance General Global DTOs ---
+    // ==========================================
+    public static class GlobalBalanceSummaryDto implements java.io.Serializable {
+        private Double disponible = 0.0;
+        private Double balance = 0.0;
+        private Double pnl = 0.0;
+        private Double porcentajeMargen = 0.0;
+        private Double margen = 0.0;
+
+        public Double getDisponible() { return disponible; }
+        public void setDisponible(Double disponible) { this.disponible = disponible; }
+        public Double getBalance() { return balance; }
+        public void setBalance(Double balance) { this.balance = balance; }
+        public Double getPnl() { return pnl; }
+        public void setPnl(Double pnl) { this.pnl = pnl; }
+        public Double getPorcentajeMargen() { return porcentajeMargen; }
+        public void setPorcentajeMargen(Double porcentajeMargen) { this.porcentajeMargen = porcentajeMargen; }
+        public Double getMargen() { return margen; }
+        public void setMargen(Double margen) { this.margen = margen; }
+
+        public String getFormattedDisponible() {
+            return String.format(java.util.Locale.US, "$%,.2f", disponible != null ? disponible : 0.0);
+        }
+        public String getFormattedBalance() {
+            return String.format(java.util.Locale.US, "$%,.2f", balance != null ? balance : 0.0);
+        }
+        public String getFormattedPnl() {
+            return String.format(java.util.Locale.US, "$%,.2f", pnl != null ? pnl : 0.0);
+        }
+        public String getPnlColor() {
+            return (pnl != null && pnl >= 0.0) ? "#15803d" : "#dc2626";
+        }
+        public String getFormattedPorcentajeMargen() {
+            return String.format(java.util.Locale.US, "%,.1f%%", porcentajeMargen != null ? porcentajeMargen : 0.0);
+        }
+        public String getFormattedMargen() {
+            return String.format(java.util.Locale.US, "$%,.2f", margen != null ? margen : 0.0);
+        }
+    }
+
+    public static class GlobalTicketDetailDto implements java.io.Serializable {
+        private Integer idTrade;
+        private String cuenta;
+        private Integer idCuenta;
+        private String setup = "—";
+        private String ticketId;
+        private String par;
+        private String direccion;
+        private Double cantidad = 0.0;
+        private Double pnlNoRealizado = 0.0;
+        private Double pxApertura = 0.0;
+        private Double pxActual = 0.0;
+        private Double margen = 0.0;
+
+        public Integer getIdTrade() { return idTrade; }
+        public void setIdTrade(Integer idTrade) { this.idTrade = idTrade; }
+        public String getCuenta() { return cuenta; }
+        public void setCuenta(String cuenta) { this.cuenta = cuenta; }
+        public Integer getIdCuenta() { return idCuenta; }
+        public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
+        public String getSetup() { return setup; }
+        public void setSetup(String setup) { this.setup = setup; }
+        public String getTicketId() { return ticketId; }
+        public void setTicketId(String ticketId) { this.ticketId = ticketId; }
+        public String getPar() { return par; }
+        public void setPar(String par) { this.par = par; }
+        public String getDireccion() { return direccion; }
+        public void setDireccion(String direccion) { this.direccion = direccion; }
+        public Double getCantidad() { return cantidad; }
+        public void setCantidad(Double cantidad) { this.cantidad = cantidad; }
+        public Double getPnlNoRealizado() { return pnlNoRealizado; }
+        public void setPnlNoRealizado(Double pnlNoRealizado) { this.pnlNoRealizado = pnlNoRealizado; }
+        public Double getPxApertura() { return pxApertura; }
+        public void setPxApertura(Double pxApertura) { this.pxApertura = pxApertura; }
+        public Double getPxActual() { return pxActual; }
+        public void setPxActual(Double pxActual) { this.pxActual = pxActual; }
+        public Double getMargen() { return margen; }
+        public void setMargen(Double margen) { this.margen = margen; }
+
+        public boolean isCompra() {
+            return direccion != null && (direccion.toUpperCase().contains("COMP") || direccion.toUpperCase().contains("LARG") || direccion.toUpperCase().contains("BUY"));
+        }
+        public String getFormattedCantidad() {
+            return String.format(java.util.Locale.US, "%,.0f", cantidad != null ? cantidad : 0.0);
+        }
+        public String getFormattedPnlNoRealizado() {
+            if (pnlNoRealizado == null || Math.abs(pnlNoRealizado) < 0.001) return "$0.00";
+            if (pnlNoRealizado > 0) {
+                return String.format(java.util.Locale.US, "+$%,.2f", pnlNoRealizado);
+            } else {
+                return String.format(java.util.Locale.US, "-$%,.2f", Math.abs(pnlNoRealizado));
+            }
+        }
+        public String getPnlColor() {
+            if (pnlNoRealizado == null || Math.abs(pnlNoRealizado) < 0.001) return "#64748b";
+            return (pnlNoRealizado > 0.0) ? "#16a34a" : "#dc2626";
+        }
+        public String getFormattedPxApertura() {
+            if (pxApertura == null) return "0.00";
+            return (pxApertura > 50.0) ? String.format(java.util.Locale.US, "%,.3f", pxApertura) : String.format(java.util.Locale.US, "%,.5f", pxApertura);
+        }
+        public String getFormattedPxActual() {
+            if (pxActual == null) return "0.00";
+            return (pxActual > 50.0) ? String.format(java.util.Locale.US, "%,.3f", pxActual) : String.format(java.util.Locale.US, "%,.5f", pxActual);
+        }
+        public String getFormattedMargen() {
+            return String.format(java.util.Locale.US, "$%,.2f", margen != null ? margen : 0.0);
+        }
+    }
+
+    public static class GlobalParGroupDto implements java.io.Serializable {
+        private String id;
+        private String par;
+        private String direccion;
+        private Double cantidad = 0.0;
+        private Double pnlNoRealizado = 0.0;
+        private Double pxApertura = 0.0;
+        private Double pxActual = 0.0;
+        private Double margen = 0.0;
+        private List<GlobalTicketDetailDto> tickets = new ArrayList<>();
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getPar() { return par; }
+        public void setPar(String par) { this.par = par; }
+        public String getDireccion() { return direccion; }
+        public void setDireccion(String direccion) { this.direccion = direccion; }
+        public Double getCantidad() { return cantidad; }
+        public void setCantidad(Double cantidad) { this.cantidad = cantidad; }
+        public Double getPnlNoRealizado() { return pnlNoRealizado; }
+        public void setPnlNoRealizado(Double pnlNoRealizado) { this.pnlNoRealizado = pnlNoRealizado; }
+        public Double getPxApertura() { return pxApertura; }
+        public void setPxApertura(Double pxApertura) { this.pxApertura = pxApertura; }
+        public Double getPxActual() { return pxActual; }
+        public void setPxActual(Double pxActual) { this.pxActual = pxActual; }
+        public Double getMargen() { return margen; }
+        public void setMargen(Double margen) { this.margen = margen; }
+        public List<GlobalTicketDetailDto> getTickets() { return tickets; }
+        public void setTickets(List<GlobalTicketDetailDto> tickets) { this.tickets = tickets; }
+
+        public boolean isCompra() {
+            return direccion != null && (direccion.toUpperCase().contains("COMP") || direccion.toUpperCase().contains("LARG") || direccion.toUpperCase().contains("BUY"));
+        }
+        public String getFormattedCantidad() {
+            return String.format(java.util.Locale.US, "%,.0f", cantidad != null ? cantidad : 0.0);
+        }
+        public String getFormattedPnlNoRealizado() {
+            if (pnlNoRealizado == null || Math.abs(pnlNoRealizado) < 0.001) return "$0.00";
+            if (pnlNoRealizado > 0) {
+                return String.format(java.util.Locale.US, "+$%,.2f", pnlNoRealizado);
+            } else {
+                return String.format(java.util.Locale.US, "-$%,.2f", Math.abs(pnlNoRealizado));
+            }
+        }
+        public String getPnlColor() {
+            if (pnlNoRealizado == null || Math.abs(pnlNoRealizado) < 0.001) return "#64748b";
+            return (pnlNoRealizado > 0.0) ? "#16a34a" : "#dc2626";
+        }
+        public String getFormattedPxApertura() {
+            if (pxApertura == null) return "0.00";
+            return (pxApertura > 50.0) ? String.format(java.util.Locale.US, "%,.3f", pxApertura) : String.format(java.util.Locale.US, "%,.5f", pxApertura);
+        }
+        public String getFormattedPxActual() {
+            if (pxActual == null) return "0.00";
+            return (pxActual > 50.0) ? String.format(java.util.Locale.US, "%,.3f", pxActual) : String.format(java.util.Locale.US, "%,.5f", pxActual);
+        }
+        public String getFormattedMargen() {
+            return String.format(java.util.Locale.US, "$%,.2f", margen != null ? margen : 0.0);
+        }
+    }
+
     public static class SignalBacktestMetricsDto implements java.io.Serializable {
         private String mode = "TRIANGLES_ONLY";
         private String modeLabel = "Solo Triángulos (Coincidentes)";
@@ -4498,6 +4670,99 @@ public class DashboardBean implements Serializable {
             long hours = diffMillis / (1000L * 60 * 60);
             if (hours <= 0) return "1 hora";
             return hours + (hours == 1 ? " hora" : " horas");
+        }
+    }
+
+
+    // ==========================================
+    // --- Balance General Global Logic ---
+    // ==========================================
+    private GlobalBalanceSummaryDto globalBalanceSummary = new GlobalBalanceSummaryDto();
+    private List<GlobalParGroupDto> globalTotalesPorPar = new ArrayList<>();
+
+    public GlobalBalanceSummaryDto getGlobalBalanceSummary() { return globalBalanceSummary; }
+    public void setGlobalBalanceSummary(GlobalBalanceSummaryDto globalBalanceSummary) { this.globalBalanceSummary = globalBalanceSummary; }
+    public List<GlobalParGroupDto> getGlobalTotalesPorPar() { return globalTotalesPorPar; }
+    public void setGlobalTotalesPorPar(List<GlobalParGroupDto> globalTotalesPorPar) { this.globalTotalesPorPar = globalTotalesPorPar; }
+
+    public void loadBalanceGeneralGlobal() {
+        try {
+            Integer targetUserId = null;
+            if (securityBean != null) {
+                if (securityBean.isAdmin()) {
+                    // Si es administrador, usar el usuario seleccionado en el combo usuarioSelector
+                    targetUserId = securityBean.getSelectedUserId() != null 
+                                   ? securityBean.getSelectedUserId() 
+                                   : securityBean.getIdUsuario();
+                } else {
+                    // Si es usuario normal, usar estrictamente su propio idUsuario
+                    targetUserId = securityBean.getIdUsuario();
+                }
+            }
+            // Limpiar datos previos
+            this.globalBalanceSummary = new GlobalBalanceSummaryDto();
+            this.globalTotalesPorPar = new ArrayList<>();
+
+            String url = backendUrl + "/api/v1/trades/balance-global" + (targetUserId != null ? "?idUsuario=" + targetUserId : "");
+            log.info("Cargando Balance General Global para idUsuario={} desde {}", targetUserId, url);
+            RestTemplate restTemplate = new RestTemplate();
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(responseStr);
+
+                JsonNode sNode = root.path("summary");
+                if (!sNode.isMissingNode()) {
+                    this.globalBalanceSummary.setDisponible(sNode.path("disponible").asDouble(0.0));
+                    this.globalBalanceSummary.setBalance(sNode.path("balance").asDouble(0.0));
+                    this.globalBalanceSummary.setPnl(sNode.path("pnl").asDouble(0.0));
+                    this.globalBalanceSummary.setPorcentajeMargen(sNode.path("porcentajeMargen").asDouble(0.0));
+                    this.globalBalanceSummary.setMargen(sNode.path("margen").asDouble(0.0));
+                }
+
+                List<GlobalParGroupDto> groups = new ArrayList<>();
+                JsonNode tNode = root.path("totalesPorPar");
+                if (tNode.isArray()) {
+                    for (JsonNode g : tNode) {
+                        GlobalParGroupDto group = new GlobalParGroupDto();
+                        group.setId(g.path("id").asText(""));
+                        group.setPar(g.path("par").asText(""));
+                        group.setDireccion(g.path("direccion").asText(""));
+                        group.setCantidad(g.path("cantidad").asDouble(0.0));
+                        group.setPnlNoRealizado(g.path("pnlNoRealizado").asDouble(0.0));
+                        group.setPxApertura(g.path("pxApertura").asDouble(0.0));
+                        group.setPxActual(g.path("pxActual").asDouble(0.0));
+                        group.setMargen(g.path("margen").asDouble(0.0));
+
+                        List<GlobalTicketDetailDto> tickets = new ArrayList<>();
+                        JsonNode tks = g.path("tickets");
+                        if (tks.isArray()) {
+                            for (JsonNode tk : tks) {
+                                GlobalTicketDetailDto st = new GlobalTicketDetailDto();
+                                st.setIdTrade(tk.path("idTrade").asInt(0));
+                                st.setCuenta(tk.path("cuenta").asText(""));
+                                st.setIdCuenta(tk.path("idCuenta").asInt(0));
+                                st.setSetup(tk.path("setup").asText("—"));
+                                st.setTicketId(tk.path("ticketId").asText("—"));
+                                st.setPar(tk.path("par").asText(""));
+                                st.setDireccion(tk.path("direccion").asText(""));
+                                st.setCantidad(tk.path("cantidad").asDouble(0.0));
+                                st.setPnlNoRealizado(tk.path("pnlNoRealizado").asDouble(0.0));
+                                st.setPxApertura(tk.path("pxApertura").asDouble(0.0));
+                                st.setPxActual(tk.path("pxActual").asDouble(0.0));
+                                st.setMargen(tk.path("margen").asDouble(0.0));
+                                tickets.add(st);
+                            }
+                        }
+                        group.setTickets(tickets);
+                        groups.add(group);
+                    }
+                }
+                this.globalTotalesPorPar = groups;
+                log.info("Balance General Global cargado exitosamente: {} grupos de pares", groups.size());
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar Balance General Global: {}", e.getMessage(), e);
         }
     }
 

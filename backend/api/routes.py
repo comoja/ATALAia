@@ -18,6 +18,7 @@ from middleware.database.dbManager import getStockPricesFromDb
 from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
 from backend.services.cruce_ema_engine import cruceEmaEngine
+from backend.core.pnl_calculator import calculate_unrealized_pnl, is_usd_denominator
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
@@ -435,20 +436,15 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             cur_px, qc, pip_sz = sym_cache.get(sym, (entry, "USD", 0.0001))
             
             is_long = "LARG" in direction or "BUY" in direction or "LONG" in direction
-            if is_long:
-                mov = cur_px - entry
-            else:
-                mov = entry - cur_px
-                
-            pips = mov / pip_sz if pip_sz > 0 else 0.0
-            
-            # Valor de 1 pip en USD según metodología FOREX.com
-            if qc == "USD":
-                pip_val_usd = size * pip_sz
-            else:
-                pip_val_usd = (size * pip_sz) / cur_px if cur_px > 0 else (size * pip_sz)
-                
-            item_pnl_usd = pips * pip_val_usd
+            # Cálculo centralizado de PnL no realizado (Panel 2 y 3)
+            item_pnl_usd, pips, pip_val_usd, mov = calculate_unrealized_pnl(
+                symbol=sym,
+                direction=direction,
+                entry_price=entry,
+                current_price=cur_px,
+                size=size,
+                pip_size=pip_sz
+            )
             
             if sym == pairA:
                 tot_marginA += margin
@@ -584,6 +580,194 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
 
 
 
+@router.get("/trades/balance-global")
+def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Calcula y consolida el Balance General Global de todas las cuentas administradas por el usuario:
+    - Encabezado: Disponible para operar, Balance, PNL no realizado, % Margen, Margen total.
+    - Tabla principal: Totales por Par y Dirección (con precio promedio ponderado de apertura, precio actual y margen).
+    - Subtabla: Detalle independiente de posiciones por TicketID.
+    """
+    from sqlalchemy import text
+
+    # 1. Determinar cuentas administradas estrictamente por el usuario solicitado
+    account_ids = []
+    if idUsuario is not None:
+        rows_uc = db.execute(
+            text("SELECT idCuenta FROM usuarioCuenta WHERE idUsuario = :u AND activo = 1"),
+            {"u": idUsuario}
+        ).fetchall()
+        account_ids = [r[0] for r in rows_uc]
+
+    if not account_ids:
+        return {
+            "summary": {
+                "disponible": 0.0,
+                "balance": 0.0,
+                "pnl": 0.0,
+                "porcentajeMargen": 0.0,
+                "margen": 0.0
+            },
+            "totalesPorPar": []
+        }
+
+    # 2. Consultar balance total de las cuentas
+    id_list_str = ",".join(map(str, account_ids))
+    sql_cap = text(f"SELECT idCuenta, Nombre, Capital FROM cuenta WHERE idCuenta IN ({id_list_str})")
+    accounts = db.execute(sql_cap).fetchall()
+    total_balance = sum(float(a.Capital or 0.0) for a in accounts)
+
+    # 3. Consultar todas las posiciones abiertas
+    sql_trades = text(f"""
+        SELECT t.idTrade, t.idCuenta, c.Nombre as nombreCuenta, t.setup, t.symbol, t.direction, 
+               t.size, t.entryPrice, t.margin_used, t.ticketId, t.openTime
+        FROM trades t
+        JOIN cuenta c ON t.idCuenta = c.idCuenta
+        WHERE t.status = 'OPEN' AND t.idCuenta IN ({id_list_str})
+        ORDER BY t.symbol ASC, t.direction ASC, t.idTrade ASC
+    """)
+    open_trades = db.execute(sql_trades).fetchall()
+
+    if not open_trades:
+        return {
+            "summary": {
+                "disponible": round(total_balance, 2),
+                "balance": round(total_balance, 2),
+                "pnl": 0.0,
+                "porcentajeMargen": 0.0,
+                "margen": 0.0
+            },
+            "totalesPorPar": []
+        }
+
+    # 4. Obtener precios actuales y especificaciones de símbolos
+    sym_cache = {}
+    for t in open_trades:
+        sym = t.symbol
+        if sym not in sym_cache:
+            px = get_live_price_from_mt5(sym)
+            clean = sym.replace("/", "").upper()
+            row_s = db.execute(text("SELECT quote_currency, pip, margen FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+            if not row_s:
+                row_s = db.execute(text("SELECT quote_currency, pip, margen FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+            
+            qc = str(row_s[0]).upper() if row_s and row_s[0] else ("JPY" if "JPY" in sym else ("MXN" if "MXN" in sym else "USD"))
+            pip = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+            raw_mf = float(row_s[2]) if row_s and row_s[2] is not None else 0.01
+            mf = raw_mf / 100.0 if raw_mf >= 0.05 else raw_mf
+
+            if px is None:
+                row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                if not row_c:
+                    row_c = db.execute(text("SELECT closePrice FROM stockprices WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY priceDate DESC LIMIT 1"), {"s": clean}).fetchone()
+                px = float(row_c[0]) if row_c and row_c[0] else None
+
+            sym_cache[sym] = {"px": px, "qc": qc, "pip": pip, "mf": mf}
+
+    # 5. Calcular PnL y Margen por posición y agrupar por (PAR, Dirección)
+    groups = {}
+    total_pnl = 0.0
+    total_margin = 0.0
+
+    for t in open_trades:
+        sym = t.symbol
+        d = str(t.direction).upper()
+        sz = float(t.size or 0.0)
+        entry = float(t.entryPrice or 0.0)
+        
+        s_info = sym_cache[sym]
+        cur_px = s_info["px"] if s_info["px"] is not None else entry
+        pip_sz = s_info["pip"]
+        qc = s_info["qc"]
+        mf = s_info["mf"]
+
+        mg = float(t.margin_used or 0.0)
+        if mg <= 0.0:
+            if sym.startswith("USD/"):
+                mg = round(sz * mf, 2)
+            else:
+                mg = round(sz * cur_px * mf, 2)
+
+        is_long = "LARG" in d or "BUY" in d or "LONG" in d
+        dir_label = "COMPRA" if is_long else "VENTA"
+
+        # Cálculo centralizado de PnL no realizado (Balance General Global)
+        pnl, pips, pip_val_usd, _mov = calculate_unrealized_pnl(
+            symbol=sym,
+            direction=d,
+            entry_price=entry,
+            current_price=cur_px,
+            size=sz,
+            pip_size=pip_sz
+        )
+        total_pnl += pnl
+        total_margin += mg
+
+        group_key = (sym, dir_label)
+        if group_key not in groups:
+            groups[group_key] = {
+                "id": f"{sym.replace('/', '_')}_{dir_label}",
+                "par": sym,
+                "direccion": dir_label,
+                "total_size": 0.0,
+                "weighted_entry_sum": 0.0,
+                "pnl_sum": 0.0,
+                "margin_sum": 0.0,
+                "cur_px": cur_px,
+                "tickets": []
+            }
+        g = groups[group_key]
+        g["total_size"] += sz
+        g["weighted_entry_sum"] += (sz * entry)
+        g["pnl_sum"] += pnl
+        g["margin_sum"] += mg
+        g["tickets"].append({
+            "idTrade": t.idTrade,
+            "cuenta": t.nombreCuenta,
+            "idCuenta": t.idCuenta,
+            "setup": str(t.setup).strip() if getattr(t, 'setup', None) else "—",
+            "ticketId": str(t.ticketId) if t.ticketId else "—",
+            "par": sym,
+            "direccion": dir_label,
+            "cantidad": sz,
+            "pnlNoRealizado": pnl,
+            "pxApertura": entry,
+            "pxActual": cur_px,
+            "margen": mg
+        })
+
+    disponible = total_balance + total_pnl - total_margin
+    porcentaje_margen = ((total_balance + total_pnl) / total_margin * 100.0) if total_margin > 0 else 0.0
+
+    totales_por_par = []
+    for k, g in groups.items():
+        avg_entry = round(g["weighted_entry_sum"] / g["total_size"], 5) if g["total_size"] > 0 else 0.0
+        totales_por_par.append({
+            "id": g["id"],
+            "par": g["par"],
+            "direccion": g["direccion"],
+            "cantidad": round(g["total_size"], 2),
+            "pnlNoRealizado": round(g["pnl_sum"], 2),
+            "pxApertura": avg_entry,
+            "pxActual": round(g["cur_px"], 5),
+            "margen": round(g["margin_sum"], 2),
+            "tickets": g["tickets"]
+        })
+
+    totales_por_par.sort(key=lambda x: (x["par"], x["direccion"]))
+
+    return {
+        "summary": {
+            "disponible": round(disponible, 2),
+            "balance": round(total_balance, 2),
+            "pnl": round(total_pnl, 2),
+            "porcentajeMargen": round(porcentaje_margen, 1),
+            "margen": round(total_margin, 2)
+        },
+        "totalesPorPar": totales_por_par
+    }
+
+
 @router.get("/trades/hechos-ratio/{idCuenta}")
 def getRatioHechos(idCuenta: int, setup: str = Query(...), db: Session = Depends(get_db)):
     """
@@ -703,16 +887,15 @@ def getRatioHechos(idCuenta: int, setup: str = Query(...), db: Session = Depends
         if is_open:
             open_count += 1
             tot_margin += margin
-            if is_long:
-                mov = cur_px - entry
-            else:
-                mov = entry - cur_px
-            pips = mov / pip_sz if pip_sz > 0 else 0.0
-            if qc == "USD":
-                pip_val_usd = size * pip_sz
-            else:
-                pip_val_usd = (size * pip_sz) / cur_px if cur_px > 0 else (size * pip_sz)
-            calc_pnl = round(pips * pip_val_usd, 2)
+            # Cálculo centralizado de PnL no realizado (Hechos del Ratio)
+            calc_pnl, pips, pip_val_usd, _mov = calculate_unrealized_pnl(
+                symbol=sym,
+                direction=r.direction,
+                entry_price=entry,
+                current_price=cur_px,
+                size=size,
+                pip_size=pip_sz
+            )
             pnl_open += calc_pnl
             exit_px = None
         else:

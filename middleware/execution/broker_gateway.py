@@ -355,6 +355,7 @@ class BrokerGateway:
 
                         orderPayload = {
                             "strategy": strategy_name,
+                            "setup": trade_data.get('setup'),
                             "passphrase": os.getenv("WEBHOOK_VERIFY_TOKEN", ""),
                             "time": time.time(),
                             "action": actionVal,
@@ -419,7 +420,8 @@ class BrokerGateway:
                 trade_data.get('intervalo', '15min'),
                 trade_data['direction'],
                 trade_data['size'],
-                trade_data.get('idCuenta')
+                trade_data.get('idCuenta'),
+                trade_data.get('setup')
             )
             if is_dup:
                 logger.warning(f"⏭️ Trade duplicado detectado: {trade_data['symbol']} | {strategy_name} | {trade_data['direction']} | size={trade_data['size']} - Omitiendo Telegram y DB")

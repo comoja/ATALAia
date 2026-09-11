@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS trades (
     intervalo VARCHAR(100) NOT NULL DEFAULT '15min',
     magicNumber INT DEFAULT NULL,
     PRIMARY KEY (idTrade),
-    KEY trades_idCuenta_IDX (idCuenta, symbol, direction)
+    KEY trades_idCuenta_IDX (idCuenta, symbol, direction, setup)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- 6. Precios de acciones

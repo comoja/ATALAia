@@ -36,6 +36,7 @@ if projectRoot not in sys.path:
     sys.path.insert(0, projectRoot)
 
 from backend.database.models import SessionLocal
+from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from backend.services.signal_engine import signalEngine
 from middleware.utils.communications import alertaInmediata
 
@@ -617,6 +618,7 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
 
                 orderPayload = {
                     "strategy": strategy,
+                    "setup": ordInfo.get("setup"),
                     "passphrase": encryptedPassphrase,
                     "time": time.time(),
                     "action": action,
@@ -627,6 +629,7 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                     "sl": 0.0,
                     "sync": True,
                     "ticketId": ticketId,
+                    "idTrade": idTrade,
                     "FOREX_USERNAME": encryptedAccountToken
                 }
 
@@ -725,8 +728,8 @@ def openSingleRatioTradePair(
     margenRateA = float(symDataA.get("margenRate", 0.0025))
     margenRateB = float(symDataB.get("margenRate", 0.0025))
 
-    margen1LotA = minLotsA * margenRateA
-    margen1LotB = minLotsB * margenRateB
+    margen1LotA = calculate_margin(numerador, minLotsA, entryPxA, symDataA.get("margenPct", 0.5))
+    margen1LotB = calculate_margin(denominador, minLotsB, entryPxB, symDataB.get("margenPct", 0.5))
 
     multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA and margen1LotA > 0) else 1
     multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB and margen1LotB > 0) else 1
@@ -771,6 +774,7 @@ def openSingleRatioTradePair(
             "size": cA,
             "entryPrice": entryPxA,
             "margenRate": margenRateA,
+            "margenPct": symDataA.get("margenPct", 0.5),
             "leg": "1"
         })
     for cB in chunksB:
@@ -781,6 +785,7 @@ def openSingleRatioTradePair(
             "size": cB,
             "entryPrice": entryPxB,
             "margenRate": margenRateB,
+            "margenPct": symDataB.get("margenPct", 0.5),
             "leg": "2"
         })
 
@@ -830,7 +835,7 @@ def openSingleRatioTradePair(
             sz = float(lot["size"])
             px = float(lot["entryPrice"])
             rate = float(lot["margenRate"])
-            chunkMargin = sz * rate
+            chunkMargin = calculate_margin(sym, sz, px, lot.get("margenPct", 0.5))
 
             lotConfirmedForAccount = False
             for bc in activeBrokers:
@@ -846,6 +851,7 @@ def openSingleRatioTradePair(
 
                 orderPayload = {
                     "strategy": "RATIO ATALAia",
+                    "setup": setupName,
                     "passphrase": encryptedPassphrase,
                     "time": time.time(),
                     "action": act,
@@ -873,7 +879,9 @@ def openSingleRatioTradePair(
                             isConfirmed = True
                             orderId = str(resData.get("order_id"))
                             fillPrice = float(resData.get("fill_price") or px)
-                            logger.info(f"✅ [FOREX] Lote {idx+1}/{totalLotsCount} confirmado -> OrderId: {orderId}, FillPrice: {fillPrice}")
+                            realMargin = float(resData.get("margin") or chunkMargin)
+                            chunkMargin = realMargin
+                            logger.info(f"✅ [FOREX] Lote {idx+1}/{totalLotsCount} confirmado -> OrderId: {orderId}, FillPrice: {fillPrice}, Margen: {realMargin}")
                         elif resData.get("status") == "ignored":
                             logger.warning(f"⚠️ [FOREX] Orden ignorada por candado anti-spam: {resData.get('message')}")
                         else:
@@ -1139,20 +1147,17 @@ def closeRatioTrades(
         pipVal = symInfo["pip"]
         quoteCurr = symInfo["quoteCurrency"]
 
-        if direction.upper() in ["LARGO", "BUY", "LONG"]:
-            delta = exitPx - entryPx
-        else:
-            delta = entryPx - exitPx
-
-        pips = (delta / pipVal) if pipVal > 0 else 0.0
-
-        if quoteCurr == "USD":
-            pipMoneyValue = size * pipVal
-        else:
-            pipMoneyValue = (size * pipVal) / exitPx if exitPx > 0 else (size * pipVal)
-
+        # Cálculo unificado de PnL con la función centralizada
+        rawPnl, pips, pipMoneyValue, _mov = calculate_unrealized_pnl(
+            symbol=sym,
+            direction=direction,
+            entry_price=entryPx,
+            current_price=exitPx,
+            size=size,
+            pip_size=pipVal
+        )
         costs = (size * exitPx) * 0.0003
-        tradePnl = round((pips * pipMoneyValue) - costs, 2)
+        tradePnl = round(rawPnl - costs, 2)
 
         # Cálculo de comisión en $ sobre ganancia positiva sólo si la estrategia contiene 'ATALAia'
         tradeStrategy = str(tr.get("strategy") or "RATIO ATALAia")
@@ -1186,7 +1191,7 @@ def closeRatioTrades(
         # Si se cobró comisión y la cuenta no es la misma concentradora, registrar en cuenta concentradora
         if tradeCommission > 0 and idCuentaConcentradora and idCuentaConcentradora != idCuenta:
             origStrategy = tr.get("strategy") or "RATIO ATALAia"
-            strategyComision = f"{origStrategy} Comision"
+            strategyComision = f"{origStrategy} Comision {idCuenta} {tradeId}"
             origSetup = tr.get("setup") or setupName
 
             try:
@@ -1196,6 +1201,9 @@ def closeRatioTrades(
                 """), {"strategy": strategyComision})
             except Exception as exStrat:
                 pass
+
+            tradeOpenTime = tr.get("openTime") or tr.get("candleTime") or nowStr
+            tradeCloseTime = nowStr
 
             dbSession.execute(insertCommTradeSql, {
                 "idCuenta": idCuentaConcentradora,
@@ -1208,9 +1216,9 @@ def closeRatioTrades(
                 "entryPrice": entryPx,
                 "exitPrice": exitPx,
                 "pnl": tradeCommission,
-                "openTime": openTimeMes,
-                "closeTime": closeTimeMes,
-                "candleTime": tr.get("candleTime") or openTimeMes,
+                "openTime": tradeOpenTime,
+                "closeTime": tradeCloseTime,
+                "candleTime": tr.get("candleTime") or tradeOpenTime,
                 "sentAt": nowStr
             })
 
@@ -1263,12 +1271,14 @@ def closeRatioTrades(
         sym = tr.get("symbol")
         sz = float(tr.get("size", 0.0) or 0.0)
         webhookCloseOrders.append({
-            "strategy": "RATIO ATALAia",
+            "strategy": tr.get("strategy") or "RATIO ATALAia",
+            "setup": tr.get("setup") or setupName,
             "symbol": sym,
             "action": "close",
             "size": sz,
             "entryPrice": 0.0,
-            "ticketId": tId
+            "ticketId": tId,
+            "idTrade": tr.get("idTrade")
         })
     sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
 

@@ -1507,7 +1507,7 @@ CREATE TABLE `trades` (
   `intervalo` varchar(100) NOT NULL DEFAULT '15min',
   `magicNumber` int DEFAULT NULL COMMENT 'Para identificar órdenes del bot',
   PRIMARY KEY (`idTrade`),
-  KEY `trades_idCuenta_IDX` (`idCuenta`,`symbol`,`direction`) USING BTREE
+  KEY `trades_idCuenta_IDX` (`idCuenta`,`symbol`,`direction`,`setup`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 drop TABLE StockPrices;
