@@ -19,6 +19,14 @@ from backend.services.correlation_engine import engine
 from backend.services.optimizer_service import optimizer
 from backend.services.cruce_ema_engine import cruceEmaEngine
 from backend.core.pnl_calculator import calculate_unrealized_pnl, is_usd_denominator
+from backend.services.monthlyBalanceService import (
+    registrarSaldoCreacionCuenta,
+    calcularYActualizarEstadoCuenta,
+    generarPdfEstadoCuenta,
+    inicializarSaldosHistoricos,
+    liquidarComisionesFinDeMes
+)
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
@@ -995,6 +1003,12 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
 
         logger.info(f"✅ Nueva cuenta creada en BD: idCuenta={nueva_cuenta.idCuenta}, Nombre={nueva_cuenta.Nombre}")
 
+        # Registrar saldo inicial en saldoCuentaMensual desde la creación de la cuenta
+        try:
+            registrarSaldoCreacionCuenta(db, nueva_cuenta.idCuenta, float(nueva_cuenta.Capital or 0.0))
+        except Exception as exSaldo:
+            logger.error(f"Error registrando saldo inicial para nueva cuenta #{nueva_cuenta.idCuenta}: {exSaldo}")
+
         # Asociar en usuarioCuenta
         nueva_relacion = UsuarioCuenta(
             idUsuario=payload.idUsuario,
@@ -1155,6 +1169,7 @@ def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
             "nombreCuenta": c.Nombre,
             "correo": getattr(c, "correo", "") or "", 
             "capital": float(c.Capital or 0.0),
+            "comision": float(getattr(c, "comision", 0.0) or 0.0),
             "activo": bool(uc.activo),
             "concentradora": bool(getattr(c, "Concentradora", False) or False),
             "createdAt": uc.createdAt
@@ -2052,7 +2067,9 @@ async def get_cruces_ema_pair_analysis(
     capital: Optional[float] = None,
     leverage: float = 100.0,
     smaPeriod: int = 2,
-    sigmaWindow: int = 30
+    sigmaWindow: int = 30,
+    isBacktest: bool = True,
+    comisionPct: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Endpoint de Análisis y Backtest de Cruces EMA (Triángulos, Cuadros y Círculos).
@@ -2069,11 +2086,15 @@ async def get_cruces_ema_pair_analysis(
 
         if is_intraday:
             # Cargar historial de velas intradía desde la tabla candles (5min -> resampled)
-            if start_date:
+            if start_date and isBacktest:
                 dt_start = pd.to_datetime(start_date).tz_localize(None)
-            else:
+            elif not isBacktest:
+                # Modo liviano para cálculo rápido de denominadores en dashboard
                 hrs = (days if days else 180) * (4 if "4h" in tf_lower else 1)
                 dt_start = datetime.now() - timedelta(hours=hrs + 96)
+            else:
+                # Backtesting institucional: siempre 6 meses por default (180 días naturales)
+                dt_start = datetime.now() - timedelta(days=180)
 
             if end_date:
                 dt_end = pd.to_datetime(end_date).tz_localize(None)
@@ -2164,7 +2185,7 @@ async def get_cruces_ema_pair_analysis(
         df_a_tf = df_a_tf.loc[common_idx]
         df_b_tf = df_b_tf.loc[common_idx]
 
-        if start_date and end_date:
+        if start_date and end_date and isBacktest:
             try:
                 dt_start = pd.to_datetime(start_date, utc=True).tz_localize(None)
                 dt_end = pd.to_datetime(end_date, utc=True).tz_localize(None)
@@ -2172,7 +2193,7 @@ async def get_cruces_ema_pair_analysis(
                 df_b_tf = df_b_tf.loc[dt_start:dt_end]
             except Exception as e:
                 logger.warning(f"Error recortando fechas en pair-analysis: {e}")
-        elif days and days > 0:
+        elif (not isBacktest or not is_intraday) and days and days > 0:
             df_a_tf = df_a_tf.tail(days)
             df_b_tf = df_b_tf.tail(days)
 
@@ -2188,13 +2209,18 @@ async def get_cruces_ema_pair_analysis(
             from backend.database.models import SessionLocal
             from sqlalchemy import text
             with SessionLocal() as db_session:
+                account_comision_pct = 0.0
                 if idCuenta:
-                    row_c = db_session.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
+                    row_c = db_session.execute(text("SELECT Capital, riesgoPorOperacion, comision FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
                     if row_c:
                         if row_c[0] is not None and float(row_c[0]) > 0:
                             account_capital = float(row_c[0])
                         if row_c[1] is not None and float(row_c[1]) > 0:
                             allocation_pct = float(row_c[1])
+                        if len(row_c) > 2 and row_c[2] is not None and float(row_c[2]) >= 0:
+                            account_comision_pct = float(row_c[2])
+                if comisionPct is not None and float(comisionPct) >= 0:
+                    account_comision_pct = float(comisionPct)
 
                 clean_a = pairA.replace("/", "").upper()
                 clean_b = pairB.replace("/", "").upper()
@@ -2270,6 +2296,14 @@ async def get_cruces_ema_pair_analysis(
             "totalCycles": combinedBt.get("totalCycles", 0),
             "avgCycleHours": combinedBt.get("avgCycleHours", 0.0),
             "avgCycleDays": combinedBt.get("avgCycleDays", 0.0),
+            "avgReturnPerCycle": combinedBt.get("avgReturnPerCycle", 0.0),
+            "avgPnlPerCycle": combinedBt.get("avgPnlPerCycle", 0.0),
+            "avgEntriesPerCycle": combinedBt.get("avgEntriesPerCycle", 0.0),
+            "avgCapitalRequiredPerCycle": combinedBt.get("avgCapitalRequiredPerCycle", 0.0),
+            "avgPeakMarginPerCycle": combinedBt.get("avgPeakMarginPerCycle", 0.0),
+            "avgAdverseFloatPerCycle": combinedBt.get("avgAdverseFloatPerCycle", 0.0),
+            "marginCappedCycles": combinedBt.get("marginCappedCycles", 0),
+            "totalStoppedEntries": combinedBt.get("totalStoppedEntries", 0),
             "emaRapida": smaPeriod,
             "signalBacktest": {
                 "trianglesOnly": trianglesOnlyBt,
@@ -2322,7 +2356,8 @@ async def get_cruces_ema_denominators_return(
                     capital=capital,
                     leverage=leverage,
                     smaPeriod=smaPeriod,
-                    sigmaWindow=sigmaWindow
+                    sigmaWindow=sigmaWindow,
+                    isBacktest=False
                 )
                 cb = res.get("signalBacktest", {}).get("combined", {})
                 ret_pct = float(cb.get("totalReturnPct", 0.0) or 0.0)
@@ -2936,4 +2971,91 @@ def export_real_trades_movimientos_excel(
         )
     except Exception as e:
         logger.error(f"Error exportando movimientos reales a Excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reportes/estado-cuenta/{idCuenta}")
+def getEstadoCuentaMensual(
+    idCuenta: int,
+    anio: Optional[int] = None,
+    mes: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna el estado de cuenta mensual completo: saldo inicial, saldo final, PnL neto,
+    rendimiento porcentual, comisiones y listado detallado de trades.
+    """
+    now = datetime.now()
+    targetAnio = anio or now.year
+    targetMes = mes or now.month
+    try:
+        data = calcularYActualizarEstadoCuenta(db, idCuenta, targetAnio, targetMes)
+        return {"status": "success", "data": data}
+    except Exception as e:
+        logger.error(f"Error calculando estado de cuenta para #{idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reportes/estado-cuenta/{idCuenta}/pdf")
+def descargarPdfEstadoCuenta(
+    idCuenta: int,
+    anio: Optional[int] = None,
+    mes: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Genera y descarga el documento PDF oficial del Estado de Cuenta Mensual.
+    """
+    now = datetime.now()
+    targetAnio = anio or now.year
+    targetMes = mes or now.month
+    try:
+        pdfBytes = generarPdfEstadoCuenta(db, idCuenta, targetAnio, targetMes)
+        fileName = f"Estado_Cuenta_{idCuenta}_{targetAnio}_{targetMes:02d}.pdf"
+        return Response(
+            content=pdfBytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={fileName}"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error generando PDF de estado de cuenta para #{idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reportes/inicializar-saldos")
+def api_inicializar_saldos(
+    anio: Optional[int] = None,
+    mes: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Inicializa los registros de saldoCuentaMensual de todas las cuentas registradas.
+    """
+    try:
+        res = inicializarSaldosHistoricos(db, anio, mes)
+        return {"status": "success", "message": f"Saldos inicializados para {len(res)} cuentas", "data": res}
+    except Exception as e:
+        logger.error(f"Error al inicializar saldos de cuentas: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/reportes/liquidar-comisiones")
+def api_liquidar_comisiones(
+    anio: Optional[int] = None,
+    mes: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Ejecuta el corte mensual y transfiere el total de comisiones calculadas sobre
+    el neteo positivo de PnL a la cuenta concentradora correspondiente, debitándolo
+    del Capital de la cuenta origen.
+    """
+    try:
+        res = liquidarComisionesFinDeMes(db, anio, mes)
+        return {"status": "success", "message": "Liquidación de comisiones completada", "data": res}
+    except Exception as e:
+        logger.error(f"Error liquidando comisiones de fin de mes: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
