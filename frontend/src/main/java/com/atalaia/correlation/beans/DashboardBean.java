@@ -231,6 +231,95 @@ public class DashboardBean implements Serializable {
         private Double finalCapital = 10000.0;
         private Double allocationPct = 3.0;
         private Double reqMarginPerMinLot = 20.0;
+        private Double avgReturnPerCycle = 0.0;
+        private Double avgPnlPerCycle = 0.0;
+        private Double avgEntriesPerCycle = 0.0;
+        private Integer totalCycles = 0;
+        private Double avgCapitalRequiredPerCycle = 0.0;
+        private Double avgPeakMarginPerCycle = 0.0;
+        private Double avgAdverseFloatPerCycle = 0.0;
+        private Integer marginCappedCycles = 0;
+        private Integer totalStoppedEntries = 0;
+        private Double totalCommission = 0.0;
+
+        public Double getAvgReturnPerCycle() { return avgReturnPerCycle != null ? avgReturnPerCycle : 0.0; }
+        public void setAvgReturnPerCycle(Double avgReturnPerCycle) { this.avgReturnPerCycle = avgReturnPerCycle; }
+        public Double getAvgPnlPerCycle() { return avgPnlPerCycle != null ? avgPnlPerCycle : 0.0; }
+        public void setAvgPnlPerCycle(Double avgPnlPerCycle) { this.avgPnlPerCycle = avgPnlPerCycle; }
+        public Double getAvgEntriesPerCycle() { return avgEntriesPerCycle != null ? avgEntriesPerCycle : 0.0; }
+        public void setAvgEntriesPerCycle(Double avgEntriesPerCycle) { this.avgEntriesPerCycle = avgEntriesPerCycle; }
+        public Integer getTotalCycles() { return totalCycles != null ? totalCycles : 0; }
+        public void setTotalCycles(Integer totalCycles) { this.totalCycles = totalCycles; }
+
+        public String getFormattedAvgReturnPerCycle() {
+            if (avgReturnPerCycle == null) return "0.00%";
+            return String.format(java.util.Locale.US, "%+.2f%%", avgReturnPerCycle);
+        }
+
+        public String getFormattedAvgPnlPerCycle() {
+            if (avgPnlPerCycle == null) return "0.00";
+            return String.format(java.util.Locale.US, "%+,.2f", avgPnlPerCycle);
+        }
+
+        public String getFormattedAvgEntriesPerCycle() {
+            if (avgEntriesPerCycle == null) return "0.0";
+            return String.format(java.util.Locale.US, "%.1f", avgEntriesPerCycle);
+        }
+
+        public Double getAvgCapitalRequiredPerCycle() { return avgCapitalRequiredPerCycle != null ? avgCapitalRequiredPerCycle : 0.0; }
+        public void setAvgCapitalRequiredPerCycle(Double avgCapitalRequiredPerCycle) { this.avgCapitalRequiredPerCycle = avgCapitalRequiredPerCycle; }
+        public Double getAvgPeakMarginPerCycle() { return avgPeakMarginPerCycle != null ? avgPeakMarginPerCycle : 0.0; }
+        public void setAvgPeakMarginPerCycle(Double avgPeakMarginPerCycle) { this.avgPeakMarginPerCycle = avgPeakMarginPerCycle; }
+        public Double getAvgAdverseFloatPerCycle() { return avgAdverseFloatPerCycle != null ? avgAdverseFloatPerCycle : 0.0; }
+        public void setAvgAdverseFloatPerCycle(Double avgAdverseFloatPerCycle) { this.avgAdverseFloatPerCycle = avgAdverseFloatPerCycle; }
+        public Integer getMarginCappedCycles() { return marginCappedCycles != null ? marginCappedCycles : 0; }
+        public void setMarginCappedCycles(Integer marginCappedCycles) { this.marginCappedCycles = marginCappedCycles; }
+        public Integer getTotalStoppedEntries() { return totalStoppedEntries != null ? totalStoppedEntries : 0; }
+        public void setTotalStoppedEntries(Integer totalStoppedEntries) { this.totalStoppedEntries = totalStoppedEntries; }
+        public Double getTotalCommission() { return totalCommission != null ? totalCommission : 0.0; }
+        public void setTotalCommission(Double totalCommission) { this.totalCommission = totalCommission; }
+        public String getFormattedTotalCommission() {
+            return String.format(java.util.Locale.US, "%,.2f", totalCommission != null ? totalCommission : 0.0);
+        }
+
+        public String getFormattedAvgCapitalRequiredPerCycle() {
+            if (avgCapitalRequiredPerCycle == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", avgCapitalRequiredPerCycle);
+        }
+
+        public String getFormattedAvgPeakMarginPerCycle() {
+            if (avgPeakMarginPerCycle == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", avgPeakMarginPerCycle);
+        }
+
+        public String getFormattedAvgAdverseFloatPerCycle() {
+            if (avgAdverseFloatPerCycle == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", avgAdverseFloatPerCycle);
+        }
+        public String getFormattedTotalTrades() {
+            return String.format(java.util.Locale.US, "%,d", totalTrades != null ? totalTrades : 0);
+        }
+        public String getFormattedWinningTrades() {
+            return String.format(java.util.Locale.US, "%,d", winningTrades != null ? winningTrades : 0);
+        }
+        public String getFormattedLosingTrades() {
+            return String.format(java.util.Locale.US, "%,d", losingTrades != null ? losingTrades : 0);
+        }
+        public String getFormattedProfitFactor() {
+            return String.format(java.util.Locale.US, "%,.2f", profitFactor != null ? profitFactor : 0.0);
+        }
+        public String getFormattedSharpeRatio() {
+            return String.format(java.util.Locale.US, "%,.2f", sharpeRatio != null ? sharpeRatio : 0.0);
+        }
+        public String getFormattedMaxDrawdown() {
+            return String.format(java.util.Locale.US, "%,.2f", maxDrawdown != null ? maxDrawdown : 0.0);
+        }
+        public String getFormattedTotalReturnPct() {
+            return String.format(java.util.Locale.US, "%,.2f", totalReturnPct != null ? totalReturnPct : 0.0);
+        }
+        public String getFormattedTotalCycles() {
+            return String.format(java.util.Locale.US, "%,d", totalCycles != null ? totalCycles : 0);
+        }
 
         public String getMode() { return mode; }
         public void setMode(String mode) { this.mode = mode; }
@@ -608,6 +697,15 @@ public class DashboardBean implements Serializable {
         private Double availableCapital;
         private Double accumCapital;
         private Boolean isOpen = false;
+        private Boolean isMarginCapped = false;
+        private Integer stoppedEntriesCount = 0;
+        private Double peakCapitalRequired = 0.0;
+        private Double peakMargin = 0.0;
+        private Double maxAdverseFloat = 0.0;
+        private Double marginAccountPct = 0.0;
+        private Double marginIndicator = 0.0;
+        private Boolean isSkipped = false;
+        private Double commission;
 
         public Integer getTradeNum() { return tradeNum; }
         public void setTradeNum(Integer tradeNum) { this.tradeNum = tradeNum; }
@@ -669,37 +767,107 @@ public class DashboardBean implements Serializable {
         public void setPnlB(Double pnlB) { this.pnlB = pnlB; }
         public Boolean getIsOpen() { return isOpen != null && isOpen; }
         public void setIsOpen(Boolean isOpen) { this.isOpen = isOpen; }
+        public Boolean getIsMarginCapped() { return isMarginCapped != null ? isMarginCapped : false; }
+        public void setIsMarginCapped(Boolean isMarginCapped) { this.isMarginCapped = isMarginCapped; }
+        public Integer getStoppedEntriesCount() { return stoppedEntriesCount != null ? stoppedEntriesCount : 0; }
+        public void setStoppedEntriesCount(Integer stoppedEntriesCount) { this.stoppedEntriesCount = stoppedEntriesCount; }
+        public Double getPeakCapitalRequired() { return peakCapitalRequired != null ? peakCapitalRequired : 0.0; }
+        public void setPeakCapitalRequired(Double peakCapitalRequired) { this.peakCapitalRequired = peakCapitalRequired; }
+        public Double getPeakMargin() { return peakMargin != null ? peakMargin : 0.0; }
+        public void setPeakMargin(Double peakMargin) { this.peakMargin = peakMargin; }
+        public Double getMaxAdverseFloat() { return maxAdverseFloat != null ? maxAdverseFloat : 0.0; }
+        public void setMaxAdverseFloat(Double maxAdverseFloat) { this.maxAdverseFloat = maxAdverseFloat; }
+
+        public String getFormattedPeakCapitalRequired() {
+            if (peakCapitalRequired == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", peakCapitalRequired);
+        }
+
+        public String getFormattedPeakMargin() {
+            if (peakMargin == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", peakMargin);
+        }
+
+        public String getFormattedMaxAdverseFloat() {
+            if (maxAdverseFloat == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", maxAdverseFloat);
+        }
+        public Double getMarginAccountPct() { return marginAccountPct != null ? marginAccountPct : 0.0; }
+        public void setMarginAccountPct(Double marginAccountPct) { this.marginAccountPct = marginAccountPct; }
+        public String getFormattedMarginAccountPct() {
+            if (marginAccountPct == null) return "0.0%";
+            return String.format(java.util.Locale.US, "%.1f%%", marginAccountPct);
+        }
+        public Double getMarginIndicator() { return marginIndicator != null ? marginIndicator : 0.0; }
+        public void setMarginIndicator(Double marginIndicator) { this.marginIndicator = marginIndicator; }
+        public Boolean getIsSkipped() { return isSkipped != null && isSkipped; }
+        public void setIsSkipped(Boolean isSkipped) { this.isSkipped = isSkipped; }
+        public String getFormattedMarginIndicator() {
+            if (isSkipped != null && isSkipped) return "";
+            if (marginIndicator == null || marginIndicator == 0.0) return "0.0%";
+            return String.format(java.util.Locale.US, "%,.1f%%", marginIndicator);
+        }
+        public String getFormattedPipsAWithSign() {
+            if (isSkipped != null && isSkipped) return "";
+            if (pipsA == null) return "0.0";
+            return (pipsA > 0 ? "+" : "") + String.format(java.util.Locale.US, "%,.1f", pipsA);
+        }
+        public String getFormattedPipsBWithSign() {
+            if (isSkipped != null && isSkipped) return "";
+            if (pipsB == null) return "0.0";
+            return (pipsB > 0 ? "+" : "") + String.format(java.util.Locale.US, "%,.1f", pipsB);
+        }
+        public String getFormattedReturnPct() {
+            if (isSkipped != null && isSkipped) return "";
+            if (returnPct == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", returnPct);
+        }
         public Double getMarginA() { return marginA; }
         public void setMarginA(Double marginA) { this.marginA = marginA; }
         public Double getMarginB() { return marginB; }
         public void setMarginB(Double marginB) { this.marginB = marginB; }
         public String getFormattedMarginA() {
+            if (isSkipped != null && isSkipped) return "";
             return marginA != null ? String.format(java.util.Locale.US, "%,.2f", marginA) : "0.00";
         }
         public String getFormattedMarginB() {
+            if (isSkipped != null && isSkipped) return "";
             return marginB != null ? String.format(java.util.Locale.US, "%,.2f", marginB) : "0.00";
         }
         public Double getAvailableCapital() { return availableCapital; }
         public void setAvailableCapital(Double availableCapital) { this.availableCapital = availableCapital; }
         public String getFormattedAvailableCapital() {
+            if (isSkipped != null && isSkipped) return "";
             return availableCapital != null ? String.format(java.util.Locale.US, "%,.2f", availableCapital) : "0.00";
         }
         public Double getAccumCapital() { return accumCapital; }
         public void setAccumCapital(Double accumCapital) { this.accumCapital = accumCapital; }
         public String getFormattedAccumCapital() {
+            if (isSkipped != null && isSkipped) return "";
             return accumCapital != null ? String.format(java.util.Locale.US, "%,.2f", accumCapital) : "0.00";
         }
         public String getFormattedAllocatedCapital() {
+            if (isSkipped != null && isSkipped) return "";
             return allocatedCapital != null ? String.format(java.util.Locale.US, "%,.2f", allocatedCapital) : "0.00";
         }
         public String getFormattedUnitsA() {
+            if (isSkipped != null && isSkipped) return "";
             return unitsA != null ? String.format(java.util.Locale.US, "%,d", unitsA) : "0";
         }
         public String getFormattedUnitsB() {
+            if (isSkipped != null && isSkipped) return "";
             return unitsB != null ? String.format(java.util.Locale.US, "%,d", unitsB) : "0";
         }
         public String getFormattedPnl() {
+            if (isSkipped != null && isSkipped) return "";
             return pnl != null ? String.format(java.util.Locale.US, "%,.2f", pnl) : "0.00";
+        }
+        public Double getCommission() { return commission; }
+        public void setCommission(Double commission) { this.commission = commission; }
+        public String getFormattedCommission() {
+            if (isSkipped != null && isSkipped) return "";
+            if (commission == null) return "0.00";
+            return String.format(java.util.Locale.US, "%,.2f", commission);
         }
         public String getFormattedPnlA() {
             return pnlA != null ? String.format(java.util.Locale.US, "%,.2f", pnlA) : "0.00";
@@ -1412,6 +1580,24 @@ public class DashboardBean implements Serializable {
         return String.format(java.util.Locale.US, "%,.2f", cap != null ? cap : 0.0);
     }
 
+    public Double getSelectedAccountComision() {
+        if (selectedAccountId != null && userAccountsCombo != null) {
+            for (UserAccountDto acc : userAccountsCombo) {
+                if (acc.getIdCuenta() != null && acc.getIdCuenta().equals(selectedAccountId)) {
+                    if (acc.getComision() != null) {
+                        return acc.getComision();
+                    }
+                }
+            }
+        }
+        return 0.0;
+    }
+
+    public String getFormattedSelectedAccountComision() {
+        Double comm = getSelectedAccountComision();
+        return String.format(java.util.Locale.US, "%.1f%%", comm != null ? comm : 0.0);
+    }
+
     public String getFormattedSignalBtAllocationPct() {
         if (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getAllocationPct() != null) {
             return signalBtCombinedMetrics.getFormattedAllocationPct();
@@ -1463,6 +1649,94 @@ public class DashboardBean implements Serializable {
         return String.format(java.util.Locale.US, "%,.2f", netProfit != null ? netProfit : 0.0);
     }
 
+    public String getFormattedSignalBtTotalCommission() {
+        SignalBacktestMetricsDto m = getActiveSignalBtMetrics();
+        return m != null ? m.getFormattedTotalCommission() : "0.00";
+    }
+
+    public SignalBacktestMetricsDto getActiveSignalBtMetrics() {
+        if ("TRIANGLES".equals(this.signalBtStrategySelected)) {
+            return this.signalBtTrianglesMetrics != null ? this.signalBtTrianglesMetrics : new SignalBacktestMetricsDto();
+        }
+        return this.signalBtCombinedMetrics != null ? this.signalBtCombinedMetrics : new SignalBacktestMetricsDto();
+    }
+
+    public Double getSignalBtAvgReturnPerCycle() {
+        return getActiveSignalBtMetrics().getAvgReturnPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgReturnPerCycle() {
+        return getActiveSignalBtMetrics().getFormattedAvgReturnPerCycle();
+    }
+
+    public Double getSignalBtAvgPnlPerCycle() {
+        return getActiveSignalBtMetrics().getAvgPnlPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgPnlPerCycle() {
+        return getActiveSignalBtMetrics().getFormattedAvgPnlPerCycle();
+    }
+
+    public Double getSignalBtAvgEntriesPerCycle() {
+        return getActiveSignalBtMetrics().getAvgEntriesPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgEntriesPerCycle() {
+        return getActiveSignalBtMetrics().getFormattedAvgEntriesPerCycle();
+    }
+
+    public Double getSignalBtAvgCapitalRequired() {
+        return getActiveSignalBtMetrics().getAvgCapitalRequiredPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgCapitalRequired() {
+        return getActiveSignalBtMetrics().getFormattedAvgCapitalRequiredPerCycle();
+    }
+
+    public Double getSignalBtAvgPeakMargin() {
+        return getActiveSignalBtMetrics().getAvgPeakMarginPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgPeakMargin() {
+        return getActiveSignalBtMetrics().getFormattedAvgPeakMarginPerCycle();
+    }
+
+    public Double getSignalBtAvgAdverseFloat() {
+        return getActiveSignalBtMetrics().getAvgAdverseFloatPerCycle();
+    }
+
+    public String getFormattedSignalBtAvgAdverseFloat() {
+        return getActiveSignalBtMetrics().getFormattedAvgAdverseFloatPerCycle();
+    }
+
+    public Integer getSignalBtMarginCappedCycles() {
+        return getActiveSignalBtMetrics().getMarginCappedCycles();
+    }
+
+    public Integer getSignalBtTotalStoppedEntries() {
+        return getActiveSignalBtMetrics().getTotalStoppedEntries();
+    }
+
+    public String getFormattedSignalBtTotalBars() {
+        return String.format(java.util.Locale.US, "%,d", signalBtTotalBars != null ? signalBtTotalBars : 0);
+    }
+
+    public String getFormattedSignalBtTotalDays() {
+        return String.format(java.util.Locale.US, "%,d", signalBtTotalDays != null ? signalBtTotalDays : 0);
+    }
+
+    public String getFormattedSignalBtTotalCycles() {
+        return String.format(java.util.Locale.US, "%,d", signalBtTotalCycles != null ? signalBtTotalCycles : 0);
+    }
+
+    public String getFormattedSignalBtMarginCappedCycles() {
+        return String.format(java.util.Locale.US, "%,d", getSignalBtMarginCappedCycles() != null ? getSignalBtMarginCappedCycles() : 0);
+    }
+
+    public String getFormattedSignalBtTotalStoppedEntries() {
+        return String.format(java.util.Locale.US, "%,d", getSignalBtTotalStoppedEntries() != null ? getSignalBtTotalStoppedEntries() : 0);
+    }
+
 
     public void setSignalBtComparisonCurveJson(String signalBtComparisonCurveJson) { this.signalBtComparisonCurveJson = signalBtComparisonCurveJson; }
 
@@ -1474,6 +1748,10 @@ public class DashboardBean implements Serializable {
         private String correo;
         private Double capital;
         private Boolean activo;
+        private Double comision = 0.0;
+
+        public Double getComision() { return comision; }
+        public void setComision(Double comision) { this.comision = comision; }
 
         public Integer getIdUsuarioCuenta() { return idUsuarioCuenta; }
         public void setIdUsuarioCuenta(Integer idUsuarioCuenta) { this.idUsuarioCuenta = idUsuarioCuenta; }
@@ -2206,12 +2484,10 @@ public class DashboardBean implements Serializable {
     @PostConstruct
     public void init() {
         log.info("Inicializando DashboardBean Holográfico (Aether UI)...");
-        // Por defecto, fecha fin = hoy, fecha inicio = hace 180 días
+        // Por defecto, fecha fin = hoy, período original liviano para inicio rápido
         this.endDate = new java.util.Date();
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        cal.setTime(this.endDate);
-        cal.add(java.util.Calendar.DAY_OF_YEAR, -180);
-        this.startDate = cal.getTime();
+        this.daysBack = 180;
+        calculateStartDateFromPeriods();
 
         loadCatalogo();
         loadUserAccounts();
@@ -2628,28 +2904,63 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            if (this.startDate == null) {
-                calculateStartDateFromPeriods();
+            // Regla institucional: el backtesting siempre tiene por default 6 meses (calculado según la temporalidad)
+            java.util.Date effEndCruces = getEffectiveEndDate();
+            java.util.Calendar calBt = java.util.Calendar.getInstance();
+            calBt.setTime(effEndCruces);
+            calBt.add(java.util.Calendar.MONTH, -6);
+            java.util.Date btStartDate = calBt.getTime();
+
+            int btDays = 180;
+            String tfNorm = (timeframe != null && !timeframe.trim().isEmpty()) ? timeframe.toLowerCase().trim() : "1h";
+            switch (tfNorm) {
+                case "1month": case "1m":
+                    btDays = 6;
+                    break;
+                case "1week": case "1w":
+                    btDays = 26;
+                    break;
+                case "1d":
+                    btDays = 180;
+                    break;
+                case "4h":
+                    btDays = 1080;
+                    break;
+                case "1h":
+                    btDays = 4320;
+                    break;
+                case "30min": case "30m":
+                    btDays = 8640;
+                    break;
+                case "15min": case "15m":
+                    btDays = 17280;
+                    break;
+                case "5min": case "5m":
+                    btDays = 51840;
+                    break;
+                default:
+                    btDays = 180;
+                    break;
             }
 
             boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
             java.text.SimpleDateFormat sdf = isIntradayTf
                     ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
                     : new java.text.SimpleDateFormat("yyyy-MM-dd");
-            String startStr = (startDate != null) ? sdf.format(startDate) : "";
-            java.util.Date effEndCruces = getEffectiveEndDate();
+            String startStr = sdf.format(btStartDate);
             String endStr = (effEndCruces != null) ? sdf.format(effEndCruces) : "";
 
             Double curAccCap = getSelectedAccountCapital();
             String url = String.format(
-                    "%s/api/v1/cruces-ema/pair-analysis/%s?pairB=%s&timeframe=%s&days=%d&start_date=%s&end_date=%s&smaPeriod=%d&sigmaWindow=%d" +
+                    "%s/api/v1/cruces-ema/pair-analysis/%s?pairB=%s&timeframe=%s&days=%d&start_date=%s&end_date=%s&smaPeriod=%d&sigmaWindow=%d&isBacktest=true" +
                     (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
                     (curAccCap != null ? "&capital=" + curAccCap : "") +
+                    (getSelectedAccountComision() != null ? "&comisionPct=" + getSelectedAccountComision() : "") +
                     "&leverage=100.0",
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    timeframe, (daysBack != null ? daysBack : 180), startStr, endStr,
+                    timeframe, btDays, startStr, endStr,
                     (smaPeriodParam != null ? smaPeriodParam : 2), (emaSlowPeriodParam != null ? emaSlowPeriodParam : 15));
 
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -2691,6 +3002,16 @@ public class DashboardBean implements Serializable {
                         if (toNode.has("netProfit")) toDto.setNetProfit(toNode.get("netProfit").asDouble());
                         if (toNode.has("finalCapital")) toDto.setFinalCapital(toNode.get("finalCapital").asDouble());
                         if (toNode.has("allocationPct")) toDto.setAllocationPct(toNode.get("allocationPct").asDouble());
+                        if (toNode.has("avgReturnPerCycle")) toDto.setAvgReturnPerCycle(toNode.get("avgReturnPerCycle").asDouble(0.0));
+                        if (toNode.has("avgPnlPerCycle")) toDto.setAvgPnlPerCycle(toNode.get("avgPnlPerCycle").asDouble(0.0));
+                        if (toNode.has("avgEntriesPerCycle")) toDto.setAvgEntriesPerCycle(toNode.get("avgEntriesPerCycle").asDouble(0.0));
+                        if (toNode.has("totalCycles")) toDto.setTotalCycles(toNode.get("totalCycles").asInt(0));
+                        if (toNode.has("avgCapitalRequiredPerCycle")) toDto.setAvgCapitalRequiredPerCycle(toNode.get("avgCapitalRequiredPerCycle").asDouble(0.0));
+                        if (toNode.has("avgPeakMarginPerCycle")) toDto.setAvgPeakMarginPerCycle(toNode.get("avgPeakMarginPerCycle").asDouble(0.0));
+                        if (toNode.has("avgAdverseFloatPerCycle")) toDto.setAvgAdverseFloatPerCycle(toNode.get("avgAdverseFloatPerCycle").asDouble(0.0));
+                        if (toNode.has("marginCappedCycles")) toDto.setMarginCappedCycles(toNode.get("marginCappedCycles").asInt(0));
+                        if (toNode.has("totalStoppedEntries")) toDto.setTotalStoppedEntries(toNode.get("totalStoppedEntries").asInt(0));
+                        if (toNode.has("totalCommission")) toDto.setTotalCommission(toNode.get("totalCommission").asDouble(0.0));
                         this.signalBtTrianglesMetrics = toDto;
 
                         List<SignalTradeDto> toTrades = new ArrayList<>();
@@ -2748,6 +3069,15 @@ public class DashboardBean implements Serializable {
                                 if (t.has("availableCapital") && !t.get("availableCapital").isNull()) st.setAvailableCapital(t.get("availableCapital").asDouble());
                                 if (t.has("accumCapital") && !t.get("accumCapital").isNull()) st.setAccumCapital(t.get("accumCapital").asDouble());
                                 if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
+                                if (t.has("isMarginCapped") && !t.get("isMarginCapped").isNull()) st.setIsMarginCapped(t.get("isMarginCapped").asBoolean(false));
+                                if (t.has("stoppedEntriesCount") && !t.get("stoppedEntriesCount").isNull()) st.setStoppedEntriesCount(t.get("stoppedEntriesCount").asInt(0));
+                                if (t.has("peakCapitalRequired") && !t.get("peakCapitalRequired").isNull()) st.setPeakCapitalRequired(t.get("peakCapitalRequired").asDouble(0.0));
+                                if (t.has("peakMargin") && !t.get("peakMargin").isNull()) st.setPeakMargin(t.get("peakMargin").asDouble(0.0));
+                                if (t.has("maxAdverseFloat") && !t.get("maxAdverseFloat").isNull()) st.setMaxAdverseFloat(t.get("maxAdverseFloat").asDouble(0.0));
+                                if (t.has("marginAccountPct") && !t.get("marginAccountPct").isNull()) st.setMarginAccountPct(t.get("marginAccountPct").asDouble(0.0));
+                                if (t.has("marginIndicator") && !t.get("marginIndicator").isNull()) st.setMarginIndicator(t.get("marginIndicator").asDouble(0.0));
+                                if (t.has("isSkipped") && !t.get("isSkipped").isNull()) st.setIsSkipped(t.get("isSkipped").asBoolean(false));
+                                if (t.has("commission") && !t.get("commission").isNull()) st.setCommission(t.get("commission").asDouble(0.0));
                                 toTrades.add(st);
                             }
                         }
@@ -2771,6 +3101,16 @@ public class DashboardBean implements Serializable {
                         if (cbNode.has("netProfit")) cbDto.setNetProfit(cbNode.get("netProfit").asDouble());
                         if (cbNode.has("finalCapital")) cbDto.setFinalCapital(cbNode.get("finalCapital").asDouble());
                         if (cbNode.has("allocationPct")) cbDto.setAllocationPct(cbNode.get("allocationPct").asDouble());
+                        if (cbNode.has("avgReturnPerCycle")) cbDto.setAvgReturnPerCycle(cbNode.get("avgReturnPerCycle").asDouble(0.0));
+                        if (cbNode.has("avgPnlPerCycle")) cbDto.setAvgPnlPerCycle(cbNode.get("avgPnlPerCycle").asDouble(0.0));
+                        if (cbNode.has("avgEntriesPerCycle")) cbDto.setAvgEntriesPerCycle(cbNode.get("avgEntriesPerCycle").asDouble(0.0));
+                        if (cbNode.has("totalCycles")) cbDto.setTotalCycles(cbNode.get("totalCycles").asInt(0));
+                        if (cbNode.has("avgCapitalRequiredPerCycle")) cbDto.setAvgCapitalRequiredPerCycle(cbNode.get("avgCapitalRequiredPerCycle").asDouble(0.0));
+                        if (cbNode.has("avgPeakMarginPerCycle")) cbDto.setAvgPeakMarginPerCycle(cbNode.get("avgPeakMarginPerCycle").asDouble(0.0));
+                        if (cbNode.has("avgAdverseFloatPerCycle")) cbDto.setAvgAdverseFloatPerCycle(cbNode.get("avgAdverseFloatPerCycle").asDouble(0.0));
+                        if (cbNode.has("marginCappedCycles")) cbDto.setMarginCappedCycles(cbNode.get("marginCappedCycles").asInt(0));
+                        if (cbNode.has("totalStoppedEntries")) cbDto.setTotalStoppedEntries(cbNode.get("totalStoppedEntries").asInt(0));
+                        if (cbNode.has("totalCommission")) cbDto.setTotalCommission(cbNode.get("totalCommission").asDouble(0.0));
                         this.signalBtCombinedMetrics = cbDto;
 
                         List<SignalTradeDto> cbTrades = new ArrayList<>();
@@ -2828,6 +3168,15 @@ public class DashboardBean implements Serializable {
                                 if (t.has("availableCapital") && !t.get("availableCapital").isNull()) st.setAvailableCapital(t.get("availableCapital").asDouble());
                                 if (t.has("accumCapital") && !t.get("accumCapital").isNull()) st.setAccumCapital(t.get("accumCapital").asDouble());
                                 if (t.has("isOpen")) st.setIsOpen(t.get("isOpen").asBoolean());
+                                if (t.has("isMarginCapped") && !t.get("isMarginCapped").isNull()) st.setIsMarginCapped(t.get("isMarginCapped").asBoolean(false));
+                                if (t.has("stoppedEntriesCount") && !t.get("stoppedEntriesCount").isNull()) st.setStoppedEntriesCount(t.get("stoppedEntriesCount").asInt(0));
+                                if (t.has("peakCapitalRequired") && !t.get("peakCapitalRequired").isNull()) st.setPeakCapitalRequired(t.get("peakCapitalRequired").asDouble(0.0));
+                                if (t.has("peakMargin") && !t.get("peakMargin").isNull()) st.setPeakMargin(t.get("peakMargin").asDouble(0.0));
+                                if (t.has("maxAdverseFloat") && !t.get("maxAdverseFloat").isNull()) st.setMaxAdverseFloat(t.get("maxAdverseFloat").asDouble(0.0));
+                                if (t.has("marginAccountPct") && !t.get("marginAccountPct").isNull()) st.setMarginAccountPct(t.get("marginAccountPct").asDouble(0.0));
+                                if (t.has("marginIndicator") && !t.get("marginIndicator").isNull()) st.setMarginIndicator(t.get("marginIndicator").asDouble(0.0));
+                                if (t.has("isSkipped") && !t.get("isSkipped").isNull()) st.setIsSkipped(t.get("isSkipped").asBoolean(false));
+                                if (t.has("commission") && !t.get("commission").isNull()) st.setCommission(t.get("commission").asDouble(0.0));
                                 cbTrades.add(st);
                             }
                         }
@@ -3198,6 +3547,7 @@ public class DashboardBean implements Serializable {
                         if (item.has("nombreCuenta")) dto.setNombreCuenta(item.get("nombreCuenta").asText());
                         if (item.has("correo") && !item.get("correo").isNull()) dto.setCorreo(item.get("correo").asText());
                         if (item.has("capital") && !item.get("capital").isNull()) dto.setCapital(item.get("capital").asDouble());
+                        if (item.has("comision") && !item.get("comision").isNull()) dto.setComision(item.get("comision").asDouble(0.0));
                         if (item.has("activo") && !item.get("activo").isNull()) dto.setActivo(item.get("activo").asBoolean());
                         list.add(dto);
                     }

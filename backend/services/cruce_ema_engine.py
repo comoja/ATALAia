@@ -103,6 +103,7 @@ class CruceEmaEngine:
         nameB = pairB if pairB else "Par B"
 
         activeTrades: List[Dict[str, Any]] = []
+        cycleSkippedTrades: List[Dict[str, Any]] = []
         finishedTrades: List[Dict[str, Any]] = []
         rawTradesCount = 0
         cycleCounter = 0
@@ -119,6 +120,14 @@ class CruceEmaEngine:
         margenRateA = (margenPctA / 100.0) if margenPctA >= 0.05 else margenPctA
         margenRateB = (margenPctB / 100.0) if margenPctB >= 0.05 else margenPctB
         sampleReqMarginLot = 20.0
+
+        # Control de tope de margen y requerimiento de capital por ciclo (Margen + Separación Flotante)
+        isCycleMarginCapped = False
+        cycleStoppedEntries = 0
+        cyclePeakCapitalReq = 0.0
+        cyclePeakMargin = 0.0
+        cycleMaxAdverseFloat = 0.0
+        has_time = any(hasattr(d, "hour") and (d.hour != 0 or d.minute != 0) for d in commonIdx[:20])
 
         for i in range(1, totalBars):
             d = dates[i]
@@ -160,6 +169,37 @@ class CruceEmaEngine:
                 "y": round(float(currEquity), 2)
             })
 
+            # Rastrear barra a barra el capital requerido en el ciclo actual: Margen + Separación del precio promedio de las entradas
+            if activeTrades:
+                currActiveMargin = sum(t["margin"] for t in activeTrades)
+                cycleUnitsA = sum(t["unitsA"] for t in activeTrades)
+                cycleUnitsB = sum(t["unitsB"] for t in activeTrades)
+                avgEntryPxA = (sum(t["entryPxA"] * t["unitsA"] for t in activeTrades) / cycleUnitsA) if cycleUnitsA > 0 else pxA
+                avgEntryPxB = (sum(t["entryPxB"] * t["unitsB"] for t in activeTrades) / cycleUnitsB) if cycleUnitsB > 0 else pxB
+
+                isLongA = ("LONG " + nameA in activeTrades[0]["direction"]) or ("LONG A" in activeTrades[0]["direction"]) or activeTrades[0]["direction"].startswith("LONG")
+                if isLongA:
+                    adversePxA = max(0.0, avgEntryPxA - pxA)
+                    adversePxB = max(0.0, pxB - avgEntryPxB)
+                else:
+                    adversePxA = max(0.0, pxA - avgEntryPxA)
+                    adversePxB = max(0.0, avgEntryPxB - pxB)
+
+                pipsAdvA = adversePxA / pipA if pipA > 0 else 0.0
+                pipsAdvB = adversePxB / pipB if pipB > 0 else 0.0
+
+                pipValAdvA = cycleUnitsA * pipA if quoteA == "USD" else ((cycleUnitsA * pipA) / pxA if pxA > 0 else cycleUnitsA * pipA)
+                pipValAdvB = cycleUnitsB * pipB if quoteB == "USD" else ((cycleUnitsB * pipB) / pxB if pxB > 0 else cycleUnitsB * pipB)
+
+                currAdverseFloat = (pipsAdvA * pipValAdvA) + (pipsAdvB * pipValAdvB)
+                currCapitalReq = currActiveMargin + currAdverseFloat
+                if currCapitalReq > cyclePeakCapitalReq:
+                    cyclePeakCapitalReq = currCapitalReq
+                if currActiveMargin > cyclePeakMargin:
+                    cyclePeakMargin = currActiveMargin
+                if currAdverseFloat > cycleMaxAdverseFloat:
+                    cycleMaxAdverseFloat = currAdverseFloat
+
             # Detectar señales con el módulo centralizado signalEngine
             candleSig = signalEngine.detectCandleSignals(
                 prevPriceA=normAVals[i - 1],
@@ -189,16 +229,14 @@ class CruceEmaEngine:
 
             # 1. EVALUAR ENTRADA, REVERSAL (CAMBIO DE DIRECCIÓN) O ACUMULACIÓN
             if sigType and direction:
-                # Verificar si existen posiciones activas en DIRECCIÓN OPUESTA
+                # Verificar si existen posiciones activas o skipped en DIRECCIÓN OPUESTA (Reversal)
                 isOpposite = False
-                if activeTrades:
-                    prevDir = activeTrades[0]["direction"]
-                    isPrevLongA = ("LONG " + nameA in prevDir) or ("LONG A" in prevDir) or (prevDir.startswith("LONG"))
-                    isCurrLongA = ("LONG " + nameA in direction) or ("LONG A" in direction) or (direction.startswith("LONG"))
-                    isOpposite = (isPrevLongA != isCurrLongA)
+                if activeTrades or cycleSkippedTrades:
+                    prevDir = activeTrades[0]["direction"] if activeTrades else cycleSkippedTrades[0]["direction"]
+                    if direction != prevDir:
+                        isOpposite = True
 
                 if isOpposite:
-                    # Liquidación de todas las operaciones previas al cambiar de dirección
                     cycleCounter += 1
                     cycleTrades = []
                     cyclePnl = 0.0
@@ -208,6 +246,7 @@ class CruceEmaEngine:
                     cycleUnitsA = sum(t["unitsA"] for t in activeTrades)
                     cycleUnitsB = sum(t["unitsB"] for t in activeTrades)
 
+                    # Cerrar operaciones operadas
                     for t in activeTrades:
                         rawTradesCount += 1
                         if ("LONG " + nameA in t["direction"]) or ("LONG A" in t["direction"]) or t["direction"].startswith("LONG"):
@@ -233,11 +272,7 @@ class CruceEmaEngine:
                         pnlA = pipsA * pipValA
                         pnlB = pipsB * pipValB
 
-                        nominalA = t["unitsA"] * pxA if quoteA == "USD" else t["unitsA"]
-                        nominalB = t["unitsB"] if quoteB != "USD" else t["unitsB"] * pxB
-                        costs = (nominalA + nominalB) * (costRate * 2.0)
-
-                        tradePnl = pnlA + pnlB - costs
+                        tradePnl = pnlA + pnlB
                         tradeNetRet = (tradePnl / t["margin"]) if t["margin"] > 0 else 0.0
 
                         equity += tradePnl
@@ -246,14 +281,19 @@ class CruceEmaEngine:
                         cycleTrades.append({
                             "tradeNum": rawTradesCount,
                             "isSubtotal": False,
+                            "isSkipped": False,
+                            "isOpen": False,
                             "cycleNum": cycleCounter,
                             "signalType": t["signalType"],
                             "direction": t["direction"],
                             "entryDate": t["entryDate"],
+                            "entryIndex": t.get("entryIndex", i),
                             "exitDate": d,
                             "allocatedCapital": round(float(t["margin"]), 2),
                             "marginA": round(float(t.get("marginA", 0.0)), 2),
                             "marginB": round(float(t.get("marginB", 0.0)), 2),
+                            "marginAccountPct": t.get("marginAccountPct", 0.0),
+                            "marginIndicator": t.get("marginIndicator", 0.0),
                             "availableCapital": round(float(t.get("availableCapital", 0.0)), 2),
                             "accumCapital": round(float(equity), 2),
                             "multA": t["multA"],
@@ -275,18 +315,82 @@ class CruceEmaEngine:
                             "isWin": bool(tradePnl > 0)
                         })
 
-                    cycleAvgRet = round((cyclePnl / cycleMargin) * 100.0, 2) if cycleMargin > 0 else 0.0
+                    # Incorporar los registros que se estuvo perdiendo (no operados por indicador < 200)
+                    for st in cycleSkippedTrades:
+                        cycleTrades.append({
+                            "tradeNum": None,
+                            "isSubtotal": False,
+                            "isSkipped": True,
+                            "isOpen": False,
+                            "cycleNum": cycleCounter,
+                            "signalType": st["signalType"],
+                            "direction": st["direction"],
+                            "entryDate": st["entryDate"],
+                            "entryIndex": st.get("entryIndex", i),
+                            "exitDate": d,
+                            "allocatedCapital": None,
+                            "marginA": None,
+                            "marginB": None,
+                            "marginAccountPct": None,
+                            "marginIndicator": None,
+                            "availableCapital": None,
+                            "accumCapital": None,
+                            "multA": None,
+                            "multB": None,
+                            "unitsA": None,
+                            "unitsB": None,
+                            "pipsA": None,
+                            "pipsB": None,
+                            "pnlA": None,
+                            "pnlB": None,
+                            "entryPriceA": round(float(st["entryPxA"]), 5),
+                            "exitPriceA": round(float(pxA), 5),
+                            "entryPriceB": round(float(st["entryPxB"]), 5),
+                            "exitPriceB": round(float(pxB), 5),
+                            "durationBars": i - st.get("entryIndex", i),
+                            "returnPct": None,
+                            "pnl": None,
+                            "exitReason": "INDICADOR_MARGEN_MENOR_200",
+                            "isWin": None
+                        })
+
+                    # Ordenar registros del ciclo cronológicamente por entryIndex
+                    cycleTrades.sort(key=lambda x: x.get("entryIndex", 0))
+
                     for ct in cycleTrades:
                         finishedTrades.append(ct)
 
-                    entrySpan = f"{cycleTrades[0]['entryDate'][:10]} a {cycleTrades[-1]['entryDate'][:10]}" if len(cycleTrades) > 1 else cycleTrades[0]['entryDate'][:10]
+                    operatedCycleTrades = [ct for ct in cycleTrades if not ct.get("isSkipped")]
+                    cycleAvgRet = round((cyclePnl / cycleMargin) * 100.0, 2) if cycleMargin > 0 else 0.0
+
+                    if operatedCycleTrades:
+                        entrySpan = f"{operatedCycleTrades[0]['entryDate'][:10]} a {operatedCycleTrades[-1]['entryDate'][:10]}" if len(operatedCycleTrades) > 1 else operatedCycleTrades[0]['entryDate'][:10]
+                        firstIdx = operatedCycleTrades[0].get("entryIndex", 0)
+                    else:
+                        entrySpan = cycleTrades[0]['entryDate'][:10] if cycleTrades else d[:10]
+                        firstIdx = cycleTrades[0].get("entryIndex", 0) if cycleTrades else i
+
+                    lastIdx = i
+                    if has_time:
+                        diffSecs = (commonIdx[lastIdx] - commonIdx[firstIdx]).total_seconds()
+                        cycleDurationStr = f"{max(1, int(round(diffSecs / 3600.0)))}h"
+                    else:
+                        diffDays = (commonIdx[lastIdx].date() - commonIdx[firstIdx].date()).days if hasattr(commonIdx[firstIdx], "date") else (lastIdx - firstIdx)
+                        cycleDurationStr = f"{max(1, int(diffDays))}d"
+
+                    avgEntryPxA = (sum(ct["entryPriceA"] * ct["unitsA"] for ct in operatedCycleTrades) / cycleUnitsA) if cycleUnitsA > 0 else 0.0
+                    avgEntryPxB = (sum(ct["entryPriceB"] * ct["unitsB"] for ct in operatedCycleTrades) / cycleUnitsB) if cycleUnitsB > 0 else 0.0
+                    cycleMarginPct = round(float((cycleMargin / cycleStartEquity) * 100.0), 1) if cycleStartEquity > 0 else 0.0
+                    cycleMarginIndicator = round(float((cycleStartEquity / cycleMargin) * 100.0), 1) if cycleMargin > 0 else 0.0
+
                     finishedTrades.append({
                         "tradeNum": None,
                         "isSubtotal": True,
                         "cycleNum": cycleCounter,
                         "signalType": f"SUBTOTAL CIERRE #{cycleCounter}",
-                        "direction": f"🔄 Reversal ({len(cycleTrades)} ops cerradas)",
-                        "entryDate": entrySpan,
+                        "direction": f"🔄 Reversal ({len(operatedCycleTrades)} ops cerradas)",
+                        "entryDate": cycleDurationStr,
+                        "entryDateRange": entrySpan,
                         "exitDate": d,
                         "allocatedCapital": round(float(cycleMargin), 2),
                         "marginA": round(float(cycleMarginA), 2),
@@ -297,69 +401,139 @@ class CruceEmaEngine:
                         "multB": None,
                         "unitsA": int(cycleUnitsA),
                         "unitsB": int(cycleUnitsB),
-                        "pipsA": round(float(sum(ct["pipsA"] for ct in cycleTrades)), 1),
-                        "pipsB": round(float(sum(ct["pipsB"] for ct in cycleTrades)), 1),
-                        "pnlA": round(float(sum(ct["pnlA"] for ct in cycleTrades)), 2),
-                        "pnlB": round(float(sum(ct["pnlB"] for ct in cycleTrades)), 2),
-                        "entryPriceA": None,
-                        "exitPriceA": None,
-                        "entryPriceB": None,
-                        "exitPriceB": None,
-                        "durationBars": len(cycleTrades),
+                        "pipsA": round(float(sum(ct["pipsA"] for ct in operatedCycleTrades if ct.get("pipsA") is not None)), 1),
+                        "pipsB": round(float(sum(ct["pipsB"] for ct in operatedCycleTrades if ct.get("pipsB") is not None)), 1),
+                        "pnlA": round(float(sum(ct["pnlA"] for ct in operatedCycleTrades if ct.get("pnlA") is not None)), 2),
+                        "pnlB": round(float(sum(ct["pnlB"] for ct in operatedCycleTrades if ct.get("pnlB") is not None)), 2),
+                        "entryPriceA": round(float(avgEntryPxA), 5),
+                        "exitPriceA": round(float(pxA), 5),
+                        "entryPriceB": round(float(avgEntryPxB), 5),
+                        "exitPriceB": round(float(pxB), 5),
+                        "durationBars": len(operatedCycleTrades),
                         "returnPct": cycleAvgRet,
                         "pnl": round(float(cyclePnl), 2),
                         "exitReason": f"CAMBIO DE DIRECCIÓN ({direction}) {d}",
-                        "isWin": bool(cyclePnl > 0)
+                        "isWin": bool(cyclePnl > 0),
+                        "isMarginCapped": bool(isCycleMarginCapped or len(cycleSkippedTrades) > 0),
+                        "stoppedEntriesCount": int(len(cycleSkippedTrades)),
+                        "peakCapitalRequired": round(float(cyclePeakCapitalReq), 2),
+                        "peakMargin": round(float(cyclePeakMargin), 2),
+                        "maxAdverseFloat": round(float(cycleMaxAdverseFloat), 2),
+                        "marginAccountPct": cycleMarginPct,
+                        "marginIndicator": cycleMarginIndicator
                     })
 
-                    # REINVERSIÓN AL CIERRE
+                    # REINVERSIÓN AL CIERRE: 100% Margen liberado para el siguiente ciclo
                     cycleStartEquity = equity
                     cycleAvailableEquity = equity
+                    isCycleMarginCapped = False
+                    cycleStoppedEntries = 0
+                    cyclePeakCapitalReq = 0.0
+                    cyclePeakMargin = 0.0
+                    cycleMaxAdverseFloat = 0.0
                     activeTrades = []
+                    cycleSkippedTrades = []
 
-                # 2. ABRIR NUEVA ENTRADA (O ACUMULACIÓN) CON EL CAPITAL DISPONIBLE
-                totalEntryBudget = max(0.0, cycleAvailableEquity) * allocationRate
-                budgetA = totalEntryBudget / 2.0
-                budgetB = totalEntryBudget / 2.0
+                # 2. ABRIR NUEVA ENTRADA (O DETENER SI EL INDICADOR DE MARGEN BAJARÍA DE 200)
+                minMargen1LotA = minLotsA * margenRateA
+                minMargen1LotB = minLotsB * margenRateB
+                minReqMargen = minMargen1LotA + minMargen1LotB
 
-                margen1LotA = minLotsA * margenRateA
-                margen1LotB = minLotsB * margenRateB
+                currActiveMarginBefore = sum(t["margin"] for t in activeTrades)
+                # Regla: el indicador de margen solo debe ser mayor que 200 (> 200%)
+                # Si una entrada adicional hace que el indicador baje de 200, ya no se opera
+                projectedMinMargin = currActiveMarginBefore + minReqMargen
+                projectedMinIndicator = (cycleStartEquity / projectedMinMargin) * 100.0 if (projectedMinMargin > 0 and cycleStartEquity > 0) else 0.0
 
-                multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA) else 1
-                multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB) else 1
+                if (cycleAvailableEquity < minReqMargen) or (projectedMinIndicator < 200.0):
+                    # No alcanza el margen o bajaría de 200%: no operar, pero registrar lo que se estaría perdiendo
+                    isCycleMarginCapped = True
+                    cycleStoppedEntries += 1
+                    cycleSkippedTrades.append({
+                        "signalType": sigType,
+                        "direction": direction,
+                        "entryDate": d,
+                        "entryIndex": i,
+                        "entryPxA": pxA,
+                        "entryPxB": pxB,
+                        "isSkipped": True
+                    })
+                else:
+                    totalEntryBudget = max(0.0, cycleAvailableEquity) * allocationRate
+                    budgetA = totalEntryBudget / 2.0
+                    budgetB = totalEntryBudget / 2.0
 
-                realMargenA = multA * margen1LotA
-                realMargenB = multB * margen1LotB
-                totalMargen = realMargenA + realMargenB
+                    multA = max(1, int(budgetA // minMargen1LotA)) if (budgetA >= minMargen1LotA) else 1
+                    multB = max(1, int(budgetB // minMargen1LotB)) if (budgetB >= minMargen1LotB) else 1
 
-                unitsA = multA * minLotsA
-                unitsB = multB * minLotsB
+                    realMargenA = multA * minMargen1LotA
+                    realMargenB = multB * minMargen1LotB
+                    totalMargen = realMargenA + realMargenB
 
-                cycleAvailableEquity = max(0.0, cycleAvailableEquity - totalMargen)
+                    projectedMargen = currActiveMarginBefore + totalMargen
+                    projectedIndicator = (cycleStartEquity / projectedMargen) * 100.0 if (projectedMargen > 0 and cycleStartEquity > 0) else 0.0
 
-                activeTrades.append({
-                    "signalType": sigType,
-                    "direction": direction,
-                    "entryDate": d,
-                    "entryIndex": i,
-                    "entryPxA": pxA,
-                    "entryPxB": pxB,
-                    "margin": totalMargen,
-                    "marginA": round(float(realMargenA), 2),
-                    "marginB": round(float(realMargenB), 2),
-                    "availableCapital": round(float(cycleAvailableEquity), 2),
-                    "multA": multA,
-                    "multB": multB,
-                    "unitsA": unitsA,
-                    "unitsB": unitsB
-                })
+                    if (totalMargen > cycleAvailableEquity) or (projectedIndicator < 200.0):
+                        # Intentar reducir a 1 lote mínimo
+                        multA = 1
+                        multB = 1
+                        realMargenA = minMargen1LotA
+                        realMargenB = minMargen1LotB
+                        totalMargen = minReqMargen
+                        projectedMargen = currActiveMarginBefore + totalMargen
+                        projectedIndicator = (cycleStartEquity / projectedMargen) * 100.0 if (projectedMargen > 0 and cycleStartEquity > 0) else 0.0
+
+                    if (totalMargen <= cycleAvailableEquity) and (projectedIndicator >= 200.0):
+                        unitsA = multA * minLotsA
+                        unitsB = multB * minLotsB
+
+                        cycleAvailableEquity = max(0.0, cycleAvailableEquity - totalMargen)
+
+                        currActiveMargin = currActiveMarginBefore + totalMargen
+                        if currActiveMargin > cyclePeakMargin:
+                            cyclePeakMargin = currActiveMargin
+                        if currActiveMargin > cyclePeakCapitalReq:
+                            cyclePeakCapitalReq = currActiveMargin
+
+                        tradeMarginPct = round(float((totalMargen / cycleStartEquity) * 100.0), 1) if cycleStartEquity > 0 else 0.0
+                        tradeMarginIndicator = round(float((cycleStartEquity / currActiveMargin) * 100.0), 1) if currActiveMargin > 0 else 0.0
+                        activeTrades.append({
+                            "signalType": sigType,
+                            "direction": direction,
+                            "entryDate": d,
+                            "entryIndex": i,
+                            "entryPxA": pxA,
+                            "entryPxB": pxB,
+                            "margin": totalMargen,
+                            "marginA": round(float(realMargenA), 2),
+                            "marginB": round(float(realMargenB), 2),
+                            "availableCapital": round(float(cycleAvailableEquity), 2),
+                            "multA": multA,
+                            "multB": multB,
+                            "unitsA": unitsA,
+                            "unitsB": unitsB,
+                            "marginAccountPct": tradeMarginPct,
+                            "marginIndicator": tradeMarginIndicator,
+                            "isSkipped": False
+                        })
+                    else:
+                        isCycleMarginCapped = True
+                        cycleStoppedEntries += 1
+                        cycleSkippedTrades.append({
+                            "signalType": sigType,
+                            "direction": direction,
+                            "entryDate": d,
+                            "entryIndex": i,
+                            "entryPxA": pxA,
+                            "entryPxB": pxB,
+                            "isSkipped": True
+                        })
 
         # 3. PROCESAR POSICIONES ABIERTAS / EN CURSO AL FINAL DEL HISTORIAL
         openCycleTrades = []
-        if activeTrades:
+        if activeTrades or cycleSkippedTrades:
             lastPxA = pricesA[-1]
             lastPxB = pricesB[-1]
-            openCycleTrades = []
             openPnl = 0.0
             openMargin = sum(t["margin"] for t in activeTrades)
             openMarginA = sum(t.get("marginA", 0.0) for t in activeTrades)
@@ -385,17 +559,14 @@ class CruceEmaEngine:
                 pnlA = pipsA * pipValA
                 pnlB = pipsB * pipValB
 
-                nominalA = t["unitsA"] * lastPxA if quoteA == "USD" else t["unitsA"]
-                nominalB = t["unitsB"] if quoteB != "USD" else t["unitsB"] * lastPxB
-                costs = (nominalA + nominalB) * (costRate * 2.0)
-
-                tradePnl = pnlA + pnlB - costs
+                tradePnl = pnlA + pnlB
                 tradeNetRet = (tradePnl / t["margin"]) if t["margin"] > 0 else 0.0
                 openPnl += tradePnl
 
                 openCycleTrades.append({
                     "tradeNum": rawTradesCount,
                     "isSubtotal": False,
+                    "isSkipped": False,
                     "isOpen": True,
                     "cycleNum": cycleCounter + 1,
                     "signalType": f"{t['signalType']} (EN CURSO)",
@@ -423,21 +594,86 @@ class CruceEmaEngine:
                     "returnPct": round(float(tradeNetRet * 100.0), 2),
                     "pnl": round(float(tradePnl), 2),
                     "exitReason": "POSICION_ABIERTA_EN_CURSO",
-                    "isWin": bool(tradePnl > 0)
+                    "isWin": bool(tradePnl > 0),
+                    "entryIndex": t.get("entryIndex", 0),
+                    "marginAccountPct": t.get("marginAccountPct", 0.0),
+                    "marginIndicator": t.get("marginIndicator", 0.0)
                 })
+
+            for st in cycleSkippedTrades:
+                openCycleTrades.append({
+                    "tradeNum": None,
+                    "isSubtotal": False,
+                    "isSkipped": True,
+                    "isOpen": True,
+                    "cycleNum": cycleCounter + 1,
+                    "signalType": f"{st['signalType']} (NO OPERADA)",
+                    "direction": st["direction"],
+                    "entryDate": st["entryDate"],
+                    "exitDate": "EN CURSO",
+                    "allocatedCapital": None,
+                    "marginA": None,
+                    "marginB": None,
+                    "marginAccountPct": None,
+                    "marginIndicator": None,
+                    "availableCapital": None,
+                    "accumCapital": None,
+                    "multA": None,
+                    "multB": None,
+                    "unitsA": None,
+                    "unitsB": None,
+                    "pipsA": None,
+                    "pipsB": None,
+                    "pnlA": None,
+                    "pnlB": None,
+                    "entryPriceA": round(float(st["entryPxA"]), 5),
+                    "exitPriceA": round(float(lastPxA), 5),
+                    "entryPriceB": round(float(st["entryPxB"]), 5),
+                    "exitPriceB": round(float(lastPxB), 5),
+                    "durationBars": (totalBars - 1) - st.get("entryIndex", 0),
+                    "returnPct": None,
+                    "pnl": None,
+                    "exitReason": "INDICADOR_MARGEN_MENOR_200",
+                    "isWin": None,
+                    "entryIndex": st.get("entryIndex", 0)
+                })
+
+            openCycleTrades.sort(key=lambda x: x.get("entryIndex", 0))
 
             for ot in openCycleTrades:
                 finishedTrades.append(ot)
 
-            openEntrySpan = f"{openCycleTrades[0]['entryDate']} a {openCycleTrades[-1]['entryDate']}" if len(openCycleTrades) > 1 else openCycleTrades[0]['entryDate']
+            operatedOpenTrades = [ot for ot in openCycleTrades if not ot.get("isSkipped")]
+
+            if operatedOpenTrades:
+                openEntrySpan = f"{operatedOpenTrades[0]['entryDate']} a {operatedOpenTrades[-1]['entryDate']}" if len(operatedOpenTrades) > 1 else operatedOpenTrades[0]['entryDate']
+                firstIdx = operatedOpenTrades[0].get("entryIndex", 0)
+            else:
+                openEntrySpan = openCycleTrades[0]['entryDate']
+                firstIdx = openCycleTrades[0].get("entryIndex", 0)
+
+            lastIdx = totalBars - 1
+            if has_time:
+                diffSecs = (commonIdx[lastIdx] - commonIdx[firstIdx]).total_seconds()
+                openDurationStr = f"{max(1, int(round(diffSecs / 3600.0)))}h"
+            else:
+                diffDays = (commonIdx[lastIdx].date() - commonIdx[firstIdx].date()).days if hasattr(commonIdx[firstIdx], "date") else (lastIdx - firstIdx)
+                openDurationStr = f"{max(1, int(diffDays))}d"
+
+            openAvgEntryPxA = (sum(ot["entryPriceA"] * ot["unitsA"] for ot in operatedOpenTrades) / openUnitsA) if openUnitsA > 0 else 0.0
+            openAvgEntryPxB = (sum(ot["entryPriceB"] * ot["unitsB"] for ot in operatedOpenTrades) / openUnitsB) if openUnitsB > 0 else 0.0
+            openMarginPct = round(float((openMargin / cycleStartEquity) * 100.0), 1) if cycleStartEquity > 0 else 0.0
+            openMarginIndicator = round(float((cycleStartEquity / openMargin) * 100.0), 1) if openMargin > 0 else 0.0
+
             finishedTrades.append({
                 "tradeNum": None,
                 "isSubtotal": True,
                 "isOpen": True,
                 "cycleNum": cycleCounter + 1,
                 "signalType": "SUBTOTAL POSICIONES ABIERTAS",
-                "direction": f"● En Curso ({len(openCycleTrades)} ops activas)",
-                "entryDate": openEntrySpan,
+                "direction": f"● En Curso ({len(operatedOpenTrades)} ops activas)",
+                "entryDate": openDurationStr,
+                "entryDateRange": openEntrySpan,
                 "exitDate": "EN CURSO",
                 "allocatedCapital": round(float(openMargin), 2),
                 "marginA": round(float(openMarginA), 2),
@@ -448,23 +684,30 @@ class CruceEmaEngine:
                 "multB": None,
                 "unitsA": int(openUnitsA),
                 "unitsB": int(openUnitsB),
-                "pipsA": round(float(sum(ot["pipsA"] for ot in openCycleTrades)), 1),
-                "pipsB": round(float(sum(ot["pipsB"] for ot in openCycleTrades)), 1),
-                "pnlA": round(float(sum(ot["pnlA"] for ot in openCycleTrades)), 2),
-                "pnlB": round(float(sum(ot["pnlB"] for ot in openCycleTrades)), 2),
-                "entryPriceA": None,
-                "exitPriceA": None,
-                "entryPriceB": None,
-                "exitPriceB": None,
-                "durationBars": len(openCycleTrades),
-                "returnPct": round(float((openPnl / openMargin) * 100.0), 2) if openMargin > 0 else 0.0,
+                "pipsA": round(float(sum(ot["pipsA"] for ot in operatedOpenTrades if ot.get("pipsA") is not None)), 1),
+                "pipsB": round(float(sum(ot["pipsB"] for ot in operatedOpenTrades if ot.get("pipsB") is not None)), 1),
+                "pnlA": round(float(sum(ot["pnlA"] for ot in operatedOpenTrades if ot.get("pnlA") is not None)), 2),
+                "pnlB": round(float(sum(ot["pnlB"] for ot in operatedOpenTrades if ot.get("pnlB") is not None)), 2),
+                "entryPriceA": round(float(openAvgEntryPxA), 5),
+                "exitPriceA": round(float(lastPxA), 5),
+                "entryPriceB": round(float(openAvgEntryPxB), 5),
+                "exitPriceB": round(float(lastPxB), 5),
+                "durationBars": len(operatedOpenTrades),
+                "returnPct": round((openPnl / openMargin) * 100.0, 2) if openMargin > 0 else 0.0,
                 "pnl": round(float(openPnl), 2),
-                "exitReason": "FLOTANTE_ACTUAL",
-                "isWin": bool(openPnl > 0)
+                "exitReason": "POSICIONES_ACTIVAS",
+                "isWin": bool(openPnl > 0),
+                "isMarginCapped": bool(isCycleMarginCapped or len(cycleSkippedTrades) > 0),
+                "stoppedEntriesCount": int(len(cycleSkippedTrades)),
+                "peakCapitalRequired": round(float(cyclePeakCapitalReq), 2),
+                "peakMargin": round(float(cyclePeakMargin), 2),
+                "maxAdverseFloat": round(float(cycleMaxAdverseFloat), 2),
+                "marginAccountPct": openMarginPct,
+                "marginIndicator": openMarginIndicator
             })
 
         # Métricas consolidadas
-        realTrades = [t for t in finishedTrades if not t.get("isSubtotal", False)]
+        realTrades = [t for t in finishedTrades if not t.get("isSubtotal", False) and not t.get("isSkipped", False)]
         totalTrades = len(realTrades)
         wins = [t for t in realTrades if t["isWin"]]
         losses = [t for t in realTrades if not t["isWin"]]
@@ -494,6 +737,31 @@ class CruceEmaEngine:
         avg_cycle_hours = round(total_hours / totalCycles, 1) if totalCycles > 0 else 0.0
         avg_cycle_days = round(totalDays / totalCycles, 1) if totalCycles > 0 else 0.0
 
+        # Subtotales de ciclos para cálculo de rendimiento promedio y entradas por ciclo
+        subtotalTrades = [t for t in finishedTrades if t.get("isSubtotal", False)]
+        cycleReturns = [t["returnPct"] for t in subtotalTrades if t.get("returnPct") is not None]
+        cyclePnls = [t["pnl"] for t in subtotalTrades if t.get("pnl") is not None]
+
+        # 1. Rendimiento promedio por ciclo (% y $ USD)
+        avgReturnPerCycle = round(float(np.mean(cycleReturns)), 2) if cycleReturns else 0.0
+        avgPnlPerCycle = round(float(np.mean(cyclePnls)), 2) if cyclePnls else 0.0
+
+        # 2. Promedio de entradas por ciclo
+        avgEntriesPerCycle = round(float(totalTrades / totalCycles), 1) if totalCycles > 0 else 0.0
+
+        # 3. Métricas de Capital Requerido, Margen Pico y Separación de Precio (Flotante)
+        cycleCapReqs = [t["peakCapitalRequired"] for t in subtotalTrades if t.get("peakCapitalRequired") is not None]
+        cyclePeakMargins = [t["peakMargin"] for t in subtotalTrades if t.get("peakMargin") is not None]
+        cycleAdverseFloats = [t["maxAdverseFloat"] for t in subtotalTrades if t.get("maxAdverseFloat") is not None]
+
+        avgCapitalRequiredPerCycle = round(float(np.mean(cycleCapReqs)), 2) if cycleCapReqs else 0.0
+        avgPeakMarginPerCycle = round(float(np.mean(cyclePeakMargins)), 2) if cyclePeakMargins else 0.0
+        avgAdverseFloatPerCycle = round(float(np.mean(cycleAdverseFloats)), 2) if cycleAdverseFloats else 0.0
+
+        # 4. Ciclos que alcanzaron tope de margen y total de entradas detenidas
+        marginCappedCycles = sum(1 for t in subtotalTrades if t.get("isMarginCapped", False))
+        totalStoppedEntries = sum(t.get("stoppedEntriesCount", 0) for t in subtotalTrades)
+
         return {
             "mode": "TRIANGLES_AND_BOXES" if includeBoxes else "TRIANGLES_ONLY",
             "modeLabel": "Triángulos + Cuadros (Con Equidad)" if includeBoxes else "Solo Triángulos (Coincidentes)",
@@ -507,6 +775,14 @@ class CruceEmaEngine:
             "totalCycles": totalCycles,
             "avgCycleHours": avg_cycle_hours,
             "avgCycleDays": avg_cycle_days,
+            "avgReturnPerCycle": avgReturnPerCycle,
+            "avgPnlPerCycle": avgPnlPerCycle,
+            "avgEntriesPerCycle": avgEntriesPerCycle,
+            "avgCapitalRequiredPerCycle": avgCapitalRequiredPerCycle,
+            "avgPeakMarginPerCycle": avgPeakMarginPerCycle,
+            "avgAdverseFloatPerCycle": avgAdverseFloatPerCycle,
+            "marginCappedCycles": marginCappedCycles,
+            "totalStoppedEntries": totalStoppedEntries,
             "winningTrades": len(wins),
             "losingTrades": len(losses),
             "winRate": round(float(winRate), 2),

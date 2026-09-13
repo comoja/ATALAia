@@ -634,45 +634,56 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                 }
 
                 logger.info(f"🌐 [Webhook] Enviando orden {action.upper()} {symbol} ({size:,.0f} lotes) para cuenta {loginUsuario} ({nombreBroker})...")
-                try:
-                    resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
-                    if resp.status_code == 200:
-                        resData = resp.json() if resp.text else {}
-                        if resData.get("status") == "ignored":
-                            logger.warning(f"⚠️ [Webhook] Orden ignorada por candado: {resData.get('message')}")
-                            executionResults.append({
-                                "idTrade": idTrade,
-                                "symbol": symbol,
-                                "action": action,
-                                "success": False
-                            })
+                
+                # Si patas anteriores ya cerraron pero esta falla, permitir reintentos automáticos para no dejar el ratio cojo
+                hasPriorSuccess = any(r.get("success") for r in executionResults)
+                maxAttempts = 3 if (action == "close" and hasPriorSuccess) else 1
+                isSuccess = False
+                resData = {}
+                errMsg = ""
+                
+                for attempt in range(1, maxAttempts + 1):
+                    if attempt > 1:
+                        logger.warning(f"🔄 [REINTENTO CIERRE {attempt}/{maxAttempts}] Reintentando {action.upper()} {symbol} en FOREX.com para no dejar el ratio cojo...")
+                        time.sleep(3.0)
+                    try:
+                        resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
+                        if resp.status_code == 200:
+                            resData = resp.json() if resp.text else {}
+                            isSuccess = (resData.get("status") == "success") or (resData.get("success") is True)
+                            if isSuccess:
+                                break
+                            errMsg = resData.get("message") or resData.get("error") or "Orden rechazada por el broker"
                         else:
-                            orderId = resData.get("order_id")
-                            fillPrice = resData.get("fill_price") or entryPx
-                            logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} confirmada en FOREX.com -> OrderId: {orderId}, FillPrice: {fillPrice}")
-                            executionResults.append({
-                                "idTrade": idTrade,
-                                "symbol": symbol,
-                                "action": action,
-                                "order_id": orderId,
-                                "fill_price": fillPrice,
-                                "success": True
-                            })
-                    else:
-                        logger.error(f"❌ [Webhook] Error {resp.status_code} para {loginUsuario} en {symbol}: {resp.text}")
-                        executionResults.append({
-                            "idTrade": idTrade,
-                            "symbol": symbol,
-                            "action": action,
-                            "success": False
-                        })
-                except Exception as exReq:
-                    logger.error(f"❌ [Webhook] Excepción enviando orden a {webhookUrl} para {loginUsuario}: {exReq}")
+                            errMsg = f"Error HTTP {resp.status_code}: {resp.text}"
+                    except Exception as exReq:
+                        errMsg = f"Excepción de conexión: {exReq}"
+                
+                if not isSuccess:
+                    logger.error(f"❌ [Webhook] Orden {action.upper()} {symbol} RECHAZADA por FOREX.com: {errMsg}")
                     executionResults.append({
                         "idTrade": idTrade,
                         "symbol": symbol,
                         "action": action,
-                        "success": False
+                        "success": False,
+                        "error": errMsg
+                    })
+                    # TRANSACCIÓN A NIVEL DE RATIO: Si la primera pata fue rechazada y no hay patas previas cerradas,
+                    # abortar el envío de las patas restantes para no desbalancear ni dejar el ratio cojo
+                    if not hasPriorSuccess:
+                        logger.error(f"🛑 [ABORTAR RATIO] La pata {symbol} fue rechazada por el broker. Abortando patas restantes del ratio para evitar operación coja.")
+                        break
+                else:
+                    orderId = resData.get("order_id")
+                    fillPrice = resData.get("fill_price") or entryPx
+                    logger.info(f"✅ [Webhook] Orden {action.upper()} {symbol} confirmada en FOREX.com -> OrderId: {orderId}, FillPrice: {fillPrice}")
+                    executionResults.append({
+                        "idTrade": idTrade,
+                        "symbol": symbol,
+                        "action": action,
+                        "order_id": orderId,
+                        "fill_price": fillPrice,
+                        "success": True
                     })
     except Exception as e:
         logger.error(f"⚠️ Error general en despacho de Webhook para Cuenta #{idCuenta}: {e}", exc_info=True)
@@ -875,7 +886,7 @@ def openSingleRatioTradePair(
                     resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
                     if resp.status_code == 200:
                         resData = resp.json() if resp.text else {}
-                        if resData.get("status") == "success" and resData.get("order_id"):
+                        if (resData.get("status") == "success" or resData.get("success") is True) and resData.get("order_id"):
                             isConfirmed = True
                             orderId = str(resData.get("order_id"))
                             fillPrice = float(resData.get("fill_price") or px)
@@ -1054,9 +1065,8 @@ def closeRatioTrades(
 ) -> bool:
     """
     Cierra todas las operaciones abiertas del setup al ocurrir el cruce de precios (●) o rebalanceo,
-    liquida el PnL neto por pips, calcula la comisión (%) sobre ganancias positivas y la guarda en trades.commission,
-    reincorpora el margen y la ganancia/pérdida a 'cuenta.Capital', genera el registro de comisión en la cuenta
-    concentradora del usuario que administra la cuenta y envía la alerta de cierre a Telegram y la orden de cierre al Webhook.
+    liquida el PnL neto por pips (sin comisión por trade, commission = 0.0),
+    reincorpora el margen y la ganancia/pérdida a 'cuenta.Capital' y envía la alerta de cierre a Telegram y la orden de cierre al Webhook.
     """
     if not openTrades:
         return False
@@ -1074,6 +1084,47 @@ def closeRatioTrades(
 
     # Comisión porcentual configurada en la cuenta (ej. 20.0 = 20%)
     comision_pct = float(accountData.get("comision", 0.0) or 0.0)
+
+    # =========================================================================
+    # FASE 1: DESPACHO PREVIO AL BROKER (VALIDACIÓN DE CIERRE REAL)
+    # =========================================================================
+    webhookCloseOrders = []
+    hasBrokerPositions = False
+    for tr in openTrades:
+        tId = tr.get("ticketId")
+        if tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
+            hasBrokerPositions = True
+        sym = tr.get("symbol")
+        sz = float(tr.get("size", 0.0) or 0.0)
+        webhookCloseOrders.append({
+            "strategy": tr.get("strategy") or "RATIO ATALAia",
+            "setup": tr.get("setup") or setupName,
+            "symbol": sym,
+            "action": "close",
+            "size": sz,
+            "entryPrice": 0.0,
+            "ticketId": tId,
+            "idTrade": tr.get("idTrade")
+        })
+
+    brokerPricesMap = {}
+    if hasBrokerPositions and webhookCloseOrders:
+        logger.info(f"🔒 [closeRatioTrades] Despachando {len(webhookCloseOrders)} orden(es) de cierre al broker antes de alterar la BD...")
+        execResults = sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
+        failedResults = [r for r in execResults if not r.get("success")]
+        if failedResults:
+            errorDetails = ", ".join([f"{r.get('symbol')}: {r.get('error', 'Rechazado')}" for r in failedResults])
+            logger.error(f"❌ [ABORTAR CIERRE] El broker rechazó el cierre de {setupName} en Cuenta #{idCuenta}: {errorDetails}. La Base de Datos permanece intacta.")
+            return False
+        for r in execResults:
+            tId = r.get("idTrade")
+            sym = r.get("symbol")
+            fp = float(r.get("fill_price", 0.0) or 0.0)
+            if fp > 0:
+                if tId:
+                    brokerPricesMap[tId] = fp
+                if sym:
+                    brokerPricesMap[sym] = fp
 
     # Identificar la cuenta concentradora del usuario que administra la cuenta
     idCuentaConcentradora = None
@@ -1141,7 +1192,7 @@ def closeRatioTrades(
         entryPx = tr["entryPrice"]
         size = tr["size"]
         marginUsed = tr["margin_used"]
-        exitPx = latestPricesMap.get(sym, entryPx)
+        exitPx = brokerPricesMap.get(tradeId) or brokerPricesMap.get(sym) or latestPricesMap.get(sym, entryPx)
 
         symInfo = symbolDataMap.get(sym, {"pip": 0.0001, "quoteCurrency": "USD"})
         pipVal = symInfo["pip"]
@@ -1159,13 +1210,8 @@ def closeRatioTrades(
         costs = (size * exitPx) * 0.0003
         tradePnl = round(rawPnl - costs, 2)
 
-        # Cálculo de comisión en $ sobre ganancia positiva sólo si la estrategia contiene 'ATALAia'
-        tradeStrategy = str(tr.get("strategy") or "RATIO ATALAia")
-        isAtalaiaStrategy = "ATALAIA" in tradeStrategy.upper()
-
+        # No se calcula comisión por trade
         tradeCommission = 0.0
-        if isAtalaiaStrategy and tradePnl > 0 and comision_pct > 0:
-            tradeCommission = round(tradePnl * (comision_pct / 100.0), 2)
 
         if sym == numerador:
             pnlA += tradePnl
@@ -1264,23 +1310,7 @@ def closeRatioTrades(
         f"| Margen Reintegrado:  | Impacto Neto en Cuenta:  USD"
     )
 
-    # Despachar Órdenes de Cierre al Webhook de Brókers (con ticketId si está presente)
-    webhookCloseOrders = []
-    for tr in openTrades:
-        tId = tr.get("ticketId")
-        sym = tr.get("symbol")
-        sz = float(tr.get("size", 0.0) or 0.0)
-        webhookCloseOrders.append({
-            "strategy": tr.get("strategy") or "RATIO ATALAia",
-            "setup": tr.get("setup") or setupName,
-            "symbol": sym,
-            "action": "close",
-            "size": sz,
-            "entryPrice": 0.0,
-            "ticketId": tId,
-            "idTrade": tr.get("idTrade")
-        })
-    sendRatioWebhookOrders(dbSession, idCuenta, webhookCloseOrders)
+    # El despacho a brókers se ejecutó exitosamente en la FASE 1 previa al commit.
 
     # Enviar alerta de cierre por Telegram
     exitAlertMsg = buildRatioExitAlertMessage(
@@ -1300,7 +1330,15 @@ def closeRatioTrades(
         closeReason=closeReason
     )
     try:
-        asyncio.run(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            asyncio.create_task(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
+        else:
+            asyncio.run(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
     except Exception as exTel:
         logger.error(f"Error despachando alerta Telegram de cierre para Cuenta #{idCuenta}: {exTel}")
 
