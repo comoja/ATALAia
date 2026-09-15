@@ -744,8 +744,10 @@ def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depen
             "margen": mg
         })
 
-    disponible = total_balance + total_pnl - total_margin
-    porcentaje_margen = ((total_balance + total_pnl) / total_margin * 100.0) if total_margin > 0 else 0.0
+    calculated_balance = total_balance + total_margin
+    equity = calculated_balance + total_pnl
+    disponible = equity - total_margin
+    porcentaje_margen = (equity / total_margin * 100.0) if total_margin > 0 else 0.0
 
     totales_por_par = []
     for k, g in groups.items():
@@ -767,7 +769,7 @@ def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depen
     return {
         "summary": {
             "disponible": round(disponible, 2),
-            "balance": round(total_balance, 2),
+            "balance": round(calculated_balance, 2),
             "pnl": round(total_pnl, 2),
             "porcentajeMargen": round(porcentaje_margen, 1),
             "margen": round(total_margin, 2)

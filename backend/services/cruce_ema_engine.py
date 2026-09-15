@@ -220,7 +220,8 @@ class CruceEmaEngine:
                 currNormB=normBVals[i],
                 pairA=nameA,
                 pairB=nameB,
-                includeBoxes=includeBoxes
+                includeBoxes=includeBoxes,
+                avgOfMean=normData.get("avgOfMean")
             )
 
             isMeanCross = candleSig.get("isMeanCross", False)

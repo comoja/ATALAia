@@ -103,7 +103,8 @@ class SignalEngine:
         currNormB: float,
         pairA: str = "Par A",
         pairB: str = "Par B",
-        includeBoxes: bool = False
+        includeBoxes: bool = False,
+        avgOfMean: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Evalúa la vela actual frente a la anterior para detectar:
@@ -141,7 +142,51 @@ class SignalEngine:
         )
         hasSignalB = isCrossDownHighB or isCrossUpLowB
 
-        hasSignalBoth = hasSignalA and hasSignalB
+        # RESTRICCIÓN DE ENTRADA: Si ambos precios normalizados se encuentran en el mismo lado
+        # de la desviación estándar (ambos arriba de +1σ o ambos abajo de -1σ), NO se opera
+        # (no debe generar cuadros ni triángulos).
+        bothAbove = (
+            (currNormA >= stdAboveA or prevNormA >= stdAboveA)
+            and (currNormB >= stdAboveB or prevNormB >= stdAboveB)
+            and not (currNormA <= stdBelowA or currNormB <= stdBelowB)
+        )
+        bothBelow = (
+            (currNormA <= stdBelowA or prevNormA <= stdBelowA)
+            and (currNormB <= stdBelowB or prevNormB <= stdBelowB)
+            and not (currNormA >= stdAboveA or currNormB >= stdAboveB)
+        )
+        sameSideDeviation = bool(bothAbove or bothBelow)
+
+        # RESTRICCIÓN DE ENTRADA 2: El par contrario NO debe estar del mismo lado del
+        # Promedio de la Media (la línea recta negra avgOfMean).
+        # Si un par está arriba de +1σ, el par contrario debe estar ABAJO de la línea media (< avgOfMean).
+        # Si un par está abajo de -1σ, el par contrario debe estar ARRIBA de la línea media (> avgOfMean).
+        meanRef = avgOfMean if avgOfMean is not None else ((stdAboveA + stdBelowA) / 2.0)
+        sameSideMean = False
+
+        if isCrossDownHighA and (currNormB >= meanRef or (prevNormB is not None and prevNormB >= meanRef)):
+            hasSignalA = False
+            sameSideMean = True
+
+        if isCrossUpLowA and (currNormB <= meanRef or (prevNormB is not None and prevNormB <= meanRef)):
+            hasSignalA = False
+            sameSideMean = True
+
+        if isCrossDownHighB and (currNormA >= meanRef or (prevNormA is not None and prevNormA >= meanRef)):
+            hasSignalB = False
+            sameSideMean = True
+
+        if isCrossUpLowB and (currNormA <= meanRef or (prevNormA is not None and prevNormA <= meanRef)):
+            hasSignalB = False
+            sameSideMean = True
+
+        if sameSideDeviation or (not hasSignalA and not hasSignalB):
+            hasSignalA = False
+            hasSignalB = False
+            hasSignalBoth = False
+        else:
+            hasSignalBoth = hasSignalA and hasSignalB
+
         sigType = None
         direction = None
         symbolAAction = None
@@ -208,7 +253,9 @@ class SignalEngine:
             "signalType": sigType,
             "direction": direction,
             "symbolAAction": symbolAAction,
-            "symbolBAction": symbolBAction
+            "symbolBAction": symbolBAction,
+            "sameSideDeviation": sameSideDeviation,
+            "sameSideMean": sameSideMean
         }
 
     def evaluateRatioSignals(
@@ -275,7 +322,8 @@ class SignalEngine:
                 currNormB=normBVals[i],
                 pairA=pairA,
                 pairB=pairB,
-                includeBoxes=includeBoxes
+                includeBoxes=includeBoxes,
+                avgOfMean=normData.get("avgOfMean")
             )
             candleSig["date"] = dates[i]
             candleSig["priceA"] = float(pricesA[i])

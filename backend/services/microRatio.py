@@ -374,20 +374,15 @@ def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) ->
 
         currentPx = symbolPrices[sym]
 
-        if direction in ["LARGO", "BUY", "LONG"]:
-            delta = currentPx - entryPx
-        else:
-            delta = entryPx - currentPx
-
-        pips = (delta / pipVal) if pipVal > 0 else 0.0
-
-        if quoteCurr == "USD":
-            pipMoneyValue = size * pipVal
-        else:
-            pipMoneyValue = (size * pipVal) / currentPx if currentPx > 0 else (size * pipVal)
-
-        costs = (size * currentPx) * 0.0003
-        tradePnl = (pips * pipMoneyValue) - costs
+        # Cálculo unificado de PnL no realizado institucional (sin costos artificiales)
+        tradePnl, _pips, _pipMoneyValue, _mov = calculate_unrealized_pnl(
+            symbol=sym,
+            direction=direction,
+            entry_price=entryPx,
+            current_price=currentPx,
+            size=size,
+            pip_size=pipVal
+        )
         totalFloatingPnl += tradePnl
 
     equity = accountCapital + totalFloatingPnl
@@ -564,6 +559,23 @@ async def sendRatioTelegramAlert(idCuenta: int, messageText: str):
         logger.info(f"📱 Alerta de Telegram despachada exitosamente para Cuenta #{idCuenta}.")
     except Exception as exTel:
         logger.error(f"⚠️ Error enviando alerta de Telegram para Cuenta #{idCuenta}: {exTel}")
+
+
+def dispatchRatioTelegramAlert(idCuenta: int, messageText: str):
+    """Despacha la corrutina de alerta de Telegram de manera segura con o sin event loop activo."""
+    try:
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.ensure_future(sendRatioTelegramAlert(idCuenta, messageText), loop=loop)
+        else:
+            asyncio.run(sendRatioTelegramAlert(idCuenta, messageText))
+    except Exception as ex:
+        logger.error(f"Error despachando alerta Telegram para Cuenta #{idCuenta}: {ex}")
 
 
 def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -964,7 +976,7 @@ def openSingleRatioTradePair(
                 f"Acción: Se ejecutó cierre de emergencia para {len(confirmedBrokerLots)} lote(s) en Forex. La Base de Datos permanece intacta (sin posiciones huérfanas)."
             )
             try:
-                asyncio.run(sendRatioTelegramAlert(idCuenta, rollbackMsg))
+                dispatchRatioTelegramAlert(idCuenta, rollbackMsg)
             except Exception as exTel:
                 logger.error(f"Error despachando alerta Telegram de rollback: {exTel}")
                 
@@ -1021,7 +1033,7 @@ def openSingleRatioTradePair(
                     accountCapitalRemaining=curCapital
                 )
                 try:
-                    asyncio.run(sendRatioTelegramAlert(idCuenta, alertMsg))
+                    dispatchRatioTelegramAlert(idCuenta, alertMsg)
                 except Exception as exTel:
                     logger.error(f"Error despachando alerta Telegram para lote #{cLot.get('tId')}: {exTel}")
 
@@ -1035,7 +1047,7 @@ def openSingleRatioTradePair(
                 f"Las órdenes fueron confirmadas en FOREX.com ({[c['ticketId'] for c in confirmedBrokerLots]}), pero falló el registro en MySQL. Error: {exDb}"
             )
             try:
-                asyncio.run(sendRatioTelegramAlert(idCuenta, dbFailMsg))
+                dispatchRatioTelegramAlert(idCuenta, dbFailMsg)
             except Exception:
                 pass
             return False
@@ -1198,7 +1210,7 @@ def closeRatioTrades(
         pipVal = symInfo["pip"]
         quoteCurr = symInfo["quoteCurrency"]
 
-        # Cálculo unificado de PnL con la función centralizada
+        # Cálculo unificado de PnL con la función centralizada (sin costos artificiales)
         rawPnl, pips, pipMoneyValue, _mov = calculate_unrealized_pnl(
             symbol=sym,
             direction=direction,
@@ -1207,8 +1219,7 @@ def closeRatioTrades(
             size=size,
             pip_size=pipVal
         )
-        costs = (size * exitPx) * 0.0003
-        tradePnl = round(rawPnl - costs, 2)
+        tradePnl = round(rawPnl, 2)
 
         # No se calcula comisión por trade
         tradeCommission = 0.0
@@ -1329,18 +1340,7 @@ def closeRatioTrades(
         totalMarginReleased=totalMarginToRelease,
         closeReason=closeReason
     )
-    try:
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop and loop.is_running():
-            asyncio.create_task(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
-        else:
-            asyncio.run(sendRatioTelegramAlert(idCuenta, exitAlertMsg))
-    except Exception as exTel:
-        logger.error(f"Error despachando alerta Telegram de cierre para Cuenta #{idCuenta}: {exTel}")
+    dispatchRatioTelegramAlert(idCuenta, exitAlertMsg)
 
     return True
 
@@ -1443,6 +1443,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     hasSigB = targetSignal.get("hasSignalB", False)
     hasBoth = targetSignal.get("hasSignalBoth", False)
     isPriceCross = targetSignal.get("isPriceCross", False)
+    sameSide = targetSignal.get("sameSideDeviation", False)
+    sameSideMean = targetSignal.get("sameSideMean", False)
 
     logger.info(
         f"📊 [{accHeader}] EVALUACIÓN: "
@@ -1455,9 +1457,20 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     latestPriceA = float(dfATf["closePrice"].iloc[-1])
     latestPriceB = float(dfBTf["closePrice"].iloc[-1])
 
+    if sameSide:
+        logger.info(
+            f"🛡️ [{accHeader}] Ambos precios normalizados en el mismo lado de la desviación estándar "
+            f"({numerador}: {nA:.4f} vs {denominador}: {nB:.4f}). Entradas restringidas (sin cuadros ni triángulos)."
+        )
+    if sameSideMean:
+        logger.info(
+            f"🛡️ [{accHeader}] Par contrario en el mismo lado de la línea recta negra / promedio de la media "
+            f"({numerador}: {nA:.4f} vs {denominador}: {nB:.4f} | Media: {normInfo.get('avgOfMean', 0.5):.4f}). Entrada restringida."
+        )
+
     # 4. EVALUACIÓN DE ENTRADA, REVERSAL (CAMBIO DE DIRECCIÓN) O ACUMULACIÓN
     sigTypeRaw = targetSignal.get("signalType")
-    hasEntrySignal = bool(sigTypeRaw)
+    hasEntrySignal = bool(sigTypeRaw) and not sameSide and not sameSideMean
     latestSig = targetSignal
 
     if hasEntrySignal:
