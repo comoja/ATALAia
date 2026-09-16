@@ -130,6 +130,7 @@ class Cuenta(Base):
     riesgoPorOperacion = Column(Float, default=1.0)
     comision = Column(Float, default=0.0)
     Concentradora = Column(Integer, default=0)
+    indicadorMargen = Column(Float, default=200.0)
 
 class SentinelSymbol(Base):
     """
@@ -161,6 +162,7 @@ class UserRatio(Base):
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
     operar = Column(Boolean, default=False)
+    cierreDivergencia = Column(Boolean, default=True)
     borrado = Column(Boolean, default=False, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
 

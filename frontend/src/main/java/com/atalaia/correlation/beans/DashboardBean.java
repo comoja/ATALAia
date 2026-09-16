@@ -1139,7 +1139,14 @@ public class DashboardBean implements Serializable {
 
         public String getFormattedSize() { return String.format(java.util.Locale.US, "%,.0f", size); }
         public String getFormattedEntryPrice() { return entryPrice != null ? String.format(java.util.Locale.US, "%.5f", entryPrice) : "-"; }
-        public String getFormattedExitPrice() { return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-"; }
+        public String getFormattedExitPrice() {
+            if (isOpen()) {
+                if (currentPrice != null) return String.format(java.util.Locale.US, "%.5f", currentPrice);
+                if (exitPrice != null) return String.format(java.util.Locale.US, "%.5f", exitPrice);
+                return "-";
+            }
+            return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-";
+        }
         public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
         public String getFormattedNetPnl() { return String.format(java.util.Locale.US, "%,.2f", netPnl); }
         public String getFormattedMarginUsed() { return String.format(java.util.Locale.US, "%,.2f", marginUsed); }
@@ -1749,9 +1756,13 @@ public class DashboardBean implements Serializable {
         private Double capital;
         private Boolean activo;
         private Double comision = 0.0;
+        private Double indicadorMargen = 200.0;
 
         public Double getComision() { return comision; }
         public void setComision(Double comision) { this.comision = comision; }
+
+        public Double getIndicadorMargen() { return indicadorMargen != null ? indicadorMargen : 200.0; }
+        public void setIndicadorMargen(Double indicadorMargen) { this.indicadorMargen = indicadorMargen; }
 
         public Integer getIdUsuarioCuenta() { return idUsuarioCuenta; }
         public void setIdUsuarioCuenta(Integer idUsuarioCuenta) { this.idUsuarioCuenta = idUsuarioCuenta; }
@@ -1780,6 +1791,14 @@ public class DashboardBean implements Serializable {
     private Double nuevaCuentaRiesgo = 3.0;
     private Double nuevaCuentaComision = 0.0;
     private Boolean nuevaCuentaConcentradora = false;
+    private Double nuevaCuentaIndicadorMargen = 200.0;
+
+    public Double getNuevaCuentaIndicadorMargen() { return nuevaCuentaIndicadorMargen != null ? nuevaCuentaIndicadorMargen : 200.0; }
+    public void setNuevaCuentaIndicadorMargen(Double nuevaCuentaIndicadorMargen) { this.nuevaCuentaIndicadorMargen = nuevaCuentaIndicadorMargen; }
+
+    private Double editarCuentaIndicadorMargen = 200.0;
+    public Double getEditarCuentaIndicadorMargen() { return editarCuentaIndicadorMargen != null ? editarCuentaIndicadorMargen : 200.0; }
+    public void setEditarCuentaIndicadorMargen(Double editarCuentaIndicadorMargen) { this.editarCuentaIndicadorMargen = editarCuentaIndicadorMargen; }
 
     public String getNuevaCuentaNombre() { return nuevaCuentaNombre; }
     public void setNuevaCuentaNombre(String nuevaCuentaNombre) { this.nuevaCuentaNombre = nuevaCuentaNombre; }
@@ -1807,6 +1826,7 @@ public class DashboardBean implements Serializable {
         this.nuevaCuentaRiesgo = 3.0;
         this.nuevaCuentaComision = 0.0;
         this.nuevaCuentaConcentradora = false;
+        this.nuevaCuentaIndicadorMargen = 200.0;
     }
 
     public void guardarNuevaCuenta() {
@@ -1853,6 +1873,7 @@ public class DashboardBean implements Serializable {
             payload.put("riesgoPorOperacion", nuevaCuentaRiesgo != null ? nuevaCuentaRiesgo : 3.0);
             payload.put("comision", nuevaCuentaComision != null ? nuevaCuentaComision : 0.0);
             payload.put("concentradora", Boolean.TRUE.equals(nuevaCuentaConcentradora));
+            payload.put("indicadorMargen", nuevaCuentaIndicadorMargen != null ? nuevaCuentaIndicadorMargen : 200.0);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -1981,6 +2002,7 @@ public class DashboardBean implements Serializable {
                 this.editarCuentaRiesgo = root.has("riesgoPorOperacion") ? root.get("riesgoPorOperacion").asDouble() : 3.0;
                 this.editarCuentaComision = root.has("comision") ? root.get("comision").asDouble() : 0.0;
                 this.editarCuentaConcentradora = root.has("concentradora") ? root.get("concentradora").asBoolean() : false;
+                this.editarCuentaIndicadorMargen = root.has("indicadorMargen") ? root.get("indicadorMargen").asDouble() : 200.0;
 
                 org.primefaces.PrimeFaces.current().executeScript("PF('editarCuentaDlg').show();");
             }
@@ -2021,6 +2043,7 @@ public class DashboardBean implements Serializable {
             payload.put("riesgoPorOperacion", editarCuentaRiesgo != null ? editarCuentaRiesgo : 3.0);
             payload.put("comision", editarCuentaComision != null ? editarCuentaComision : 0.0);
             payload.put("concentradora", Boolean.TRUE.equals(editarCuentaConcentradora));
+            payload.put("indicadorMargen", editarCuentaIndicadorMargen != null ? editarCuentaIndicadorMargen : 200.0);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -2059,6 +2082,111 @@ public class DashboardBean implements Serializable {
     private String ratioToClose;
     public String getRatioToClose() { return ratioToClose; }
     public void setRatioToClose(String ratioToClose) { this.ratioToClose = ratioToClose; }
+
+    private Boolean cierreDivergencia = true;
+    public Boolean getCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
+    public Boolean isCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
+    public void setCierreDivergencia(Boolean cierreDivergencia) { this.cierreDivergencia = cierreDivergencia; }
+
+    public void onTipoCierreChange() {
+        log.info("▶ Tipo de Cierre cambiado a: {}", Boolean.TRUE.equals(this.cierreDivergencia) ? "DIVERGENCIA" : "CRUCE");
+        if (this.ratioExistsInDb) {
+            guardarRatio();
+        }
+    }
+
+    public void disableAllUserRatios() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de deshabilitar ratios bloqueado: Modo solo lectura.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes modificar configuraciones de otro usuario."));
+            return;
+        }
+        try {
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            log.info("🛑 [Deshabilitar Ratios] Solicitando deshabilitar operar=0 para idUsuario={}", userId);
+            String url = backendUrl + "/api/v1/user-ratios/disable-user-accounts/" + userId;
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>("{}", headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("✅ Operación automática de ratios deshabilitada exitosamente para usuario #{}", userId);
+                this.operar = false;
+                loadUserRatiosList();
+                fetchUserRatioDetails();
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Ratios Deshabilitados", "Se ha deshabilitado la generación automática de órdenes (operar = 0) para todos los ratios de las cuentas del usuario. Las posiciones abiertas permanecen intactas en mercado."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error", "El servidor no pudo deshabilitar los ratios del usuario."));
+            }
+        } catch (Exception e) {
+            log.error("Error al deshabilitar ratios del usuario: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión", "Fallo al comunicar con el servidor: " + e.getMessage()));
+        }
+    }
+
+    public void closeAllUserRatiosByRemote() {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de cerrar todos los ratios bloqueado: Modo solo lectura para otro usuario.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes cerrar operaciones de otro usuario."));
+            return;
+        }
+        try {
+            Integer accId = this.selectedAccountId;
+            if ((accId == null || accId == 0) && userAccountsCombo != null && !userAccountsCombo.isEmpty()) {
+                accId = userAccountsCombo.get(0).getIdCuenta();
+            }
+            if (accId == null || accId == 0) {
+                accId = 2;
+            }
+            log.info("🛑 [Cierre Masivo] Solicitando cierre de TODOS los ratios para idCuenta={}", accId);
+            String url = backendUrl + "/api/v1/trades/close-all-ratios/" + accId;
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>("{}", headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("✅ Cierre masivo de ratios ejecutado exitosamente para cuenta #{}", accId);
+                loadAllActiveCycles();
+                loadUserAccounts();
+                loadUserRatiosList();
+                this.realTradesLoaded = false;
+                init();
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Cierre Masivo de Ratios", "Se han cerrado exitosamente todas las operaciones abiertas de los ratios del usuario."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error", "El servidor no pudo procesar el cierre masivo de ratios."));
+            }
+        } catch (Exception e) {
+            log.error("Error al ejecutar cierre masivo de ratios: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Conexión", "Fallo al comunicar con el servidor para cierre masivo: " + e.getMessage()));
+        }
+    }
 
     public void closeRatioPositionByRemote() {
         executeCloseRatioPositionByRemote(false);
@@ -2132,10 +2260,15 @@ public class DashboardBean implements Serializable {
         private Boolean operar;
         private String createdAt;
         private Boolean hasOpenTrades = false;
+        private Boolean cierreDivergencia = true;
 
         public Boolean getHasOpenTrades() { return hasOpenTrades; }
         public Boolean isHasOpenTrades() { return hasOpenTrades; }
         public void setHasOpenTrades(Boolean hasOpenTrades) { this.hasOpenTrades = hasOpenTrades; }
+
+        public Boolean getCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
+        public Boolean isCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
+        public void setCierreDivergencia(Boolean cierreDivergencia) { this.cierreDivergencia = cierreDivergencia; }
 
         public Integer getId() { return id; }
         public void setId(Integer id) { this.id = id; }
@@ -2800,6 +2933,7 @@ public class DashboardBean implements Serializable {
                         if (tn.has("size")) item.setSize(tn.get("size").asDouble());
                         if (tn.has("entryPrice") && !tn.get("entryPrice").isNull()) item.setEntryPrice(tn.get("entryPrice").asDouble());
                         if (tn.has("exitPrice") && !tn.get("exitPrice").isNull()) item.setExitPrice(tn.get("exitPrice").asDouble());
+                        if (tn.has("currentPrice") && !tn.get("currentPrice").isNull()) item.setCurrentPrice(tn.get("currentPrice").asDouble());
                         if (tn.has("pnl")) item.setPnl(tn.get("pnl").asDouble());
                         if (tn.has("commission")) item.setCommission(tn.get("commission").asDouble());
                         if (tn.has("netPnl")) item.setNetPnl(tn.get("netPnl").asDouble());
@@ -3487,6 +3621,7 @@ public class DashboardBean implements Serializable {
             payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 2);
             payload.put("EMALenta", null);
             payload.put("operar", operar != null ? operar : false);
+            payload.put("cierreDivergencia", Boolean.TRUE.equals(this.cierreDivergencia));
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -3693,6 +3828,8 @@ public class DashboardBean implements Serializable {
                         else dto.setOperar(false);
                         if (item.has("hasOpenTrades") && !item.get("hasOpenTrades").isNull()) dto.setHasOpenTrades(item.get("hasOpenTrades").asBoolean());
                         else dto.setHasOpenTrades(false);
+                        if (item.has("cierreDivergencia") && !item.get("cierreDivergencia").isNull()) dto.setCierreDivergencia(item.get("cierreDivergencia").asBoolean());
+                        else dto.setCierreDivergencia(true);
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
                             dto.setBorrado(isBorrado);
@@ -3748,6 +3885,7 @@ public class DashboardBean implements Serializable {
             this.emaSlowPeriodParam = ratio.getEmaLenta();
         }
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
+        this.cierreDivergencia = ratio.getCierreDivergencia() != null ? ratio.getCierreDivergencia() : true;
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
         this.activeAccordionIndex = "1";

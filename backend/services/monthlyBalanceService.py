@@ -154,13 +154,37 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
         "idCuenta": idCuenta, "Nombre": f"Cuenta #{idCuenta}", "correo": "", "Capital": saldoInicial
     }
 
-    # Consultar todos los trades cerrados en ese mes
+    # 1. Totalizar depósitos y retiros registrados en la tabla trades para este periodo
+    movsRows = dbSession.execute(text("""
+        SELECT idTrade, strategy, setup, symbol, direction, size,
+               pnl, openTime, closeTime, ticketId
+        FROM trades
+        WHERE idCuenta = :idc 
+          AND status = 'CLOSED'
+          AND strategy IN ('Depósito', 'DEPOSITO', 'Deposito', 'Retiro', 'RETIRO')
+          AND YEAR(closeTime) = :a 
+          AND MONTH(closeTime) = :m
+        ORDER BY closeTime ASC, idTrade ASC
+    """), {"idc": idCuenta, "a": anio, "m": mes}).mappings().fetchall()
+
+    movimientosList = [dict(r) for r in movsRows]
+
+    depositosTrades = sum(float(m.get("pnl") or 0.0) for m in movimientosList if (m.get("strategy") in ('Depósito', 'DEPOSITO', 'Deposito') or float(m.get("pnl") or 0.0) > 0))
+    retirosTrades = sum(abs(float(m.get("pnl") or 0.0)) for m in movimientosList if (m.get("strategy") in ('Retiro', 'RETIRO') or float(m.get("pnl") or 0.0) < 0))
+
+    # El monto de depósitos y retiros se sincroniza directamente desde la trazabilidad de la tabla trades
+    depositos = round(depositosTrades, 2)
+    retiros = round(retirosTrades, 2)
+
+    # 2. Consultar todos los trades cerrados de trading de Forex en ese mes
+    # REGLA CRÍTICA: Excluir 'Depósito' y 'Retiro' para NO distorsionar el PnL operativo, Win Rate ni Comisiones
     tradesRows = dbSession.execute(text("""
         SELECT idTrade, strategy, setup, symbol, direction, size,
                entryPrice, exitPrice, pnl, commission, openTime, closeTime, ticketId
         FROM trades
         WHERE idCuenta = :idc 
           AND status = 'CLOSED'
+          AND strategy NOT IN ('Depósito', 'DEPOSITO', 'Deposito', 'Retiro', 'RETIRO')
           AND YEAR(closeTime) = :a 
           AND MONTH(closeTime) = :m
         ORDER BY closeTime ASC, idTrade ASC
@@ -183,7 +207,7 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
 
     pnlRealizado = round(pnlRealizado, 2)
 
-    # La comisión se cobra sobre el neteo del PnL solo de las trades cerradas dentro del mes;
+    # La comisión se cobra sobre el neteo del PnL solo de las trades de trading cerradas dentro del mes;
     # si al final de mes es negativo o cero, la comisión es cero.
     comisionPct = float(cuentaData.get("comision", 0.0) or 0.0)
     if comisionPct > 0 and pnlRealizado > 0:
@@ -197,10 +221,12 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
     rendimientoPct = round((pnlNeto / saldoInicial * 100.0), 4) if saldoInicial > 0 else 0.0
     winRate = round((tradesGanadores / totalTrades * 100.0), 2) if totalTrades > 0 else 0.0
 
-    # Actualizar tabla saldoCuentaMensual
+    # Actualizar tabla saldoCuentaMensual con saldos, depósitos, retiros y métricas de trading
     dbSession.execute(text("""
         UPDATE saldoCuentaMensual
         SET saldoFinal = :sf,
+            depositos = :dep,
+            retiros = :ret,
             pnlRealizado = :pnl,
             comisiones = :comm,
             rendimientoPct = :rend,
@@ -210,6 +236,8 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
         WHERE idCuenta = :idc AND anio = :a AND mes = :m
     """), {
         "sf": saldoFinal,
+        "dep": depositos,
+        "ret": retiros,
         "pnl": pnlRealizado,
         "comm": comisionesTotales,
         "rend": rendimientoPct,
@@ -249,7 +277,8 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
             "tradesPerdedores": tradesPerdedores,
             "winRate": winRate
         },
-        "trades": tradesList
+        "trades": tradesList,
+        "movimientosCapital": movimientosList
     }
 
 
@@ -705,6 +734,140 @@ def obtenerCuentaConcentradora(dbSession: Session, idCuenta: int) -> Optional[in
     except Exception as exConc:
         logger.error(f"Error al determinar cuenta concentradora para idCuenta={idCuenta}: {exConc}")
     return None
+
+
+def registrarMovimientoCapital(
+    dbSession: Session,
+    idCuenta: int,
+    tipo: str,
+    monto: float,
+    fecha: Optional[datetime] = None,
+    concepto: str = "",
+    folio: str = ""
+) -> Dict[str, Any]:
+    """
+    Registra un movimiento de capital (Depósito o Retiro) para una cuenta.
+    - Inserta la trazabilidad en la tabla trades (strategy='Depósito'/'Retiro', status='CLOSED', pnl=+/-monto, symbol='CASH').
+    - Actualiza el Capital de la cuenta en la tabla cuenta.
+    - Sincroniza y totaliza saldoCuentaMensual del mes del movimiento.
+    """
+    if monto is None or float(monto) <= 0:
+        raise ValueError("El monto del movimiento debe ser un valor positivo mayor a cero.")
+
+    tipoNorm = tipo.strip().upper()
+    if tipoNorm not in ("DEPOSITO", "DEPÓSITO", "RETIRO"):
+        raise ValueError("El tipo de movimiento debe ser 'DEPOSITO' o 'RETIRO'.")
+
+    isDeposito = (tipoNorm in ("DEPOSITO", "DEPÓSITO"))
+    strategyName = "Depósito" if isDeposito else "Retiro"
+    directionVal = "IN" if isDeposito else "OUT"
+    montoAbs = round(float(monto), 2)
+    pnlVal = montoAbs if isDeposito else round(-montoAbs, 2)
+
+    fechaMov = fecha or datetime.now()
+    anio = fechaMov.year
+    mes = fechaMov.month
+
+    # 1. Verificar existencia de la cuenta
+    cuentaRow = dbSession.execute(text("""
+        SELECT idCuenta, Nombre, Capital FROM cuenta WHERE idCuenta = :idc LIMIT 1
+    """), {"idc": idCuenta}).mappings().fetchone()
+
+    if not cuentaRow:
+        raise ValueError(f"La cuenta #{idCuenta} no existe en el sistema.")
+
+    capitalActual = float(cuentaRow["Capital"] or 0.0)
+
+    # 2. Insertar trazabilidad en la tabla trades
+    ticketVal = folio.strip() if folio and folio.strip() else f"{strategyName[:3].upper()}-{int(fechaMov.timestamp())}"
+    setupVal = concepto.strip() if concepto and concepto.strip() else f"{strategyName} de Capital"
+
+    insertResult = dbSession.execute(text("""
+        INSERT INTO trades (
+            idCuenta, strategy, setup, symbol, status, direction, intervalo,
+            pnl, size, openTime, closeTime, candleTime, candle_time,
+            ticketId, commission, margin_used, isBreakEven, sentAt
+        ) VALUES (
+            :idc, :strat, :setup, 'CASH', 'CLOSED', :dir, '15min',
+            :pnl, :size, :ot, :ct, :ct, :ct,
+            :ticket, 0.0, 0.0, 0, NOW()
+        )
+    """), {
+        "idc": idCuenta,
+        "strat": strategyName,
+        "setup": setupVal,
+        "dir": directionVal,
+        "pnl": pnlVal,
+        "size": montoAbs,
+        "ot": fechaMov,
+        "ct": fechaMov,
+        "ticket": ticketVal
+    })
+    newTradeId = insertResult.lastrowid
+
+    # 3. Actualizar Capital de la cuenta
+    nuevoCapital = round(capitalActual + pnlVal, 2)
+    dbSession.execute(text("""
+        UPDATE cuenta
+        SET Capital = :cap
+        WHERE idCuenta = :idc
+    """), {"cap": nuevoCapital, "idc": idCuenta})
+
+    dbSession.commit()
+
+    # 4. Recalcular y sincronizar saldoCuentaMensual del mes del movimiento
+    estadoMensual = calcularYActualizarEstadoCuenta(dbSession, idCuenta, anio, mes)
+
+    logger.info(
+        f"✅ [{strategyName}] Registrado #{newTradeId} para Cuenta #{idCuenta}: "
+        f"${montoAbs:,.2f} en {anio}-{mes:02d}. Nuevo Capital: ${nuevoCapital:,.2f}"
+    )
+
+    return {
+        "idTrade": newTradeId,
+        "idCuenta": idCuenta,
+        "tipo": strategyName,
+        "monto": montoAbs,
+        "pnl": pnlVal,
+        "fecha": fechaMov.strftime("%Y-%m-%d %H:%M:%S"),
+        "concepto": setupVal,
+        "folio": ticketVal,
+        "nuevoCapital": nuevoCapital,
+        "estadoCuentaMes": estadoMensual
+    }
+
+
+def obtenerMovimientosCapital(
+    dbSession: Session,
+    idCuenta: int,
+    anio: Optional[int] = None,
+    mes: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Obtiene el listado histórico de depósitos y retiros registrados para una cuenta,
+    con opción de filtrar por año y mes.
+    """
+    params = {"idc": idCuenta}
+    whereExtra = ""
+    if anio is not None:
+        whereExtra += " AND YEAR(closeTime) = :a"
+        params["a"] = anio
+    if mes is not None:
+        whereExtra += " AND MONTH(closeTime) = :m"
+        params["m"] = mes
+
+    sql = f"""
+        SELECT idTrade, idCuenta, strategy, setup, direction, size,
+               pnl, openTime, closeTime, ticketId
+        FROM trades
+        WHERE idCuenta = :idc 
+          AND status = 'CLOSED'
+          AND strategy IN ('Depósito', 'DEPOSITO', 'Deposito', 'Retiro', 'RETIRO')
+          {whereExtra}
+        ORDER BY closeTime DESC, idTrade DESC
+    """
+    rows = dbSession.execute(text(sql), params).mappings().fetchall()
+    return [dict(r) for r in rows]
 
 
 def liquidarComisionesFinDeMes(dbSession: Session, anio: Optional[int] = None, mes: Optional[int] = None) -> Dict[str, Any]:

@@ -24,9 +24,12 @@ from backend.services.monthlyBalanceService import (
     calcularYActualizarEstadoCuenta,
     generarPdfEstadoCuenta,
     inicializarSaldosHistoricos,
-    liquidarComisionesFinDeMes
+    liquidarComisionesFinDeMes,
+    registrarMovimientoCapital,
+    obtenerMovimientosCapital
 )
 from fastapi.responses import Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
 import pandas as pd
@@ -133,6 +136,7 @@ class UserRatioCreate(BaseModel):
     EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
     operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
+    cierreDivergencia: Optional[bool] = Field(True, description="False = Cruce de precios, True = Divergencia (Default)")
 
 class UserRatioDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
@@ -164,6 +168,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
         emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
         dias = payload.dias if payload.dias is not None else 180
         operar = bool(payload.operar) if payload.operar is not None else False
+        cierreDivergencia = bool(payload.cierreDivergencia) if payload.cierreDivergencia is not None else True
 
         if existingRatio:
             existingRatio.idCuenta = cuentaId
@@ -172,11 +177,12 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
             existingRatio.EMARapida = emaRapida
             existingRatio.EMALenta = emaLenta
             existingRatio.operar = operar
+            existingRatio.cierreDivergencia = cierreDivergencia
             existingRatio.borrado = False
             existingRatio.createdAt = datetime.utcnow()
             db.commit()
             db.refresh(existingRatio)
-            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, Borrado: False]")
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, CierreDivergencia: {cierreDivergencia}, Borrado: False]")
             return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "idCuenta": cuentaId, "action": "updated"}
         else:
             nuevoRatio = UserRatio(
@@ -189,6 +195,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
                 EMARapida=emaRapida,
                 EMALenta=emaLenta,
                 operar=operar,
+                cierreDivergencia=cierreDivergencia,
                 borrado=False,
                 createdAt=datetime.utcnow()
             )
@@ -598,14 +605,24 @@ def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depen
     """
     from sqlalchemy import text
 
-    # 1. Determinar cuentas administradas estrictamente por el usuario solicitado
+    # 1. Determinar cuentas administradas estrictamente por el usuario solicitado (SOLO CUENTAS ACTIVAS)
     account_ids = []
     if idUsuario is not None:
         rows_uc = db.execute(
-            text("SELECT idCuenta FROM usuarioCuenta WHERE idUsuario = :u AND activo = 1"),
+            text("""
+                SELECT uc.idCuenta 
+                FROM usuarioCuenta uc
+                JOIN cuenta c ON uc.idCuenta = c.idCuenta
+                WHERE uc.idUsuario = :u 
+                  AND uc.activo = 1 
+                  AND c.Activo = 1
+            """),
             {"u": idUsuario}
         ).fetchall()
         account_ids = [r[0] for r in rows_uc]
+    else:
+        rows_c = db.execute(text("SELECT idCuenta FROM cuenta WHERE Activo = 1")).fetchall()
+        account_ids = [r[0] for r in rows_c]
 
     if not account_ids:
         return {
@@ -619,19 +636,21 @@ def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depen
             "totalesPorPar": []
         }
 
-    # 2. Consultar balance total de las cuentas
+    # 2. Consultar balance total de las cuentas activas
     id_list_str = ",".join(map(str, account_ids))
-    sql_cap = text(f"SELECT idCuenta, Nombre, Capital FROM cuenta WHERE idCuenta IN ({id_list_str})")
+    sql_cap = text(f"SELECT idCuenta, Nombre, Capital FROM cuenta WHERE idCuenta IN ({id_list_str}) AND Activo = 1")
     accounts = db.execute(sql_cap).fetchall()
     total_balance = sum(float(a.Capital or 0.0) for a in accounts)
 
-    # 3. Consultar todas las posiciones abiertas
+    # 3. Consultar todas las posiciones abiertas de cuentas activas
     sql_trades = text(f"""
         SELECT t.idTrade, t.idCuenta, c.Nombre as nombreCuenta, t.setup, t.symbol, t.direction, 
                t.size, t.entryPrice, t.margin_used, t.ticketId, t.openTime
         FROM trades t
         JOIN cuenta c ON t.idCuenta = c.idCuenta
-        WHERE t.status = 'OPEN' AND t.idCuenta IN ({id_list_str})
+        WHERE t.status = 'OPEN' 
+          AND t.idCuenta IN ({id_list_str})
+          AND c.Activo = 1
         ORDER BY t.symbol ASC, t.direction ASC, t.idTrade ASC
     """)
     open_trades = db.execute(sql_trades).fetchall()
@@ -978,6 +997,7 @@ class CrearCuentaRequest(BaseModel):
     riesgoPorOperacion: Optional[float] = Field(3.0, description="Porcentaje de riesgo por operación")
     comision: Optional[float] = Field(0.0, description="Comisión cobrada por administración y manejo de cuenta")
     concentradora: Optional[bool] = Field(False, description="Indica si la cuenta es concentradora (true/false)")
+    indicadorMargen: Optional[float] = Field(200.0, description="Indicador de margen requerido (default 200%)")
 
 @router.post("/cuentas/crear")
 def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db)):
@@ -997,7 +1017,8 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
             ganancia=payload.ganancia,
             riesgoPorOperacion=payload.riesgoPorOperacion,
             comision=payload.comision if payload.comision is not None else 0.0,
-            Concentradora=1 if payload.concentradora else 0
+            Concentradora=1 if payload.concentradora else 0,
+            indicadorMargen=payload.indicadorMargen if payload.indicadorMargen is not None else 200.0
         )
         db.add(nueva_cuenta)
         db.commit()
@@ -1054,6 +1075,7 @@ class EditarCuentaRequest(BaseModel):
     riesgoPorOperacion: Optional[float] = Field(None, description="Porcentaje de riesgo por operación")
     comision: Optional[float] = Field(None, description="Comisión cobrada por administración y manejo de cuenta")
     concentradora: Optional[bool] = Field(None, description="Indica si la cuenta es concentradora (true/false)")
+    indicadorMargen: Optional[float] = Field(None, description="Indicador de margen requerido")
 
 @router.get("/cuentas/has-concentradora")
 def hasConcentradora(excludeId: Optional[int] = None, db: Session = Depends(get_db)):
@@ -1087,7 +1109,8 @@ def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
         "ganancia": float(cuenta.ganancia or 0.0),
         "riesgoPorOperacion": float(cuenta.riesgoPorOperacion or 3.0),
         "comision": float(cuenta.comision or 0.0),
-        "concentradora": bool(cuenta.Concentradora)
+        "concentradora": bool(cuenta.Concentradora),
+        "indicadorMargen": float(getattr(cuenta, "indicadorMargen", 200.0) or 200.0)
     }
 
 @router.post("/cuentas/editar")
@@ -1105,7 +1128,12 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
         if payload.correo is not None:
             cuenta.correo = payload.correo.strip() if payload.correo.strip() else None
         if payload.activo is not None:
-            cuenta.Activo = 1 if payload.activo else 0
+            new_a = 1 if payload.activo else 0
+            cuenta.Activo = new_a
+            db.execute(
+                text("UPDATE usuarioCuenta SET activo = :a WHERE idCuenta = :c"),
+                {"a": new_a, "c": cuenta.idCuenta}
+            )
         if payload.capital is not None:
             cuenta.Capital = payload.capital
         if payload.ganancia is not None:
@@ -1116,6 +1144,8 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
             cuenta.comision = payload.comision
         if payload.concentradora is not None:
             cuenta.Concentradora = 1 if payload.concentradora else 0
+        if payload.indicadorMargen is not None:
+            cuenta.indicadorMargen = float(payload.indicadorMargen)
 
         db.commit()
         db.refresh(cuenta)
@@ -1172,7 +1202,7 @@ def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
             "correo": getattr(c, "correo", "") or "", 
             "capital": float(c.Capital or 0.0),
             "comision": float(getattr(c, "comision", 0.0) or 0.0),
-            "activo": bool(uc.activo),
+            "activo": bool(uc.activo and c.Activo),
             "concentradora": bool(getattr(c, "Concentradora", False) or False),
             "createdAt": uc.createdAt
         }
@@ -1280,10 +1310,62 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "EMARapida": r.EMARapida,
             "EMALenta": r.EMALenta,
             "operar": r.operar,
+            "cierreDivergencia": bool(getattr(r, "cierreDivergencia", True) if getattr(r, "cierreDivergencia", None) is not None else True),
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
     return results
+
+
+@router.post("/user-ratios/disable-user-accounts/{idUsuario}")
+def disable_user_accounts_ratios(idUsuario: int, db: Session = Depends(get_db)):
+    """
+    Deshabilita la generación automática de órdenes (operar = 0) para todos los ratios
+    asociados a las cuentas activas del usuario indicado, sin cerrar ninguna posición abierta.
+    """
+    try:
+        from sqlalchemy import text
+        # Consultar las cuentas activas asignadas al usuario
+        rows_uc = db.execute(
+            text("""
+                SELECT uc.idCuenta 
+                FROM usuarioCuenta uc 
+                JOIN cuenta c ON uc.idCuenta = c.idCuenta
+                WHERE uc.idUsuario = :u AND uc.activo = 1 AND c.Activo = 1
+            """),
+            {"u": idUsuario}
+        ).fetchall()
+        acc_ids = [r[0] for r in rows_uc]
+        
+        # Actualizar operar = 0 para los ratios del usuario o de sus cuentas
+        if acc_ids:
+            id_list_str = ",".join(map(str, acc_ids))
+            update_sql = text(f"""
+                UPDATE user_ratios 
+                SET operar = 0 
+                WHERE (borrado = 0 OR borrado IS NULL)
+                  AND (idUsuario = :u OR idCuenta IN ({id_list_str}))
+            """)
+        else:
+            update_sql = text("""
+                UPDATE user_ratios 
+                SET operar = 0 
+                WHERE (borrado = 0 OR borrado IS NULL)
+                  AND idUsuario = :u
+            """)
+        
+        res = db.execute(update_sql, {"u": idUsuario})
+        db.commit()
+        logger.info(f"🛑 [disableUserAccountsRatios] Deshabilitada la operación de {res.rowcount} ratios para usuario #{idUsuario} (Cuentas: {acc_ids})")
+        return {
+            "status": "success",
+            "message": f"Se ha deshabilitado la operación automática de {res.rowcount} ratio(s).",
+            "updatedCount": res.rowcount
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al deshabilitar ratios del usuario #{idUsuario}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/ratio/{pairA:path}")
@@ -1877,6 +1959,7 @@ class CuentaUpdate(BaseModel):
     riesgoPorOperacion: float
     comision: Optional[float] = 0.0
     Concentradora: Optional[int] = 0
+    indicadorMargen: Optional[float] = 200.0
 
 class SymbolUpdate(BaseModel):
     symbol: str
@@ -1893,11 +1976,19 @@ def get_cuentas():
     return res if res and isinstance(res, list) else []
 
 @router.post("/config/cuentas/guardar")
-def save_cuenta(payload: CuentaUpdate):
-    """Actualiza los parámetros operativos de una cuenta mediante ConnectionPool."""
+def save_cuenta(payload: CuentaUpdate, db: Session = Depends(get_db)):
+    """Actualiza los parámetros operativos de una cuenta mediante ConnectionPool y sincroniza usuarioCuenta."""
     cuenta_dict = payload.model_dump()
     res = dbManager._call_connection_pool("PUT", f"/cuentas/{payload.idCuenta}", json_data=cuenta_dict)
     logger.info(f"Cuenta ID {payload.idCuenta} actualizada en ConnectionPool.")
+    try:
+        db.execute(
+            text("UPDATE usuarioCuenta SET activo = :a WHERE idCuenta = :c"),
+            {"a": 1 if payload.Activo else 0, "c": payload.idCuenta}
+        )
+        db.commit()
+    except Exception as e:
+        logger.warning(f"No se pudo sincronizar usuarioCuenta para idCuenta={payload.idCuenta}: {e}")
     return {"status": "success", "message": "Cuenta actualizada correctamente"}
 
 @router.get("/config/simbolos")
@@ -2213,7 +2304,7 @@ async def get_cruces_ema_pair_analysis(
             with SessionLocal() as db_session:
                 account_comision_pct = 0.0
                 if idCuenta:
-                    row_c = db_session.execute(text("SELECT Capital, riesgoPorOperacion, comision FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
+                    row_c = db_session.execute(text("SELECT Capital, riesgoPorOperacion, comision, COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
                     if row_c:
                         if row_c[0] is not None and float(row_c[0]) > 0:
                             account_capital = float(row_c[0])
@@ -2221,6 +2312,8 @@ async def get_cruces_ema_pair_analysis(
                             allocation_pct = float(row_c[1])
                         if len(row_c) > 2 and row_c[2] is not None and float(row_c[2]) >= 0:
                             account_comision_pct = float(row_c[2])
+                        if len(row_c) > 3 and row_c[3] is not None:
+                            indicador_margen = float(row_c[3])
                 if comisionPct is not None and float(comisionPct) >= 0:
                     account_comision_pct = float(comisionPct)
 
@@ -2408,6 +2501,95 @@ class CloseRatioRequest(BaseModel):
     setup: str
     operar: Optional[int] = 0
 
+@router.post("/trades/close-all-ratios/{idCuenta}")
+def manual_close_all_ratios(
+    idCuenta: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Cierra manualmente todas las posiciones abiertas de TODOS los ratios para la cuenta especificada.
+    Agrupa los trades abiertos por setup y ejecuta closeRatioTrades para cada uno.
+    """
+    try:
+        from backend.services.microRatio import (
+            checkActiveOpenTrades, fetchAccountData, fetchSymbolData, closeRatioTrades
+        )
+        from sqlalchemy import text
+
+        openSetupsRows = db.execute(text("""
+            SELECT DISTINCT setup 
+            FROM trades 
+            WHERE idCuenta = :idc AND status = 'OPEN'
+        """), {"idc": idCuenta}).fetchall()
+
+        if not openSetupsRows:
+            return {
+                "status": "success",
+                "message": "No hay posiciones abiertas para cerrar en esta cuenta.",
+                "closedSetupsCount": 0,
+                "setups": []
+            }
+
+        accountData = fetchAccountData(db, idCuenta)
+        closed_setups = []
+
+        for row in openSetupsRows:
+            setupName = row[0]
+            if not setupName:
+                continue
+
+            openTrades = checkActiveOpenTrades(db, idCuenta, setupName)
+            if not openTrades:
+                continue
+
+            parts = [p.strip() for p in setupName.split("-")] if "-" in setupName else [setupName.strip()]
+            pairA = parts[0]
+            pairB = parts[1] if len(parts) > 1 else None
+
+            symbolDataMap = {pairA: fetchSymbolData(db, pairA)}
+            if pairB:
+                symbolDataMap[pairB] = fetchSymbolData(db, pairB)
+
+            def get_fallback_price(sym):
+                clean = sym.replace("/", "").upper()
+                row_px = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                return float(row_px[0]) if row_px and row_px[0] else 1.0
+
+            live_a = get_live_price_from_mt5(pairA)
+            latestPricesMap = {
+                pairA: live_a if live_a is not None else get_fallback_price(pairA)
+            }
+            if pairB:
+                live_b = get_live_price_from_mt5(pairB)
+                latestPricesMap[pairB] = live_b if live_b is not None else get_fallback_price(pairB)
+
+            success = closeRatioTrades(
+                dbSession=db,
+                idCuenta=idCuenta,
+                setupName=setupName,
+                openTrades=openTrades,
+                symbolDataMap=symbolDataMap,
+                latestPricesMap=latestPricesMap,
+                accountData=accountData,
+                periodo="1h",
+                closeReason="CIERRE MANUAL TOTAL DE RATIOS"
+            )
+            if success:
+                closed_setups.append(setupName)
+                accountData = fetchAccountData(db, idCuenta)
+
+        logger.info(f"🛑 [Cierre Masivo] {len(closed_setups)} ratio(s) cerrados para cuenta #{idCuenta}: {closed_setups}")
+        return {
+            "status": "success",
+            "message": f"Se cerraron exitosamente las posiciones de {len(closed_setups)} ratio(s).",
+            "closedSetupsCount": len(closed_setups),
+            "setups": closed_setups
+        }
+    except Exception as e:
+        logger.error(f"Error en manual_close_all_ratios para #{idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/trades/close-ratio/{idCuenta}")
 async def manual_close_ratio(
     idCuenta: int,
@@ -2569,7 +2751,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
             WHERE (
                 setup = :setupAB 
                 OR setup = :setupBA
-                OR (symbol IN (:pA, :pB) AND (strategy LIKE '%%RATIO%%' OR (:strat IS NOT NULL AND strategy = :strat)))
+                OR ((setup IS NULL OR setup = '') AND symbol IN (:pA, :pB) AND (strategy LIKE '%%RATIO%%' OR (:strat IS NOT NULL AND strategy = :strat)))
             )
         """
         params = {
@@ -2614,12 +2796,59 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
         max_dt = None
         now_dt = datetime.now()
 
+        # Cache de cotizaciones actuales y metadata para cálculo de PnL no realizado en trades en curso
+        sym_cache = {}
+        symbols_present = set(r.symbol for r in rows)
+        symbols_present.add(pairA)
+        symbols_present.add(pairB)
+
+        def get_sym_data(sym):
+            clean = sym.replace("/", "").upper()
+            live_price = get_live_price_from_mt5(sym)
+            row_s = db_session.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+            if not row_s:
+                row_s = db_session.execute(text("SELECT quote_currency, pip FROM sentinelsymbol WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+
+            quote_curr = str(row_s[0]).upper() if row_s and row_s[0] else ("JPY" if "JPY" in sym else ("MXN" if "MXN" in sym else "USD"))
+            pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+
+            if live_price is not None:
+                return float(live_price), quote_curr, pip_size
+
+            row_c = db_session.execute(text("SELECT closePrice FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY datetime DESC LIMIT 1"), {"s": clean}).fetchone()
+            if not row_c:
+                row_c = db_session.execute(text("SELECT closePrice FROM stockprices WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY priceDate DESC LIMIT 1"), {"s": clean}).fetchone()
+
+            cur_close = float(row_c[0]) if row_c and row_c[0] else 1.0
+            return cur_close, quote_curr, pip_size
+
+        for s in symbols_present:
+            sym_cache[s] = get_sym_data(s)
+
         for r in rows:
-            pnl_val = float(r.pnl or 0.0)
             comm_val = float(r.commission or 0.0)
-            net_trade_pnl = pnl_val - comm_val
             status_val = str(r.status or "OPEN").upper()
             margin_val = float(r.margin_used or 0.0)
+
+            if status_val == "OPEN":
+                cur_px, qc, pip_sz = sym_cache.get(r.symbol, (float(r.entryPrice or 1.0), "USD", 0.0001))
+                entry_val = float(r.entryPrice or cur_px)
+                calc_pnl, pips, pip_val_usd, _mov = calculate_unrealized_pnl(
+                    symbol=r.symbol,
+                    direction=r.direction,
+                    entry_price=entry_val,
+                    current_price=cur_px,
+                    size=float(r.size or 0.0),
+                    pip_size=pip_sz
+                )
+                pnl_val = calc_pnl
+                net_trade_pnl = pnl_val - comm_val
+                exit_price_val = round(cur_px, 5)
+            else:
+                pnl_val = float(r.pnl or 0.0)
+                net_trade_pnl = pnl_val - comm_val
+                cur_px = None
+                exit_price_val = float(r.exitPrice) if r.exitPrice is not None else None
 
             t_open = r.openTime or r.candleTime
             t_close = r.closeTime
@@ -2656,7 +2885,8 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 "intervalo": r.intervalo or "1h",
                 "size": float(r.size or 0.0),
                 "entryPrice": float(r.entryPrice) if r.entryPrice is not None else None,
-                "exitPrice": float(r.exitPrice) if r.exitPrice is not None else None,
+                "exitPrice": exit_price_val,
+                "currentPrice": round(cur_px, 5) if cur_px is not None else None,
                 "pnl": round(pnl_val, 2),
                 "commission": round(comm_val, 2),
                 "netPnl": round(net_trade_pnl, 2),
@@ -3060,4 +3290,76 @@ def api_liquidar_comisiones(
         return {"status": "success", "message": "Liquidación de comisiones completada", "data": res}
     except Exception as e:
         logger.error(f"Error liquidando comisiones de fin de mes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MovimientoCapitalRequest(BaseModel):
+    tipo: str  # "DEPOSITO" o "RETIRO"
+    monto: float
+    fecha: Optional[str] = None  # "YYYY-MM-DD" o "YYYY-MM-DD HH:MM:SS"
+    concepto: Optional[str] = ""
+    folio: Optional[str] = ""
+
+
+@router.post("/cuentas/{idCuenta}/movimientos")
+@router.post("/reportes/cuentas/{idCuenta}/movimientos")
+def api_registrar_movimiento_capital(
+    idCuenta: int,
+    req: MovimientoCapitalRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Registra un movimiento de capital (Depósito o Retiro) para la cuenta especificada.
+    - Crea la trazabilidad en la tabla trades (strategy='Depósito'/'Retiro', status='CLOSED').
+    - Actualiza el Capital de la cuenta.
+    - Sincroniza y totaliza saldoCuentaMensual del mes del movimiento sin distorsionar métricas de Forex.
+    """
+    try:
+        fecha_dt = None
+        if req.fecha and req.fecha.strip():
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
+                try:
+                    fecha_dt = datetime.strptime(req.fecha.strip(), fmt)
+                    break
+                except ValueError:
+                    pass
+
+        res = registrarMovimientoCapital(
+            dbSession=db,
+            idCuenta=idCuenta,
+            tipo=req.tipo,
+            monto=req.monto,
+            fecha=fecha_dt,
+            concepto=req.concepto or "",
+            folio=req.folio or ""
+        )
+        return {
+            "status": "success",
+            "message": f"{res['tipo']} registrado correctamente para la Cuenta #{idCuenta}",
+            "data": res
+        }
+    except ValueError as ve:
+        logger.warning(f"Validación fallida en movimiento de capital #{idCuenta}: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error registrando movimiento de capital para #{idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cuentas/{idCuenta}/movimientos")
+@router.get("/reportes/cuentas/{idCuenta}/movimientos")
+def api_obtener_movimientos_capital(
+    idCuenta: int,
+    anio: Optional[int] = None,
+    mes: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene el histórico de depósitos y retiros de una cuenta con opción de filtro por año y mes.
+    """
+    try:
+        movs = obtenerMovimientosCapital(db, idCuenta, anio, mes)
+        return {"status": "success", "count": len(movs), "data": movs}
+    except Exception as e:
+        logger.error(f"Error consultando movimientos de capital para #{idCuenta}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

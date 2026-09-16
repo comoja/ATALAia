@@ -45,7 +45,9 @@ class CruceEmaEngine:
         quoteA: str = "USD",
         quoteB: str = "USD",
         commissionBps: float = 2.0,
-        slippageBps: float = 1.0
+        slippageBps: float = 1.0,
+        minMarginIndicator: float = 200.0,
+        cierreDivergencia: bool = True
     ) -> Dict[str, Any]:
         """
         Ejecuta el backtest calculando el PnL exacto mediante el valor del pip
@@ -351,7 +353,7 @@ class CruceEmaEngine:
                             "durationBars": i - st.get("entryIndex", i),
                             "returnPct": None,
                             "pnl": None,
-                            "exitReason": "INDICADOR_MARGEN_MENOR_200",
+                            "exitReason": f"INDICADOR_MARGEN_MENOR_{int(minMarginIndicator)}",
                             "isWin": None
                         })
 
@@ -446,7 +448,7 @@ class CruceEmaEngine:
                 projectedMinMargin = currActiveMarginBefore + minReqMargen
                 projectedMinIndicator = (cycleStartEquity / projectedMinMargin) * 100.0 if (projectedMinMargin > 0 and cycleStartEquity > 0) else 0.0
 
-                if (cycleAvailableEquity < minReqMargen) or (projectedMinIndicator < 200.0):
+                if (cycleAvailableEquity < minReqMargen) or (projectedMinIndicator < minMarginIndicator):
                     # No alcanza el margen o bajaría de 200%: no operar, pero registrar lo que se estaría perdiendo
                     isCycleMarginCapped = True
                     cycleStoppedEntries += 1
@@ -474,7 +476,7 @@ class CruceEmaEngine:
                     projectedMargen = currActiveMarginBefore + totalMargen
                     projectedIndicator = (cycleStartEquity / projectedMargen) * 100.0 if (projectedMargen > 0 and cycleStartEquity > 0) else 0.0
 
-                    if (totalMargen > cycleAvailableEquity) or (projectedIndicator < 200.0):
+                    if (totalMargen > cycleAvailableEquity) or (projectedIndicator < minMarginIndicator):
                         # Intentar reducir a 1 lote mínimo
                         multA = 1
                         multB = 1
@@ -484,7 +486,7 @@ class CruceEmaEngine:
                         projectedMargen = currActiveMarginBefore + totalMargen
                         projectedIndicator = (cycleStartEquity / projectedMargen) * 100.0 if (projectedMargen > 0 and cycleStartEquity > 0) else 0.0
 
-                    if (totalMargen <= cycleAvailableEquity) and (projectedIndicator >= 200.0):
+                    if (totalMargen <= cycleAvailableEquity) and (projectedIndicator >= minMarginIndicator):
                         unitsA = multA * minLotsA
                         unitsB = multB * minLotsB
 
@@ -634,7 +636,7 @@ class CruceEmaEngine:
                     "durationBars": (totalBars - 1) - st.get("entryIndex", 0),
                     "returnPct": None,
                     "pnl": None,
-                    "exitReason": "INDICADOR_MARGEN_MENOR_200",
+                    "exitReason": f"INDICADOR_MARGEN_MENOR_{int(minMarginIndicator)}",
                     "isWin": None,
                     "entryIndex": st.get("entryIndex", 0)
                 })

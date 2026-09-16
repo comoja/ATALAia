@@ -281,6 +281,12 @@ public class ConfiguracionBean implements Serializable {
         private Double riesgoPorOperacion;
         private Double comision;
 
+        @JsonProperty("indicadorMargen")
+        private Double indicadorMargen = 200.0;
+
+        public Double getIndicadorMargen() { return indicadorMargen != null ? indicadorMargen : 200.0; }
+        public void setIndicadorMargen(Double indicadorMargen) { this.indicadorMargen = indicadorMargen; }
+
         @JsonProperty("Concentradora")
         private Boolean concentradora = false;
 

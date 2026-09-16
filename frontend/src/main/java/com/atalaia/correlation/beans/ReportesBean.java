@@ -62,6 +62,34 @@ public class ReportesBean implements Serializable {
     private List<TradeReportDto> tradesList = new ArrayList<>();
     private boolean consultado = false;
 
+    // Captura de Movimiento de Capital (Depósito / Retiro)
+    private String nuevoTipo = "DEPOSITO";
+    private Double nuevoMonto;
+    private LocalDate nuevaFecha = LocalDate.now();
+    private String nuevoConcepto = "";
+    private String nuevoFolio = "";
+
+    // Listado de Movimientos de Capital
+    private List<MovimientoCapitalDto> movimientosCapitalList = new ArrayList<>();
+
+    public String getNuevoTipo() { return nuevoTipo; }
+    public void setNuevoTipo(String nuevoTipo) { this.nuevoTipo = nuevoTipo; }
+
+    public Double getNuevoMonto() { return nuevoMonto; }
+    public void setNuevoMonto(Double nuevoMonto) { this.nuevoMonto = nuevoMonto; }
+
+    public LocalDate getNuevaFecha() { return nuevaFecha; }
+    public void setNuevaFecha(LocalDate nuevaFecha) { this.nuevaFecha = nuevaFecha; }
+
+    public String getNuevoConcepto() { return nuevoConcepto; }
+    public void setNuevoConcepto(String nuevoConcepto) { this.nuevoConcepto = nuevoConcepto; }
+
+    public String getNuevoFolio() { return nuevoFolio; }
+    public void setNuevoFolio(String nuevoFolio) { this.nuevoFolio = nuevoFolio; }
+
+    public List<MovimientoCapitalDto> getMovimientosCapitalList() { return movimientosCapitalList; }
+    public void setMovimientosCapitalList(List<MovimientoCapitalDto> movimientosCapitalList) { this.movimientosCapitalList = movimientosCapitalList; }
+
     @PostConstruct
     public void init() {
         log.info("Inicializando ReportesBean...");
@@ -225,6 +253,22 @@ public class ReportesBean implements Serializable {
                 this.tradesPerdedores = res.path("tradesPerdedores").asInt(0);
                 this.winRate = res.path("winRate").asDouble(0.0);
 
+                this.movimientosCapitalList.clear();
+                JsonNode movsNode = data.path("movimientosCapital");
+                if (movsNode.isArray()) {
+                    for (JsonNode m : movsNode) {
+                        MovimientoCapitalDto mc = new MovimientoCapitalDto();
+                        mc.setIdTrade(m.path("idTrade").asInt());
+                        mc.setTipo(m.path("strategy").asText());
+                        mc.setConcepto(m.path("setup").asText("-"));
+                        mc.setMonto(Math.abs(m.path("pnl").asDouble()));
+                        mc.setPnl(m.path("pnl").asDouble());
+                        mc.setFecha(m.path("closeTime").asText());
+                        mc.setFolio(m.path("ticketId").asText("-"));
+                        this.movimientosCapitalList.add(mc);
+                    }
+                }
+
                 this.tradesList.clear();
                 JsonNode tradesNode = data.path("trades");
                 if (tradesNode.isArray()) {
@@ -287,9 +331,95 @@ public class ReportesBean implements Serializable {
         }
     }
 
+    public void registrarMovimiento() {
+        if (selectedAccountId == null) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Cuenta requerida", "Por favor seleccione una cuenta de trading."));
+            return;
+        }
+        if (nuevoMonto == null || nuevoMonto <= 0) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Monto inválido", "El monto debe ser un valor numérico positivo mayor a cero."));
+            return;
+        }
+
+        try {
+            String url = backendUrl + "/api/v1/cuentas/" + selectedAccountId + "/movimientos";
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> reqBody = new java.util.HashMap<>();
+            reqBody.put("tipo", nuevoTipo);
+            reqBody.put("monto", nuevoMonto);
+            if (nuevaFecha != null) {
+                reqBody.put("fecha", nuevaFecha.toString() + " 12:00:00");
+            }
+            reqBody.put("concepto", nuevoConcepto != null ? nuevoConcepto.trim() : "");
+            reqBody.put("folio", nuevoFolio != null ? nuevoFolio.trim() : "");
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity =
+                    new org.springframework.http.HttpEntity<>(reqBody, headers);
+
+            org.springframework.http.ResponseEntity<String> response =
+                    restTemplate.postForEntity(url, entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                String tipoLabel = "DEPOSITO".equalsIgnoreCase(nuevoTipo) ? "Depósito" : "Retiro";
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Movimiento Registrado", tipoLabel + " de $" + String.format("%,.2f", nuevoMonto) + " USD aplicado exitosamente."));
+
+                this.nuevoMonto = null;
+                this.nuevoConcepto = "";
+                this.nuevoFolio = "";
+                this.nuevaFecha = LocalDate.now();
+
+                loadUserAccounts();
+                consultarEstadoCuenta();
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('dlgMovimiento').hide();");
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error", "No se pudo registrar el movimiento: " + response.getBody()));
+            }
+        } catch (Exception e) {
+            log.error("Error al registrar movimiento de capital: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error", "Ocurrió un error al registrar el movimiento: " + e.getMessage()));
+        }
+    }
+
+    public static class MovimientoCapitalDto implements Serializable {
+        private Integer idTrade;
+        private String tipo = "";
+        private String concepto = "";
+        private Double monto = 0.0;
+        private Double pnl = 0.0;
+        private String fecha = "";
+        private String folio = "";
+
+        public Integer getIdTrade() { return idTrade; }
+        public void setIdTrade(Integer idTrade) { this.idTrade = idTrade; }
+        public String getTipo() { return tipo; }
+        public void setTipo(String tipo) { this.tipo = tipo; }
+        public String getConcepto() { return concepto; }
+        public void setConcepto(String concepto) { this.concepto = concepto; }
+        public Double getMonto() { return monto; }
+        public void setMonto(Double monto) { this.monto = monto; }
+        public Double getPnl() { return pnl; }
+        public void setPnl(Double pnl) { this.pnl = pnl; }
+        public String getFecha() { return fecha; }
+        public void setFecha(String fecha) { this.fecha = fecha; }
+        public String getFolio() { return folio; }
+        public void setFolio(String folio) { this.folio = folio; }
+    }
+
     // DTOs Auxiliares
-    @Getter
-    @Setter
     public static class MesDto implements Serializable {
         private int id;
         private String nombre;
@@ -298,6 +428,11 @@ public class ReportesBean implements Serializable {
             this.id = id;
             this.nombre = nombre;
         }
+
+        public int getId() { return id; }
+        public void setId(int id) { this.id = id; }
+        public String getNombre() { return nombre; }
+        public void setNombre(String nombre) { this.nombre = nombre; }
     }
 
     public static class UserAccountDto implements Serializable {

@@ -66,17 +66,28 @@ def getDatabaseSession():
 
 def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
     """
-    Obtiene todas las configuraciones activas de user_ratios donde operar = 1.
+    Obtiene todas las configuraciones de user_ratios donde operar = 1,
+    o que tengan posiciones abiertas (status = 'OPEN') en trades para poder evaluarlas y cerrarlas.
     """
     sqlQuery = text("""
-        SELECT id, idUsuario, idCuenta, numerador, denominador, periodo, dias, EMARapida, EMALenta, operar
-        FROM user_ratios
-        WHERE operar = 1 AND (borrado = 0 OR borrado IS NULL)
-        ORDER BY id ASC
+        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.periodo, ur.dias, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia
+        FROM user_ratios ur
+        WHERE (ur.borrado = 0 OR ur.borrado IS NULL)
+          AND (
+              ur.operar = 1 
+              OR EXISTS (
+                  SELECT 1 FROM trades t 
+                  WHERE t.idCuenta = ur.idCuenta 
+                    AND (t.setup = CONCAT(ur.numerador, ' - ', ur.denominador) OR t.setup = CONCAT(ur.denominador, ' - ', ur.numerador))
+                    AND t.status = 'OPEN'
+              )
+          )
+        ORDER BY ur.id ASC
     """)
     rows = dbSession.execute(sqlQuery).fetchall()
     activeList = []
     for r in rows:
+        cierreDiv = bool(r[10]) if len(r) > 10 and r[10] is not None else True
         activeList.append({
             "id": r[0],
             "idUsuario": r[1],
@@ -87,7 +98,8 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
             "dias": int(r[6]) if r[6] else 180,
             "EMARapida": int(r[7]) if r[7] else 2,
             "EMALenta": int(r[8]) if r[8] else 20,
-            "operar": bool(r[9])
+            "operar": bool(r[9]),
+            "cierreDivergencia": cierreDiv
         })
     return activeList
 
@@ -130,7 +142,7 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
     Obtiene el balance de capital actual, nombre, riesgo por operación, comisión y concentradora de la cuenta.
     """
     sqlQuery = text("""
-        SELECT idCuenta, Nombre, Capital, Activo, riesgoPorOperacion, comision, Concentradora
+        SELECT idCuenta, Nombre, Capital, Activo, riesgoPorOperacion, comision, Concentradora, COALESCE(indicadorMargen, 200.0)
         FROM cuenta
         WHERE idCuenta = :idc
         LIMIT 1
@@ -140,6 +152,7 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
         riesgoVal = float(row[4]) if (len(row) > 4 and row[4] is not None and float(row[4]) > 0) else 3.0
         comisionVal = float(row[5]) if (len(row) > 5 and row[5] is not None and float(row[5]) >= 0) else 0.0
         concentradoraVal = bool(row[6]) if (len(row) > 6 and row[6] is not None) else False
+        indMargenVal = float(row[7]) if (len(row) > 7 and row[7] is not None) else 200.0
         return {
             "idCuenta": row[0],
             "nombre": str(row[1]),
@@ -147,7 +160,8 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
             "activo": bool(row[3]),
             "riesgoPorOperacion": riesgoVal,
             "comision": comisionVal,
-            "concentradora": concentradoraVal
+            "concentradora": concentradoraVal,
+            "indicadorMargen": indMargenVal
         }
     return {
         "idCuenta": idCuenta,
@@ -387,7 +401,12 @@ def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) ->
 
     equity = accountCapital + totalFloatingPnl
     marginIndicator = (equity / totalMargin * 100.0) if totalMargin > 0 else 9999.0
-    canOperate = bool(marginIndicator >= 200.0)
+    
+    # Consulta de indicador de margen personalizado para esta cuenta
+    sqlIndMargen = text("SELECT COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc")
+    rowInd = dbSession.execute(sqlIndMargen, {"idc": idCuenta}).fetchone()
+    minMarginRequired = float(rowInd[0]) if rowInd and rowInd[0] is not None else 200.0
+    canOperate = bool(marginIndicator >= minMarginRequired)
 
     return canOperate, marginIndicator, totalMargin, equity
 
@@ -1456,6 +1475,34 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     dbOpenTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
     latestPriceA = float(dfATf["closePrice"].iloc[-1])
     latestPriceB = float(dfBTf["closePrice"].iloc[-1])
+    cierreDivergencia = bool(ratioRecord.get("cierreDivergencia", True))
+
+    # Si el ratio tiene operar = 0 y no tiene posiciones abiertas, no hay nada que cerrar ni abrir
+    if not ratioRecord.get("operar", True) and not dbOpenTrades:
+        logger.info(f"ℹ️ [{accHeader}] Ratio con operar=0 y sin posiciones abiertas. Omitiendo evaluación.")
+        return
+
+    # Evaluación de Cierre por Cruce de Precios (Modo Cruce: cierreDivergencia == False)
+    if (not cierreDivergencia) and isPriceCross and dbOpenTrades:
+        logger.info(
+            f"🔄 [{accHeader}] ¡CRUCE DE PRECIOS DETECTADO (●) en modo Cruce! "
+            f"Cerrando {len(dbOpenTrades)} posiciones abiertas por cruce entre {numerador} y {denominador}..."
+        )
+        symMap = {numerador: symDataA, denominador: symDataB}
+        priceMap = {numerador: latestPriceA, denominador: latestPriceB}
+        closeRatioTrades(
+            dbSession=dbSession,
+            idCuenta=idCuenta,
+            setupName=setupName,
+            openTrades=dbOpenTrades,
+            symbolDataMap=symMap,
+            latestPricesMap=priceMap,
+            accountData=accountData,
+            periodo=periodo,
+            closeReason="POR CRUCE DE PRECIOS"
+        )
+        accountData = fetchAccountData(dbSession, idCuenta)
+        dbOpenTrades = []
 
     if sameSide:
         logger.info(
@@ -1477,11 +1524,19 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         entryDateStr = str(latestSig.get("date", "")).strip()
         candleDt = parseCandleDateTime(entryDateStr)
         
-        # Para temporalidad horaria, redondear candleDt a la hora en punto para que el candado de 1 orden por hora sea exacto
+        # Para temporalidades intradía, redondear candleDt al bloque correspondiente para que el candado de orden sea exacto por vela
         tf_clean = str(periodo).lower().strip()
         if tf_clean in ["1h", "1H"]:
             candleDt = candleDt.replace(minute=0, second=0, microsecond=0)
             entryDateStr = candleDt.strftime("%Y-%m-%d %H:00:00")
+        elif tf_clean in ["30min", "30m"]:
+            rounded_minute = (candleDt.minute // 30) * 30
+            candleDt = candleDt.replace(minute=rounded_minute, second=0, microsecond=0)
+            entryDateStr = candleDt.strftime("%Y-%m-%d %H:%M:00")
+        elif tf_clean in ["15min", "15m"]:
+            rounded_minute = (candleDt.minute // 15) * 15
+            candleDt = candleDt.replace(minute=rounded_minute, second=0, microsecond=0)
+            entryDateStr = candleDt.strftime("%Y-%m-%d %H:%M:00")
         elif tf_clean in ["1d", "1D"]:
             candleDt = candleDt.replace(hour=0, minute=0, second=0, microsecond=0)
             entryDateStr = candleDt.strftime("%Y-%m-%d")
@@ -1525,6 +1580,14 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 accountData = fetchAccountData(dbSession, idCuenta)
                 dbOpenTrades = []
 
+        # Si el ratio tiene operar = 0 (generación automática desactivada), no abrir nuevas operaciones ni acumular
+        if not ratioRecord.get("operar", True):
+            logger.info(
+                f"🛑 [{accHeader}] Ratio tiene 'operar = 0' (generación automática desactivada). "
+                f"Se evaluaron/procesaron cierres si correspondía, pero NO se abrirán nuevas posiciones."
+            )
+            return
+
         alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt, timeframe=periodo)
         if not alreadyEntered:
             # Control de Gestión de Riesgo: Indicador de Margen >= 200%
@@ -1534,7 +1597,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             if not canOperate:
                 logger.warning(
                     f"⛔ [{setupName}] Apertura SUSPENDIDA para Cuenta #{idCuenta}: "
-                    f"Indicador de Margen {marginInd:.1f}% es menor al 200% requerido "
+                    f"Indicador de Margen {marginInd:.1f}% es menor al {accountData.get('indicadorMargen', 200.0):.0f}% requerido "
                     f"(Capital: ${accountData.get('capital', 0.0):,.2f} | Margen: ${totalMargin:,.2f} | Equidad: ${equity:,.2f})."
                 )
                 return
@@ -1542,7 +1605,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             logger.info(
                 f"🎯 [{setupName}] NUEVA SEÑAL ({sigType}, fecha {entryDateStr} | "
                 f"Dirección: {numerador} {dirA} + {denominador} {dirB} | "
-                f"Ind. Margen: {marginInd:.1f}% >= 200%). Registrando en trades..."
+                f"Ind. Margen: {marginInd:.1f}% >= {accountData.get('indicadorMargen', 200.0):.0f}%). Registrando en trades..."
             )
             openSingleRatioTradePair(
                 dbSession=dbSession,
@@ -1592,7 +1655,7 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
             logger.info(f"📋 Ratios activos totales con operar=1: {len(activeRatios)}")
 
             for r in activeRatios:
-                tf = str(r.get("timeframe", "1h")).lower().strip()
+                tf = str(r.get("periodo") or r.get("timeframe") or "1h").lower().strip()
                 is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
 
                 # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar
