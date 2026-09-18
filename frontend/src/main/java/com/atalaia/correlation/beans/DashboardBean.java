@@ -1199,11 +1199,13 @@ public class DashboardBean implements Serializable {
     private List<SignalTradeDto> signalBtTradesList = new ArrayList<>();
     private String signalBtStrategySelected = "COMBINED";
     private String signalBtComparisonCurveJson = "{}";
+    private String signalBtHistoryJson = "[]";
+    private String signalBtTradesJson = "[]";
     private List<ActiveCycleSummaryDto> allActiveCycles = new ArrayList<>();
 
     // Parámetros y periodo efectivo evaluados en el Backtest de Cruces EMA
     private String signalBtTimeframe = "1h";
-    private Integer signalBtDays = 180;
+    private Integer signalBtDays = 120;
     private String signalBtStartDate = "-";
     private String signalBtEndDate = "-";
     private Integer signalBtTotalBars = 0;
@@ -1465,8 +1467,15 @@ public class DashboardBean implements Serializable {
         } else {
             this.signalBtTradesList = this.signalBtCombinedTrades;
         }
+        try {
+            this.signalBtTradesJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(this.signalBtTradesList);
+        } catch (Exception e) {}
     }
     public String getSignalBtComparisonCurveJson() { return signalBtComparisonCurveJson; }
+    public String getSignalBtTradesJson() { return signalBtTradesJson; }
+    public void setSignalBtTradesJson(String signalBtTradesJson) { this.signalBtTradesJson = signalBtTradesJson; }
+
+    public String getSignalBtHistoryJson() { return signalBtHistoryJson; }
 
     public String getSignalBtTimeframe() { return signalBtTimeframe; }
     public void setSignalBtTimeframe(String signalBtTimeframe) { this.signalBtTimeframe = signalBtTimeframe; }
@@ -1746,6 +1755,7 @@ public class DashboardBean implements Serializable {
 
 
     public void setSignalBtComparisonCurveJson(String signalBtComparisonCurveJson) { this.signalBtComparisonCurveJson = signalBtComparisonCurveJson; }
+    public void setSignalBtHistoryJson(String signalBtHistoryJson) { this.signalBtHistoryJson = signalBtHistoryJson; }
 
     public static class UserAccountDto implements java.io.Serializable {
         private Integer idUsuarioCuenta;
@@ -2095,6 +2105,18 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    private String tipoEntrada = "Selectiva";
+    public String getTipoEntrada() { return tipoEntrada != null ? tipoEntrada : "Selectiva"; }
+    public void setTipoEntrada(String tipoEntrada) { this.tipoEntrada = tipoEntrada; }
+
+    public void onTipoEntradaChange() {
+        log.info("▶ Tipo de Entrada cambiado a: {}", this.tipoEntrada);
+        if (this.ratioExistsInDb) {
+            guardarRatio();
+        }
+        analyzePair();
+    }
+
     public void disableAllUserRatios() {
         if (isReadOnly()) {
             log.warn("⚠️ Intento de deshabilitar ratios bloqueado: Modo solo lectura.");
@@ -2261,6 +2283,7 @@ public class DashboardBean implements Serializable {
         private String createdAt;
         private Boolean hasOpenTrades = false;
         private Boolean cierreDivergencia = true;
+        private String tipoEntrada = "Selectiva";
 
         public Boolean getHasOpenTrades() { return hasOpenTrades; }
         public Boolean isHasOpenTrades() { return hasOpenTrades; }
@@ -2269,6 +2292,9 @@ public class DashboardBean implements Serializable {
         public Boolean getCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
         public Boolean isCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
         public void setCierreDivergencia(Boolean cierreDivergencia) { this.cierreDivergencia = cierreDivergencia; }
+
+        public String getTipoEntrada() { return tipoEntrada != null ? tipoEntrada : "Selectiva"; }
+        public void setTipoEntrada(String tipoEntrada) { this.tipoEntrada = tipoEntrada; }
 
         public Integer getId() { return id; }
         public void setId(Integer id) { this.id = id; }
@@ -2344,12 +2370,14 @@ public class DashboardBean implements Serializable {
 
         if (isBacktest) {
             this.activeMainTabIndex = 2;
-            if (!crucesEmaLoaded) {
+            if (!crucesEmaLoaded || signalBtTotalBars == null || signalBtTotalBars == 0) {
                 loadCrucesEmaAnalysis();
-                this.crucesEmaLoaded = true;
-                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:crucesEmaWrapper", "aetherForm:signalBtComparisonCurveJsonData");
-                org.primefaces.PrimeFaces.current().executeScript("setTimeout(renderSignalComparisonChart, 60);");
+                if (signalBtTotalBars != null && signalBtTotalBars > 0) {
+                    this.crucesEmaLoaded = true;
+                }
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:crucesEmaWrapper", "aetherForm:signalBtComparisonCurveJsonData", "aetherForm:signalBtHistoryJsonData");
             }
+            org.primefaces.PrimeFaces.current().executeScript("setTimeout(function(){ if(typeof renderSignalBtNormalizedChart==='function') renderSignalBtNormalizedChart(); if(typeof renderSignalComparisonChart==='function') renderSignalComparisonChart(); }, 60);");
         } else if (isHechos) {
             this.activeMainTabIndex = 3;
             if (!realTradesLoaded) {
@@ -3038,42 +3066,42 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            // Regla institucional: el backtesting siempre tiene por default 6 meses (calculado según la temporalidad)
+            // Regla institucional: el backtesting siempre tiene por default 4 meses (calculado según la temporalidad)
             java.util.Date effEndCruces = getEffectiveEndDate();
             java.util.Calendar calBt = java.util.Calendar.getInstance();
             calBt.setTime(effEndCruces);
-            calBt.add(java.util.Calendar.MONTH, -6);
+            calBt.add(java.util.Calendar.MONTH, -4);
             java.util.Date btStartDate = calBt.getTime();
 
-            int btDays = 180;
+            int btDays = 120;
             String tfNorm = (timeframe != null && !timeframe.trim().isEmpty()) ? timeframe.toLowerCase().trim() : "1h";
             switch (tfNorm) {
                 case "1month": case "1m":
-                    btDays = 6;
+                    btDays = 4;
                     break;
                 case "1week": case "1w":
-                    btDays = 26;
+                    btDays = 17;
                     break;
                 case "1d":
-                    btDays = 180;
+                    btDays = 120;
                     break;
                 case "4h":
-                    btDays = 1080;
+                    btDays = 720;
                     break;
                 case "1h":
-                    btDays = 4320;
+                    btDays = 2880;
                     break;
                 case "30min": case "30m":
-                    btDays = 8640;
+                    btDays = 5760;
                     break;
                 case "15min": case "15m":
-                    btDays = 17280;
+                    btDays = 11520;
                     break;
                 case "5min": case "5m":
-                    btDays = 51840;
+                    btDays = 34560;
                     break;
                 default:
-                    btDays = 180;
+                    btDays = 120;
                     break;
             }
 
@@ -3090,6 +3118,8 @@ public class DashboardBean implements Serializable {
                     (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
                     (curAccCap != null ? "&capital=" + curAccCap : "") +
                     (getSelectedAccountComision() != null ? "&comisionPct=" + getSelectedAccountComision() : "") +
+                    "&tipoEntrada=" + (tipoEntrada != null ? tipoEntrada : "Selectiva") +
+                    "&cierreDivergencia=" + Boolean.TRUE.equals(cierreDivergencia) +
                     "&leverage=100.0",
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
@@ -3362,11 +3392,23 @@ public class DashboardBean implements Serializable {
 
                     // Curva comparativa de equidad
                     this.signalBtComparisonCurveJson = sbNode.toString();
+                    if (this.signalBtTradesList != null && !this.signalBtTradesList.isEmpty()) {
+                        this.signalBtTradesJson = mapper.writeValueAsString(this.signalBtTradesList);
+                    } else {
+                        this.signalBtTradesJson = "[]";
+                    }
+                }
+
+                if (root.has("history")) {
+                    this.signalBtHistoryJson = mapper.writeValueAsString(root.get("history"));
+                } else {
+                    this.signalBtHistoryJson = "[]";
                 }
                 log.info("Análisis de Cruces EMA cargado exitosamente.");
             }
         } catch (Exception e) {
             log.error("Error al cargar análisis cuantitativo: {}", e.getMessage());
+            this.crucesEmaLoaded = false;
         }
     }
 
@@ -3622,6 +3664,7 @@ public class DashboardBean implements Serializable {
             payload.put("EMALenta", null);
             payload.put("operar", operar != null ? operar : false);
             payload.put("cierreDivergencia", Boolean.TRUE.equals(this.cierreDivergencia));
+            payload.put("tipoEntrada", this.tipoEntrada != null ? this.tipoEntrada : "Selectiva");
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -3639,7 +3682,7 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                                 "Ratio Guardado Exitosamente",
                                 "Se guardó la selección " + selectedPair + " / " + selectedPair2 +
-                                " (" + timeframe + ", " + daysBack + " periodos) con EMA=" + smaPeriodParam +
+                                " (" + timeframe + ", " + daysBack + " periodos) con RIDE=" + smaPeriodParam +
                                 ", Operar=" + operarDesc + "."));
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -3830,6 +3873,8 @@ public class DashboardBean implements Serializable {
                         else dto.setHasOpenTrades(false);
                         if (item.has("cierreDivergencia") && !item.get("cierreDivergencia").isNull()) dto.setCierreDivergencia(item.get("cierreDivergencia").asBoolean());
                         else dto.setCierreDivergencia(true);
+                        if (item.has("tipoEntrada") && !item.get("tipoEntrada").isNull()) dto.setTipoEntrada(item.get("tipoEntrada").asText());
+                        else dto.setTipoEntrada("Selectiva");
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
                             dto.setBorrado(isBorrado);
@@ -3886,6 +3931,7 @@ public class DashboardBean implements Serializable {
         }
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
         this.cierreDivergencia = ratio.getCierreDivergencia() != null ? ratio.getCierreDivergencia() : true;
+        this.tipoEntrada = ratio.getTipoEntrada() != null ? ratio.getTipoEntrada() : "Selectiva";
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
         this.activeAccordionIndex = "1";
@@ -3945,6 +3991,16 @@ public class DashboardBean implements Serializable {
                         this.hasActiveTradesInDb = rootNode.get("hasOpenTrades").asBoolean();
                     } else {
                         this.hasActiveTradesInDb = false;
+                    }
+                    if (rootNode.has("cierreDivergencia") && !rootNode.get("cierreDivergencia").isNull()) {
+                        this.cierreDivergencia = rootNode.get("cierreDivergencia").asBoolean();
+                    } else {
+                        this.cierreDivergencia = true;
+                    }
+                    if (rootNode.has("tipoEntrada") && !rootNode.get("tipoEntrada").isNull()) {
+                        this.tipoEntrada = rootNode.get("tipoEntrada").asText();
+                    } else {
+                        this.tipoEntrada = "Selectiva";
                     }
                     log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, dias={}, EMARapida={}, EMALenta={}, operar={}",
                             selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar);

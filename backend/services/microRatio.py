@@ -70,7 +70,7 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
     o que tengan posiciones abiertas (status = 'OPEN') en trades para poder evaluarlas y cerrarlas.
     """
     sqlQuery = text("""
-        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.periodo, ur.dias, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia
+        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.periodo, ur.dias, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada
         FROM user_ratios ur
         WHERE (ur.borrado = 0 OR ur.borrado IS NULL)
           AND (
@@ -99,7 +99,8 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
             "EMARapida": int(r[7]) if r[7] else 2,
             "EMALenta": int(r[8]) if r[8] else 20,
             "operar": bool(r[9]),
-            "cierreDivergencia": cierreDiv
+            "cierreDivergencia": cierreDiv,
+            "tipoEntrada": str(r[11]) if len(r) > 11 and r[11] else "Selectiva"
         })
     return activeList
 
@@ -1587,6 +1588,48 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 f"Se evaluaron/procesaron cierres si correspondía, pero NO se abrirán nuevas posiciones."
             )
             return
+
+        # REGLA SELECTIVA DE ENTRADAS: Si hay operaciones abiertas del mismo ciclo, validar selectividad (solo si tipoEntrada es Selectiva)
+        tipoEntrada = str(ratioRecord.get("tipoEntrada", "Selectiva")).strip().capitalize()
+        if tipoEntrada == "Selectiva" and dbOpenTrades:
+            openTradesA = [t for t in dbOpenTrades if t["symbol"] == numerador]
+            openTradesB = [t for t in dbOpenTrades if t["symbol"] == denominador]
+            if openTradesA and openTradesB:
+                rangeA = normInfo.get("rangeA", 0.0)
+                rangeB = normInfo.get("rangeB", 0.0)
+                minA = normInfo.get("minA", 0.0)
+                minB = normInfo.get("minB", 0.0)
+
+                # Buscar la entrada más extrema ya abierta de cada pata (del mismo color)
+                if dirA == "LARGO":
+                    bestPxA = min(t["entryPrice"] for t in openTradesA)
+                else:
+                    bestPxA = max(t["entryPrice"] for t in openTradesA)
+
+                if dirB == "LARGO":
+                    bestPxB = min(t["entryPrice"] for t in openTradesB)
+                else:
+                    bestPxB = max(t["entryPrice"] for t in openTradesB)
+
+                bestNormA = (bestPxA - minA) / rangeA if rangeA > 0 else 0.5
+                bestNormB = (bestPxB - minB) / rangeB if rangeB > 0 else 0.5
+
+                isValidSelective, updA, updB, rejectReason = signalEngine.isSelectiveEntryValid(
+                    sig=latestSig,
+                    currNormA=nA,
+                    currNormB=nB,
+                    lastEntryA=bestNormA,
+                    lastEntryB=bestNormB,
+                    stdAboveA=stdUpA,
+                    stdBelowA=stdDownA,
+                    stdAboveB=stdUpB,
+                    stdBelowB=stdDownB
+                )
+                if not isValidSelective:
+                    logger.info(
+                        f"🛡️ [{accHeader}] Entrada sucesiva ({sigType}) RECHAZADA por regla selectiva: {rejectReason}."
+                    )
+                    return
 
         alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt, timeframe=periodo)
         if not alreadyEntered:

@@ -240,12 +240,32 @@ class SignalEngine:
                     symbolAAction = "BUY"
                     symbolBAction = "SELL"
 
+        triggerPair = None
+        isContraryOutsideStd = False
+        if hasSignalBoth:
+            triggerPair = "BOTH"
+            isContraryOutsideStd = True
+        elif hasSignalA:
+            triggerPair = "A"
+            if isCrossDownHighA:
+                isContraryOutsideStd = bool(currNormB <= stdBelowB)
+            elif isCrossUpLowA:
+                isContraryOutsideStd = bool(currNormB >= stdAboveB)
+        elif hasSignalB:
+            triggerPair = "B"
+            if isCrossDownHighB:
+                isContraryOutsideStd = bool(currNormA <= stdBelowA)
+            elif isCrossUpLowB:
+                isContraryOutsideStd = bool(currNormA >= stdAboveA)
+
         return {
             "isPriceCross": isPriceCross,
             "isMeanCross": isPriceCross,
             "hasSignalA": hasSignalA,
             "hasSignalB": hasSignalB,
             "hasSignalBoth": hasSignalBoth,
+            "triggerPair": triggerPair,
+            "isContraryOutsideStd": isContraryOutsideStd,
             "isCrossDownHighA": isCrossDownHighA,
             "isCrossUpLowA": isCrossUpLowA,
             "isCrossDownHighB": isCrossDownHighB,
@@ -257,6 +277,88 @@ class SignalEngine:
             "sameSideDeviation": sameSideDeviation,
             "sameSideMean": sameSideMean
         }
+
+    @staticmethod
+    def isSelectiveEntryValid(
+        sig: Dict[str, Any],
+        currNormA: float,
+        currNormB: float,
+        lastEntryA: Optional[float],
+        lastEntryB: Optional[float],
+        stdAboveA: float,
+        stdBelowA: float,
+        stdAboveB: float,
+        stdBelowB: float
+    ) -> Tuple[bool, bool, bool, str]:
+        """
+        Valida si una entrada sucesiva (acumulación en el mismo ciclo) cumple con la regla selectiva:
+        - Los precios de las señales solo se comparan contra los de su mismo color.
+        - El par contrario (réplica) debe estar fuera de su desviación estándar correspondiente
+          (definida como fuera del área que está entre las dos desviaciones estándar del mismo color).
+        
+        1. Para Cuadros en Par A (dicta Azul):
+           - Par B (Naranja) debe estar fuera de su desviación estándar: (currNormB <= stdBelowB or currNormB >= stdAboveB).
+           - Par A (Azul) debe estar más alejado hacia afuera que la última entrada de Par A (del mismo color):
+             - Si A está en zona alta (venta): currNormA > lastEntryA
+             - Si A está en zona baja (compra): currNormA < lastEntryA
+        2. Para Cuadros en Par B (dicta Naranja):
+           - Par A (Azul) debe estar fuera de su desviación estándar: (currNormA <= stdBelowA or currNormA >= stdAboveA).
+           - Par B (Naranja) debe estar más alejado hacia afuera que la última entrada de Par B (del mismo color):
+             - Si B está en zona alta (venta): currNormB > lastEntryB
+             - Si B está en zona baja (compra): currNormB < lastEntryB
+        3. Para Triángulos (disparan ambos pares):
+           - Ambos pares ya están fuera de sus desviaciones estándar.
+           - Si al menos una pata está más alejada hacia afuera que su última entrada del mismo color, es válida como entrada.
+           
+        Retorna (isValid: bool, updateA: bool, updateB: bool, reason: str).
+        """
+        hasBoth = sig.get("hasSignalBoth", False)
+        hasA = sig.get("hasSignalA", False)
+        hasB = sig.get("hasSignalB", False)
+
+        isCrossDownHighA = sig.get("isCrossDownHighA", False)
+        isCrossUpLowA = sig.get("isCrossUpLowA", False)
+        isCrossDownHighB = sig.get("isCrossDownHighB", False)
+        isCrossUpLowB = sig.get("isCrossUpLowB", False)
+
+        isOutA = bool(currNormA <= stdBelowA or currNormA >= stdAboveA)
+        isOutB = bool(currNormB <= stdBelowB or currNormB >= stdAboveB)
+
+        moreExtremeA = False
+        if isCrossDownHighA:
+            moreExtremeA = bool(lastEntryA is None or currNormA > lastEntryA)
+        elif isCrossUpLowA:
+            moreExtremeA = bool(lastEntryA is None or currNormA < lastEntryA)
+
+        moreExtremeB = False
+        if isCrossDownHighB:
+            moreExtremeB = bool(lastEntryB is None or currNormB > lastEntryB)
+        elif isCrossUpLowB:
+            moreExtremeB = bool(lastEntryB is None or currNormB < lastEntryB)
+
+        if hasBoth:
+            if moreExtremeA or moreExtremeB:
+                return True, moreExtremeA, moreExtremeB, f"OK Triángulo (ExtA: {moreExtremeA}, ExtB: {moreExtremeB})"
+            else:
+                return False, False, False, f"TRIANGULO: ningún par más alejado que su entrada anterior (A: {currNormA:.4f} vs {lastEntryA}, B: {currNormB:.4f} vs {lastEntryB})"
+
+        if hasA:
+            if not isOutB:
+                return False, False, False, f"CUADRO Par A: Par B dentro de bandas de desviación ({currNormB:.4f})"
+            if moreExtremeA:
+                return True, True, False, f"OK Cuadro Par A: Par A más alejado ({currNormA:.4f} vs {lastEntryA}) y Par B fuera ({currNormB:.4f})"
+            else:
+                return False, False, False, f"CUADRO Par A: Par A no más alejado que su entrada anterior ({currNormA:.4f} vs {lastEntryA})"
+
+        if hasB:
+            if not isOutA:
+                return False, False, False, f"CUADRO Par B: Par A dentro de bandas de desviación ({currNormA:.4f})"
+            if moreExtremeB:
+                return True, False, True, f"OK Cuadro Par B: Par B más alejado ({currNormB:.4f} vs {lastEntryB}) y Par A fuera ({currNormA:.4f})"
+            else:
+                return False, False, False, f"CUADRO Par B: Par B no más alejado que su entrada anterior ({currNormB:.4f} vs {lastEntryB})"
+
+        return False, False, False, "Sin señal detonante válida"
 
     def evaluateRatioSignals(
         self,

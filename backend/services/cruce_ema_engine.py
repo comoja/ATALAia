@@ -47,7 +47,8 @@ class CruceEmaEngine:
         commissionBps: float = 2.0,
         slippageBps: float = 1.0,
         minMarginIndicator: float = 200.0,
-        cierreDivergencia: bool = True
+        cierreDivergencia: bool = True,
+        tipoEntrada: str = "Selectiva"
     ) -> Dict[str, Any]:
         """
         Ejecuta el backtest calculando el PnL exacto mediante el valor del pip
@@ -106,6 +107,8 @@ class CruceEmaEngine:
 
         activeTrades: List[Dict[str, Any]] = []
         cycleSkippedTrades: List[Dict[str, Any]] = []
+        cycleLastA = None
+        cycleLastB = None
         finishedTrades: List[Dict[str, Any]] = []
         rawTradesCount = 0
         cycleCounter = 0
@@ -291,6 +294,8 @@ class CruceEmaEngine:
                             "direction": t["direction"],
                             "entryDate": t["entryDate"],
                             "entryIndex": t.get("entryIndex", i),
+                            "normA": t.get("normA", round(float(normAVals[t.get("entryIndex", i)]), 4)),
+                            "normB": t.get("normB", round(float(normBVals[t.get("entryIndex", i)]), 4)),
                             "exitDate": d,
                             "allocatedCapital": round(float(t["margin"]), 2),
                             "marginA": round(float(t.get("marginA", 0.0)), 2),
@@ -436,8 +441,50 @@ class CruceEmaEngine:
                     cycleMaxAdverseFloat = 0.0
                     activeTrades = []
                     cycleSkippedTrades = []
+                    cycleLastA = None
+                    cycleLastB = None
 
-                # 2. ABRIR NUEVA ENTRADA (O DETENER SI EL INDICADOR DE MARGEN BAJARÍA DE 200)
+                # 2. VALIDACIÓN DE ENTRADA SELECTIVA (Si el modo es Selectiva)
+                if str(tipoEntrada).lower() == "selectiva":
+                    if len(activeTrades) == 0 and cycleLastA is None and cycleLastB is None:
+                        isOutA = bool(normAVals[i] <= stdBelowA or normAVals[i] >= stdAboveA)
+                        isOutB = bool(normBVals[i] <= stdBelowB or normBVals[i] >= stdAboveB)
+                        hasSigA = candleSig.get("hasSignalA", False)
+                        hasSigB = candleSig.get("hasSignalB", False)
+                        hasBoth = candleSig.get("hasSignalBoth", False)
+                        if hasBoth:
+                            cycleLastA = float(normAVals[i])
+                            cycleLastB = float(normBVals[i])
+                        elif hasSigA:
+                            cycleLastA = float(normAVals[i])
+                            cycleLastB = float(normBVals[i])
+                        elif hasSigB:
+                            cycleLastA = float(normAVals[i])
+                            cycleLastB = float(normBVals[i])
+                        else:
+                            # Sin señal válida
+                            continue
+                    else:
+                        isValidSelective, updA, updB, rejectReason = signalEngine.isSelectiveEntryValid(
+                            sig=candleSig,
+                            currNormA=normAVals[i],
+                            currNormB=normBVals[i],
+                            lastEntryA=cycleLastA,
+                            lastEntryB=cycleLastB,
+                            stdAboveA=stdAboveA,
+                            stdBelowA=stdBelowA,
+                            stdAboveB=stdAboveB,
+                            stdBelowB=stdBelowB
+                        )
+                        if not isValidSelective:
+                            # Omitir entrada: no cumple con mayor selectividad por color o réplica fuera
+                            continue
+                        if updA or cycleLastA is None:
+                            cycleLastA = float(normAVals[i])
+                        if updB or cycleLastB is None:
+                            cycleLastB = float(normBVals[i])
+
+                # 3. ABRIR NUEVA ENTRADA (O DETENER SI EL INDICADOR DE MARGEN BAJARÍA DE 200)
                 minMargen1LotA = minLotsA * margenRateA
                 minMargen1LotB = minLotsB * margenRateB
                 minReqMargen = minMargen1LotA + minMargen1LotB
@@ -459,6 +506,8 @@ class CruceEmaEngine:
                         "entryIndex": i,
                         "entryPxA": pxA,
                         "entryPxB": pxB,
+                        "normA": round(float(normAVals[i]), 4),
+                        "normB": round(float(normBVals[i]), 4),
                         "isSkipped": True
                     })
                 else:
@@ -507,6 +556,8 @@ class CruceEmaEngine:
                             "entryIndex": i,
                             "entryPxA": pxA,
                             "entryPxB": pxB,
+                            "normA": round(float(normAVals[i]), 4),
+                            "normB": round(float(normBVals[i]), 4),
                             "margin": totalMargen,
                             "marginA": round(float(realMargenA), 2),
                             "marginB": round(float(realMargenB), 2),
@@ -529,6 +580,8 @@ class CruceEmaEngine:
                             "entryIndex": i,
                             "entryPxA": pxA,
                             "entryPxB": pxB,
+                            "normA": round(float(normAVals[i]), 4),
+                            "normB": round(float(normBVals[i]), 4),
                             "isSkipped": True
                         })
 
@@ -575,6 +628,8 @@ class CruceEmaEngine:
                     "signalType": f"{t['signalType']} (EN CURSO)",
                     "direction": t["direction"],
                     "entryDate": t["entryDate"],
+                    "normA": t.get("normA", round(float(normAVals[t.get("entryIndex", 0)]), 4)),
+                    "normB": t.get("normB", round(float(normBVals[t.get("entryIndex", 0)]), 4)),
                     "exitDate": "EN CURSO",
                     "allocatedCapital": round(float(t["margin"]), 2),
                     "marginA": round(float(t.get("marginA", 0.0)), 2),

@@ -137,6 +137,7 @@ class UserRatioCreate(BaseModel):
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
     operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
     cierreDivergencia: Optional[bool] = Field(True, description="False = Cruce de precios, True = Divergencia (Default)")
+    tipoEntrada: Optional[str] = Field("Selectiva", description="'Exhaustiva' o 'Selectiva'")
 
 class UserRatioDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
@@ -169,6 +170,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
         dias = payload.dias if payload.dias is not None else 180
         operar = bool(payload.operar) if payload.operar is not None else False
         cierreDivergencia = bool(payload.cierreDivergencia) if payload.cierreDivergencia is not None else True
+        tipoEntrada = str(payload.tipoEntrada) if payload.tipoEntrada else "Selectiva"
 
         if existingRatio:
             existingRatio.idCuenta = cuentaId
@@ -178,6 +180,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
             existingRatio.EMALenta = emaLenta
             existingRatio.operar = operar
             existingRatio.cierreDivergencia = cierreDivergencia
+            existingRatio.tipoEntrada = tipoEntrada
             existingRatio.borrado = False
             existingRatio.createdAt = datetime.utcnow()
             db.commit()
@@ -196,6 +199,7 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
                 EMALenta=emaLenta,
                 operar=operar,
                 cierreDivergencia=cierreDivergencia,
+                tipoEntrada=tipoEntrada,
                 borrado=False,
                 createdAt=datetime.utcnow()
             )
@@ -270,6 +274,8 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
         "EMALenta": ratio.EMALenta if ratio.EMALenta is not None else 20,
         "operar": bool(ratio.operar) if getattr(ratio, 'operar', None) is not None else False,
+        "cierreDivergencia": bool(getattr(ratio, 'cierreDivergencia', True) if getattr(ratio, 'cierreDivergencia', None) is not None else True),
+        "tipoEntrada": getattr(ratio, 'tipoEntrada', 'Selectiva') or 'Selectiva',
         "createdAt": ratio.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -1311,6 +1317,7 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "EMALenta": r.EMALenta,
             "operar": r.operar,
             "cierreDivergencia": bool(getattr(r, "cierreDivergencia", True) if getattr(r, "cierreDivergencia", None) is not None else True),
+            "tipoEntrada": getattr(r, "tipoEntrada", "Selectiva") or "Selectiva",
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -2149,7 +2156,7 @@ async def get_cruces_ema_pair_analysis(
     pairA: str,
     pairB: str,
     timeframe: str = "1d",
-    days: int = 180,
+    days: int = 120,
     windowZScore: int = 20,
     stdThreshold: float = 2.0,
     commissionBps: float = 2.0,
@@ -2162,7 +2169,9 @@ async def get_cruces_ema_pair_analysis(
     smaPeriod: int = 2,
     sigmaWindow: int = 30,
     isBacktest: bool = True,
-    comisionPct: Optional[float] = None
+    comisionPct: Optional[float] = None,
+    tipoEntrada: Optional[str] = "Selectiva",
+    cierreDivergencia: Optional[bool] = True
 ) -> Dict[str, Any]:
     """
     Endpoint de Análisis y Backtest de Cruces EMA (Triángulos, Cuadros y Círculos).
@@ -2183,11 +2192,11 @@ async def get_cruces_ema_pair_analysis(
                 dt_start = pd.to_datetime(start_date).tz_localize(None)
             elif not isBacktest:
                 # Modo liviano para cálculo rápido de denominadores en dashboard
-                hrs = (days if days else 180) * (4 if "4h" in tf_lower else 1)
+                hrs = (days if days else 120) * (4 if "4h" in tf_lower else 1)
                 dt_start = datetime.now() - timedelta(hours=hrs + 96)
             else:
-                # Backtesting institucional: siempre 6 meses por default (180 días naturales)
-                dt_start = datetime.now() - timedelta(days=180)
+                # Backtesting institucional: siempre 4 meses por default (120 días naturales)
+                dt_start = datetime.now() - timedelta(days=120)
 
             if end_date:
                 dt_end = pd.to_datetime(end_date).tz_localize(None)
@@ -2356,7 +2365,9 @@ async def get_cruces_ema_pair_analysis(
             quoteA=quote_a,
             quoteB=quote_b,
             commissionBps=commissionBps,
-            slippageBps=slippageBps
+            slippageBps=slippageBps,
+            cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
+            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva"
         )
         combinedBt = cruceEmaEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
@@ -2375,8 +2386,22 @@ async def get_cruces_ema_pair_analysis(
             quoteA=quote_a,
             quoteB=quote_b,
             commissionBps=commissionBps,
-            slippageBps=slippageBps
+            slippageBps=slippageBps,
+            cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
+            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva"
         )
+
+        common_bt_idx = df_a_tf.index.intersection(df_b_tf.index)
+        sA = df_a_tf.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_a_tf.columns else df_a_tf.loc[common_bt_idx].iloc[:, 0]
+        sB = df_b_tf.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_b_tf.columns else df_b_tf.loc[common_bt_idx].iloc[:, 0]
+        history_backtest = []
+        for idx_dt, pa, pb in zip(common_bt_idx, sA, sB):
+            dt_str = idx_dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx_dt, "strftime") else str(idx_dt)
+            history_backtest.append({
+                "datetime": dt_str,
+                "priceA": round(float(pa), 5) if (pa is not None and not pd.isna(pa)) else None,
+                "priceB": round(float(pb), 5) if (pb is not None and not pd.isna(pb)) else None
+            })
 
         return {
             "status": "success",
@@ -2400,6 +2425,7 @@ async def get_cruces_ema_pair_analysis(
             "marginCappedCycles": combinedBt.get("marginCappedCycles", 0),
             "totalStoppedEntries": combinedBt.get("totalStoppedEntries", 0),
             "emaRapida": smaPeriod,
+            "history": history_backtest,
             "signalBacktest": {
                 "trianglesOnly": trianglesOnlyBt,
                 "combined": combinedBt
@@ -2417,7 +2443,7 @@ async def get_cruces_ema_pair_analysis(
 async def get_cruces_ema_denominators_return(
     pairA: str,
     timeframe: str = "1h",
-    days: int = 180,
+    days: int = 120,
     start_date: str = "",
     end_date: str = "",
     smaPeriod: int = 2,
