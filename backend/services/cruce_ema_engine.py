@@ -302,7 +302,7 @@ class CruceEmaEngine:
                         pnlB = pipsB * pipValB
 
                         tradePnl = pnlA + pnlB
-                        tradeNetRet = (tradePnl / t["margin"]) if t["margin"] > 0 else 0.0
+                        tradeNetRet = (tradePnl / initialCapital) if initialCapital > 0 else 0.0
 
                         equity += tradePnl
                         cyclePnl += tradePnl
@@ -392,7 +392,7 @@ class CruceEmaEngine:
                         finishedTrades.append(ct)
 
                     operatedCycleTrades = [ct for ct in cycleTrades if not ct.get("isSkipped")]
-                    cycleAvgRet = round((cyclePnl / cycleMargin) * 100.0, 2) if cycleMargin > 0 else 0.0
+                    cycleAvgRet = round((cyclePnl / initialCapital) * 100.0, 2) if initialCapital > 0 else 0.0
 
                     if operatedCycleTrades:
                         entrySpan = f"{operatedCycleTrades[0]['entryDate'][:10]} a {operatedCycleTrades[-1]['entryDate'][:10]}" if len(operatedCycleTrades) > 1 else operatedCycleTrades[0]['entryDate'][:10]
@@ -633,7 +633,7 @@ class CruceEmaEngine:
                 pnlB = pipsB * pipValB
 
                 tradePnl = pnlA + pnlB
-                tradeNetRet = (tradePnl / t["margin"]) if t["margin"] > 0 else 0.0
+                tradeNetRet = (tradePnl / initialCapital) if initialCapital > 0 else 0.0
                 openPnl += tradePnl
 
                 openCycleTrades.append({
@@ -768,7 +768,7 @@ class CruceEmaEngine:
                 "entryPriceB": round(float(openAvgEntryPxB), 5),
                 "exitPriceB": round(float(lastPxB), 5),
                 "durationBars": len(operatedOpenTrades),
-                "returnPct": round((openPnl / openMargin) * 100.0, 2) if openMargin > 0 else 0.0,
+                "returnPct": round((openPnl / initialCapital) * 100.0, 2) if initialCapital > 0 else 0.0,
                 "pnl": round(float(openPnl), 2),
                 "exitReason": "POSICIONES_ACTIVAS",
                 "isWin": bool(openPnl > 0),
