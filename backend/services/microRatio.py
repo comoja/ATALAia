@@ -70,7 +70,7 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
     o que tengan posiciones abiertas (status = 'OPEN') en trades para poder evaluarlas y cerrarlas.
     """
     sqlQuery = text("""
-        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.periodo, ur.dias, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada
+        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.Temporalidad, ur.periodo, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada, ur.fixedMinA, ur.fixedMaxA, ur.fixedMinB, ur.fixedMaxB, COALESCE(ur.accionCierre, 'Continua') AS accionCierre
         FROM user_ratios ur
         WHERE (ur.borrado = 0 OR ur.borrado IS NULL)
           AND (
@@ -94,13 +94,19 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
             "idCuenta": r[2],
             "numerador": str(r[3]),
             "denominador": str(r[4]),
-            "periodo": str(r[5]) if r[5] else "1d",
+            "Temporalidad": str(r[5]) if r[5] else "1d",
+            "periodo": int(r[6]) if r[6] else 180,
             "dias": int(r[6]) if r[6] else 180,
             "EMARapida": int(r[7]) if r[7] else 2,
             "EMALenta": int(r[8]) if r[8] else 20,
             "operar": bool(r[9]),
             "cierreDivergencia": cierreDiv,
-            "tipoEntrada": str(r[11]) if len(r) > 11 and r[11] else "Selectiva"
+            "tipoEntrada": str(r[11]) if len(r) > 11 and r[11] else "Selectiva",
+            "fixedMinA": float(r[12]) if len(r) > 12 and r[12] is not None else None,
+            "fixedMaxA": float(r[13]) if len(r) > 13 and r[13] is not None else None,
+            "fixedMinB": float(r[14]) if len(r) > 14 and r[14] is not None else None,
+            "fixedMaxB": float(r[15]) if len(r) > 15 and r[15] is not None else None,
+            "accionCierre": str(r[16]) if len(r) > 16 and r[16] else "Continua"
         })
     return activeList
 
@@ -302,7 +308,6 @@ def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt
             FROM trades
             WHERE idCuenta = :idc
               AND setup = :stp
-              AND status = 'OPEN'
               AND candleTime = :cdt
         """)
     elif tf in ["1week", "1w"]:
@@ -311,7 +316,6 @@ def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt
             FROM trades
             WHERE idCuenta = :idc
               AND setup = :stp
-              AND status = 'OPEN'
               AND YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)
         """)
     elif tf in ["1month", "1m"]:
@@ -320,7 +324,6 @@ def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt
             FROM trades
             WHERE idCuenta = :idc
               AND setup = :stp
-              AND status = 'OPEN'
               AND YEAR(candleTime) = YEAR(:cdt)
               AND MONTH(candleTime) = MONTH(:cdt)
         """)
@@ -330,7 +333,6 @@ def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt
             FROM trades
             WHERE idCuenta = :idc
               AND setup = :stp
-              AND status = 'OPEN'
               AND DATE(candleTime) = DATE(:cdt)
         """)
     cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "stp": setupName, "cdt": candleDt}).scalar()
@@ -1377,10 +1379,47 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     numerador = ratioRecord["numerador"]
     denominador = ratioRecord["denominador"]
     setupName = f"{numerador} - {denominador}"
-    periodo = ratioRecord["periodo"]
-    dias = ratioRecord["dias"] or 180
+    periodo = ratioRecord.get("Temporalidad") or ratioRecord.get("periodo")
+    dias = ratioRecord.get("periodo") if isinstance(ratioRecord.get("periodo"), int) else ratioRecord.get("dias") or 180
     emaRapida = ratioRecord["EMARapida"] or 2
     emaLenta = ratioRecord["EMALenta"] or 20
+
+    import pandas as pd
+    from datetime import datetime, timedelta
+    createdAtStr = ratioRecord.get("createdAt")
+    createdAtDt = None
+    if createdAtStr:
+        try:
+            if isinstance(createdAtStr, datetime):
+                base_dt = createdAtStr
+            else:
+                base_dt = pd.to_datetime(createdAtStr).tz_localize(None)
+            
+            tf_clean = str(periodo).lower().strip()
+            num_periods = dias
+            
+            if "mo" in tf_clean or "month" in tf_clean:
+                createdAtDt = base_dt - pd.DateOffset(months=num_periods)
+            elif "w" in tf_clean:
+                createdAtDt = base_dt - timedelta(weeks=num_periods)
+            elif "d" in tf_clean:
+                createdAtDt = base_dt - timedelta(days=num_periods)
+            elif "15m" in tf_clean:
+                createdAtDt = base_dt - timedelta(minutes=15 * num_periods)
+            elif "30m" in tf_clean:
+                createdAtDt = base_dt - timedelta(minutes=30 * num_periods)
+            elif "5m" in tf_clean:
+                createdAtDt = base_dt - timedelta(minutes=5 * num_periods)
+            elif "4h" in tf_clean:
+                createdAtDt = base_dt - timedelta(hours=4 * num_periods)
+            else: # fallback 1h
+                createdAtDt = base_dt - timedelta(hours=num_periods)
+                
+            logger.info(f"⏳ Fecha efectiva calculada: base={base_dt}, tf={tf_clean}, periodos={num_periods}, efectiva={createdAtDt}")
+            
+        except Exception as e:
+            logger.error(f"Error parseando o calculando createdAt: {e}")
+            pass
 
     # 2. Datos de símbolos y cuenta
     symDataA = fetchSymbolData(dbSession, numerador)
@@ -1400,6 +1439,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
 
     if not activeBrokers:
         openTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
+        if createdAtDt:
+            openTrades = [t for t in openTrades if (t.get("openTime") or t.get("candleTime")) and parseCandleDateTime(t.get("openTime") or t.get("candleTime")) >= createdAtDt]
         if not openTrades:
             logger.info(f"🚫 [{accHeader}] Cuenta #{idCuenta} ({accountName}) no tiene bróker activo configurado en brokercuenta. NO opera (evaluación omitida).")
             return
@@ -1435,7 +1476,11 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         pairB=denominador,
         smaPeriod=emaRapida,
         sigmaWindow=20,
-        includeBoxes=True
+        includeBoxes=True,
+        fixedMinA=ratioRecord.get("fixedMinA"),
+        fixedMaxA=ratioRecord.get("fixedMaxA"),
+        fixedMinB=ratioRecord.get("fixedMinB"),
+        fixedMaxB=ratioRecord.get("fixedMaxB")
     )
 
     normInfo = evalResult.get("normData", {})
@@ -1474,6 +1519,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     )
 
     dbOpenTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
+    if createdAtDt:
+        dbOpenTrades = [t for t in dbOpenTrades if (t.get("openTime") or t.get("candleTime")) and parseCandleDateTime(t.get("openTime") or t.get("candleTime")) >= createdAtDt]
     latestPriceA = float(dfATf["closePrice"].iloc[-1])
     latestPriceB = float(dfBTf["closePrice"].iloc[-1])
     cierreDivergencia = bool(ratioRecord.get("cierreDivergencia", True))
@@ -1504,6 +1551,12 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         )
         accountData = fetchAccountData(dbSession, idCuenta)
         dbOpenTrades = []
+        accionCierre = str(ratioRecord.get("accionCierre", "Continua")).strip().capitalize()
+        if accionCierre == "Para":
+            logger.info(f"🛑 [{accHeader}] Acción 'Cierra y Para' ejecutada por cruce: desactivando operar = 0 en BD.")
+            dbSession.execute(text("UPDATE user_ratios SET operar = 0 WHERE id = :rid"), {"rid": ratioRecord["id"]})
+            dbSession.commit()
+            return
 
     if sameSide:
         logger.info(
@@ -1541,6 +1594,11 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         elif tf_clean in ["1d", "1D"]:
             candleDt = candleDt.replace(hour=0, minute=0, second=0, microsecond=0)
             entryDateStr = candleDt.strftime("%Y-%m-%d")
+
+        # Filtrar si la vela es anterior a la fecha de creación
+        if createdAtDt and candleDt < createdAtDt:
+            logger.info(f"⏳ [{accHeader}] Vela actual ({entryDateStr}) es anterior a la creación del ratio ({createdAtDt}). Se ignora la evaluación.")
+            return
 
         # Validación estricta por temporalidad: solo insertar si el cruce sucedió en esa hora / día
         if not isCandleSignalFresh(candleDt, periodo):
@@ -1580,6 +1638,27 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 )
                 accountData = fetchAccountData(dbSession, idCuenta)
                 dbOpenTrades = []
+                accionCierre = str(ratioRecord.get("accionCierre", "Continua")).strip().capitalize()
+                if accionCierre == "Para":
+                    logger.info(f"🛑 [{accHeader}] Acción 'Cierra y Para' ejecutada por giro de dirección: desactivando operar = 0 en BD.")
+                    dbSession.execute(text("UPDATE user_ratios SET operar = 0 WHERE id = :rid"), {"rid": ratioRecord["id"]})
+                    dbSession.commit()
+                    return
+
+        # REGLA ESTRICTA DE PRIMERA ENTRADA: Ambos pares deben estar fuera de sus desviaciones estándar en lados opuestos
+        if not dbOpenTrades:
+            if dirA == "CORTO":
+                isOutA = bool(nA >= stdUpA)
+                isOutB = bool(nB <= stdDownB)
+            else:
+                isOutA = bool(nA <= stdDownA)
+                isOutB = bool(nB >= stdUpB)
+            if not (isOutA and isOutB):
+                logger.info(
+                    f"🛡️ [{accHeader}] Primera entrada ({sigType}) RECHAZADA: ambos pares deben estar fuera de sus bandas en lados opuestos "
+                    f"({numerador}: {nA:.4f} [fuera: {isOutA}] vs {denominador}: {nB:.4f} [fuera: {isOutB}])."
+                )
+                return
 
         # Si el ratio tiene operar = 0 (generación automática desactivada), no abrir nuevas operaciones ni acumular
         if not ratioRecord.get("operar", True):

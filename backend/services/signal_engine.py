@@ -22,14 +22,20 @@ class SignalEngine:
     @staticmethod
     def calculateNormalizedSeries(
         seriesA: pd.Series,
-        seriesB: pd.Series
+        seriesB: pd.Series,
+        fixedMinA: Optional[float] = None,
+        fixedMaxA: Optional[float] = None,
+        fixedMinB: Optional[float] = None,
+        fixedMaxB: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Calcula la normalización Min-Max (0 a 1), la serie de media aritmética entre ambos pares,
         el promedio global de la media (avgOfMean) y las desviaciones estándar ancladas al avgOfMean.
         """
-        minA, maxA = float(seriesA.min()), float(seriesA.max())
-        minB, maxB = float(seriesB.min()), float(seriesB.max())
+        minA = float(fixedMinA) if fixedMinA is not None else float(seriesA.min())
+        maxA = float(fixedMaxA) if fixedMaxA is not None else float(seriesA.max())
+        minB = float(fixedMinB) if fixedMinB is not None else float(seriesB.min())
+        maxB = float(fixedMaxB) if fixedMaxB is not None else float(seriesB.max())
 
         rangeA = (maxA - minA) if (maxA - minA) != 0 else 1.0
         rangeB = (maxB - minB) if (maxB - minB) != 0 else 1.0
@@ -216,29 +222,35 @@ class SignalEngine:
                 symbolBAction = "BUY"
 
         # 4. Caso No Coincidente (Un solo par dispara -> Cuadros)
+        # Regla estricta: Para que un Cuadro sea señal válida, el par contrario DEBE estar
+        # fuera de su propia desviación estándar en el extremo contrario.
         elif includeBoxes and (hasSignalA or hasSignalB):
             if hasSignalA:
-                if isCrossUpLowA:
+                if isCrossUpLowA and (currNormB >= stdAboveB):
                     sigType = f"CUADRO_VERDE {pairA}"
                     direction = f"LONG {pairA} / SHORT {pairB}"
                     symbolAAction = "BUY"
                     symbolBAction = "SELL"
-                elif isCrossDownHighA:
+                    isContraryOutsideStd = True
+                elif isCrossDownHighA and (currNormB <= stdBelowB):
                     sigType = f"CUADRO_ROJO {pairA}"
                     direction = f"SHORT {pairA} / LONG {pairB}"
                     symbolAAction = "SELL"
                     symbolBAction = "BUY"
+                    isContraryOutsideStd = True
             elif hasSignalB:
-                if isCrossUpLowB:
+                if isCrossUpLowB and (currNormA >= stdAboveA):
                     sigType = f"CUADRO_VERDE {pairB}"
                     direction = f"SHORT {pairA} / LONG {pairB}"
                     symbolAAction = "SELL"
                     symbolBAction = "BUY"
-                elif isCrossDownHighB:
+                    isContraryOutsideStd = True
+                elif isCrossDownHighB and (currNormA <= stdBelowA):
                     sigType = f"CUADRO_ROJO {pairB}"
                     direction = f"LONG {pairA} / SHORT {pairB}"
                     symbolAAction = "BUY"
                     symbolBAction = "SELL"
+                    isContraryOutsideStd = True
 
         triggerPair = None
         isContraryOutsideStd = False
@@ -321,44 +333,41 @@ class SignalEngine:
         isCrossDownHighB = sig.get("isCrossDownHighB", False)
         isCrossUpLowB = sig.get("isCrossUpLowB", False)
 
-        isOutA = bool(currNormA <= stdBelowA or currNormA >= stdAboveA)
-        isOutB = bool(currNormB <= stdBelowB or currNormB >= stdAboveB)
+        dirA = sig.get("symbolAAction")  # "BUY" o "SELL"
+        dirB = sig.get("symbolBAction")  # "BUY" o "SELL"
 
+        if not dirA or not dirB:
+            return False, False, False, "Sin dirección definida en la señal"
+
+        # 1. Ambos pares deben estar fuera de su desviación estándar en lugares contrarios
+        if dirA == "SELL":  # Par A arriba (Venta), Par B abajo (Compra)
+            isOutA = bool(currNormA >= stdAboveA)
+            isOutB = bool(currNormB <= stdBelowB)
+        else:  # Par A abajo (Compra), Par B arriba (Venta)
+            isOutA = bool(currNormA <= stdBelowA)
+            isOutB = bool(currNormB >= stdAboveB)
+
+        if not isOutA or not isOutB:
+            return False, False, False, f"Rechazada: ambos pares deben estar fuera de sus bandas en lados opuestos (A fuera: {isOutA}, B fuera: {isOutB})"
+
+        # 2. Ambos pares deben estar más alejados hacia afuera que su entrada anterior
         moreExtremeA = False
-        if isCrossDownHighA:
+        if dirA == "SELL":
             moreExtremeA = bool(lastEntryA is None or currNormA > lastEntryA)
-        elif isCrossUpLowA:
+        else:  # BUY
             moreExtremeA = bool(lastEntryA is None or currNormA < lastEntryA)
 
         moreExtremeB = False
-        if isCrossDownHighB:
+        if dirB == "SELL":
             moreExtremeB = bool(lastEntryB is None or currNormB > lastEntryB)
-        elif isCrossUpLowB:
+        else:  # BUY
             moreExtremeB = bool(lastEntryB is None or currNormB < lastEntryB)
 
-        if hasBoth:
-            if moreExtremeA or moreExtremeB:
-                return True, moreExtremeA, moreExtremeB, f"OK Triángulo (ExtA: {moreExtremeA}, ExtB: {moreExtremeB})"
-            else:
-                return False, False, False, f"TRIANGULO: ningún par más alejado que su entrada anterior (A: {currNormA:.4f} vs {lastEntryA}, B: {currNormB:.4f} vs {lastEntryB})"
+        # Regla estricta institucional: AMBOS pares deben cumplirlo al mismo tiempo
+        if not (moreExtremeA and moreExtremeB):
+            return False, False, False, f"Rechazada: ambos pares deben estar más alejados que su entrada anterior (A: {currNormA:.4f} vs {lastEntryA} [extA: {moreExtremeA}], B: {currNormB:.4f} vs {lastEntryB} [extB: {moreExtremeB}])"
 
-        if hasA:
-            if not isOutB:
-                return False, False, False, f"CUADRO Par A: Par B dentro de bandas de desviación ({currNormB:.4f})"
-            if moreExtremeA:
-                return True, True, False, f"OK Cuadro Par A: Par A más alejado ({currNormA:.4f} vs {lastEntryA}) y Par B fuera ({currNormB:.4f})"
-            else:
-                return False, False, False, f"CUADRO Par A: Par A no más alejado que su entrada anterior ({currNormA:.4f} vs {lastEntryA})"
-
-        if hasB:
-            if not isOutA:
-                return False, False, False, f"CUADRO Par B: Par A dentro de bandas de desviación ({currNormA:.4f})"
-            if moreExtremeB:
-                return True, False, True, f"OK Cuadro Par B: Par B más alejado ({currNormB:.4f} vs {lastEntryB}) y Par A fuera ({currNormA:.4f})"
-            else:
-                return False, False, False, f"CUADRO Par B: Par B no más alejado que su entrada anterior ({currNormB:.4f} vs {lastEntryB})"
-
-        return False, False, False, "Sin señal detonante válida"
+        return True, True, True, f"OK Entrada Válida: ambos pares más alejados que su entrada anterior (A: {currNormA:.4f}, B: {currNormB:.4f})"
 
     def evaluateRatioSignals(
         self,
@@ -368,7 +377,11 @@ class SignalEngine:
         pairB: str = "Par B",
         smaPeriod: int = 2,
         sigmaWindow: int = 20,
-        includeBoxes: bool = False
+        includeBoxes: bool = False,
+        fixedMinA: Optional[float] = None,
+        fixedMaxA: Optional[float] = None,
+        fixedMinB: Optional[float] = None,
+        fixedMaxB: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Ejecuta el análisis completo vela por vela sobre los DataFrames de precios.
@@ -387,7 +400,13 @@ class SignalEngine:
         sA = dfA.loc[commonIdx, 'closePrice'] if 'closePrice' in dfA.columns else dfA.loc[commonIdx].iloc[:, 0]
         sB = dfB.loc[commonIdx, 'closePrice'] if 'closePrice' in dfB.columns else dfB.loc[commonIdx].iloc[:, 0]
 
-        normData = self.calculateNormalizedSeries(sA, sB)
+        normData = self.calculateNormalizedSeries(
+            sA, sB,
+            fixedMinA=fixedMinA,
+            fixedMaxA=fixedMaxA,
+            fixedMinB=fixedMinB,
+            fixedMaxB=fixedMaxB
+        )
         normA = normData["normA"]
         normB = normData["normB"]
 

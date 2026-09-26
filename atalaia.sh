@@ -93,7 +93,7 @@ startServices() {
     # 2. Levantar MT5 Bridge si existe Wine Python (puerto 8005)
     if [ -f "$winePython" ]; then
         echo "⚡ Iniciando MT5 Wine Bridge en puerto 8005..."
-        if [ -z "$DISPLAY" ] && command -v xvfb-run &>/dev/null; then
+        if command -v xvfb-run &>/dev/null; then
             nohup xvfb-run -a wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
         else
             nohup env WINEDEBUG=-all wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" > "$logsDir/mt5_bridge_output.log" 2>&1 &
@@ -168,6 +168,21 @@ startServices() {
     if [ "$isDaemon" = "daemon" ] || [ "$isDaemon" = "--daemon" ]; then
         trap cleanupAndExit INT TERM
         while true; do
+            # Watchdog MT5 Wine Bridge (Puerto 8005)
+            if [ -f "$winePython" ]; then
+                if [ -z "$bridgePid" ] || ! kill -0 "$bridgePid" 2>/dev/null; then
+                    echo "⚠️ [Daemon Watchdog] MT5 Wine Bridge (PID $bridgePid) no responde o terminó. Reiniciando..."
+                    if command -v xvfb-run &>/dev/null; then
+                        nohup xvfb-run -a wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" >> "$logsDir/mt5_bridge_output.log" 2>&1 &
+                    else
+                        nohup env WINEDEBUG=-all wine "$winePython" "$scriptDir/middleware/api/mt5_bridge_server.py" >> "$logsDir/mt5_bridge_output.log" 2>&1 &
+                    fi
+                    bridgePid=$!
+                    disown $bridgePid 2>/dev/null || true
+                    echo "$bridgePid" > "$bridgePidFile"
+                fi
+            fi
+
             # Watchdog Backend FastAPI (Puerto 8004)
             if [ -n "$backendPid" ] && ! kill -0 "$backendPid" 2>/dev/null; then
                 echo "⚠️ [Daemon Watchdog] Backend FastAPI (PID $backendPid) no responde o terminó. Reiniciando..."

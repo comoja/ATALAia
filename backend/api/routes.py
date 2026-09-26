@@ -9,7 +9,7 @@ if rutaRaiz not in sys.path:
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import subprocess
 from urllib.parse import unquote
 import logging
@@ -131,13 +131,17 @@ class UserRatioCreate(BaseModel):
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     numerador: str = Field(..., description="Símbolo numerador (Par A)")
     denominador: str = Field(..., description="Símbolo denominador (Par B)")
-    periodo: str = Field(..., description="Periodo o temporalidad (ej. 1d, 1h)")
-    dias: Optional[int] = Field(180, description="Días hacia atrás")
+    Temporalidad: Optional[str] = Field(None, description="Temporalidad (ej. 1d, 1h)")
+    periodo: Optional[Union[int, str]] = Field(None, description="Periodo (int) o Temporalidad legacy (str)")
+    dias: Optional[int] = Field(None, description="Periodo / Días hacia atrás (legacy)")
     EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
     operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
     cierreDivergencia: Optional[bool] = Field(True, description="False = Cruce de precios, True = Divergencia (Default)")
     tipoEntrada: Optional[str] = Field("Selectiva", description="'Exhaustiva' o 'Selectiva'")
+    accionCierre: Optional[str] = Field("Continua", description="'Continua' o 'Para'")
+    startDate: Optional[str] = Field(None, description="Fecha Inicio de calibración")
+    fechaInicio: Optional[str] = Field(None, description="Fecha Inicio de calibración")
 
 class UserRatioDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
@@ -146,7 +150,7 @@ class UserRatioDelete(BaseModel):
     denominador: str = Field(..., description="Símbolo denominador (Par B)")
 
 @router.post("/user-ratios/guardar")
-def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
+async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
     """
     Guarda o actualiza (UPSERT) en user_ratios la relación entre idUsuario, idCuenta, numerador y denominador.
     """
@@ -167,22 +171,106 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
 
         emaRapida = payload.EMARapida if payload.EMARapida is not None else 3
         emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
-        dias = payload.dias if payload.dias is not None else 180
+        
+        # Resolver Temporalidad (string ej. '1h') y periodo (int ej. 180)
+        temporalidad_val = payload.Temporalidad
+        if not temporalidad_val and isinstance(payload.periodo, str) and not payload.periodo.isdigit():
+            temporalidad_val = payload.periodo
+        if not temporalidad_val:
+            temporalidad_val = "1h"
+
+        periodo_val = None
+        if isinstance(payload.periodo, int):
+            periodo_val = payload.periodo
+        elif isinstance(payload.periodo, str) and payload.periodo.isdigit():
+            periodo_val = int(payload.periodo)
+        elif payload.dias is not None:
+            periodo_val = payload.dias
+        else:
+            periodo_val = 180
+
+        dias = periodo_val
         operar = bool(payload.operar) if payload.operar is not None else False
         cierreDivergencia = bool(payload.cierreDivergencia) if payload.cierreDivergencia is not None else True
         tipoEntrada = str(payload.tipoEntrada) if payload.tipoEntrada else "Selectiva"
+        accionCierre = str(payload.accionCierre) if payload.accionCierre else "Continua"
+
+        # Calcular los límites históricos estáticos
+        # Bloqueo de fechas: Inicio = Fecha Inicio (pantalla de calibración), Fin = createdAt
+        fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
+        target_created_at = existingRatio.createdAt if (existingRatio and existingRatio.createdAt) else datetime.utcnow()
+        dt_end = target_created_at
+
+        try:
+            import pandas as pd
+            import pymysql
+            import asyncio
+
+            tf_lower = str(temporalidad_val).lower().strip()
+            is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+            
+            hrs_per_candle = 1
+            if "4h" in tf_lower: hrs_per_candle = 4
+            elif "15m" in tf_lower: hrs_per_candle = 0.25
+            elif "30m" in tf_lower: hrs_per_candle = 0.5
+            elif "5m" in tf_lower: hrs_per_candle = 0.0833
+            elif "1d" in tf_lower: hrs_per_candle = 24
+
+            start_date_param = payload.startDate or payload.fechaInicio
+            dt_start = None
+            if start_date_param:
+                try:
+                    dt_start = pd.to_datetime(start_date_param).tz_localize(None)
+                except Exception as ex_dt:
+                    logger.warning(f"Error parseando startDate en saveUserRatio: {ex_dt}")
+
+            if dt_start is None:
+                calendar_hours_needed = int(dias * hrs_per_candle * 1.55) + 48
+                dt_start = dt_end - timedelta(hours=calendar_hours_needed)
+
+            if is_intraday:
+                def query_intraday(sym):
+                    conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                    try:
+                        sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
+                        df = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                        if not df.empty:
+                            df['closePrice'] = pd.to_numeric(df['closePrice'], errors='coerce')
+                            return df
+                        return pd.DataFrame()
+                    finally:
+                        conn.close()
+                
+                dfA = await asyncio.to_thread(query_intraday, payload.numerador)
+                dfB = await asyncio.to_thread(query_intraday, payload.denominador)
+            else:
+                from middleware.database.dbManager import getStockPricesFromDb
+                dfA = await getStockPricesFromDb(symbol=payload.numerador, limit=dias)
+                dfB = await getStockPricesFromDb(symbol=payload.denominador, limit=dias)
+
+            if not dfA.empty and 'closePrice' in dfA.columns:
+                fixedMinA, fixedMaxA = float(dfA['closePrice'].min()), float(dfA['closePrice'].max())
+            if not dfB.empty and 'closePrice' in dfB.columns:
+                fixedMinB, fixedMaxB = float(dfB['closePrice'].min()), float(dfB['closePrice'].max())
+        except Exception as ex_lim:
+            logger.warning(f"No se pudieron calcular los limites estaticos para {payload.numerador}/{payload.denominador}: {ex_lim}")
 
         if existingRatio:
             existingRatio.idCuenta = cuentaId
-            existingRatio.periodo = payload.periodo
-            existingRatio.dias = dias
+            existingRatio.Temporalidad = temporalidad_val
+            existingRatio.periodo = periodo_val
             existingRatio.EMARapida = emaRapida
             existingRatio.EMALenta = emaLenta
             existingRatio.operar = operar
             existingRatio.cierreDivergencia = cierreDivergencia
             existingRatio.tipoEntrada = tipoEntrada
+            existingRatio.accionCierre = accionCierre
+            existingRatio.fixedMinA = fixedMinA
+            existingRatio.fixedMaxA = fixedMaxA
+            existingRatio.fixedMinB = fixedMinB
+            existingRatio.fixedMaxB = fixedMaxB
             existingRatio.borrado = False
-            existingRatio.createdAt = datetime.utcnow()
+            existingRatio.createdAt = target_created_at
             db.commit()
             db.refresh(existingRatio)
             logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, CierreDivergencia: {cierreDivergencia}, Borrado: False]")
@@ -193,15 +281,20 @@ def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
                 idCuenta=cuentaId,
                 numerador=payload.numerador,
                 denominador=payload.denominador,
-                periodo=payload.periodo,
-                dias=dias,
+                Temporalidad=temporalidad_val,
+                periodo=periodo_val,
                 EMARapida=emaRapida,
                 EMALenta=emaLenta,
                 operar=operar,
                 cierreDivergencia=cierreDivergencia,
                 tipoEntrada=tipoEntrada,
+                accionCierre=accionCierre,
+                fixedMinA=fixedMinA,
+                fixedMaxA=fixedMaxA,
+                fixedMinB=fixedMinB,
+                fixedMaxB=fixedMaxB,
                 borrado=False,
-                createdAt=datetime.utcnow()
+                createdAt=target_created_at
             )
             db.add(nuevoRatio)
             db.commit()
@@ -269,6 +362,8 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "idCuenta": ratio.idCuenta,
         "numerador": ratio.numerador,
         "denominador": ratio.denominador,
+        "Temporalidad": getattr(ratio, "Temporalidad", None) or "1h",
+        "temporalidad": getattr(ratio, "Temporalidad", None) or "1h",
         "periodo": ratio.periodo,
         "dias": ratio.dias if getattr(ratio, 'dias', None) is not None else 180,
         "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
@@ -276,6 +371,7 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "operar": bool(ratio.operar) if getattr(ratio, 'operar', None) is not None else False,
         "cierreDivergencia": bool(getattr(ratio, 'cierreDivergencia', True) if getattr(ratio, 'cierreDivergencia', None) is not None else True),
         "tipoEntrada": getattr(ratio, 'tipoEntrada', 'Selectiva') or 'Selectiva',
+        "accionCierre": getattr(ratio, 'accionCierre', 'Continua') or 'Continua',
         "createdAt": ratio.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -1311,13 +1407,16 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "idCuenta": r.idCuenta,
             "numerador": r.numerador,
             "denominador": r.denominador,
-            "periodo": r.periodo,
-            "dias": r.dias,
+            "Temporalidad": getattr(r, "Temporalidad", None) or getattr(r, "periodo", "1h"),
+            "temporalidad": getattr(r, "Temporalidad", None) or getattr(r, "periodo", "1h"),
+            "periodo": getattr(r, "periodo", None) if isinstance(getattr(r, "periodo", None), int) else getattr(r, "dias", 180),
+            "dias": getattr(r, "periodo", None) if isinstance(getattr(r, "periodo", None), int) else getattr(r, "dias", 180),
             "EMARapida": r.EMARapida,
             "EMALenta": r.EMALenta,
             "operar": r.operar,
             "cierreDivergencia": bool(getattr(r, "cierreDivergencia", True) if getattr(r, "cierreDivergencia", None) is not None else True),
             "tipoEntrada": getattr(r, "tipoEntrada", "Selectiva") or "Selectiva",
+            "accionCierre": getattr(r, "accionCierre", "Continua") or "Continua",
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -1392,7 +1491,9 @@ async def get_ratio_correlation(
     tf: str = "1d",
     days: Optional[int] = None,
     start_date: str = "",
-    end_date: str = ""
+    end_date: str = "",
+    idCuenta: Optional[int] = None,
+    isBacktest: bool = False
 ) -> Dict[str, Any]:
     """
     Calcula el ratio sintético (Par A / Par B) y aplica el modelo completo.
@@ -1405,6 +1506,51 @@ async def get_ratio_correlation(
     # Decodificar por si el cliente envía los pares URL-encodificados (ej. AUD%2FUSD → AUD/USD)
     pairA = unquote(pairA)
     pairB = unquote(pairB)
+    if start_date:
+        start_date = unquote(unquote(str(start_date))).strip()
+    if end_date:
+        end_date = unquote(unquote(str(end_date))).strip()
+
+    # Buscar límites fijos en BD si el ratio existe, para anclar gráficas y periodo
+    fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
+    fixedCreatedAt = None
+    fixedDias = None
+    try:
+        from backend.database.models import SessionLocal, UserRatio
+        with SessionLocal() as r_db:
+            q = r_db.query(UserRatio).filter(
+                UserRatio.numerador == pairA,
+                UserRatio.denominador == pairB,
+                (UserRatio.borrado == False) | (UserRatio.borrado == None)
+            )
+            if idCuenta:
+                q = q.filter(UserRatio.idCuenta == idCuenta)
+            existing_r = q.order_by(UserRatio.id.desc()).first()
+            if not existing_r:
+                q_inv = r_db.query(UserRatio).filter(
+                    UserRatio.numerador == pairB,
+                    UserRatio.denominador == pairA,
+                    (UserRatio.borrado == False) | (UserRatio.borrado == None)
+                )
+                if idCuenta:
+                    q_inv = q_inv.filter(UserRatio.idCuenta == idCuenta)
+                existing_r = q_inv.order_by(UserRatio.id.desc()).first()
+            
+            if existing_r:
+                fixedCreatedAt = existing_r.createdAt
+                fixedDias = existing_r.periodo
+                if existing_r.numerador == pairA:
+                    fixedMinA = existing_r.fixedMinA
+                    fixedMaxA = existing_r.fixedMaxA
+                    fixedMinB = existing_r.fixedMinB
+                    fixedMaxB = existing_r.fixedMaxB
+                else:
+                    fixedMinA = existing_r.fixedMinB
+                    fixedMaxA = existing_r.fixedMaxB
+                    fixedMinB = existing_r.fixedMinA
+                    fixedMaxB = existing_r.fixedMaxA
+    except Exception as e_lim:
+        logger.warning(f"Error consultando limites fijos: {e_lim}")
 
     try:
         candle_limit = 100000
@@ -1429,6 +1575,10 @@ async def get_ratio_correlation(
             if start_date:
                 dt_req_start = pd.to_datetime(start_date).tz_localize(None)
                 # Incluir buffer hacia atrás para que los indicadores (volatilidad de 60 periodos) tengan datos previos
+                dt_start = dt_req_start - timedelta(hours=int(warmup_bars * hrs_per_candle * 1.55) + 48)
+            elif fixedCreatedAt is not None:
+                dias_int = int(fixedDias) if fixedDias else 180
+                dt_req_start = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(hours=int(dias_int * hrs_per_candle))
                 dt_start = dt_req_start - timedelta(hours=int(warmup_bars * hrs_per_candle * 1.55) + 48)
             else:
                 dt_start = datetime.now() - timedelta(hours=calendar_hours_needed)
@@ -1508,25 +1658,58 @@ async def get_ratio_correlation(
         if len(df_b_daily) > 1 and live_b is not None:
             df_b_daily.iloc[-1, df_b_daily.columns.get_loc('closePrice')] = live_b
 
-        if days and days > 0:
-            df_a_daily = df_a_daily.tail(days + 70)
-            df_b_daily = df_b_daily.tail(days + 70)
-        elif start_date or end_date:
+        # Alinear fechas comunes
+        common_idx = df_a_daily.index.intersection(df_b_daily.index)
+        if len(common_idx) > 0:
+            df_a_daily = df_a_daily.loc[common_idx]
+            df_b_daily = df_b_daily.loc[common_idx]
+
+        dt_start_slice = None
+        import pandas as pd
+        
+        # 1. Determinar dt_start_slice a partir de start_date o fixedCreatedAt
+        if start_date:
             try:
-                import pandas as pd
-                dt_start_filter = pd.to_datetime(start_date).tz_localize(None) if start_date else pd.Timestamp.min
-                dt_end_filter = pd.to_datetime(end_date).tz_localize(None) if end_date else pd.Timestamp.max
-                
-                df_a_daily.index = df_a_daily.index.tz_localize(None)
-                df_b_daily.index = df_b_daily.index.tz_localize(None)
-                
-                df_a_filtered = df_a_daily.loc[dt_start_filter:dt_end_filter]
-                df_b_filtered = df_b_daily.loc[dt_start_filter:dt_end_filter]
-                if not df_a_filtered.empty and not df_b_filtered.empty:
-                    df_a_daily = df_a_filtered
-                    df_b_daily = df_b_filtered
+                dt_start_slice = pd.to_datetime(start_date).tz_localize(None)
             except Exception as e:
-                logger.warning(f"Error parseando fechas en optimize: {e}")
+                logger.warning(f"Error parseando start_date: {e}")
+        elif fixedCreatedAt is not None:
+            try:
+                dias_int = int(fixedDias) if fixedDias else 180
+                if "1h" in tf_lower:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(hours=dias_int)
+                elif "4h" in tf_lower:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(hours=dias_int * 4)
+                elif "15min" in tf_lower:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 15)
+                elif "30min" in tf_lower:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 30)
+                elif "5min" in tf_lower:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 5)
+                else:
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(days=dias_int)
+            except Exception as e:
+                logger.warning(f"Error parseando fixedCreatedAt: {e}")
+        elif days and days > 0:
+            # Si no hay fechas, pero hay days y queremos recortar aproximadamente (solo para vistas por defecto)
+            try:
+                df_a_daily = df_a_daily.tail(days + 70)
+                df_b_daily = df_b_daily.tail(days + 70)
+            except Exception:
+                pass
+
+        # Opcionalmente podemos forzar recorte del FINAL si hay end_date
+        if end_date and not isBacktest:
+            try:
+                dt_end_filter = pd.to_datetime(end_date).tz_localize(None)
+                # Alargar dt_end_filter al final del dia si es fecha corta
+                if len(end_date.strip()) <= 10:
+                    dt_end_filter = dt_end_filter.replace(hour=23, minute=59, second=59)
+                df_a_daily = df_a_daily.loc[:dt_end_filter]
+                df_b_daily = df_b_daily.loc[:dt_end_filter]
+            except Exception:
+                pass
+
         df_a_daily = df_a_daily.rename(columns={'closePrice': 'close'})
         df_b_daily = df_b_daily.rename(columns={'closePrice': 'close'})
 
@@ -1544,12 +1727,29 @@ async def get_ratio_correlation(
             smaPeriod=smaPeriod,
             emaSlowPeriod=emaSlowPeriod
         )
+        
+        logger.info(f"DEBUG RATIO: dt_start_slice={dt_start_slice}, df_a_daily len={len(df_a_daily)}, hist len={len(resultado.get('history', []))}, fixedCreatedAt={fixedCreatedAt}, dias_int={fixedDias}")
+        # Filtramos history data para que la gráfica inicie exactamente en dt_start_slice y sin nulos extraños
+        if resultado.get("success") and "history" in resultado and dt_start_slice is not None:
+            import pandas as pd
+            filtered_history = []
+            for item in resultado["history"]:
+                item_dt = pd.to_datetime(item["datetime"])
+                if item_dt >= dt_start_slice:
+                    filtered_history.append(item)
+            logger.info(f"DEBUG RATIO: filtered_history len={len(filtered_history)}")
+            resultado["history"] = filtered_history
 
         # Añadir metadata del ratio al response para el frontend
         if resultado.get("success"):
             resultado["pairA"] = pairA
             resultado["pairB"] = pairB
             resultado["ratioLabel"] = f"{pairA} / {pairB}"
+            resultado["fixedMinA"] = fixedMinA
+            resultado["fixedMaxA"] = fixedMaxA
+            resultado["fixedMinB"] = fixedMinB
+            resultado["fixedMaxB"] = fixedMaxB
+            resultado["createdAt"] = str(fixedCreatedAt) if fixedCreatedAt else None
             
             # Lógica de la señal de arbitraje basada en el Ciclo Sinusoidal calibrado
             latest_data = resultado.get("latest", {})
@@ -1589,7 +1789,7 @@ async def get_ratio_correlation(
                     except Exception as e:
                         logger.warning(f"Error parseando fechas para el filtro: {e}")
                 
-                if days and days > 0 and len(history_real) > days:
+                if days and days > 0 and not start_date and not fixedCreatedAt and len(history_real) > days:
                     history_real = history_real[-days:]
 
                 # Historial real sin proyecciones
@@ -1861,7 +2061,7 @@ async def receive_tradingview_signal(payload: TradingViewSignal) -> Dict[str, An
     from middleware.database import dbManager
     from middleware.execution.broker_gateway import gateway
     from middleware.utils.alertBuilder import getPipMultiplier
-    import datetime
+#     import datetime
     
     # 1. Obtener la cuenta desde la base de datos
     accounts = dbManager.getAccount(payload.idCuenta)
@@ -2171,37 +2371,143 @@ async def get_cruces_ema_pair_analysis(
     isBacktest: bool = True,
     comisionPct: Optional[float] = None,
     tipoEntrada: Optional[str] = "Selectiva",
-    cierreDivergencia: Optional[bool] = True
+    cierreDivergencia: Optional[bool] = True,
+    calibDays: Optional[int] = None,
+    calibStartDate: Optional[str] = None,
+    calibEndDate: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Endpoint de Análisis y Backtest de Cruces EMA (Triángulos, Cuadros y Círculos).
     Proporciona métricas, curva de equidad y bitácora detallada de trades para la UI.
+    Para el caso de backtest se toman los máximos/mínimos del plazo establecido en Estrategia
+    de Ratio y se proyectan desde el día de hoy hacia atrás 4 meses de modo que el max del plazo = 1.0.
     """
     pairA = unquote(pairA)
     pairB = unquote(pairB)
+    if start_date:
+        start_date = unquote(unquote(str(start_date))).strip()
+    if end_date:
+        end_date = unquote(unquote(str(end_date))).strip()
+    if calibStartDate:
+        calibStartDate = unquote(unquote(str(calibStartDate))).strip()
+    if calibEndDate:
+        calibEndDate = unquote(unquote(str(calibEndDate))).strip()
 
     try:
         import pandas as pd
         candle_limit = 100000
         tf_lower = str(timeframe).lower().strip()
         is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+        
+        # Buscar límites fijos en BD si el ratio existe, para anclar gráficas y periodo
+        fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
+        fixedCreatedAt = None
+        fixedDias = None
+        try:
+            from backend.database.models import SessionLocal, UserRatio
+            with SessionLocal() as r_db:
+                q = r_db.query(UserRatio).filter(
+                    UserRatio.numerador == pairA,
+                    UserRatio.denominador == pairB,
+                    (UserRatio.borrado == False) | (UserRatio.borrado == None)
+                )
+                if idCuenta:
+                    q = q.filter(UserRatio.idCuenta == idCuenta)
+                existing_r = q.order_by(UserRatio.id.desc()).first()
+                if not existing_r:
+                    q_inv = r_db.query(UserRatio).filter(
+                        UserRatio.numerador == pairB,
+                        UserRatio.denominador == pairA,
+                        (UserRatio.borrado == False) | (UserRatio.borrado == None)
+                    )
+                    if idCuenta:
+                        q_inv = q_inv.filter(UserRatio.idCuenta == idCuenta)
+                    existing_r = q_inv.order_by(UserRatio.id.desc()).first()
+                
+                if existing_r:
+                    fixedCreatedAt = existing_r.createdAt
+                    fixedDias = existing_r.periodo
+                    
+                    if existing_r.numerador == pairA:
+                        if existing_r.fixedMinA is not None: fixedMinA = float(existing_r.fixedMinA)
+                        if existing_r.fixedMaxA is not None: fixedMaxA = float(existing_r.fixedMaxA)
+                        if existing_r.fixedMinB is not None: fixedMinB = float(existing_r.fixedMinB)
+                        if existing_r.fixedMaxB is not None: fixedMaxB = float(existing_r.fixedMaxB)
+                    else:
+                        if existing_r.fixedMinB is not None: fixedMinA = float(existing_r.fixedMinB)
+                        if existing_r.fixedMaxB is not None: fixedMaxA = float(existing_r.fixedMaxB)
+                        if existing_r.fixedMinA is not None: fixedMinB = float(existing_r.fixedMinA)
+                        if existing_r.fixedMaxA is not None: fixedMaxB = float(existing_r.fixedMaxA)
+        except Exception as e_lim:
+            logger.warning(f"Error consultando limites fijos en pair_analysis: {e_lim}")
+
+        # Determinar fecha fin
+        if end_date:
+            try:
+                dt_end = pd.to_datetime(end_date).tz_localize(None)
+                if len(str(end_date).strip()) <= 10 or (dt_end.hour == 0 and dt_end.minute == 0 and dt_end.second == 0):
+                    now_dt = datetime.now()
+                    if dt_end.date() >= now_dt.date():
+                        dt_end = now_dt + timedelta(minutes=5)
+                    else:
+                        dt_end = dt_end.replace(hour=23, minute=59, second=59)
+            except Exception:
+                dt_end = datetime.now()
+        else:
+            dt_end = datetime.now()
 
         if is_intraday:
-            # Cargar historial de velas intradía desde la tabla candles (5min -> resampled)
-            if start_date and isBacktest:
-                dt_start = pd.to_datetime(start_date).tz_localize(None)
-            elif not isBacktest:
-                # Modo liviano para cálculo rápido de denominadores en dashboard
-                hrs = (days if days else 120) * (4 if "4h" in tf_lower else 1)
-                dt_start = datetime.now() - timedelta(hours=hrs + 96)
-            else:
-                # Backtesting institucional: siempre 4 meses por default (120 días naturales)
-                dt_start = datetime.now() - timedelta(days=120)
+            if isBacktest:
+                # Regla institucional: el backtest proyecta hacia atrás 4 meses desde hoy (o start_date solicitada)
+                if start_date:
+                    try:
+                        dt_start_raw = pd.to_datetime(start_date).tz_localize(None)
+                    except Exception:
+                        dt_start_raw = dt_end - timedelta(days=120)
+                else:
+                    dt_start_raw = dt_end - timedelta(days=120)
 
-            if end_date:
-                dt_end = pd.to_datetime(end_date).tz_localize(None)
+                dt_start_slice = dt_start_raw
+
+                # Buffer de 100 periodos para calentamiento de EMAs
+                query_periods = 100
+                if "1h" in tf_lower:
+                    dt_start = dt_start_raw - timedelta(hours=query_periods)
+                elif "4h" in tf_lower:
+                    dt_start = dt_start_raw - timedelta(hours=query_periods * 4)
+                elif "15min" in tf_lower or "15m" in tf_lower:
+                    dt_start = dt_start_raw - timedelta(minutes=query_periods * 15)
+                elif "30min" in tf_lower or "30m" in tf_lower:
+                    dt_start = dt_start_raw - timedelta(minutes=query_periods * 30)
+                elif "5min" in tf_lower or "5m" in tf_lower:
+                    dt_start = dt_start_raw - timedelta(minutes=query_periods * 5)
+                else:
+                    dt_start = dt_start_raw - timedelta(days=query_periods)
+            elif fixedCreatedAt is not None:
+                dias_int = int(fixedDias) if fixedDias else 180
+                query_periods = dias_int + 100
+                if "1h" in tf_lower:
+                    dt_start = fixedCreatedAt - timedelta(hours=query_periods)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(hours=dias_int)
+                elif "4h" in tf_lower:
+                    dt_start = fixedCreatedAt - timedelta(hours=query_periods * 4)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(hours=dias_int * 4)
+                elif "15min" in tf_lower or "15m" in tf_lower:
+                    dt_start = fixedCreatedAt - timedelta(minutes=query_periods * 15)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 15)
+                elif "30min" in tf_lower or "30m" in tf_lower:
+                    dt_start = fixedCreatedAt - timedelta(minutes=query_periods * 30)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 30)
+                elif "5min" in tf_lower or "5m" in tf_lower:
+                    dt_start = fixedCreatedAt - timedelta(minutes=query_periods * 5)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(minutes=dias_int * 5)
+                else:
+                    dt_start = fixedCreatedAt - timedelta(days=query_periods)
+                    dt_start_slice = pd.to_datetime(fixedCreatedAt).tz_localize(None) - timedelta(days=dias_int)
             else:
-                dt_end = datetime.now() + timedelta(days=1)
+                hrs = (days if days else 120) * (4 if "4h" in tf_lower else 1)
+                dt_start = dt_end - timedelta(hours=hrs + 96)
+                dt_start_slice = dt_end - timedelta(hours=hrs)
 
             def query_candles_for_pair(sym: str):
                 import pymysql
@@ -2235,6 +2541,10 @@ async def get_cruces_ema_pair_analysis(
         else:
             df_a = await getStockPricesFromDb(symbol=pairA, limit=candle_limit)
             df_b = await getStockPricesFromDb(symbol=pairB, limit=candle_limit)
+            if isBacktest:
+                dt_start_slice = dt_end - timedelta(days=120)
+            else:
+                dt_start_slice = None
 
         if df_a.empty or df_b.empty:
             raise HTTPException(status_code=404, detail="Datos no encontrados para uno de los pares")
@@ -2287,18 +2597,6 @@ async def get_cruces_ema_pair_analysis(
         df_a_tf = df_a_tf.loc[common_idx]
         df_b_tf = df_b_tf.loc[common_idx]
 
-        if start_date and end_date and isBacktest:
-            try:
-                dt_start = pd.to_datetime(start_date, utc=True).tz_localize(None)
-                dt_end = pd.to_datetime(end_date, utc=True).tz_localize(None)
-                df_a_tf = df_a_tf.loc[dt_start:dt_end]
-                df_b_tf = df_b_tf.loc[dt_start:dt_end]
-            except Exception as e:
-                logger.warning(f"Error recortando fechas en pair-analysis: {e}")
-        elif (not isBacktest or not is_intraday) and days and days > 0:
-            df_a_tf = df_a_tf.tail(days)
-            df_b_tf = df_b_tf.tail(days)
-
         # Consultar capital real de cuenta y parámetros institucionales de symbols
         account_capital = float(capital) if capital and capital > 0 else 10000.0
         allocation_pct = 3.0
@@ -2347,7 +2645,75 @@ async def get_cruces_ema_pair_analysis(
         except Exception as ex_db:
             logger.warning(f"Error consultando cuenta/symbols en BD: {ex_db}")
 
+        # Asegurar los máximos y mínimos del plazo establecido en Estrategia de Ratio
+        calib_start_reported = None
+        calib_end_reported = None
+
+        if fixedMinA is None or fixedMaxA is None or fixedMinB is None or fixedMaxB is None:
+            # Determinar ventana del plazo establecido en Estrategia de Ratio
+            dt_calib_end = pd.to_datetime(calibEndDate).tz_localize(None) if calibEndDate else (
+                pd.to_datetime(fixedCreatedAt).tz_localize(None) if fixedCreatedAt is not None else dt_end
+            )
+            calib_periods = int(calibDays) if calibDays else (int(fixedDias) if fixedDias else (days if days and days < 1000 else 180))
+            if calibStartDate:
+                try:
+                    dt_calib_start = pd.to_datetime(calibStartDate).tz_localize(None)
+                except Exception:
+                    dt_calib_start = None
+            else:
+                dt_calib_start = None
+
+            if dt_calib_start is None:
+                if "1h" in tf_lower:
+                    dt_calib_start = dt_calib_end - timedelta(hours=calib_periods)
+                elif "4h" in tf_lower:
+                    dt_calib_start = dt_calib_end - timedelta(hours=calib_periods * 4)
+                elif "15min" in tf_lower or "15m" in tf_lower:
+                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 15)
+                elif "30min" in tf_lower or "30m" in tf_lower:
+                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 30)
+                elif "5min" in tf_lower or "5m" in tf_lower:
+                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 5)
+                else:
+                    dt_calib_start = dt_calib_end - timedelta(days=calib_periods)
+
+            calib_start_reported = str(dt_calib_start)
+            calib_end_reported = str(dt_calib_end)
+
+            calib_mask = (df_a_tf.index >= dt_calib_start) & (df_a_tf.index <= dt_calib_end)
+            if calib_mask.sum() > 0:
+                sA_calib = df_a_tf.loc[calib_mask, 'closePrice'] if 'closePrice' in df_a_tf.columns else df_a_tf.loc[calib_mask].iloc[:, 0]
+                sB_calib = df_b_tf.loc[calib_mask, 'closePrice'] if 'closePrice' in df_b_tf.columns else df_b_tf.loc[calib_mask].iloc[:, 0]
+                fixedMinA = float(sA_calib.min())
+                fixedMaxA = float(sA_calib.max())
+                fixedMinB = float(sB_calib.min())
+                fixedMaxB = float(sB_calib.max())
+            else:
+                def query_calib_window(sym):
+                    import pymysql
+                    conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                    try:
+                        sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
+                        df_c = pd.read_sql(sql, conn, params=(sym, dt_calib_start.strftime('%Y-%m-%d %H:%M:%S'), dt_calib_end.strftime('%Y-%m-%d %H:%M:%S')))
+                        if not df_c.empty:
+                            df_c['closePrice'] = pd.to_numeric(df_c['closePrice'], errors='coerce')
+                            return df_c
+                        return pd.DataFrame()
+                    finally:
+                        conn.close()
+                if is_intraday:
+                    dfA_c = await asyncio.to_thread(query_calib_window, pairA)
+                    dfB_c = await asyncio.to_thread(query_calib_window, pairB)
+                    if not dfA_c.empty:
+                        fixedMinA, fixedMaxA = float(dfA_c['closePrice'].min()), float(dfA_c['closePrice'].max())
+                    if not dfB_c.empty:
+                        fixedMinB, fixedMaxB = float(dfB_c['closePrice'].min()), float(dfB_c['closePrice'].max())
+        else:
+            calib_start_reported = str(fixedCreatedAt - timedelta(hours=int(fixedDias))) if fixedCreatedAt and fixedDias else None
+            calib_end_reported = str(fixedCreatedAt) if fixedCreatedAt else None
+
         # Ejecución del Backtest de Cruces EMA (Modo 1: Solo Triángulos / Modo 2: Triángulos + Cuadros)
+        # Normalización proyectada con fixedMinA/MaxA/MinB/MaxB del plazo establecido en Estrategia de Ratio
         trianglesOnlyBt = cruceEmaEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
             pairA=pairA, pairB=pairB,
@@ -2367,7 +2733,12 @@ async def get_cruces_ema_pair_analysis(
             commissionBps=commissionBps,
             slippageBps=slippageBps,
             cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
-            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva"
+            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva",
+            fixedMinA=float(fixedMinA) if fixedMinA is not None else None,
+            fixedMaxA=float(fixedMaxA) if fixedMaxA is not None else None,
+            fixedMinB=float(fixedMinB) if fixedMinB is not None else None,
+            fixedMaxB=float(fixedMaxB) if fixedMaxB is not None else None,
+            dtStartSlice=dt_start_slice
         )
         combinedBt = cruceEmaEngine.runSignalBacktest(
             df_a_tf, df_b_tf,
@@ -2388,12 +2759,24 @@ async def get_cruces_ema_pair_analysis(
             commissionBps=commissionBps,
             slippageBps=slippageBps,
             cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
-            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva"
+            tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva",
+            fixedMinA=float(fixedMinA) if fixedMinA is not None else None,
+            fixedMaxA=float(fixedMaxA) if fixedMaxA is not None else None,
+            fixedMinB=float(fixedMinB) if fixedMinB is not None else None,
+            fixedMaxB=float(fixedMaxB) if fixedMaxB is not None else None,
+            dtStartSlice=dt_start_slice
         )
 
-        common_bt_idx = df_a_tf.index.intersection(df_b_tf.index)
-        sA = df_a_tf.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_a_tf.columns else df_a_tf.loc[common_bt_idx].iloc[:, 0]
-        sB = df_b_tf.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_b_tf.columns else df_b_tf.loc[common_bt_idx].iloc[:, 0]
+        if dt_start_slice is not None:
+            df_a_tf_slice = df_a_tf.loc[dt_start_slice:dt_end]
+            df_b_tf_slice = df_b_tf.loc[dt_start_slice:dt_end]
+        else:
+            df_a_tf_slice = df_a_tf
+            df_b_tf_slice = df_b_tf
+
+        common_bt_idx = df_a_tf_slice.index.intersection(df_b_tf_slice.index)
+        sA = df_a_tf_slice.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_a_tf_slice.columns else df_a_tf_slice.loc[common_bt_idx].iloc[:, 0]
+        sB = df_b_tf_slice.loc[common_bt_idx, 'closePrice'] if 'closePrice' in df_b_tf_slice.columns else df_b_tf_slice.loc[common_bt_idx].iloc[:, 0]
         history_backtest = []
         for idx_dt, pa, pb in zip(common_bt_idx, sA, sB):
             dt_str = idx_dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx_dt, "strftime") else str(idx_dt)
@@ -2425,6 +2808,13 @@ async def get_cruces_ema_pair_analysis(
             "marginCappedCycles": combinedBt.get("marginCappedCycles", 0),
             "totalStoppedEntries": combinedBt.get("totalStoppedEntries", 0),
             "emaRapida": smaPeriod,
+            "fixedMinA": fixedMinA,
+            "fixedMaxA": fixedMaxA,
+            "fixedMinB": fixedMinB,
+            "fixedMaxB": fixedMaxB,
+            "createdAt": str(fixedCreatedAt) if fixedCreatedAt else None,
+            "calibStartDate": calib_start_reported,
+            "calibEndDate": calib_end_reported,
             "history": history_backtest,
             "signalBacktest": {
                 "trianglesOnly": trianglesOnlyBt,
@@ -2522,6 +2912,235 @@ async def get_cruces_ema_denominators_return(
     except Exception as e:
         logger.error(f"Error en get_cruces_ema_denominators_return: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cruces-ema/denominators-optimization/{pairA:path}")
+async def get_cruces_ema_denominators_optimization(
+    pairA: str,
+    timeframe: str = "1h",
+    idCuenta: Optional[int] = None,
+    capital: Optional[float] = None,
+    leverage: float = 100.0,
+    smaPeriod: int = 2,
+    sigmaWindow: int = 30,
+    candidate_periods: Optional[str] = "45,60,75,90,105,120,150,180,240,360",
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Escanea y optimiza de manera vectorizada y en memoria todos los denominadores
+    compatibles respecto a pairA para temporalidad 1h, evaluando los periodos candidatos
+    para encontrar la calibracion optima bajo el Criterio B:
+    - 100% Win Rate (losingTrades == 0, winningTrades > 0, netProfit > 0)
+    - Maximo beneficio neto entre las que cumplan 0 perdidas.
+    """
+    pairA = unquote(pairA)
+    try:
+        if idCuenta:
+            cuenta_obj = db.query(Cuenta).filter(Cuenta.idCuenta == idCuenta).first()
+            if cuenta_obj:
+                if capital is None or capital <= 0:
+                    capital = float(cuenta_obj.balance) if cuenta_obj.balance else 10000.0
+                leverage = float(cuenta_obj.apalancamiento) if cuenta_obj.apalancamiento else leverage
+
+        if capital is None or capital <= 0:
+            capital = 10000.0
+
+        pares_activos = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
+        denominadores = [p.symbol for p in pares_activos if p.symbol != pairA]
+        all_symbols = [pairA] + denominadores
+
+        # Cargar metadata institucional de simbolos
+        sym_rows = db.execute(text("SELECT symbol, min_lots, margen, pip, quote_currency FROM symbols")).fetchall()
+        sym_meta = {}
+        for r in sym_rows:
+            clean_s = str(r[0]).upper().replace("/", "")
+            sym_meta[clean_s] = {
+                "min_lots": float(r[1]) if r[1] is not None else 1000.0,
+                "margen": float(r[2]) if r[2] is not None else 1.0,
+                "pip": float(r[3]) if r[3] is not None else 0.0001,
+                "quote": str(r[4]) if r[4] is not None else "USD"
+            }
+
+        # Parsear periodos candidatos
+        if candidate_periods:
+            try:
+                periods_list = [int(p.strip()) for p in candidate_periods.split(",") if p.strip().isdigit()]
+            except Exception:
+                periods_list = [45, 60, 75, 90, 105, 120, 150, 180, 240, 360]
+        else:
+            periods_list = [45, 60, 75, 90, 105, 120, 150, 180, 240, 360]
+
+        max_period = max(periods_list) if periods_list else 360
+
+        # Cargar velas de 5min y remuestrear a 1h para todos los simbolos
+        def fetch_and_resample_all():
+            import pymysql
+            conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+            try:
+                dt_end = datetime.now()
+                dt_start = dt_end - timedelta(hours=max_period * 2 + 96)
+                placeholders = ",".join(["%s"] * len(all_symbols))
+                sql = f"""
+                    SELECT symbol, timestamp, close as closePrice
+                    FROM candles
+                    WHERE symbol IN ({placeholders}) AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                    ORDER BY timestamp ASC
+                """
+                params = tuple(all_symbols) + (dt_start.strftime("%Y-%m-%d %H:%M:%S"), dt_end.strftime("%Y-%m-%d %H:%M:%S"))
+                df_raw = pd.read_sql(sql, conn, params=params)
+                if df_raw.empty:
+                    return {}
+                res_dict = {}
+                for sym, g in df_raw.groupby("symbol"):
+                    df_sym = g.copy()
+                    df_sym["timestamp"] = pd.to_datetime(df_sym["timestamp"])
+                    df_sym = df_sym.set_index("timestamp")
+                    df_sym["closePrice"] = pd.to_numeric(df_sym["closePrice"], errors="coerce")
+                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "30min": "30min"}
+                    rule = rule_map.get(timeframe.lower(), "1h")
+                    res_dict[sym] = df_sym.resample(rule).agg({"closePrice": "last"}).dropna()
+                return res_dict
+            finally:
+                conn.close()
+
+        symbol_dfs = await asyncio.to_thread(fetch_and_resample_all)
+
+        dfA = symbol_dfs.get(pairA)
+        if dfA is None or len(dfA) < 35:
+            # Fallback a getStockPricesFromDb si candles no contiene suficientes velas
+            dfA = await getStockPricesFromDb(symbol=pairA, limit=max_period * 2)
+            if not dfA.empty and "closePrice" in dfA.columns:
+                dfA["timestamp"] = pd.to_datetime(dfA["date"] if "date" in dfA.columns else dfA.index)
+                dfA = dfA.set_index("timestamp")
+
+        if dfA is None or len(dfA) < 35:
+            raise HTTPException(status_code=404, detail=f"No hay suficientes datos historicos para el par base {pairA}")
+
+        metaA = sym_meta.get(pairA.upper().replace("/", ""), {})
+        min_lots_a = metaA.get("min_lots", 1000.0)
+        margen_pct_a = metaA.get("margen", 1.0)
+        pip_a = metaA.get("pip", 0.0001)
+        quote_a = metaA.get("quote", "USD")
+
+        recommendations = {}
+
+        def evaluate_denominator(pairB: str):
+            dfB = symbol_dfs.get(pairB)
+            if dfB is None or len(dfB) < 35:
+                return pairB, None
+            metaB = sym_meta.get(pairB.upper().replace("/", ""), {})
+            min_lots_b = metaB.get("min_lots", 1000.0)
+            margen_pct_b = metaB.get("margen", 1.0)
+            pip_b = metaB.get("pip", 0.0001)
+            quote_b = metaB.get("quote", "USD")
+
+            common = dfA.index.intersection(dfB.index)
+            if len(common) < 35:
+                return pairB, None
+
+            subA = dfA.loc[common]
+            subB = dfB.loc[common]
+
+            best_zero_loss = None
+            best_any = None
+
+            for p in periods_list:
+                if len(common) < p:
+                    continue
+                sliceA = subA.iloc[-p:]
+                sliceB = subB.iloc[-p:]
+                fixedMinA, fixedMaxA = float(sliceA["closePrice"].min()), float(sliceA["closePrice"].max())
+                fixedMinB, fixedMaxB = float(sliceB["closePrice"].min()), float(sliceB["closePrice"].max())
+
+                try:
+                    bt = cruceEmaEngine.runSignalBacktest(
+                        sliceA, sliceB,
+                        pairA=pairA, pairB=pairB,
+                        smaPeriod=smaPeriod, sigmaWindow=sigmaWindow,
+                        includeBoxes=True,
+                        initialCapital=capital,
+                        allocationPct=3.0,
+                        minLotsA=min_lots_a, minLotsB=min_lots_b,
+                        margenPctA=margen_pct_a, margenPctB=margen_pct_b,
+                        pipA=pip_a, pipB=pip_b,
+                        quoteA=quote_a, quoteB=quote_b,
+                        cierreDivergencia=True,
+                        fixedMinA=fixedMinA, fixedMaxA=fixedMaxA,
+                        fixedMinB=fixedMinB, fixedMaxB=fixedMaxB
+                    )
+                    losses = int(bt.get("losingTrades", 0))
+                    wins = int(bt.get("winningTrades", 0))
+                    netProf = round(float(bt.get("netProfit", 0.0)), 2)
+                    retPct = round(float(bt.get("totalReturnPct", 0.0)), 2)
+                    trades = int(bt.get("totalTrades", 0))
+                    wr = round(float(bt.get("winRate", 0.0)), 2)
+
+                    cand = {
+                        "period": p,
+                        "timeframe": timeframe,
+                        "totalTrades": trades,
+                        "winningTrades": wins,
+                        "losingTrades": losses,
+                        "winRate": wr,
+                        "netProfit": netProf,
+                        "totalReturnPct": retPct
+                    }
+
+                    # Criterio B: Cero pérdidas y ganancia continua/positiva
+                    if losses == 0 and wins > 0 and netProf > 0:
+                        if best_zero_loss is None or netProf > best_zero_loss["netProfit"]:
+                            best_zero_loss = cand
+
+                    if best_any is None or netProf > best_any["netProfit"]:
+                        best_any = cand
+                except Exception as ex_bt:
+                    continue
+
+            if best_zero_loss:
+                ret_val = dict(best_zero_loss)
+                ret_val["hasZeroLoss"] = True
+                ret_val["formatted"] = f"+{ret_val['totalReturnPct']:,.2f}% ({ret_val['period']}p)"
+                ret_val["isPositive"] = True
+                return pairB, ret_val
+            elif best_any:
+                ret_val = dict(best_any)
+                ret_val["hasZeroLoss"] = False
+                if ret_val["totalReturnPct"] > 0 and ret_val["netProfit"] > 0:
+                    ret_val["formatted"] = f"+{ret_val['totalReturnPct']:,.2f}% ({ret_val['period']}p)"
+                    ret_val["isPositive"] = True
+                else:
+                    ret_val["formatted"] = f"Pérdida ({ret_val['period']}p)"
+                    ret_val["isPositive"] = False
+                return pairB, ret_val
+            else:
+                return pairB, {
+                    "period": periods_list[0] if periods_list else 120,
+                    "timeframe": timeframe,
+                    "totalTrades": 0, "winningTrades": 0, "losingTrades": 0,
+                    "winRate": 0.0, "netProfit": 0.0, "totalReturnPct": 0.0,
+                    "hasZeroLoss": False,
+                    "formatted": "0.00%",
+                    "isPositive": True
+                }
+
+        # Ejecutar evaluación de denominadores
+        for pairB in denominadores:
+            sym_res, data = evaluate_denominator(pairB)
+            if data:
+                recommendations[sym_res] = data
+
+        return {
+            "status": "success",
+            "pairA": pairA,
+            "timeframe": timeframe,
+            "recommendations": recommendations
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error en get_cruces_ema_denominators_optimization: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class CloseRatioRequest(BaseModel):
     setup: str
@@ -2746,7 +3365,7 @@ async def manual_close_ratio(
 def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional[int] = None, strategy: Optional[str] = None, startDate: Optional[str] = None, endDate: Optional[str] = None) -> Dict[str, Any]:
     from backend.database.models import SessionLocal
     from sqlalchemy import text
-    from datetime import datetime
+#     from datetime import datetime
 
     pairA = unquote(pairA).strip()
     pairB = unquote(pairB).strip()
@@ -2841,7 +3460,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
             if live_price is not None:
                 return float(live_price), quote_curr, pip_size
 
-            row_c = db_session.execute(text("SELECT closePrice FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY datetime DESC LIMIT 1"), {"s": clean}).fetchone()
+            row_c = db_session.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
             if not row_c:
                 row_c = db_session.execute(text("SELECT closePrice FROM stockprices WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY priceDate DESC LIMIT 1"), {"s": clean}).fetchone()
 
@@ -2944,7 +3563,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
         ratio_cfg = None
         if idCuenta:
             ratio_cfg = db_session.execute(text("""
-                SELECT periodo, dias, EMARapida, EMALenta, operar 
+                SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
                 FROM user_ratios
                 WHERE (
                     (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
@@ -2957,7 +3576,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
 
         if not ratio_cfg:
             ratio_cfg = db_session.execute(text("""
-                SELECT periodo, dias, EMARapida, EMALenta, operar 
+                SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
                 FROM user_ratios
                 WHERE (
                     (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
@@ -3388,4 +4007,72 @@ def api_obtener_movimientos_capital(
         return {"status": "success", "count": len(movs), "data": movs}
     except Exception as e:
         logger.error(f"Error consultando movimientos de capital para #{idCuenta}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+# ==============================================================================
+# ENDPOINTS INSTITUCIONALES DE MONITOREO Y CONSOLA DE SERVICIOS
+# ==============================================================================
+from backend.services.system_monitor import system_monitor
+
+@router.get("/system/services")
+def api_get_system_services():
+    """
+    Retorna el estado en tiempo real de todos los servicios del ecosistema ATALAia.
+    """
+    try:
+        return system_monitor.get_services_status()
+    except Exception as e:
+        logger.error(f"Error consultando estado de servicios del sistema: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/system/terminal")
+def api_get_system_terminal(service: str = "all", lines: int = 50):
+    """
+    Retorna las líneas de log y actividad reciente para la consola del sistema (ATALAia Terminal).
+    """
+    try:
+        entries = system_monitor.get_terminal_logs(service=service, max_lines=lines)
+        return {
+            "status": "success",
+            "service": service,
+            "count": len(entries),
+            "entries": entries,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+    except Exception as e:
+        logger.error(f"Error consultando terminal del sistema: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/system/services/{service_id}/restart")
+def api_restart_system_service(service_id: str):
+    """
+    Reinicia un servicio específico del ecosistema ATALAia.
+    """
+    try:
+        import subprocess
+        # Mapeo a nombre de unidad de sistema o usuario
+        unit_map = {
+            "mysql": ("mysql", True),
+            "connectionpool": ("atalaia-1-connectionpool", False),
+            "datasymbol": ("atalaia-2-datasymbol", False),
+            "webhook": ("atalaia-3-webhook", False),
+            "sentinel": ("atalaia-4-sentinel", False),
+            "backend": ("atalaia-5-atalaia", False),
+            "mt5bridge": ("atalaia-5-atalaia", False),
+            "frontend": ("atalaia-5-atalaia", False),
+            "microratio": ("microRatio", False),
+            "ngrok": ("ngrok", False)
+        }
+        if service_id not in unit_map:
+            raise HTTPException(status_code=400, detail=f"Servicio no reiniciable o desconocido: {service_id}")
+            
+        unit, is_system = unit_map[service_id]
+        cmd = ["sudo", "systemctl", "restart", unit] if is_system else ["systemctl", "--user", "restart", unit]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return {
+            "status": "success" if res.returncode == 0 else "error",
+            "message": f"Servicio {service_id} ({unit}) reiniciado.",
+            "output": res.stdout or res.stderr
+        }
+    except Exception as e:
+        logger.error(f"Error reiniciando servicio {service_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

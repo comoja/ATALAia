@@ -48,7 +48,12 @@ class CruceEmaEngine:
         slippageBps: float = 1.0,
         minMarginIndicator: float = 200.0,
         cierreDivergencia: bool = True,
-        tipoEntrada: str = "Selectiva"
+        tipoEntrada: str = "Selectiva",
+        fixedMinA: Optional[float] = None,
+        fixedMaxA: Optional[float] = None,
+        fixedMinB: Optional[float] = None,
+        fixedMaxB: Optional[float] = None,
+        dtStartSlice=None
     ) -> Dict[str, Any]:
         """
         Ejecuta el backtest calculando el PnL exacto mediante el valor del pip
@@ -77,7 +82,13 @@ class CruceEmaEngine:
         sB = dfB.loc[commonIdx, 'closePrice'] if 'closePrice' in dfB.columns else dfB.loc[commonIdx].iloc[:, 0]
 
         # 1. Utilizar el motor centralizado signalEngine
-        normData = signalEngine.calculateNormalizedSeries(sA, sB)
+        normData = signalEngine.calculateNormalizedSeries(
+            sA, sB,
+            fixedMinA=fixedMinA,
+            fixedMaxA=fixedMaxA,
+            fixedMinB=fixedMinB,
+            fixedMaxB=fixedMaxB
+        )
         normA = normData["normA"]
         normB = normData["normB"]
         stdAboveA = normData["stdAboveA"]
@@ -87,6 +98,18 @@ class CruceEmaEngine:
 
         emaA = signalEngine.calculateEmaSeries(normA, smaPeriod)
         emaB = signalEngine.calculateEmaSeries(normB, smaPeriod)
+
+        # ---> SLICE FOR WARMUP <---
+        if dtStartSlice is not None:
+            mask = commonIdx >= dtStartSlice
+            if mask.sum() > 0:
+                commonIdx = commonIdx[mask]
+                sA = sA[mask]
+                sB = sB[mask]
+                normA = normA[mask]
+                normB = normB[mask]
+                emaA = emaA[mask] if emaA is not None else None
+                emaB = emaB[mask] if emaB is not None else None
 
         # Formatear fechas con horas y minutos si es intradía para que cada vela sea única
         has_time = any(hasattr(d, "hour") and (d.hour != 0 or d.minute != 0) for d in commonIdx[:10])
@@ -447,23 +470,17 @@ class CruceEmaEngine:
                 # 2. VALIDACIÓN DE ENTRADA SELECTIVA (Si el modo es Selectiva)
                 if str(tipoEntrada).lower() == "selectiva":
                     if len(activeTrades) == 0 and cycleLastA is None and cycleLastB is None:
-                        isOutA = bool(normAVals[i] <= stdBelowA or normAVals[i] >= stdAboveA)
-                        isOutB = bool(normBVals[i] <= stdBelowB or normBVals[i] >= stdAboveB)
-                        hasSigA = candleSig.get("hasSignalA", False)
-                        hasSigB = candleSig.get("hasSignalB", False)
-                        hasBoth = candleSig.get("hasSignalBoth", False)
-                        if hasBoth:
-                            cycleLastA = float(normAVals[i])
-                            cycleLastB = float(normBVals[i])
-                        elif hasSigA:
-                            cycleLastA = float(normAVals[i])
-                            cycleLastB = float(normBVals[i])
-                        elif hasSigB:
-                            cycleLastA = float(normAVals[i])
-                            cycleLastB = float(normBVals[i])
+                        dirA = candleSig.get("symbolAAction")
+                        if dirA == "SELL":
+                            isOutA = bool(normAVals[i] >= stdAboveA)
+                            isOutB = bool(normBVals[i] <= stdBelowB)
                         else:
-                            # Sin señal válida
+                            isOutA = bool(normAVals[i] <= stdBelowA)
+                            isOutB = bool(normBVals[i] >= stdAboveB)
+                        if not (isOutA and isOutB):
                             continue
+                        cycleLastA = float(normAVals[i])
+                        cycleLastB = float(normBVals[i])
                     else:
                         isValidSelective, updA, updB, rejectReason = signalEngine.isSelectiveEntryValid(
                             sig=candleSig,
@@ -764,6 +781,9 @@ class CruceEmaEngine:
                 "marginIndicator": openMarginIndicator
             })
 
+        if openCycleTrades:
+            equity += openPnl
+
         # Métricas consolidadas
         realTrades = [t for t in finishedTrades if not t.get("isSubtotal", False) and not t.get("isSkipped", False)]
         totalTrades = len(realTrades)
@@ -803,6 +823,11 @@ class CruceEmaEngine:
         # 1. Rendimiento promedio por ciclo (% y $ USD)
         avgReturnPerCycle = round(float(np.mean(cycleReturns)), 2) if cycleReturns else 0.0
         avgPnlPerCycle = round(float(np.mean(cyclePnls)), 2) if cyclePnls else 0.0
+
+        # Sumatoria exacta de los subtotales por ciclo para coincidencia total con la bitácora
+        totalNetProfit = round(float(sum(cyclePnls)), 2) if cyclePnls else round(float(equity - initialCapital), 2)
+        totalReturnSum = round(float(sum(cycleReturns)), 2) if cycleReturns else 0.0
+        finalCapitalCalc = round(float(initialCapital + totalNetProfit), 2)
 
         # 2. Promedio de entradas por ciclo
         avgEntriesPerCycle = round(float(totalTrades / totalCycles), 1) if totalCycles > 0 else 0.0
@@ -847,10 +872,10 @@ class CruceEmaEngine:
             "profitFactor": round(float(profitFactor), 2),
             "sharpeRatio": round(float(sharpeRatio), 2),
             "maxDrawdown": round(float(maxDrawdown * 100.0), 2),
-            "totalReturnPct": round(float(totalReturnPct), 2),
+            "totalReturnPct": totalReturnSum,
             "initialCapital": float(initialCapital),
-            "finalCapital": round(float(equity), 2),
-            "netProfit": round(float(equity - initialCapital), 2),
+            "finalCapital": finalCapitalCalc,
+            "netProfit": totalNetProfit,
             "startDate": dates[0] if len(dates) > 0 else "-",
             "endDate": dates[-1] if len(dates) > 0 else "-",
             "totalBars": totalBars,

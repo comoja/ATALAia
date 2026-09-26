@@ -157,15 +157,28 @@ class UserRatio(Base):
     idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
     numerador = Column(String(20), nullable=False)
     denominador = Column(String(20), nullable=False)
-    periodo = Column(String(20), nullable=False)
-    dias = Column(Integer, default=180)
+    Temporalidad = Column(String(20), nullable=False)
+    periodo = Column(Integer, default=180)
+
+    @property
+    def dias(self):
+        return self.periodo
+
+    @dias.setter
+    def dias(self, value):
+        self.periodo = value
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
     operar = Column(Boolean, default=False)
     cierreDivergencia = Column(Boolean, default=True)
     tipoEntrada = Column(String(20), default="Selectiva")
+    accionCierre = Column(String(20), default="Continua")
     borrado = Column(Boolean, default=False, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
+    fixedMinA = Column(Float, nullable=True)
+    fixedMaxA = Column(Float, nullable=True)
+    fixedMinB = Column(Float, nullable=True)
+    fixedMaxB = Column(Float, nullable=True)
 
 class UsuarioCuenta(Base):
     """

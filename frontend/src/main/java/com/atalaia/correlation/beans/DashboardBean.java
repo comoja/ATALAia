@@ -1215,6 +1215,25 @@ public class DashboardBean implements Serializable {
     private Integer signalBtTotalCycles = 0;
     private Double signalBtAvgCycleHours = 0.0;
     private Double signalBtAvgCycleDays = 0.0;
+    private Double signalBtFixedMinA;
+    private Double signalBtFixedMaxA;
+    private Double signalBtFixedMinB;
+    private Double signalBtFixedMaxB;
+    private String signalBtCalibStartDate;
+    private String signalBtCalibEndDate;
+
+    public Double getSignalBtFixedMinA() { return signalBtFixedMinA; }
+    public void setSignalBtFixedMinA(Double signalBtFixedMinA) { this.signalBtFixedMinA = signalBtFixedMinA; }
+    public Double getSignalBtFixedMaxA() { return signalBtFixedMaxA; }
+    public void setSignalBtFixedMaxA(Double signalBtFixedMaxA) { this.signalBtFixedMaxA = signalBtFixedMaxA; }
+    public Double getSignalBtFixedMinB() { return signalBtFixedMinB; }
+    public void setSignalBtFixedMinB(Double signalBtFixedMinB) { this.signalBtFixedMinB = signalBtFixedMinB; }
+    public Double getSignalBtFixedMaxB() { return signalBtFixedMaxB; }
+    public void setSignalBtFixedMaxB(Double signalBtFixedMaxB) { this.signalBtFixedMaxB = signalBtFixedMaxB; }
+    public String getSignalBtCalibStartDate() { return signalBtCalibStartDate; }
+    public void setSignalBtCalibStartDate(String signalBtCalibStartDate) { this.signalBtCalibStartDate = signalBtCalibStartDate; }
+    public String getSignalBtCalibEndDate() { return signalBtCalibEndDate; }
+    public void setSignalBtCalibEndDate(String signalBtCalibEndDate) { this.signalBtCalibEndDate = signalBtCalibEndDate; }
 
     // --- Movimientos Reales de la Estrategia (tabla trades) ---
     private RealTradesSummaryDto realTradesSummary = new RealTradesSummaryDto();
@@ -1622,20 +1641,23 @@ public class DashboardBean implements Serializable {
     }
 
     public String getFormattedSignalBtFinalCapital() {
-        return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getFinalCapital() != null)
-                ? String.format(java.util.Locale.US, "%,.2f", signalBtCombinedMetrics.getFinalCapital())
+        SignalBacktestMetricsDto m = getActiveSignalBtMetrics();
+        return (m != null && m.getFinalCapital() != null)
+                ? String.format(java.util.Locale.US, "%,.2f", m.getFinalCapital())
                 : "0.00";
     }
 
     public Double getSignalBtTotalReturn() {
-        return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getTotalReturnPct() != null)
-                ? signalBtCombinedMetrics.getTotalReturnPct()
+        SignalBacktestMetricsDto m = getActiveSignalBtMetrics();
+        return (m != null && m.getTotalReturnPct() != null)
+                ? m.getTotalReturnPct()
                 : 0.0;
     }
 
     public Double getSignalBtTotalPnl() {
-        return (signalBtCombinedMetrics != null && signalBtCombinedMetrics.getNetProfit() != null)
-                ? signalBtCombinedMetrics.getNetProfit()
+        SignalBacktestMetricsDto m = getActiveSignalBtMetrics();
+        return (m != null && m.getNetProfit() != null)
+                ? m.getNetProfit()
                 : 0.0;
     }
 
@@ -2105,6 +2127,17 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    private String accionCierre = "Continua";
+    public String getAccionCierre() { return accionCierre != null ? accionCierre : "Continua"; }
+    public void setAccionCierre(String accionCierre) { this.accionCierre = accionCierre; }
+
+    public void onAccionCierreChange() {
+        log.info("▶ Acción Post-Cierre cambiada a: {}", this.accionCierre);
+        if (this.ratioExistsInDb) {
+            guardarRatio();
+        }
+    }
+
     private String tipoEntrada = "Selectiva";
     public String getTipoEntrada() { return tipoEntrada != null ? tipoEntrada : "Selectiva"; }
     public void setTipoEntrada(String tipoEntrada) { this.tipoEntrada = tipoEntrada; }
@@ -2275,8 +2308,8 @@ public class DashboardBean implements Serializable {
         private Integer idCuenta;
         private String numerador;
         private String denominador;
-        private String periodo;
-        private Integer dias;
+        private String temporalidad;
+        private Integer periodo;
         private Integer emaRapida;
         private Integer emaLenta;
         private Boolean operar;
@@ -2284,6 +2317,9 @@ public class DashboardBean implements Serializable {
         private Boolean hasOpenTrades = false;
         private Boolean cierreDivergencia = true;
         private String tipoEntrada = "Selectiva";
+        private String accionCierre = "Continua";
+        public String getAccionCierre() { return accionCierre != null ? accionCierre : "Continua"; }
+        public void setAccionCierre(String accionCierre) { this.accionCierre = accionCierre; }
 
         public Boolean getHasOpenTrades() { return hasOpenTrades; }
         public Boolean isHasOpenTrades() { return hasOpenTrades; }
@@ -2306,10 +2342,12 @@ public class DashboardBean implements Serializable {
         public void setNumerador(String numerador) { this.numerador = numerador; }
         public String getDenominador() { return denominador; }
         public void setDenominador(String denominador) { this.denominador = denominador; }
-        public String getPeriodo() { return periodo; }
-        public void setPeriodo(String periodo) { this.periodo = periodo; }
-        public Integer getDias() { return dias; }
-        public void setDias(Integer dias) { this.dias = dias; }
+        public String getTemporalidad() { return temporalidad; }
+        public void setTemporalidad(String temporalidad) { this.temporalidad = temporalidad; }
+        public Integer getPeriodo() { return periodo; }
+        public void setPeriodo(Integer periodo) { this.periodo = periodo; }
+        public Integer getDias() { return periodo; }
+        public void setDias(Integer dias) { this.periodo = dias; }
         public Integer getEmaRapida() { return emaRapida; }
         public void setEmaRapida(Integer emaRapida) { this.emaRapida = emaRapida; }
         public Integer getEmaLenta() { return emaLenta; }
@@ -2322,6 +2360,19 @@ public class DashboardBean implements Serializable {
         public Boolean getBorrado() { return borrado; }
         public Boolean isBorrado() { return borrado; }
         public void setBorrado(Boolean borrado) { this.borrado = borrado; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            UserRatioDto that = (UserRatioDto) o;
+            return id != null && id.equals(that.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return id != null ? id.hashCode() : 0;
+        }
     }
 
         private String activeAccordionIndex = "0";
@@ -2375,7 +2426,18 @@ public class DashboardBean implements Serializable {
                 if (signalBtTotalBars != null && signalBtTotalBars > 0) {
                     this.crucesEmaLoaded = true;
                 }
-                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:crucesEmaWrapper", "aetherForm:signalBtComparisonCurveJsonData", "aetherForm:signalBtHistoryJsonData");
+                org.primefaces.PrimeFaces.current().ajax().update(
+                        "aetherForm:mainTabView:crucesEmaWrapper",
+                        "aetherForm:signalBtComparisonCurveJsonData",
+                        "aetherForm:signalBtHistoryJsonData",
+                        "aetherForm:signalBtTradesJsonData",
+                        "aetherForm:signalBtFixedMinA",
+                        "aetherForm:signalBtFixedMaxA",
+                        "aetherForm:signalBtFixedMinB",
+                        "aetherForm:signalBtFixedMaxB",
+                        "aetherForm:signalBtCalibStartDate",
+                        "aetherForm:signalBtCalibEndDate"
+                );
             }
             org.primefaces.PrimeFaces.current().executeScript("setTimeout(function(){ if(typeof renderSignalBtNormalizedChart==='function') renderSignalBtNormalizedChart(); if(typeof renderSignalComparisonChart==='function') renderSignalComparisonChart(); }, 60);");
         } else if (isHechos) {
@@ -2436,6 +2498,7 @@ public class DashboardBean implements Serializable {
     private String selectedPair2 = "GBP/USD"; // Par B (Denominador) — ratio sintético A/B
     private Map<String, String> denominatorReturnsMap = new java.util.concurrent.ConcurrentHashMap<>();
     private Map<String, Boolean> denominatorIsPositiveMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private Map<String, DenominatorOptimizationDto> denominatorOptimizationsMap = new java.util.concurrent.ConcurrentHashMap<>();
     private String lastDenominatorsReturnSignature = "";
     private long lastDenominatorsReturnTime = 0;
     private Double amplitude = 1.5;
@@ -2520,6 +2583,20 @@ public class DashboardBean implements Serializable {
 
     public void calculateStartDateFromPeriods() {
         if (daysBack != null && daysBack > 0) {
+            String createdAtStr = null;
+            if (selectedUserRatio != null && selectedUserRatio.getCreatedAt() != null && !selectedUserRatio.getCreatedAt().trim().isEmpty()) {
+                createdAtStr = selectedUserRatio.getCreatedAt();
+            }
+            if (createdAtStr != null) {
+                java.util.Date eff = calculateEffectiveStartDate(createdAtStr, this.timeframe, this.daysBack);
+                if (eff != null) {
+                    this.startDate = eff;
+                    log.info("calculateStartDateFromPeriods: fecha inicio fijada desde createdAt ({}) - {} {}: {}",
+                            createdAtStr, this.daysBack, this.timeframe, this.startDate);
+                    return;
+                }
+            }
+
             java.util.Date effEnd = getEffectiveEndDate();
             java.util.Calendar cal = java.util.Calendar.getInstance();
             cal.setTime(effEnd);
@@ -2645,19 +2722,107 @@ public class DashboardBean implements Serializable {
     @PostConstruct
     public void init() {
         log.info("Inicializando DashboardBean Holográfico (Aether UI)...");
-        // Por defecto, fecha fin = hoy, período original liviano para inicio rápido
+        // Fecha fin = hoy (siempre)
         this.endDate = new java.util.Date();
-        this.daysBack = 180;
-        calculateStartDateFromPeriods();
 
         loadCatalogo();
         loadUserAccounts();
         loadUserRatiosList();
         loadAllActiveCycles();
-        fetchUserRatioDetails();
-        loadCorrelationsForSelectedPair();
-        loadDenominatorsReturns();
-        analyzePair(); // Cargar datos iniciales
+
+        // Auto-seleccionar ratio: si ya hay uno seleccionado o activo, preservarlo; de lo contrario, el primero
+        if (userRatiosList != null && !userRatiosList.isEmpty()) {
+            UserRatioDto targetRatio = null;
+            if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+                for (UserRatioDto r : userRatiosList) {
+                    if (this.selectedUserRatio.getId().equals(r.getId())) {
+                        targetRatio = r;
+                        break;
+                    }
+                }
+            }
+            if (targetRatio == null && this.selectedPair != null && this.selectedPair2 != null) {
+                for (UserRatioDto r : userRatiosList) {
+                    if (this.selectedPair.equalsIgnoreCase(r.getNumerador()) && this.selectedPair2.equalsIgnoreCase(r.getDenominador())) {
+                        targetRatio = r;
+                        break;
+                    }
+                }
+            }
+            if (targetRatio == null) {
+                targetRatio = userRatiosList.get(0);
+                log.info("init(): Auto-seleccionando primer ratio por defecto: {} / {} (dias={}, createdAt={})",
+                        targetRatio.getNumerador(), targetRatio.getDenominador(), targetRatio.getDias(), targetRatio.getCreatedAt());
+            } else {
+                log.info("init(): Preservando ratio activo: {} / {} (id={}, dias={}, createdAt={})",
+                        targetRatio.getNumerador(), targetRatio.getDenominador(), targetRatio.getId(), targetRatio.getDias(), targetRatio.getCreatedAt());
+            }
+            String currentAccordion = this.activeAccordionIndex;
+            onSelectUserRatio(targetRatio);
+            if (currentAccordion != null && !currentAccordion.isEmpty()) {
+                this.activeAccordionIndex = currentAccordion;
+            }
+        } else {
+            // Sin ratios en BD: aplicar defaults
+            this.daysBack = 180;
+            this.timeframe = "1h";
+            calculateStartDateFromPeriods();
+            fetchUserRatioDetails();
+            loadCorrelationsForSelectedPair();
+            loadDenominatorsReturns();
+            analyzePair();
+        }
+    }
+
+    public void refreshDashboard() {
+        log.info("Refrescando DashboardBean Holográfico...");
+        this.endDate = new java.util.Date();
+
+        loadCatalogo();
+        loadUserAccounts();
+        loadUserRatiosList();
+        loadAllActiveCycles();
+
+        // Preservar el ratio que el usuario estaba revisando
+        if (userRatiosList != null && !userRatiosList.isEmpty()) {
+            UserRatioDto targetRatio = null;
+            if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+                for (UserRatioDto r : userRatiosList) {
+                    if (this.selectedUserRatio.getId().equals(r.getId())) {
+                        targetRatio = r;
+                        break;
+                    }
+                }
+            }
+            if (targetRatio == null && this.selectedPair != null && this.selectedPair2 != null) {
+                for (UserRatioDto r : userRatiosList) {
+                    if (this.selectedPair.equalsIgnoreCase(r.getNumerador()) && this.selectedPair2.equalsIgnoreCase(r.getDenominador())) {
+                        targetRatio = r;
+                        break;
+                    }
+                }
+            }
+            if (targetRatio == null) {
+                targetRatio = userRatiosList.get(0);
+                log.info("refreshDashboard(): Auto-seleccionando primer ratio por defecto: {} / {}", targetRatio.getNumerador(), targetRatio.getDenominador());
+            } else {
+                log.info("refreshDashboard(): Preservando ratio actualmente en revisión: {} / {} (id={})",
+                        targetRatio.getNumerador(), targetRatio.getDenominador(), targetRatio.getId());
+            }
+            String currentAccordion = this.activeAccordionIndex;
+            onSelectUserRatio(targetRatio);
+            if (currentAccordion != null && !currentAccordion.isEmpty()) {
+                this.activeAccordionIndex = currentAccordion;
+            }
+        } else {
+            this.daysBack = 180;
+            this.timeframe = "1h";
+            calculateStartDateFromPeriods();
+            fetchUserRatioDetails();
+            loadCorrelationsForSelectedPair();
+            loadDenominatorsReturns();
+            analyzePair();
+        }
     }
 
     public void loadAllActiveCycles() {
@@ -2778,14 +2943,14 @@ public class DashboardBean implements Serializable {
         }
 
         if (matchingRatio != null) {
-            log.info("Encontrado matching en userRatiosList: periodo={}, dias={}, fast={}, slow={}",
-                    matchingRatio.getPeriodo(), matchingRatio.getDias(), matchingRatio.getEmaRapida(), matchingRatio.getEmaLenta());
+            log.info("Encontrado matching en userRatiosList: temporalidad={}, periodo={}, fast={}, slow={}",
+                    matchingRatio.getTemporalidad(), matchingRatio.getPeriodo(), matchingRatio.getEmaRapida(), matchingRatio.getEmaLenta());
             this.selectedUserRatio = matchingRatio;
-            if (matchingRatio.getPeriodo() != null && !matchingRatio.getPeriodo().trim().isEmpty()) {
-                this.timeframe = matchingRatio.getPeriodo().trim();
+            if (matchingRatio.getTemporalidad() != null && !matchingRatio.getTemporalidad().trim().isEmpty()) {
+                this.timeframe = matchingRatio.getTemporalidad().trim();
             }
-            if (matchingRatio.getDias() != null && matchingRatio.getDias() > 0) {
-                this.daysBack = matchingRatio.getDias();
+            if (matchingRatio.getPeriodo() != null && matchingRatio.getPeriodo() > 0) {
+                this.daysBack = matchingRatio.getPeriodo();
             }
             if (matchingRatio.getEmaRapida() != null && matchingRatio.getEmaRapida() > 0) {
                 this.smaPeriodParam = matchingRatio.getEmaRapida();
@@ -2793,10 +2958,19 @@ public class DashboardBean implements Serializable {
             if (matchingRatio.getEmaLenta() != null && matchingRatio.getEmaLenta() > 0) {
                 this.emaSlowPeriodParam = matchingRatio.getEmaLenta();
             }
+            
+            if (matchingRatio.getCreatedAt() != null && !matchingRatio.getCreatedAt().isEmpty()) {
+                this.startDate = calculateEffectiveStartDate(matchingRatio.getCreatedAt(), this.timeframe, this.daysBack);
+                log.info("START DATE (Posiciones Activas) configurada restando {} periodos ({}) a createdAt ({}): {}", this.daysBack, this.timeframe, matchingRatio.getCreatedAt(), this.startDate);
+            } else {
+                this.startDate = null;
+            }
             this.operar = Boolean.TRUE.equals(matchingRatio.getOperar());
             this.ratioExistsInDb = true;
             this.hasActiveTradesInDb = true;
-            onDaysBackChange();
+            this.crucesEmaLoaded = false;
+            loadDenominatorsReturns();
+            analyzePair();
         } else {
             if (cycle.getTimeframe() != null && !cycle.getTimeframe().isEmpty()) {
                 this.timeframe = cycle.getTimeframe();
@@ -3113,19 +3287,40 @@ public class DashboardBean implements Serializable {
             String endStr = (effEndCruces != null) ? sdf.format(effEndCruces) : "";
 
             Double curAccCap = getSelectedAccountCapital();
-            String url = String.format(
-                    "%s/api/v1/cruces-ema/pair-analysis/%s?pairB=%s&timeframe=%s&days=%d&start_date=%s&end_date=%s&smaPeriod=%d&sigmaWindow=%d&isBacktest=true" +
-                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
-                    (curAccCap != null ? "&capital=" + curAccCap : "") +
-                    (getSelectedAccountComision() != null ? "&comisionPct=" + getSelectedAccountComision() : "") +
-                    "&tipoEntrada=" + (tipoEntrada != null ? tipoEntrada : "Selectiva") +
-                    "&cierreDivergencia=" + Boolean.TRUE.equals(cierreDivergencia) +
-                    "&leverage=100.0",
-                    backendUrl,
-                    java.net.URLEncoder.encode(selectedPair, "UTF-8"),
-                    java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    timeframe, btDays, startStr, endStr,
-                    (smaPeriodParam != null ? smaPeriodParam : 2), (emaSlowPeriodParam != null ? emaSlowPeriodParam : 15));
+            StringBuilder urlSb = new StringBuilder();
+            urlSb.append(backendUrl)
+                 .append("/api/v1/cruces-ema/pair-analysis/")
+                 .append(java.net.URLEncoder.encode(selectedPair, "UTF-8"))
+                 .append("?pairB=").append(java.net.URLEncoder.encode(selectedPair2, "UTF-8"))
+                 .append("&timeframe=").append(timeframe)
+                 .append("&days=").append(btDays)
+                 .append("&start_date=").append(java.net.URLEncoder.encode(startStr, "UTF-8"))
+                 .append("&end_date=").append(java.net.URLEncoder.encode(endStr, "UTF-8"))
+                 .append("&smaPeriod=").append(smaPeriodParam != null ? smaPeriodParam : 2)
+                 .append("&sigmaWindow=").append(emaSlowPeriodParam != null ? emaSlowPeriodParam : 15)
+                 .append("&isBacktest=true");
+
+            if (selectedAccountId != null) {
+                urlSb.append("&idCuenta=").append(selectedAccountId);
+            }
+            if (curAccCap != null) {
+                urlSb.append("&capital=").append(curAccCap);
+            }
+            if (getSelectedAccountComision() != null) {
+                urlSb.append("&comisionPct=").append(getSelectedAccountComision());
+            }
+            urlSb.append("&tipoEntrada=").append(tipoEntrada != null ? tipoEntrada : "Selectiva");
+            urlSb.append("&cierreDivergencia=").append(Boolean.TRUE.equals(cierreDivergencia));
+            urlSb.append("&calibDays=").append(daysBack != null ? daysBack : 180);
+            if (startDate != null) {
+                urlSb.append("&calibStartDate=").append(java.net.URLEncoder.encode(sdf.format(startDate), "UTF-8"));
+            }
+            if (selectedUserRatio != null && selectedUserRatio.getCreatedAt() != null) {
+                urlSb.append("&calibEndDate=").append(java.net.URLEncoder.encode(selectedUserRatio.getCreatedAt().replace("T", " "), "UTF-8"));
+            }
+            urlSb.append("&leverage=100.0");
+
+            String url = urlSb.toString();
 
             String responseStr = restTemplate.getForObject(url, String.class);
             if (responseStr != null && !responseStr.isEmpty()) {
@@ -3145,6 +3340,18 @@ public class DashboardBean implements Serializable {
                 if (root.has("emaRapida")) this.signalBtEmaRapida = root.get("emaRapida").asInt();
                 else this.signalBtEmaRapida = (this.smaPeriodParam != null ? this.smaPeriodParam : 2);
                 this.signalBtOperar = (this.operar != null ? this.operar : false);
+                if (root.has("fixedMinA") && !root.get("fixedMinA").isNull()) this.signalBtFixedMinA = root.get("fixedMinA").asDouble();
+                else this.signalBtFixedMinA = null;
+                if (root.has("fixedMaxA") && !root.get("fixedMaxA").isNull()) this.signalBtFixedMaxA = root.get("fixedMaxA").asDouble();
+                else this.signalBtFixedMaxA = null;
+                if (root.has("fixedMinB") && !root.get("fixedMinB").isNull()) this.signalBtFixedMinB = root.get("fixedMinB").asDouble();
+                else this.signalBtFixedMinB = null;
+                if (root.has("fixedMaxB") && !root.get("fixedMaxB").isNull()) this.signalBtFixedMaxB = root.get("fixedMaxB").asDouble();
+                else this.signalBtFixedMaxB = null;
+                if (root.has("calibStartDate") && !root.get("calibStartDate").isNull()) this.signalBtCalibStartDate = root.get("calibStartDate").asText();
+                else this.signalBtCalibStartDate = null;
+                if (root.has("calibEndDate") && !root.get("calibEndDate").isNull()) this.signalBtCalibEndDate = root.get("calibEndDate").asText();
+                else this.signalBtCalibEndDate = null;
 
                 if (root.has("signalBacktest")) {
                     JsonNode sbNode = root.get("signalBacktest");
@@ -3447,13 +3654,15 @@ public class DashboardBean implements Serializable {
             java.util.Date effEndAnalyze = getEffectiveEndDate();
             String endStr = (effEndAnalyze != null) ? sdf.format(effEndAnalyze) : "";
 
-            // Construir URL para el endpoint de ratio de 2 pares
+            // Construir URL para el endpoint de ratio de 2 pares respetando la cuenta seleccionada
             String url = String.format(
-                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&smaPeriod=%d&emaSlowPeriod=%d&histogramBins=%d&tf=%s&days=%d&start_date=%s&end_date=%s",
+                    "%s/api/v1/ratio/%s?pairB=%s&amplitude=%f&freq=%f&phase=%f&offset=%f&r=%f&tYears=%f&sigmaWindow=%d&smaPeriod=%d&emaSlowPeriod=%d&histogramBins=%d&tf=%s&days=%d&start_date=%s&end_date=%s"
+                    + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : ""),
                     backendUrl,
                     java.net.URLEncoder.encode(selectedPair, "UTF-8"),
                     java.net.URLEncoder.encode(selectedPair2, "UTF-8"),
-                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, smaPeriodParam, emaSlowPeriodParam, histogramBins, timeframe, (daysBack != null ? daysBack : 180), startStr, endStr);
+                    amplitude, freq, phase, offset, r, tYears, sigmaWindow, smaPeriodParam, emaSlowPeriodParam, histogramBins, timeframe, (daysBack != null ? daysBack : 180),
+                    startStr, endStr);
 
             log.info("Llamando a FastAPI (ratio 2 pares): {}", url);
             String responseStr = restTemplate.getForObject(url, String.class);
@@ -3658,13 +3867,24 @@ public class DashboardBean implements Serializable {
             payload.put("idCuenta", selectedAccountId);
             payload.put("numerador", selectedPair);
             payload.put("denominador", selectedPair2);
-            payload.put("periodo", timeframe != null ? timeframe : "1d");
+            payload.put("Temporalidad", timeframe != null ? timeframe : "1d");
+            payload.put("temporalidad", timeframe != null ? timeframe : "1d");
+            payload.put("periodo", daysBack != null ? daysBack : 180);
             payload.put("dias", daysBack != null ? daysBack : 180);
             payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 2);
             payload.put("EMALenta", null);
             payload.put("operar", operar != null ? operar : false);
             payload.put("cierreDivergencia", Boolean.TRUE.equals(this.cierreDivergencia));
             payload.put("tipoEntrada", this.tipoEntrada != null ? this.tipoEntrada : "Selectiva");
+            payload.put("accionCierre", this.accionCierre != null ? this.accionCierre : "Continua");
+            if (this.startDate != null) {
+                boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
+                java.text.SimpleDateFormat sdfStart = isIntradayTf
+                        ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                        : new java.text.SimpleDateFormat("yyyy-MM-dd");
+                payload.put("startDate", sdfStart.format(this.startDate));
+                payload.put("fechaInicio", sdfStart.format(this.startDate));
+            }
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -3863,8 +4083,19 @@ public class DashboardBean implements Serializable {
                         if (item.has("idCuenta") && !item.get("idCuenta").isNull()) dto.setIdCuenta(item.get("idCuenta").asInt());
                         if (item.has("numerador")) dto.setNumerador(item.get("numerador").asText());
                         if (item.has("denominador")) dto.setDenominador(item.get("denominador").asText());
-                        if (item.has("periodo")) dto.setPeriodo(item.get("periodo").asText());
-                        if (item.has("dias") && !item.get("dias").isNull()) dto.setDias(item.get("dias").asInt());
+                        if (item.has("Temporalidad") && !item.get("Temporalidad").isNull()) {
+                            dto.setTemporalidad(item.get("Temporalidad").asText());
+                        } else if (item.has("temporalidad") && !item.get("temporalidad").isNull()) {
+                            dto.setTemporalidad(item.get("temporalidad").asText());
+                        } else if (item.has("periodo") && !item.get("periodo").isNull() && !item.get("periodo").isInt()) {
+                            dto.setTemporalidad(item.get("periodo").asText());
+                        }
+
+                        if (item.has("periodo") && !item.get("periodo").isNull() && item.get("periodo").isInt()) {
+                            dto.setPeriodo(item.get("periodo").asInt());
+                        } else if (item.has("dias") && !item.get("dias").isNull()) {
+                            dto.setPeriodo(item.get("dias").asInt());
+                        }
                         if (item.has("EMARapida") && !item.get("EMARapida").isNull()) dto.setEmaRapida(item.get("EMARapida").asInt());
                         if (item.has("EMALenta") && !item.get("EMALenta").isNull()) dto.setEmaLenta(item.get("EMALenta").asInt());
                         if (item.has("operar") && !item.get("operar").isNull()) dto.setOperar(item.get("operar").asBoolean());
@@ -3875,6 +4106,9 @@ public class DashboardBean implements Serializable {
                         else dto.setCierreDivergencia(true);
                         if (item.has("tipoEntrada") && !item.get("tipoEntrada").isNull()) dto.setTipoEntrada(item.get("tipoEntrada").asText());
                         else dto.setTipoEntrada("Selectiva");
+                        if (item.has("accionCierre") && !item.get("accionCierre").isNull()) dto.setAccionCierre(item.get("accionCierre").asText());
+                        else dto.setAccionCierre("Continua");
+                        if (item.has("createdAt") && !item.get("createdAt").isNull()) dto.setCreatedAt(item.get("createdAt").asText());
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
                             dto.setBorrado(isBorrado);
@@ -3902,10 +4136,67 @@ public class DashboardBean implements Serializable {
         }
     }
 
+
+    private java.util.Date parseExactDate(String createdAtStr) {
+        if (createdAtStr == null || createdAtStr.trim().isEmpty()) return null;
+        try {
+            String cAt = createdAtStr.replace("T", " ").trim();
+            if (cAt.contains(".")) {
+                cAt = cAt.substring(0, cAt.indexOf("."));
+            }
+            if (cAt.length() == 10) {
+                return new java.text.SimpleDateFormat("yyyy-MM-dd").parse(cAt);
+            }
+            return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(cAt);
+        } catch (Exception e) {
+            log.error("Error al parsear fecha exacta: {}", createdAtStr, e);
+            return null;
+        }
+    }
+
+    private java.util.Date calculateEffectiveStartDate(String createdAtStr, String timeframe, int dias) {
+        if (createdAtStr == null || createdAtStr.trim().isEmpty()) return null;
+        try {
+            java.util.Date createdDate = parseExactDate(createdAtStr);
+            if (createdDate == null) return null;
+
+            java.util.Calendar cal = java.util.Calendar.getInstance();
+            cal.setTime(createdDate);
+
+            if (timeframe == null) timeframe = "1h";
+            String tf = timeframe.toLowerCase().trim();
+            int amountToSubtract = dias;
+
+            if (tf.equals("1month") || tf.equals("1m") || tf.contains("mo")) {
+                cal.add(java.util.Calendar.MONTH, -amountToSubtract);
+            } else if (tf.equals("1week") || tf.equals("1w") || tf.contains("w")) {
+                cal.add(java.util.Calendar.WEEK_OF_YEAR, -amountToSubtract);
+            } else if (tf.equals("1d") || tf.contains("d")) {
+                cal.add(java.util.Calendar.DAY_OF_YEAR, -amountToSubtract);
+            } else if (tf.contains("h")) {
+                int hoursPerPeriod = 1;
+                if (tf.contains("4")) hoursPerPeriod = 4;
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -(amountToSubtract * hoursPerPeriod));
+            } else if (tf.contains("min") || tf.contains("m")) {
+                int minutesPerPeriod = 1;
+                if (tf.contains("15")) minutesPerPeriod = 15;
+                else if (tf.contains("30")) minutesPerPeriod = 30;
+                else if (tf.contains("5")) minutesPerPeriod = 5;
+                cal.add(java.util.Calendar.MINUTE, -(amountToSubtract * minutesPerPeriod));
+            } else {
+                cal.add(java.util.Calendar.HOUR_OF_DAY, -amountToSubtract);
+            }
+            return cal.getTime();
+        } catch (Exception e) {
+            log.error("Error calculando effectiveStartDate: ", e);
+            return null;
+        }
+    }
+
     public void onSelectUserRatio(UserRatioDto ratio) {
         if (ratio == null) return;
-        log.info("Seleccionado ratio desde acordeón: {} / {} (periodo={}, dias={}, fast={}, slow={}, operar={})",
-                ratio.getNumerador(), ratio.getDenominador(), ratio.getPeriodo(), ratio.getDias(), ratio.getEmaRapida(), ratio.getEmaLenta(), ratio.getOperar());
+        log.info("Seleccionado ratio desde acordeón: {} / {} (temporalidad={}, periodo={}, fast={}, slow={}, operar={})",
+                ratio.getNumerador(), ratio.getDenominador(), ratio.getTemporalidad(), ratio.getPeriodo(), ratio.getEmaRapida(), ratio.getEmaLenta(), ratio.getOperar());
         this.selectedUserRatio = ratio;
         if (ratio.getIdCuenta() != null) {
             this.selectedAccountId = ratio.getIdCuenta();
@@ -3917,11 +4208,11 @@ public class DashboardBean implements Serializable {
         this.selectedPair2 = ratio.getDenominador();
         loadCorrelationsForSelectedPair();
 
-        if (ratio.getPeriodo() != null && !ratio.getPeriodo().trim().isEmpty()) {
-            this.timeframe = ratio.getPeriodo().trim();
+        if (ratio.getTemporalidad() != null && !ratio.getTemporalidad().trim().isEmpty()) {
+            this.timeframe = ratio.getTemporalidad().trim();
         }
-        if (ratio.getDias() != null && ratio.getDias() > 0) {
-            this.daysBack = ratio.getDias();
+        if (ratio.getPeriodo() != null && ratio.getPeriodo() > 0) {
+            this.daysBack = ratio.getPeriodo();
         }
         if (ratio.getEmaRapida() != null && ratio.getEmaRapida() > 0) {
             this.smaPeriodParam = ratio.getEmaRapida();
@@ -3929,14 +4220,23 @@ public class DashboardBean implements Serializable {
         if (ratio.getEmaLenta() != null && ratio.getEmaLenta() > 0) {
             this.emaSlowPeriodParam = ratio.getEmaLenta();
         }
+
+        if (ratio.getCreatedAt() != null && !ratio.getCreatedAt().isEmpty()) {
+            this.startDate = calculateEffectiveStartDate(ratio.getCreatedAt(), this.timeframe, this.daysBack);
+            log.info("START DATE (Accordion) configurada restando {} periodos ({}) a createdAt ({}): {}", this.daysBack, this.timeframe, ratio.getCreatedAt(), this.startDate);
+        } else {
+            this.startDate = null;
+        }
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
         this.cierreDivergencia = ratio.getCierreDivergencia() != null ? ratio.getCierreDivergencia() : true;
         this.tipoEntrada = ratio.getTipoEntrada() != null ? ratio.getTipoEntrada() : "Selectiva";
+        this.accionCierre = ratio.getAccionCierre() != null ? ratio.getAccionCierre() : "Continua";
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
         this.activeAccordionIndex = "1";
 
-        onDaysBackChange();
+        this.crucesEmaLoaded = false;
+        loadDenominatorsReturns();
         analyzePair();
 
         javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -3969,12 +4269,35 @@ public class DashboardBean implements Serializable {
                 JsonNode rootNode = mapper.readTree(responseStr);
                 if (rootNode.has("found") && rootNode.get("found").asBoolean()) {
                     this.ratioExistsInDb = true;
-                    if (rootNode.has("periodo") && !rootNode.get("periodo").isNull()) {
+                    if (rootNode.has("Temporalidad") && !rootNode.get("Temporalidad").isNull()) {
+                        this.timeframe = rootNode.get("Temporalidad").asText();
+                    } else if (rootNode.has("temporalidad") && !rootNode.get("temporalidad").isNull()) {
+                        this.timeframe = rootNode.get("temporalidad").asText();
+                    } else if (rootNode.has("periodo") && !rootNode.get("periodo").isNull() && !rootNode.get("periodo").isInt()) {
                         this.timeframe = rootNode.get("periodo").asText();
                     }
-                    if (rootNode.has("dias") && !rootNode.get("dias").isNull()) {
+                    if (rootNode.has("periodo") && !rootNode.get("periodo").isNull() && rootNode.get("periodo").isInt()) {
+                        this.daysBack = rootNode.get("periodo").asInt();
+                    } else if (rootNode.has("dias") && !rootNode.get("dias").isNull()) {
                         this.daysBack = rootNode.get("dias").asInt();
-                        onDaysBackChange();
+                    }
+                    // Leer createdAt de la BD para fijar startDate restando n periodos
+                    if (rootNode.has("createdAt") && !rootNode.get("createdAt").isNull()) {
+                        String cAtStr = rootNode.get("createdAt").asText();
+                        if (selectedUserRatio != null) {
+                            selectedUserRatio.setCreatedAt(cAtStr);
+                        }
+                        java.util.Date dbStartDate = calculateEffectiveStartDate(cAtStr, this.timeframe, this.daysBack);
+                        if (dbStartDate != null) {
+                            this.startDate = dbStartDate;
+                            log.info("START DATE (fetchUserRatioDetails) configurada restando {} periodos ({}) a createdAt de BD: {}", this.daysBack, this.timeframe, this.startDate);
+                        } else {
+                            calculateStartDateFromPeriods();
+                            log.info("START DATE (fetchUserRatioDetails) calculada por periodos (createdAt no parseable): {}", this.startDate);
+                        }
+                    } else {
+                        calculateStartDateFromPeriods();
+                        log.info("START DATE (fetchUserRatioDetails) calculada por periodos (sin createdAt): {}", this.startDate);
                     }
                     if (rootNode.has("EMARapida") && !rootNode.get("EMARapida").isNull()) {
                         this.smaPeriodParam = rootNode.get("EMARapida").asInt();
@@ -4002,6 +4325,11 @@ public class DashboardBean implements Serializable {
                     } else {
                         this.tipoEntrada = "Selectiva";
                     }
+                    if (rootNode.has("accionCierre") && !rootNode.get("accionCierre").isNull()) {
+                        this.accionCierre = rootNode.get("accionCierre").asText();
+                    } else {
+                        this.accionCierre = "Continua";
+                    }
                     log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, dias={}, EMARapida={}, EMALenta={}, operar={}",
                             selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar);
 
@@ -4017,7 +4345,7 @@ public class DashboardBean implements Serializable {
                     this.daysBack = 180;
                     this.operar = false;
                     this.hasActiveTradesInDb = false;
-                    onDaysBackChange();
+                    calculateStartDateFromPeriods();
                 }
             }
         } catch (Exception e) {
@@ -4108,8 +4436,14 @@ public class DashboardBean implements Serializable {
     public String getDenominatorReturnFormatted(Object pairObj) {
         if (pairObj == null) return "";
         String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        DenominatorOptimizationDto opt = denominatorOptimizationsMap.get(pairName);
+        if (opt != null && opt.isHasZeroLoss()) {
+            return "★ " + opt.getFormatted();
+        }
         String val = denominatorReturnsMap.get(pairName);
-        if (val == null) return "";
+        if (val == null) {
+            return (opt != null) ? opt.getFormatted() : "";
+        }
         Boolean isPos = denominatorIsPositiveMap.get(pairName);
         if (Boolean.FALSE.equals(isPos) || val.startsWith("-") || "Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val)) {
             return "Pérdida";
@@ -4120,21 +4454,29 @@ public class DashboardBean implements Serializable {
     public String getDenominatorReturnStyle(Object pairObj) {
         if (pairObj == null) return "color: #64748b;";
         String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        DenominatorOptimizationDto opt = denominatorOptimizationsMap.get(pairName);
+        if (opt != null && opt.isHasZeroLoss()) {
+            return "color: #10b981; font-weight: 800;";
+        }
         String val = denominatorReturnsMap.get(pairName);
         if ("Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val) || (val != null && val.startsWith("-"))) {
             return "color: #dc2626; font-weight: 800;";
         }
         Boolean isPos = denominatorIsPositiveMap.get(pairName);
-        if (isPos == null) return "color: #64748b;";
+        if (isPos == null) return (opt != null && opt.isPositive()) ? "color: #16a34a; font-weight: 800;" : "color: #64748b;";
         return isPos ? "color: #16a34a; font-weight: 800;" : "color: #dc2626; font-weight: 800;";
     }
 
     public String getDenominatorReturnClass(Object pairObj) {
         if (pairObj == null) return "neutral";
         String pairName = (pairObj instanceof RatioSymbolDto) ? ((RatioSymbolDto) pairObj).getPairName() : pairObj.toString();
+        DenominatorOptimizationDto opt = denominatorOptimizationsMap.get(pairName);
+        if (opt != null && opt.isHasZeroLoss()) {
+            return "positive";
+        }
         String val = denominatorReturnsMap.get(pairName);
         if (val == null || "0.00%".equals(val) || val.isEmpty()) {
-            return "neutral";
+            return (opt != null && opt.isPositive()) ? "positive" : "neutral";
         }
         if ("Pérdida".equalsIgnoreCase(val) || "Perdida".equalsIgnoreCase(val) || val.startsWith("-")) {
             return "negative";
@@ -4231,6 +4573,128 @@ public class DashboardBean implements Serializable {
         } catch (Exception e) {
             log.error("Error al cargar retornos de denominadores: {}", e.getMessage());
         }
+    }
+
+    public void loadDenominatorsOptimization() {
+        if (selectedPair == null || selectedPair.trim().isEmpty()) {
+            return;
+        }
+        try {
+            Double curAccCap = getSelectedAccountCapital();
+            String url = String.format(
+                    "%s/api/v1/cruces-ema/denominators-optimization/%s?timeframe=1h" +
+                    (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "") +
+                    (curAccCap != null ? "&capital=" + curAccCap : "") +
+                    "&leverage=100.0",
+                    backendUrl,
+                    java.net.URLEncoder.encode(selectedPair, "UTF-8"));
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String responseStr = restTemplate.getForObject(url, String.class);
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode root = mapper.readTree(responseStr);
+                if (root.has("recommendations") && root.get("recommendations").isObject()) {
+                    JsonNode recsNode = root.get("recommendations");
+                    denominatorOptimizationsMap.clear();
+                    java.util.Iterator<Map.Entry<String, JsonNode>> fields = recsNode.fields();
+                    while (fields.hasNext()) {
+                        Map.Entry<String, JsonNode> entry = fields.next();
+                        String sym = entry.getKey();
+                        JsonNode n = entry.getValue();
+                        DenominatorOptimizationDto dto = new DenominatorOptimizationDto();
+                        dto.setPair(sym);
+                        dto.setPeriod(n.has("period") ? n.get("period").asInt() : 120);
+                        dto.setTimeframe(n.has("timeframe") ? n.get("timeframe").asText() : "1h");
+                        dto.setTotalTrades(n.has("totalTrades") ? n.get("totalTrades").asInt() : 0);
+                        dto.setWinningTrades(n.has("winningTrades") ? n.get("winningTrades").asInt() : 0);
+                        dto.setLosingTrades(n.has("losingTrades") ? n.get("losingTrades").asInt() : 0);
+                        dto.setWinRate(n.has("winRate") ? n.get("winRate").asDouble() : 0.0);
+                        dto.setNetProfit(n.has("netProfit") ? n.get("netProfit").asDouble() : 0.0);
+                        dto.setTotalReturnPct(n.has("totalReturnPct") ? n.get("totalReturnPct").asDouble() : 0.0);
+                        dto.setHasZeroLoss(n.has("hasZeroLoss") && n.get("hasZeroLoss").asBoolean());
+                        dto.setPositive(n.has("isPositive") && n.get("isPositive").asBoolean());
+                        dto.setFormatted(n.has("formatted") ? n.get("formatted").asText() : "");
+
+                        denominatorOptimizationsMap.put(sym, dto);
+
+                        if (dto.isHasZeroLoss()) {
+                            denominatorReturnsMap.put(sym, "★ " + dto.getFormatted());
+                            denominatorIsPositiveMap.put(sym, true);
+                        }
+                    }
+                    log.info("Optimizaciones de denominadores cargadas exitosamente: {} registros", denominatorOptimizationsMap.size());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error al cargar optimización de denominadores: {}", e.getMessage());
+        }
+    }
+
+    public DenominatorOptimizationDto getSelectedDenominatorOptimization() {
+        if (selectedPair2 == null) return null;
+        return denominatorOptimizationsMap.get(selectedPair2);
+    }
+
+    public Map<String, DenominatorOptimizationDto> getDenominatorOptimizationsMap() {
+        return denominatorOptimizationsMap;
+    }
+
+    public void applyOptimalCalibration() {
+        DenominatorOptimizationDto opt = getSelectedDenominatorOptimization();
+        if (opt != null && opt.getPeriod() != null) {
+            this.daysBack = opt.getPeriod();
+            this.timeframe = "1h";
+            calculateStartDateFromPeriods();
+            analyzePair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Calibración Óptima Aplicada",
+                            "Se configuró " + opt.getPeriod() + " periodos en 1h para " + selectedPair + " / " + selectedPair2 +
+                            " (100% efectividad, " + opt.getWinningTrades() + " ganados, 0 pérdidas)."));
+        }
+    }
+
+    public static class DenominatorOptimizationDto implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        private String pair;
+        private Integer period = 120;
+        private String timeframe = "1h";
+        private Integer totalTrades = 0;
+        private Integer winningTrades = 0;
+        private Integer losingTrades = 0;
+        private Double winRate = 0.0;
+        private Double netProfit = 0.0;
+        private Double totalReturnPct = 0.0;
+        private boolean hasZeroLoss = false;
+        private boolean isPositive = false;
+        private String formatted = "";
+
+        public String getPair() { return pair; }
+        public void setPair(String pair) { this.pair = pair; }
+        public Integer getPeriod() { return period; }
+        public void setPeriod(Integer period) { this.period = period; }
+        public String getTimeframe() { return timeframe; }
+        public void setTimeframe(String timeframe) { this.timeframe = timeframe; }
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+        public Integer getWinningTrades() { return winningTrades; }
+        public void setWinningTrades(Integer winningTrades) { this.winningTrades = winningTrades; }
+        public Integer getLosingTrades() { return losingTrades; }
+        public void setLosingTrades(Integer losingTrades) { this.losingTrades = losingTrades; }
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+        public Double getNetProfit() { return netProfit; }
+        public void setNetProfit(Double netProfit) { this.netProfit = netProfit; }
+        public Double getTotalReturnPct() { return totalReturnPct; }
+        public void setTotalReturnPct(Double totalReturnPct) { this.totalReturnPct = totalReturnPct; }
+        public boolean isHasZeroLoss() { return hasZeroLoss; }
+        public void setHasZeroLoss(boolean hasZeroLoss) { this.hasZeroLoss = hasZeroLoss; }
+        public boolean isPositive() { return isPositive; }
+        public void setPositive(boolean positive) { isPositive = positive; }
+        public String getFormatted() { return formatted; }
+        public void setFormatted(String formatted) { this.formatted = formatted; }
     }
 
     public List<RatioSymbolDto> getCompatibleDenominators() {
@@ -4510,6 +4974,7 @@ public class DashboardBean implements Serializable {
         // Cargar las nuevas correlaciones del numerador y retornos de denominadores
         loadCorrelationsForSelectedPair();
         loadDenominatorsReturns();
+        loadDenominatorsOptimization();
 
         // Si el denominador actual es incompatible o es el mismo par, reajustar automáticamente
         if (selectedPair2 == null || selectedPair2.equals(selectedPair)) {
@@ -5426,6 +5891,24 @@ public class DashboardBean implements Serializable {
             totalRow.setNetPnl(this.ratioHechosTotalPnl);
             this.ratioHechosList.add(totalRow);
         }
+    }
+
+    public String getRatioCreatedAt() {
+        if (selectedUserRatio != null && selectedUserRatio.getCreatedAt() != null && !selectedUserRatio.getCreatedAt().trim().isEmpty()) {
+            return selectedUserRatio.getCreatedAt().replace("T", " ").trim();
+        }
+        return "";
+    }
+
+    public String getCalibStartDateStr() {
+        if (this.startDate != null) {
+            boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
+            java.text.SimpleDateFormat sdf = isIntradayTf
+                    ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    : new java.text.SimpleDateFormat("yyyy-MM-dd");
+            return sdf.format(this.startDate);
+        }
+        return "";
     }
 
 }
