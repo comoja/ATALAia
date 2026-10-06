@@ -223,6 +223,41 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
                     logger.error(f"[ForexAPI] Error en Bridge MT5: {res.text}")
                     df = pd.DataFrame()
 
+        is_inverted = False
+        if df.empty and "/" in symbolRaw:
+            parts = symbolRaw.split("/")
+            if len(parts) == 2:
+                invSymbol = f"{parts[1]}{parts[0]}".replace(" ", "").upper()
+                logger.info(f"[ForexAPI] Símbolo directo {symbol} sin datos. Probando inverso {invSymbol} para {symbolRaw}...")
+                if mt5 is not None:
+                    symbolInfo = await asyncio.to_thread(mt5.symbol_info, invSymbol)
+                    if symbolInfo is not None or await asyncio.to_thread(mt5.symbol_select, invSymbol, True):
+                        if tsFrom and tsTo:
+                            rates = await asyncio.to_thread(mt5.copy_rates_range, invSymbol, mt5Timeframe, tsFrom, tsTo)
+                        elif tsFrom:
+                            rates = await asyncio.to_thread(mt5.copy_rates_from, invSymbol, mt5Timeframe, tsFrom, min(outputSize, 3000))
+                        else:
+                            rates = await asyncio.to_thread(mt5.copy_rates_from_pos, invSymbol, mt5Timeframe, 1, outputSize)
+                        if rates is not None and len(rates) > 0:
+                            df = pd.DataFrame(rates)
+                            is_inverted = True
+                else:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        body_inv = {
+                            "symbol": invSymbol,
+                            "interval": interval,
+                            "output_size": outputSize,
+                            "ts_from": tsFrom,
+                            "ts_to": tsTo
+                        }
+                        res_inv = await client.post(f"{MT5_BRIDGE_URL}/rates", json=body_inv)
+                        if res_inv.status_code == 200:
+                            data_inv = res_inv.json()
+                            rates_inv = data_inv.get("rates", [])
+                            if rates_inv:
+                                df = pd.DataFrame(rates_inv)
+                                is_inverted = True
+
         if df.empty:
             logger.warning(f"[ForexAPI] No se obtuvieron velas para {symbol} desde MT5.")
             return None
@@ -236,6 +271,21 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
         elif 'volume' not in df.columns:
             df['volume'] = 0
             
+        for col in ["open", "high", "low", "close"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+
+        if is_inverted:
+            orig_open = df['open'].copy()
+            orig_high = df['high'].copy()
+            orig_low = df['low'].copy()
+            orig_close = df['close'].copy()
+
+            df['open'] = 1.0 / orig_open
+            df['close'] = 1.0 / orig_close
+            df['high'] = 1.0 / orig_low
+            df['low'] = 1.0 / orig_high
+
         df['symbol'] = symbolRaw
 
         for col in ["open", "high", "low", "close"]:

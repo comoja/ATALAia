@@ -28,7 +28,7 @@ from backend.services.monthlyBalanceService import (
     registrarMovimientoCapital,
     obtenerMovimientosCapital
 )
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
@@ -195,10 +195,35 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
         tipoEntrada = str(payload.tipoEntrada) if payload.tipoEntrada else "Selectiva"
         accionCierre = str(payload.accionCierre) if payload.accionCierre else "Continua"
 
+        # Verificar si el ratio tiene posiciones abiertas en la cuenta
+        s1 = f"{payload.numerador} - {payload.denominador}"
+        s2 = f"{payload.denominador} - {payload.numerador}"
+        from sqlalchemy import text
+        cnt = db.execute(text("""
+            SELECT COUNT(*) FROM trades 
+            WHERE idCuenta = :idc 
+              AND (setup = :s1 OR setup = :s2)
+              AND status = 'OPEN'
+        """), {"idc": cuentaId, "s1": s1, "s2": s2}).scalar()
+        has_open_trades = bool(cnt and cnt > 0)
+
+        # Regla: No se permite guardar ni modificar en user_ratios si tiene posiciones abiertas en la cuenta
+        if has_open_trades:
+            logger.warning(f"Guardado bloqueado para {payload.numerador}/{payload.denominador} en cuenta {cuentaId}: tiene {cnt} posiciones abiertas")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": f"No se puede guardar el ratio {payload.numerador}/{payload.denominador}: tiene posiciones abiertas en la cuenta."
+                }
+            )
+
         # Calcular los límites históricos estáticos
         # Bloqueo de fechas: Inicio = Fecha Inicio (pantalla de calibración), Fin = createdAt
         fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
-        target_created_at = existingRatio.createdAt if (existingRatio and existingRatio.createdAt) else datetime.utcnow()
+        # Siempre que se guarde (creación o modificación), se actualiza createdAt al momento actual
+        now_dt = datetime.now().replace(microsecond=0)
+        target_created_at = now_dt
         dt_end = target_created_at
 
         try:
@@ -2939,8 +2964,8 @@ async def get_cruces_ema_denominators_optimization(
             cuenta_obj = db.query(Cuenta).filter(Cuenta.idCuenta == idCuenta).first()
             if cuenta_obj:
                 if capital is None or capital <= 0:
-                    capital = float(cuenta_obj.balance) if cuenta_obj.balance else 10000.0
-                leverage = float(cuenta_obj.apalancamiento) if cuenta_obj.apalancamiento else leverage
+                    capital = float(getattr(cuenta_obj, "Capital", 0.0) or 10000.0)
+                leverage = float(getattr(cuenta_obj, "apalancamiento", None) or leverage)
 
         if capital is None or capital <= 0:
             capital = 10000.0

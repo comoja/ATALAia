@@ -55,6 +55,8 @@ logsDir="$scriptDir/logs"
 bridgePidFile="$logsDir/mt5_bridge.pid"
 backendPidFile="$logsDir/backend.pid"
 frontendPidFile="$logsDir/frontend.pid"
+forecastPidFile="$logsDir/forecast.pid"
+newsPidFile="$logsDir/news.pid"
 tailPid=""
 
 mkdir -p "$logsDir"
@@ -123,6 +125,24 @@ startServices() {
         sleep 1
     done
 
+    # 3.1 Microservicio de Pronósticos (ForecastService - puerto 8006)
+    echo "⚡ Levantando ForecastService (Puerto 8006)..."
+    cd "$scriptDir/microservices/forecast_service" || exit 1
+    nohup "$pythonCmd" -m uvicorn main:app --host 0.0.0.0 --port 8006 > "$logsDir/forecast_output.log" 2>&1 &
+    forecastPid=$!
+    disown $forecastPid 2>/dev/null || true
+    echo "$forecastPid" > "$forecastPidFile"
+    echo "✅ ForecastService levantado (PID: $forecastPid)."
+
+    # 3.2 Microservicio de Noticias y Calendario (NewsService - puerto 8007)
+    echo "⚡ Levantando NewsService (Puerto 8007)..."
+    cd "$scriptDir/microservices/news_service" || exit 1
+    nohup "$pythonCmd" -m uvicorn main:app --host 0.0.0.0 --port 8007 > "$logsDir/news_output.log" 2>&1 &
+    newsPid=$!
+    disown $newsPid 2>/dev/null || true
+    echo "$newsPid" > "$newsPidFile"
+    echo "✅ NewsService levantado (PID: $newsPid)."
+
     # 4. Preparar y compilar Frontend solo si falta el JAR o si se pide rebuild
     cacheTarget="$HOME/.build-cache/atalaia-frontend/target"
     mkdir -p "$cacheTarget"
@@ -163,6 +183,8 @@ startServices() {
     echo "🔌 MT5 Wine Bridge:   http://localhost:8005"
     echo "🌐 FastAPI Backend:   http://localhost:8004"
     echo "🌐 PrimeFaces Visual: http://localhost:8080/ATALA.ia/login.xhtml"
+    echo "📈 ForecastService:   http://localhost:8006"
+    echo "📰 NewsService:       http://localhost:8007"
     echo "=========================================================="
 
     if [ "$isDaemon" = "daemon" ] || [ "$isDaemon" = "--daemon" ]; then
@@ -192,6 +214,26 @@ startServices() {
                 disown $backendPid 2>/dev/null || true
                 echo "$backendPid" > "$backendPidFile"
             fi
+            # Watchdog ForecastService (Puerto 8006)
+            if [ -n "$forecastPid" ] && ! kill -0 "$forecastPid" 2>/dev/null; then
+                echo "⚠️ [Daemon Watchdog] ForecastService (PID $forecastPid) cayó. Reiniciando..."
+                cd "$scriptDir/microservices/forecast_service" || exit 1
+                nohup "$pythonCmd" -m uvicorn main:app --host 0.0.0.0 --port 8006 >> "$logsDir/forecast_output.log" 2>&1 &
+                forecastPid=$!
+                disown $forecastPid 2>/dev/null || true
+                echo "$forecastPid" > "$forecastPidFile"
+            fi
+
+            # Watchdog NewsService (Puerto 8007)
+            if [ -n "$newsPid" ] && ! kill -0 "$newsPid" 2>/dev/null; then
+                echo "⚠️ [Daemon Watchdog] NewsService (PID $newsPid) cayó. Reiniciando..."
+                cd "$scriptDir/microservices/news_service" || exit 1
+                nohup "$pythonCmd" -m uvicorn main:app --host 0.0.0.0 --port 8007 >> "$logsDir/news_output.log" 2>&1 &
+                newsPid=$!
+                disown $newsPid 2>/dev/null || true
+                echo "$newsPid" > "$newsPidFile"
+            fi
+
             # Watchdog Frontend Tomcat (Puerto 8080)
             if [ -n "$frontendPid" ] && ! kill -0 "$frontendPid" 2>/dev/null; then
                 echo "⚠️ [Daemon Watchdog] Frontend Tomcat (PID $frontendPid) no responde o terminó. Reiniciando..."
@@ -209,6 +251,25 @@ stopServices() {
     echo "=========================================================="
     echo "🛑 Deteniendo Sistema ATALA.ia..."
     echo "=========================================================="
+
+    # --- 0. APAGAR MICROSERVICIOS RATIOS ---
+    if [ -f "$forecastPidFile" ]; then
+        forecastPid=$(cat "$forecastPidFile")
+        echo "⚡ Deteniendo ForecastService (PID: $forecastPid)..."
+        kill "$forecastPid" 2>/dev/null || true
+        rm -f "$forecastPidFile"
+    fi
+    portPid=$(lsof -t -i:8006 2>/dev/null)
+    if [ -n "$portPid" ]; then kill -9 "$portPid" 2>/dev/null; fi
+
+    if [ -f "$newsPidFile" ]; then
+        newsPid=$(cat "$newsPidFile")
+        echo "⚡ Deteniendo NewsService (PID: $newsPid)..."
+        kill "$newsPid" 2>/dev/null || true
+        rm -f "$newsPidFile"
+    fi
+    portPid=$(lsof -t -i:8007 2>/dev/null)
+    if [ -n "$portPid" ]; then kill -9 "$portPid" 2>/dev/null; fi
 
     # --- 1. APAGAR FRONTEND ---
     if [ -f "$frontendPidFile" ]; then

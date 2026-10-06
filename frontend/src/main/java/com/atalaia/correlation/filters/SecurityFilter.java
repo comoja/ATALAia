@@ -76,6 +76,26 @@ public class SecurityFilter implements Filter {
             return;
         }
 
+        // 0.1 Proxy de Microservicios (Forecast y News) protegido por sesión
+        if (relativeUri.startsWith("/api/proxy/")) {
+            HttpSession session = httpRequest.getSession(false);
+            SecurityBean securityBean = null;
+            if (session != null) {
+                securityBean = (SecurityBean) session.getAttribute("securityBean");
+            }
+            log.info("[SecurityFilter] Petición Proxy: {} | Sesion={}: LoggedIn={}", relativeUri, session != null, (securityBean != null && securityBean.isLoggedIn()));
+            if (securityBean != null && securityBean.isLoggedIn()) {
+                chain.doFilter(request, response);
+            } else {
+                httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                httpResponse.setContentType("application/json");
+                httpResponse.setCharacterEncoding("UTF-8");
+                httpResponse.getWriter().write("{\"error\":\"No autorizado. Inicie sesión.\"}");
+                httpResponse.getWriter().flush();
+            }
+            return;
+        }
+
         // 1. Permitir acceso a recursos estáticos (CSS, JS, imágenes de PrimeFaces, etc.)
         boolean isStaticResource = relativeUri.contains("/javax.faces.resource/") ||
                                    relativeUri.contains("/resources/") ||

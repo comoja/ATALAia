@@ -97,10 +97,14 @@ class DatabaseManager:
                     "volume": float(row['volume'])
                 })
             
-            res = _call_connection_pool("POST", "/candles/bulk", json_data=payload, timeout=15.0)
-            if res and res.get("status") == "ok":
-                return res.get("inserted", len(payload))
-            return 0
+            total_inserted = 0
+            chunk_size = 5000
+            for i in range(0, len(payload), chunk_size):
+                chunk = payload[i:i + chunk_size]
+                res = _call_connection_pool("POST", "/candles/bulk", json_data=chunk, timeout=30.0)
+                if res and res.get("status") == "ok":
+                    total_inserted += res.get("inserted", len(chunk))
+            return total_inserted
 
         except Exception as e:
             logger.error(f"Error en saveBulkData: {e}")

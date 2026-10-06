@@ -157,6 +157,33 @@ class MultiAccountRateLimiter:
     def allExhausted(self) -> bool:
         return all(self.callsToday[k] >= RATE_LIMIT_PER_DAY for k in self.apiKeys)
 
+
+def get_symbols_needing_candles(symbols, db, now_local, completed_in_rest=None):
+    """
+    Identifica qué símbolos tienen velas pendientes de descargar o están incompletos,
+    incluso si el mercado está actualmente cerrado.
+    """
+    if completed_in_rest is None:
+        completed_in_rest = set()
+    pendientes = []
+    for s_data in symbols:
+        sym = s_data['symbol']
+        if sym in completed_in_rest:
+            continue
+        cnt = db.getCandleCount(sym, "5min")
+        if cnt == 0:
+            pendientes.append(s_data)
+            continue
+        last_db = db.getLastTimestamp(sym, "5min")
+        if not last_db:
+            pendientes.append(s_data)
+            continue
+        last_norm = normalize_datetime(last_db, pytz.timezone(TIMEZONE))
+        if (now_local - last_norm).total_seconds() > 4 * 86400:
+            pendientes.append(s_data)
+    return pendientes
+
+
 async def main():
     logger.info("=" * 60)
     logger.info("DataSymbol - Descarga Optimizada (Multi-Account 4x Speed)")
@@ -172,6 +199,7 @@ async def main():
     symbolIndex = 0
     ultimoLogMinuto = -1
     _last_hourly_stockprices_sync = None
+    symbols_up_to_date_in_rest = set()
     
     while True:
         try:
@@ -210,23 +238,16 @@ async def main():
                     except Exception as e:
                         logger.error(f"Error iniciando optimización semanal: {e}")
 
-            if isRestTime():
-                segundosSueño = get_seconds_until_market_opens()
-                segundosSueño += 10.0
-                horasRestantes = int(segundosSueño // 3600)
-                minutosRestantes = int((segundosSueño % 3600) // 60)
-                segundosRestantes = int(segundosSueño % 60)
-                tiempoSueñoParcial = min(60.0, segundosSueño)
-                
-                mensajeDescanso = f"💤 Periodo de descanso detectado. Apertura en {horasRestantes}h {minutosRestantes}m {segundosRestantes}s."
-                if minutosRestantes % 15 == 0 and minutosRestantes != ultimoLogMinuto:
-                    logger.info(mensajeDescanso)
-                    ultimoLogMinuto = minutosRestantes
-                else:
-                    logger.debug(mensajeDescanso + f" (durmiendo ciclo de {int(tiempoSueñoParcial)}s)")
-                
-                await asyncio.sleep(tiempoSueñoParcial)
-                continue
+            # --- Descansos de mercado comentados ---
+            # Si el mercado está cerrado, no hay cambios y MT5 no devuelve nada,
+            # por lo que no se requieren descansos obligatorios y se mantiene el ciclo normal.
+            # rest_mode = isRestTime()
+            # if isRestTime():
+            #     segundosSueño = get_seconds_until_market_opens()
+            #     segundosSueño += 10.0
+            #     tiempoSueñoParcial = min(60.0, segundosSueño)
+            #     await asyncio.sleep(tiempoSueñoParcial)
+            #     continue
             
             # Reset diario basado en el reloj de TwelveData (UTC)
             if DATA_SOURCE != "forex" and today_api > lastResetDate:
@@ -273,13 +294,16 @@ async def main():
             if lastDb:
                 startDate = lastDb + timedelta(minutes=5)
             else:
-                startDateRaw = symbolData.get('startDate')
-                if isinstance(startDateRaw, str):
-                    startDate = datetime.strptime(startDateRaw, '%Y-%m-%d')
-                elif startDateRaw:
-                    startDate = datetime.combine(startDateRaw, datetime.min.time())
+                if DATA_SOURCE == "forex":
+                    startDate = datetime(2025, 5, 1)  # Historial broker MT5 disponible desde mayo 2025
                 else:
-                    startDate = datetime(2020, 1, 1) # Fallback más reciente para no saturar
+                    startDateRaw = symbolData.get('startDate')
+                    if isinstance(startDateRaw, str):
+                        startDate = datetime.strptime(startDateRaw, '%Y-%m-%d')
+                    elif startDateRaw:
+                        startDate = datetime.combine(startDateRaw, datetime.min.time())
+                    else:
+                        startDate = datetime(2020, 1, 1)
 
             TZ = pytz.timezone(TIMEZONE)
             startDate = normalize_datetime(startDate, TZ)

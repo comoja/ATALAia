@@ -3831,6 +3831,13 @@ public class DashboardBean implements Serializable {
                             "Modo Solo Lectura", "No puedes modificar ni guardar ratios de otro usuario."));
             return;
         }
+        if (isRatioEditBlocked()) {
+            log.warn("⚠️ Intento de guardar ratio bloqueado: El ratio tiene posiciones abiertas en la cuenta.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modificación Bloqueada", "No se puede guardar: El ratio tiene posiciones abiertas en la cuenta."));
+            return;
+        }
         if (selectedPair == null || selectedPair.trim().isEmpty() || selectedPair2 == null || selectedPair2.trim().isEmpty()) {
             log.warn("⚠️ Intento de guardar ratio con símbolos incompletos: selectedPair='{}' , selectedPair2='{}'", selectedPair, selectedPair2);
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -3897,6 +3904,7 @@ public class DashboardBean implements Serializable {
             if (response.getStatusCode().is2xxSuccessful()) {
                 this.ratioExistsInDb = true;
                 loadUserRatiosList();
+                fetchUserRatioDetails();
                 String operarDesc = Boolean.TRUE.equals(operar) ? "Activado (SI)" : "Desactivado (NO)";
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
@@ -3909,6 +3917,22 @@ public class DashboardBean implements Serializable {
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
                                 "Error al Guardar", "No se pudo registrar el ratio."));
             }
+        } catch (org.springframework.web.client.HttpStatusCodeException ex) {
+            String errorMsg = "No se pudo guardar el ratio.";
+            try {
+                com.fasterxml.jackson.databind.JsonNode errNode = new com.fasterxml.jackson.databind.ObjectMapper().readTree(ex.getResponseBodyAsString());
+                if (errNode.has("message")) {
+                    errorMsg = errNode.get("message").asText();
+                } else if (errNode.has("detail")) {
+                    errorMsg = errNode.get("detail").asText();
+                }
+            } catch (Exception parseEx) {
+                errorMsg = ex.getResponseBodyAsString();
+            }
+            log.warn("Error backend al guardar ratio: {}", errorMsg);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Guardado Bloqueado", errorMsg));
         } catch (Exception e) {
             log.error("Excepción al guardar ratio: {}", e.getMessage(), e);
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -4198,6 +4222,12 @@ public class DashboardBean implements Serializable {
         log.info("Seleccionado ratio desde acordeón: {} / {} (temporalidad={}, periodo={}, fast={}, slow={}, operar={})",
                 ratio.getNumerador(), ratio.getDenominador(), ratio.getTemporalidad(), ratio.getPeriodo(), ratio.getEmaRapida(), ratio.getEmaLenta(), ratio.getOperar());
         this.selectedUserRatio = ratio;
+        this.currentRatioId = (ratio != null) ? ratio.getId() : null;
+        if (ratio.getCreatedAt() != null) {
+            this.ratioCreatedAt = ratio.getCreatedAt().replace("T", " ").trim();
+        } else {
+            this.ratioCreatedAt = "";
+        }
         if (ratio.getIdCuenta() != null) {
             this.selectedAccountId = ratio.getIdCuenta();
         }
@@ -4269,6 +4299,12 @@ public class DashboardBean implements Serializable {
                 JsonNode rootNode = mapper.readTree(responseStr);
                 if (rootNode.has("found") && rootNode.get("found").asBoolean()) {
                     this.ratioExistsInDb = true;
+                    if (rootNode.has("id") && !rootNode.get("id").isNull()) {
+                        this.currentRatioId = rootNode.get("id").asInt();
+                        if (this.selectedUserRatio != null) {
+                            this.selectedUserRatio.setId(this.currentRatioId);
+                        }
+                    }
                     if (rootNode.has("Temporalidad") && !rootNode.get("Temporalidad").isNull()) {
                         this.timeframe = rootNode.get("Temporalidad").asText();
                     } else if (rootNode.has("temporalidad") && !rootNode.get("temporalidad").isNull()) {
@@ -4284,6 +4320,7 @@ public class DashboardBean implements Serializable {
                     // Leer createdAt de la BD para fijar startDate restando n periodos
                     if (rootNode.has("createdAt") && !rootNode.get("createdAt").isNull()) {
                         String cAtStr = rootNode.get("createdAt").asText();
+                        this.ratioCreatedAt = cAtStr.replace("T", " ").trim();
                         if (selectedUserRatio != null) {
                             selectedUserRatio.setCreatedAt(cAtStr);
                         }
@@ -4339,6 +4376,9 @@ public class DashboardBean implements Serializable {
                 } else {
                     log.info("ℹ️ No existe registro en BD para {}/{}. Aplicando valores por defecto.", selectedPair, selectedPair2);
                     this.ratioExistsInDb = false;
+                    this.currentRatioId = null;
+                    this.ratioCreatedAt = "";
+                    this.selectedUserRatio = null;
                     this.smaPeriodParam = 2;
                     this.emaSlowPeriodParam = 15;
                     this.timeframe = "1h";
@@ -4395,6 +4435,8 @@ public class DashboardBean implements Serializable {
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 this.ratioExistsInDb = false;
+                this.currentRatioId = null;
+                this.selectedUserRatio = null;
                 this.operar = false;
                 loadUserRatiosList();
                 String msgText = "Se eliminó el ratio " + selectedPair + " / " + selectedPair2 + ".";
@@ -5893,11 +5935,45 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    private Integer currentRatioId = null;
+
+    public Integer getCurrentRatioId() {
+        if (!this.ratioExistsInDb) {
+            return null;
+        }
+        if (this.currentRatioId != null && this.currentRatioId > 0) {
+            return this.currentRatioId;
+        }
+        if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null && this.selectedUserRatio.getId() > 0) {
+            return this.selectedUserRatio.getId();
+        }
+        return null;
+    }
+
+    public void setCurrentRatioId(Integer currentRatioId) {
+        this.currentRatioId = currentRatioId;
+    }
+
+    public String getCalibrationTabTitle() {
+        Integer rId = getCurrentRatioId();
+        if (rId != null && rId > 0) {
+            return "2. Calibración del Ratio " + rId;
+        }
+        return "2. Calibración del Ratio";
+    }
+
+    private String ratioCreatedAt = "";
+    private String calibStartDateStr = "";
+
     public String getRatioCreatedAt() {
         if (selectedUserRatio != null && selectedUserRatio.getCreatedAt() != null && !selectedUserRatio.getCreatedAt().trim().isEmpty()) {
             return selectedUserRatio.getCreatedAt().replace("T", " ").trim();
         }
-        return "";
+        return this.ratioCreatedAt != null ? this.ratioCreatedAt : "";
+    }
+
+    public void setRatioCreatedAt(String ratioCreatedAt) {
+        this.ratioCreatedAt = ratioCreatedAt;
     }
 
     public String getCalibStartDateStr() {
@@ -5908,7 +5984,22 @@ public class DashboardBean implements Serializable {
                     : new java.text.SimpleDateFormat("yyyy-MM-dd");
             return sdf.format(this.startDate);
         }
-        return "";
+        return this.calibStartDateStr != null ? this.calibStartDateStr : "";
+    }
+
+    public void setCalibStartDateStr(String calibStartDateStr) {
+        this.calibStartDateStr = calibStartDateStr;
+    }
+
+    public boolean isRatioEditBlocked() {
+        if (isReadOnly()) {
+            return true;
+        }
+        return this.hasActiveTradesInDb;
+    }
+
+    public boolean getRatioEditBlocked() {
+        return isRatioEditBlocked();
     }
 
 }
