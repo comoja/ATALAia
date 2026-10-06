@@ -1,6 +1,10 @@
 #!/bin/bash
 
 scriptDir=$(cd "$(dirname "$0")" && pwd)
+if [ -d "/opt/wine-staging/bin" ]; then
+    export PATH="/opt/wine-staging/bin:$PATH"
+fi
+
 
 # Cargar variables de entorno del sistema
 if [ -f "$scriptDir/.env" ]; then
