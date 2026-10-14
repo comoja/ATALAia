@@ -49,6 +49,9 @@ class CruceEmaEngine:
         minMarginIndicator: float = 200.0,
         cierreDivergencia: bool = True,
         tipoEntrada: str = "Selectiva",
+        tipoCierre: str = "Reactivo",
+        umbralDiferencia: float = 0.20,
+        calibPeriods: Optional[int] = None,
         fixedMinA: Optional[float] = None,
         fixedMaxA: Optional[float] = None,
         fixedMinB: Optional[float] = None,
@@ -87,7 +90,8 @@ class CruceEmaEngine:
             fixedMinA=fixedMinA,
             fixedMaxA=fixedMaxA,
             fixedMinB=fixedMinB,
-            fixedMaxB=fixedMaxB
+            fixedMaxB=fixedMaxB,
+            calibPeriods=calibPeriods
         )
         normA = normData["normA"]
         normB = normData["normB"]
@@ -155,7 +159,212 @@ class CruceEmaEngine:
         cyclePeakCapitalReq = 0.0
         cyclePeakMargin = 0.0
         cycleMaxAdverseFloat = 0.0
+        cycleHadCross = False
+        peakFavDiffPostCross = 0.0
         has_time = any(hasattr(d, "hour") and (d.hour != 0 or d.minute != 0) for d in commonIdx[:20])
+
+        def close_active_cycle(exit_reason_label: str, exit_reason_detail: str, exit_idx: int, exit_pxA: float, exit_pxB: float, exit_d: str):
+            nonlocal cycleCounter, rawTradesCount, equity, cycleStartEquity, cycleAvailableEquity
+            nonlocal isCycleMarginCapped, cycleStoppedEntries, cyclePeakCapitalReq, cyclePeakMargin, cycleMaxAdverseFloat
+            nonlocal activeTrades, cycleSkippedTrades, cycleLastA, cycleLastB, cycleHadCross, peakFavDiffPostCross
+
+            cycleCounter += 1
+            cycleTrades = []
+            cyclePnl = 0.0
+            cycleMargin = sum(t["margin"] for t in activeTrades)
+            cycleMarginA = sum(t.get("marginA", 0.0) for t in activeTrades)
+            cycleMarginB = sum(t.get("marginB", 0.0) for t in activeTrades)
+            cycleUnitsA = sum(t["unitsA"] for t in activeTrades)
+            cycleUnitsB = sum(t["unitsB"] for t in activeTrades)
+
+            for t in activeTrades:
+                rawTradesCount += 1
+                if ("LONG " + nameA in t["direction"]) or ("LONG A" in t["direction"]) or t["direction"].startswith("LONG"):
+                    deltaA = (exit_pxA - t["entryPxA"])
+                    deltaB = (t["entryPxB"] - exit_pxB)
+                else:
+                    deltaA = (t["entryPxA"] - exit_pxA)
+                    deltaB = (exit_pxB - t["entryPxB"])
+
+                pipsA = deltaA / pipA if pipA > 0 else 0.0
+                pipsB = deltaB / pipB if pipB > 0 else 0.0
+
+                if quoteA == "USD":
+                    pipValA = t["unitsA"] * pipA
+                else:
+                    pipValA = (t["unitsA"] * pipA) / exit_pxA if exit_pxA > 0 else (t["unitsA"] * pipA)
+
+                if quoteB == "USD":
+                    pipValB = t["unitsB"] * pipB
+                else:
+                    pipValB = (t["unitsB"] * pipB) / exit_pxB if exit_pxB > 0 else (t["unitsB"] * pipB)
+
+                pnlA = pipsA * pipValA
+                pnlB = pipsB * pipValB
+
+                tradePnl = pnlA + pnlB
+                tradeNetRet = (tradePnl / initialCapital) if initialCapital > 0 else 0.0
+
+                equity += tradePnl
+                cyclePnl += tradePnl
+
+                cycleTrades.append({
+                    "tradeNum": rawTradesCount,
+                    "isSubtotal": False,
+                    "isSkipped": False,
+                    "isOpen": False,
+                    "cycleNum": cycleCounter,
+                    "signalType": t["signalType"],
+                    "direction": t["direction"],
+                    "entryDate": t["entryDate"],
+                    "entryIndex": t.get("entryIndex", exit_idx),
+                    "normA": t.get("normA", round(float(normAVals[t.get("entryIndex", exit_idx)]), 4)),
+                    "normB": t.get("normB", round(float(normBVals[t.get("entryIndex", exit_idx)]), 4)),
+                    "exitDate": exit_d,
+                    "allocatedCapital": round(float(t["margin"]), 2),
+                    "marginA": round(float(t.get("marginA", 0.0)), 2),
+                    "marginB": round(float(t.get("marginB", 0.0)), 2),
+                    "marginAccountPct": t.get("marginAccountPct", 0.0),
+                    "marginIndicator": t.get("marginIndicator", 0.0),
+                    "availableCapital": round(float(t.get("availableCapital", 0.0)), 2),
+                    "accumCapital": round(float(equity), 2),
+                    "multA": t["multA"],
+                    "multB": t["multB"],
+                    "unitsA": int(t["unitsA"]),
+                    "unitsB": int(t["unitsB"]),
+                    "pipsA": round(float(pipsA), 1),
+                    "pipsB": round(float(pipsB), 1),
+                    "pnlA": round(float(pnlA), 2),
+                    "pnlB": round(float(pnlB), 2),
+                    "entryPriceA": round(float(t["entryPxA"]), 5),
+                    "exitPriceA": round(float(exit_pxA), 5),
+                    "entryPriceB": round(float(t["entryPxB"]), 5),
+                    "exitPriceB": round(float(exit_pxB), 5),
+                    "durationBars": exit_idx - t["entryIndex"],
+                    "returnPct": round(float(tradeNetRet * 100.0), 2),
+                    "pnl": round(float(tradePnl), 2),
+                    "exitReason": exit_reason_label,
+                    "isWin": bool(tradePnl > 0)
+                })
+
+            for st in cycleSkippedTrades:
+                cycleTrades.append({
+                    "tradeNum": None,
+                    "isSubtotal": False,
+                    "isSkipped": True,
+                    "isOpen": False,
+                    "cycleNum": cycleCounter,
+                    "signalType": st["signalType"],
+                    "direction": st["direction"],
+                    "entryDate": st["entryDate"],
+                    "entryIndex": st.get("entryIndex", exit_idx),
+                    "exitDate": exit_d,
+                    "allocatedCapital": None,
+                    "marginA": None,
+                    "marginB": None,
+                    "marginAccountPct": None,
+                    "marginIndicator": None,
+                    "availableCapital": None,
+                    "accumCapital": None,
+                    "multA": None,
+                    "multB": None,
+                    "unitsA": None,
+                    "unitsB": None,
+                    "pipsA": None,
+                    "pipsB": None,
+                    "pnlA": None,
+                    "pnlB": None,
+                    "entryPriceA": round(float(st["entryPxA"]), 5),
+                    "exitPriceA": round(float(exit_pxA), 5),
+                    "entryPriceB": round(float(st["entryPxB"]), 5),
+                    "exitPriceB": round(float(exit_pxB), 5),
+                    "durationBars": exit_idx - st.get("entryIndex", exit_idx),
+                    "returnPct": None,
+                    "pnl": None,
+                    "exitReason": f"INDICADOR_MARGEN_MENOR_{int(minMarginIndicator)}",
+                    "isWin": None
+                })
+
+            cycleTrades.sort(key=lambda x: x.get("entryIndex", 0))
+            for ct in cycleTrades:
+                finishedTrades.append(ct)
+
+            operatedCycleTrades = [ct for ct in cycleTrades if not ct.get("isSkipped")]
+            cycleAvgRet = round((cyclePnl / initialCapital) * 100.0, 2) if initialCapital > 0 else 0.0
+
+            if operatedCycleTrades:
+                entrySpan = f"{operatedCycleTrades[0]['entryDate'][:10]} a {operatedCycleTrades[-1]['entryDate'][:10]}" if len(operatedCycleTrades) > 1 else operatedCycleTrades[0]['entryDate'][:10]
+                firstIdx = operatedCycleTrades[0].get("entryIndex", 0)
+            else:
+                entrySpan = cycleTrades[0]['entryDate'][:10] if cycleTrades else exit_d[:10]
+                firstIdx = cycleTrades[0].get("entryIndex", 0) if cycleTrades else exit_idx
+
+            lastIdx = exit_idx
+            if has_time:
+                diffSecs = (commonIdx[lastIdx] - commonIdx[firstIdx]).total_seconds()
+                cycleDurationStr = f"{max(1, int(round(diffSecs / 3600.0)))}h"
+            else:
+                diffDays = (commonIdx[lastIdx].date() - commonIdx[firstIdx].date()).days if hasattr(commonIdx[firstIdx], "date") else (lastIdx - firstIdx)
+                cycleDurationStr = f"{max(1, int(diffDays))}d"
+
+            avgEntryPxA = (sum(ct["entryPriceA"] * ct["unitsA"] for ct in operatedCycleTrades) / cycleUnitsA) if cycleUnitsA > 0 else 0.0
+            avgEntryPxB = (sum(ct["entryPriceB"] * ct["unitsB"] for ct in operatedCycleTrades) / cycleUnitsB) if cycleUnitsB > 0 else 0.0
+            cycleMarginPct = round(float((cycleMargin / cycleStartEquity) * 100.0), 1) if cycleStartEquity > 0 else 0.0
+            cycleMarginIndicator = round(float((cycleStartEquity / cycleMargin) * 100.0), 1) if cycleMargin > 0 else 0.0
+
+            finishedTrades.append({
+                "tradeNum": None,
+                "isSubtotal": True,
+                "cycleNum": cycleCounter,
+                "signalType": f"SUBTOTAL CIERRE #{cycleCounter}",
+                "direction": f"🔄 {exit_reason_label} ({len(operatedCycleTrades)} ops cerradas)",
+                "entryDate": cycleDurationStr,
+                "entryDateRange": entrySpan,
+                "exitDate": exit_d,
+                "allocatedCapital": round(float(cycleMargin), 2),
+                "marginA": round(float(cycleMarginA), 2),
+                "marginB": round(float(cycleMarginB), 2),
+                "availableCapital": round(float(equity), 2),
+                "accumCapital": round(float(equity), 2),
+                "multA": None,
+                "multB": None,
+                "unitsA": int(cycleUnitsA),
+                "unitsB": int(cycleUnitsB),
+                "pipsA": round(float(sum(ct["pipsA"] for ct in operatedCycleTrades if ct.get("pipsA") is not None)), 1),
+                "pipsB": round(float(sum(ct["pipsB"] for ct in operatedCycleTrades if ct.get("pipsB") is not None)), 1),
+                "pnlA": round(float(sum(ct["pnlA"] for ct in operatedCycleTrades if ct.get("pnlA") is not None)), 2),
+                "pnlB": round(float(sum(ct["pnlB"] for ct in operatedCycleTrades if ct.get("pnlB") is not None)), 2),
+                "entryPriceA": round(float(avgEntryPxA), 5),
+                "exitPriceA": round(float(exit_pxA), 5),
+                "entryPriceB": round(float(avgEntryPxB), 5),
+                "exitPriceB": round(float(exit_pxB), 5),
+                "durationBars": len(operatedCycleTrades),
+                "returnPct": cycleAvgRet,
+                "pnl": round(float(cyclePnl), 2),
+                "exitReason": exit_reason_detail,
+                "isWin": bool(cyclePnl > 0),
+                "isMarginCapped": bool(isCycleMarginCapped or len(cycleSkippedTrades) > 0),
+                "stoppedEntriesCount": int(len(cycleSkippedTrades)),
+                "peakCapitalRequired": round(float(cyclePeakCapitalReq), 2),
+                "peakMargin": round(float(cyclePeakMargin), 2),
+                "maxAdverseFloat": round(float(cycleMaxAdverseFloat), 2),
+                "marginAccountPct": cycleMarginPct,
+                "marginIndicator": cycleMarginIndicator
+            })
+
+            cycleStartEquity = equity
+            cycleAvailableEquity = equity
+            isCycleMarginCapped = False
+            cycleStoppedEntries = 0
+            cyclePeakCapitalReq = 0.0
+            cyclePeakMargin = 0.0
+            cycleMaxAdverseFloat = 0.0
+            activeTrades = []
+            cycleSkippedTrades = []
+            cycleLastA = None
+            cycleLastB = None
+            cycleHadCross = False
+            peakFavDiffPostCross = 0.0
 
         for i in range(1, totalBars):
             d = dates[i]
@@ -252,220 +461,66 @@ class CruceEmaEngine:
                 avgOfMean=normData.get("avgOfMean")
             )
 
-            isMeanCross = candleSig.get("isMeanCross", False)
+            isPriceCross = candleSig.get("isPriceCross", False)
             sigType = candleSig.get("signalType")
             direction = candleSig.get("direction")
 
-            # 1. EVALUAR ENTRADA, REVERSAL (CAMBIO DE DIRECCIÓN) O ACUMULACIÓN
+            # 1. EVALUAR REGLAS DE SALIDA / CIERRE DE CICLO ACTIVO
+            if activeTrades or cycleSkippedTrades:
+                cycleDir = activeTrades[0]["direction"] if activeTrades else cycleSkippedTrades[0]["direction"]
+                isLongA = ("LONG " + nameA in cycleDir) or ("LONG A" in cycleDir) or cycleDir.startswith("LONG")
+
+                favDiffNow = (normAVals[i] - normBVals[i]) if isLongA else (normBVals[i] - normAVals[i])
+                prevFavDiff = (normAVals[i - 1] - normBVals[i - 1]) if isLongA else (normBVals[i - 1] - normAVals[i - 1])
+
+                if isPriceCross:
+                    cycleHadCross = True
+                    peakFavDiffPostCross = max(peakFavDiffPostCross, favDiffNow)
+
+                shouldClose = False
+                reasonLabel = ""
+                reasonDetail = ""
+
+                # Regla 1: Reversal en Extremo Opuesto (Giro por señal contraria)
+                if sigType and direction and direction != cycleDir:
+                    shouldClose = True
+                    reasonLabel = "Reversal"
+                    reasonDetail = f"CAMBIO DE DIRECCIÓN ({direction}) {d}"
+
+                # Regla 2: Modo Síncrono (Cierre exacto en el cruce de precios ●)
+                elif str(tipoCierre).lower() in ["sincrono", "cruce"]:
+                    if isPriceCross:
+                        shouldClose = True
+                        reasonLabel = "Cruce Síncrono (●)"
+                        reasonDetail = f"POR CRUCE DE PRECIOS {d}"
+
+                # Regla 3: Modo Tolerante / Diferencia (|NormA - NormB| <= umbralDiferencia con ganancia positiva)
+                elif str(tipoCierre).lower() in ["tolerante", "diferencia"]:
+                    normDiff = abs(normAVals[i] - normBVals[i])
+                    if normDiff <= umbralDiferencia and unrealizedTotalPnl > 0.0:
+                        shouldClose = True
+                        reasonLabel = f"Diferencial <= {umbralDiferencia:.2f}"
+                        reasonDetail = f"POR DIFERENCIAL NORMALIZADO <= {umbralDiferencia:.2f} (Dif: {normDiff:.4f} | PnL: +${unrealizedTotalPnl:.2f}) {d}"
+                    elif isPriceCross:
+                        shouldClose = True
+                        reasonLabel = "Cruce de Precios (●)"
+                        reasonDetail = f"POR CRUCE DE PRECIOS {d}"
+
+                # Regla 4: Modo Reactivo (Cambio de dirección DESPUÉS de un cruce)
+                elif str(tipoCierre).lower() == "reactivo":
+                    if cycleHadCross:
+                        if favDiffNow > peakFavDiffPostCross:
+                            peakFavDiffPostCross = favDiffNow
+                        elif favDiffNow < prevFavDiff:
+                            shouldClose = True
+                            reasonLabel = "Giro Post-Cruce"
+                            reasonDetail = f"CAMBIO DE DIRECCIÓN DESPUÉS DE CRUCE {d}"
+
+                if shouldClose:
+                    close_active_cycle(reasonLabel, reasonDetail, i, pxA, pxB, d)
+
+            # 2. EVALUAR NUEVA ENTRADA (O ENTRADA TRAS REVERSAL / ACUMULACIÓN)
             if sigType and direction:
-                # Verificar si existen posiciones activas o skipped en DIRECCIÓN OPUESTA (Reversal)
-                isOpposite = False
-                if activeTrades or cycleSkippedTrades:
-                    prevDir = activeTrades[0]["direction"] if activeTrades else cycleSkippedTrades[0]["direction"]
-                    if direction != prevDir:
-                        isOpposite = True
-
-                if isOpposite:
-                    cycleCounter += 1
-                    cycleTrades = []
-                    cyclePnl = 0.0
-                    cycleMargin = sum(t["margin"] for t in activeTrades)
-                    cycleMarginA = sum(t.get("marginA", 0.0) for t in activeTrades)
-                    cycleMarginB = sum(t.get("marginB", 0.0) for t in activeTrades)
-                    cycleUnitsA = sum(t["unitsA"] for t in activeTrades)
-                    cycleUnitsB = sum(t["unitsB"] for t in activeTrades)
-
-                    # Cerrar operaciones operadas
-                    for t in activeTrades:
-                        rawTradesCount += 1
-                        if ("LONG " + nameA in t["direction"]) or ("LONG A" in t["direction"]) or t["direction"].startswith("LONG"):
-                            deltaA = (pxA - t["entryPxA"])
-                            deltaB = (t["entryPxB"] - pxB)
-                        else:
-                            deltaA = (t["entryPxA"] - pxA)
-                            deltaB = (pxB - t["entryPxB"])
-
-                        pipsA = deltaA / pipA if pipA > 0 else 0.0
-                        pipsB = deltaB / pipB if pipB > 0 else 0.0
-
-                        if quoteA == "USD":
-                            pipValA = t["unitsA"] * pipA
-                        else:
-                            pipValA = (t["unitsA"] * pipA) / pxA if pxA > 0 else (t["unitsA"] * pipA)
-
-                        if quoteB == "USD":
-                            pipValB = t["unitsB"] * pipB
-                        else:
-                            pipValB = (t["unitsB"] * pipB) / pxB if pxB > 0 else (t["unitsB"] * pipB)
-
-                        pnlA = pipsA * pipValA
-                        pnlB = pipsB * pipValB
-
-                        tradePnl = pnlA + pnlB
-                        tradeNetRet = (tradePnl / initialCapital) if initialCapital > 0 else 0.0
-
-                        equity += tradePnl
-                        cyclePnl += tradePnl
-
-                        cycleTrades.append({
-                            "tradeNum": rawTradesCount,
-                            "isSubtotal": False,
-                            "isSkipped": False,
-                            "isOpen": False,
-                            "cycleNum": cycleCounter,
-                            "signalType": t["signalType"],
-                            "direction": t["direction"],
-                            "entryDate": t["entryDate"],
-                            "entryIndex": t.get("entryIndex", i),
-                            "normA": t.get("normA", round(float(normAVals[t.get("entryIndex", i)]), 4)),
-                            "normB": t.get("normB", round(float(normBVals[t.get("entryIndex", i)]), 4)),
-                            "exitDate": d,
-                            "allocatedCapital": round(float(t["margin"]), 2),
-                            "marginA": round(float(t.get("marginA", 0.0)), 2),
-                            "marginB": round(float(t.get("marginB", 0.0)), 2),
-                            "marginAccountPct": t.get("marginAccountPct", 0.0),
-                            "marginIndicator": t.get("marginIndicator", 0.0),
-                            "availableCapital": round(float(t.get("availableCapital", 0.0)), 2),
-                            "accumCapital": round(float(equity), 2),
-                            "multA": t["multA"],
-                            "multB": t["multB"],
-                            "unitsA": int(t["unitsA"]),
-                            "unitsB": int(t["unitsB"]),
-                            "pipsA": round(float(pipsA), 1),
-                            "pipsB": round(float(pipsB), 1),
-                            "pnlA": round(float(pnlA), 2),
-                            "pnlB": round(float(pnlB), 2),
-                            "entryPriceA": round(float(t["entryPxA"]), 5),
-                            "exitPriceA": round(float(pxA), 5),
-                            "entryPriceB": round(float(t["entryPxB"]), 5),
-                            "exitPriceB": round(float(pxB), 5),
-                            "durationBars": i - t["entryIndex"],
-                            "returnPct": round(float(tradeNetRet * 100.0), 2),
-                            "pnl": round(float(tradePnl), 2),
-                            "exitReason": "CAMBIO_DIRECCION",
-                            "isWin": bool(tradePnl > 0)
-                        })
-
-                    # Incorporar los registros que se estuvo perdiendo (no operados por indicador < 200)
-                    for st in cycleSkippedTrades:
-                        cycleTrades.append({
-                            "tradeNum": None,
-                            "isSubtotal": False,
-                            "isSkipped": True,
-                            "isOpen": False,
-                            "cycleNum": cycleCounter,
-                            "signalType": st["signalType"],
-                            "direction": st["direction"],
-                            "entryDate": st["entryDate"],
-                            "entryIndex": st.get("entryIndex", i),
-                            "exitDate": d,
-                            "allocatedCapital": None,
-                            "marginA": None,
-                            "marginB": None,
-                            "marginAccountPct": None,
-                            "marginIndicator": None,
-                            "availableCapital": None,
-                            "accumCapital": None,
-                            "multA": None,
-                            "multB": None,
-                            "unitsA": None,
-                            "unitsB": None,
-                            "pipsA": None,
-                            "pipsB": None,
-                            "pnlA": None,
-                            "pnlB": None,
-                            "entryPriceA": round(float(st["entryPxA"]), 5),
-                            "exitPriceA": round(float(pxA), 5),
-                            "entryPriceB": round(float(st["entryPxB"]), 5),
-                            "exitPriceB": round(float(pxB), 5),
-                            "durationBars": i - st.get("entryIndex", i),
-                            "returnPct": None,
-                            "pnl": None,
-                            "exitReason": f"INDICADOR_MARGEN_MENOR_{int(minMarginIndicator)}",
-                            "isWin": None
-                        })
-
-                    # Ordenar registros del ciclo cronológicamente por entryIndex
-                    cycleTrades.sort(key=lambda x: x.get("entryIndex", 0))
-
-                    for ct in cycleTrades:
-                        finishedTrades.append(ct)
-
-                    operatedCycleTrades = [ct for ct in cycleTrades if not ct.get("isSkipped")]
-                    cycleAvgRet = round((cyclePnl / initialCapital) * 100.0, 2) if initialCapital > 0 else 0.0
-
-                    if operatedCycleTrades:
-                        entrySpan = f"{operatedCycleTrades[0]['entryDate'][:10]} a {operatedCycleTrades[-1]['entryDate'][:10]}" if len(operatedCycleTrades) > 1 else operatedCycleTrades[0]['entryDate'][:10]
-                        firstIdx = operatedCycleTrades[0].get("entryIndex", 0)
-                    else:
-                        entrySpan = cycleTrades[0]['entryDate'][:10] if cycleTrades else d[:10]
-                        firstIdx = cycleTrades[0].get("entryIndex", 0) if cycleTrades else i
-
-                    lastIdx = i
-                    if has_time:
-                        diffSecs = (commonIdx[lastIdx] - commonIdx[firstIdx]).total_seconds()
-                        cycleDurationStr = f"{max(1, int(round(diffSecs / 3600.0)))}h"
-                    else:
-                        diffDays = (commonIdx[lastIdx].date() - commonIdx[firstIdx].date()).days if hasattr(commonIdx[firstIdx], "date") else (lastIdx - firstIdx)
-                        cycleDurationStr = f"{max(1, int(diffDays))}d"
-
-                    avgEntryPxA = (sum(ct["entryPriceA"] * ct["unitsA"] for ct in operatedCycleTrades) / cycleUnitsA) if cycleUnitsA > 0 else 0.0
-                    avgEntryPxB = (sum(ct["entryPriceB"] * ct["unitsB"] for ct in operatedCycleTrades) / cycleUnitsB) if cycleUnitsB > 0 else 0.0
-                    cycleMarginPct = round(float((cycleMargin / cycleStartEquity) * 100.0), 1) if cycleStartEquity > 0 else 0.0
-                    cycleMarginIndicator = round(float((cycleStartEquity / cycleMargin) * 100.0), 1) if cycleMargin > 0 else 0.0
-
-                    finishedTrades.append({
-                        "tradeNum": None,
-                        "isSubtotal": True,
-                        "cycleNum": cycleCounter,
-                        "signalType": f"SUBTOTAL CIERRE #{cycleCounter}",
-                        "direction": f"🔄 Reversal ({len(operatedCycleTrades)} ops cerradas)",
-                        "entryDate": cycleDurationStr,
-                        "entryDateRange": entrySpan,
-                        "exitDate": d,
-                        "allocatedCapital": round(float(cycleMargin), 2),
-                        "marginA": round(float(cycleMarginA), 2),
-                        "marginB": round(float(cycleMarginB), 2),
-                        "availableCapital": round(float(equity), 2),
-                        "accumCapital": round(float(equity), 2),
-                        "multA": None,
-                        "multB": None,
-                        "unitsA": int(cycleUnitsA),
-                        "unitsB": int(cycleUnitsB),
-                        "pipsA": round(float(sum(ct["pipsA"] for ct in operatedCycleTrades if ct.get("pipsA") is not None)), 1),
-                        "pipsB": round(float(sum(ct["pipsB"] for ct in operatedCycleTrades if ct.get("pipsB") is not None)), 1),
-                        "pnlA": round(float(sum(ct["pnlA"] for ct in operatedCycleTrades if ct.get("pnlA") is not None)), 2),
-                        "pnlB": round(float(sum(ct["pnlB"] for ct in operatedCycleTrades if ct.get("pnlB") is not None)), 2),
-                        "entryPriceA": round(float(avgEntryPxA), 5),
-                        "exitPriceA": round(float(pxA), 5),
-                        "entryPriceB": round(float(avgEntryPxB), 5),
-                        "exitPriceB": round(float(pxB), 5),
-                        "durationBars": len(operatedCycleTrades),
-                        "returnPct": cycleAvgRet,
-                        "pnl": round(float(cyclePnl), 2),
-                        "exitReason": f"CAMBIO DE DIRECCIÓN ({direction}) {d}",
-                        "isWin": bool(cyclePnl > 0),
-                        "isMarginCapped": bool(isCycleMarginCapped or len(cycleSkippedTrades) > 0),
-                        "stoppedEntriesCount": int(len(cycleSkippedTrades)),
-                        "peakCapitalRequired": round(float(cyclePeakCapitalReq), 2),
-                        "peakMargin": round(float(cyclePeakMargin), 2),
-                        "maxAdverseFloat": round(float(cycleMaxAdverseFloat), 2),
-                        "marginAccountPct": cycleMarginPct,
-                        "marginIndicator": cycleMarginIndicator
-                    })
-
-                    # REINVERSIÓN AL CIERRE: 100% Margen liberado para el siguiente ciclo
-                    cycleStartEquity = equity
-                    cycleAvailableEquity = equity
-                    isCycleMarginCapped = False
-                    cycleStoppedEntries = 0
-                    cyclePeakCapitalReq = 0.0
-                    cyclePeakMargin = 0.0
-                    cycleMaxAdverseFloat = 0.0
-                    activeTrades = []
-                    cycleSkippedTrades = []
-                    cycleLastA = None
-                    cycleLastB = None
 
                 # 2. VALIDACIÓN DE ENTRADA SELECTIVA (Si el modo es Selectiva)
                 if str(tipoEntrada).lower() == "selectiva":

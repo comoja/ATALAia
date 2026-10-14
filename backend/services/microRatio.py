@@ -70,7 +70,7 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
     o que tengan posiciones abiertas (status = 'OPEN') en trades para poder evaluarlas y cerrarlas.
     """
     sqlQuery = text("""
-        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.Temporalidad, ur.periodo, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 1) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada, ur.fixedMinA, ur.fixedMaxA, ur.fixedMinB, ur.fixedMaxB, COALESCE(ur.accionCierre, 'Continua') AS accionCierre
+        SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.Temporalidad, ur.periodo, ur.EMARapida, ur.EMALenta, ur.operar, COALESCE(ur.cierreDivergencia, 2) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada, ur.fixedMinA, ur.fixedMaxA, ur.fixedMinB, ur.fixedMaxB, COALESCE(ur.accionCierre, 'Continua') AS accionCierre, COALESCE(ur.tipoCierre, 'Diferencia') AS tipoCierre, COALESCE(ur.umbralDiferencia, 0.2000) AS umbralDiferencia, COALESCE(ur.salirBreakeven, 0) AS salirBreakeven
         FROM user_ratios ur
         WHERE (ur.borrado = 0 OR ur.borrado IS NULL)
           AND (
@@ -106,7 +106,10 @@ def fetchActiveUserRatios(dbSession) -> List[Dict[str, Any]]:
             "fixedMaxA": float(r[13]) if len(r) > 13 and r[13] is not None else None,
             "fixedMinB": float(r[14]) if len(r) > 14 and r[14] is not None else None,
             "fixedMaxB": float(r[15]) if len(r) > 15 and r[15] is not None else None,
-            "accionCierre": str(r[16]) if len(r) > 16 and r[16] else "Continua"
+            "accionCierre": str(r[16]) if len(r) > 16 and r[16] else "Continua",
+            "tipoCierre": str(r[17]) if len(r) > 17 and r[17] else "Diferencia",
+            "umbralDiferencia": float(r[18]) if len(r) > 18 and r[18] is not None else 0.2,
+            "salirBreakeven": bool(r[19]) if len(r) > 19 and r[19] is not None else False
         })
     return activeList
 
@@ -553,8 +556,27 @@ def buildRatioExitAlertMessage(
     retSign = "+" if retPct >= 0 else ""
     nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    header_reason = "POR SOLICITUD" if closeReason == "POR SOLICITUD" else "POR CRUCE DE PRECIOS"
-    body_reason = "POR SOLICITUD" if closeReason == "POR SOLICITUD" else "POR CONVERGENCIA (●)"
+    if "DIFERENCIAL" in closeReason.upper() or "DIF NORM" in closeReason.upper():
+        header_reason = "POR DIFERENCIAL <= 0.20"
+        body_reason = closeReason
+    elif "CICLO" in closeReason.upper():
+        header_reason = "POR LÍMITE DE CICLOS"
+        body_reason = closeReason
+    elif "TAKE PROFIT" in closeReason.upper():
+        header_reason = "POR TAKE PROFIT DE CANASTA"
+        body_reason = closeReason
+    elif "BREAK-EVEN" in closeReason.upper():
+        header_reason = "POR BREAK-EVEN PROTEGIDO"
+        body_reason = closeReason
+    elif closeReason == "POR SOLICITUD":
+        header_reason = "POR SOLICITUD"
+        body_reason = "POR SOLICITUD"
+    elif "CAMBIO" in closeReason.upper():
+        header_reason = "POR GIRO DE DIRECCIÓN"
+        body_reason = closeReason
+    else:
+        header_reason = "POR CRUCE DE PRECIOS"
+        body_reason = "POR CONVERGENCIA (●)"
 
     lines = [
         f"<center>🟥<b>ATALA.ia CIERRE {header_reason}</b>🟥</center>",
@@ -1523,15 +1545,18 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         dbOpenTrades = [t for t in dbOpenTrades if (t.get("openTime") or t.get("candleTime")) and parseCandleDateTime(t.get("openTime") or t.get("candleTime")) >= createdAtDt]
     latestPriceA = float(dfATf["closePrice"].iloc[-1])
     latestPriceB = float(dfBTf["closePrice"].iloc[-1])
-    cierreDivergencia = bool(ratioRecord.get("cierreDivergencia", True))
+    tipoCierre = str(ratioRecord.get("tipoCierre", "Tolerante")).strip().capitalize()
+    umbralDiferencia = float(ratioRecord.get("umbralDiferencia") or 0.2)
+    salirBreakeven = bool(ratioRecord.get("salirBreakeven", False))
+    cierreDivergencia = (tipoCierre in ["Divergencia", "Reactivo"])
 
     # Si el ratio tiene operar = 0 y no tiene posiciones abiertas, no hay nada que cerrar ni abrir
     if not ratioRecord.get("operar", True) and not dbOpenTrades:
         logger.info(f"ℹ️ [{accHeader}] Ratio con operar=0 y sin posiciones abiertas. Omitiendo evaluación.")
         return
 
-    # Evaluación de Cierre por Cruce de Precios (Modo Cruce: cierreDivergencia == False)
-    if (not cierreDivergencia) and isPriceCross and dbOpenTrades:
+    # Evaluación de Cierre por Modo Síncrono (Cruce de Precios: tipoCierre == 'Sincrono' o 'Cruce')
+    if (tipoCierre in ["Sincrono", "Cruce"]) and isPriceCross and dbOpenTrades:
         logger.info(
             f"🔄 [{accHeader}] ¡CRUCE DE PRECIOS DETECTADO (●) en modo Cruce! "
             f"Cerrando {len(dbOpenTrades)} posiciones abiertas por cruce entre {numerador} y {denominador}..."
@@ -1557,6 +1582,125 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             dbSession.execute(text("UPDATE user_ratios SET operar = 0 WHERE id = :rid"), {"rid": ratioRecord["id"]})
             dbSession.commit()
             return
+
+    # 3.1 EVALUACIÓN DE SALIDA POR CICLOS Y TAKE PROFIT DE CANASTA (Consecuencia natural de RIDE sin pérdidas)
+    detectedWaves = 0
+    hoursOpen = 0.0
+    maxAllowedCycles = int(ratioRecord.get("EMARapida") or 2)
+    maxHoursAllowed = maxAllowedCycles * dias
+
+    if dbOpenTrades:
+        basketFloatingPnl = 0.0
+        basketMarginUsed = 0.0
+        distinctCandleTimes = set()
+        openTimestamps = []
+
+        for tr in dbOpenTrades:
+            tSym = tr.get("symbol")
+            tDir = tr.get("direction")
+            tEntryPx = float(tr.get("entryPrice", 0.0))
+            tSize = float(tr.get("size", 0.0))
+            tCurPx = latestPriceA if tSym == numerador else latestPriceB
+            sInfo = symDataA if tSym == numerador else symDataB
+            tPip = sInfo.get("pip", 0.0001)
+
+            tPnl, _pips, _pipVal, _mov = calculate_unrealized_pnl(
+                symbol=tSym,
+                direction=tDir,
+                entry_price=tEntryPx,
+                current_price=tCurPx,
+                size=tSize,
+                pip_size=tPip
+            )
+            basketFloatingPnl += tPnl
+            basketMarginUsed += float(tr.get("margin_used") or 0.0)
+
+            cTime = tr.get("candleTime") or tr.get("openTime")
+            if cTime:
+                cDt = parseCandleDateTime(cTime)
+                distinctCandleTimes.add(cDt)
+                openTimestamps.append(cDt)
+
+        returnOnMarginPct = (basketFloatingPnl / basketMarginUsed * 100.0) if basketMarginUsed > 0 else 0.0
+
+        # Conteo de olas/ciclos de entrada (separadas por >= 12h)
+        sortedCandles = sorted(list(distinctCandleTimes))
+        lastWaveDt = None
+        for cDt in sortedCandles:
+            if lastWaveDt is None or (cDt - lastWaveDt).total_seconds() >= 12 * 3600:
+                detectedWaves += 1
+                lastWaveDt = cDt
+
+        earliestDt = min(openTimestamps) if openTimestamps else None
+        hoursOpen = (datetime.now() - earliestDt).total_seconds() / 3600.0 if earliestDt else 0.0
+
+        normDiff = abs(nA - nB)
+
+        logger.info(
+            f"💼 [{accHeader}] GESTIÓN CANASTA: {len(dbOpenTrades)} ops | "
+            f"PnL Flotante: {basketFloatingPnl:+.2f} USD ({returnOnMarginPct:+.1f}%) | "
+            f"Margen: ${basketMarginUsed:.2f} | Dif Norm: {normDiff:.4f} (Meta <= 0.20) | "
+            f"Olas: {detectedWaves}/{maxAllowedCycles} | "
+            f"Tiempo Abierto: {hoursOpen:.1f}h/{maxHoursAllowed}h"
+        )
+
+        shouldCloseByExitRule = False
+        exitRuleReason = ""
+
+        # Regla 1: Cierre por Diferencial de Precios Normalizados (Modo Diferencia con ganancia)
+        if (tipoCierre in ["Tolerante", "Diferencia"]) and (normDiff <= umbralDiferencia) and basketFloatingPnl > 0.0:
+            shouldCloseByExitRule = True
+            exitRuleReason = f"POR DIFERENCIAL NORMALIZADO <= {umbralDiferencia:.2f} (Dif: {normDiff:.4f} | PnL: +${basketFloatingPnl:.2f} USD)"
+
+        # Regla 2: [COMENTADA TEMPORALMENTE] Límite de Ciclos Alcanzado con PnL Positivo
+        # Desactivado: no cerrar por límite de olas ni por primera ganancia flotante.
+        # elif (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed) and basketFloatingPnl > 0.50:
+        #     shouldCloseByExitRule = True
+        #     exitRuleReason = f"POR LÍMITE DE {maxAllowedCycles} CICLOS EN GANANCIA (+${basketFloatingPnl:.2f} USD)"
+
+        # Regla 3: Break-Even Dinámico al Vencer Ciclos (Solo si salirBreakeven está activo y con PnL positivo)
+        elif salirBreakeven and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed):
+            if basketFloatingPnl > 0.0:
+                shouldCloseByExitRule = True
+                exitRuleReason = f"POR BREAK-EVEN AL VENCER {maxAllowedCycles} CICLOS (PnL: +${basketFloatingPnl:.2f} USD)"
+            else:
+                logger.info(
+                    f"⏳ [{accHeader}] Límite de {maxAllowedCycles} ciclos alcanzado con flotante negativo ({basketFloatingPnl:+.2f} USD). "
+                    f"Modo Break-Even activo: no se cierra a pérdida, esperando retorno a >= $0.00."
+                )
+        elif (not salirBreakeven) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed):
+            logger.info(
+                f"ℹ️ [{accHeader}] Límite de {maxAllowedCycles} ciclos alcanzado, pero Salida en Break-Even está desactivada (salirBreakeven=False). "
+                f"Posición continúa abierta esperando regla estándar de {tipoCierre}."
+            )
+
+        if shouldCloseByExitRule:
+            logger.info(
+                f"🎯 [{accHeader}] ¡DISPARO DE SALIDA DE CANASTA ({exitRuleReason})! "
+                f"Cerrando {len(dbOpenTrades)} posiciones para asegurar capital..."
+            )
+            symMap = {numerador: symDataA, denominador: symDataB}
+            priceMap = {numerador: latestPriceA, denominador: latestPriceB}
+            closeSuccess = closeRatioTrades(
+                dbSession=dbSession,
+                idCuenta=idCuenta,
+                setupName=setupName,
+                openTrades=dbOpenTrades,
+                symbolDataMap=symMap,
+                latestPricesMap=priceMap,
+                accountData=accountData,
+                periodo=periodo,
+                closeReason=exitRuleReason
+            )
+            if closeSuccess:
+                accountData = fetchAccountData(dbSession, idCuenta)
+                dbOpenTrades = []
+                accionCierre = str(ratioRecord.get("accionCierre", "Continua")).strip().capitalize()
+                if accionCierre == "Para":
+                    logger.info(f"🛑 [{accHeader}] Acción 'Cierra y Para' ejecutada por {exitRuleReason}: desactivando operar = 0 en BD.")
+                    dbSession.execute(text("UPDATE user_ratios SET operar = 0 WHERE id = :rid"), {"rid": ratioRecord["id"]})
+                    dbSession.commit()
+                return
 
     if sameSide:
         logger.info(
@@ -1710,6 +1854,14 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     )
                     return
 
+        # REGLA DE LÍMITE DE CICLOS: Si ya se alcanzó el límite de ciclos (RIDE), NO acumular más
+        if dbOpenTrades and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed):
+            logger.info(
+                f"🛡️ [{accHeader}] Acumulación bloqueada: Ya se alcanzó el límite de {maxAllowedCycles} ciclos "
+                f"({detectedWaves} olas / {hoursOpen:.1f}h abiertas). Esperando resolución de salida."
+            )
+            return
+
         alreadyEntered = checkTradeExistsForCandle(dbSession, idCuenta, setupName, candleDt, timeframe=periodo)
         if not alreadyEntered:
             # Control de Gestión de Riesgo: Indicador de Margen >= 200%
@@ -1777,7 +1929,7 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
             logger.info(f"📋 Ratios activos totales con operar=1: {len(activeRatios)}")
 
             for r in activeRatios:
-                tf = str(r.get("periodo") or r.get("timeframe") or "1h").lower().strip()
+                tf = str(r.get("Temporalidad") or r.get("timeframe") or "1h").lower().strip()
                 is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
 
                 # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar

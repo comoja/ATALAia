@@ -11,7 +11,7 @@ if service_dir not in sys.path:
     sys.path.insert(0, service_dir)
 
 from core.models import NewsEventItem, RatioNewsResponse
-from core.calendar_scraper import extract_currencies_from_pair, get_db_connection
+from core.calendar_scraper import extract_currencies_from_pair, get_db_connection, sync_forexfactory_calendar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +34,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+import asyncio
+
+@app.on_event("startup")
+async def startup_news_sync():
+    async def run_periodic():
+        # Esperar 2 segundos tras iniciar para la primera sincronización
+        await asyncio.sleep(2)
+        while True:
+            try:
+                logger.info("Iniciando tarea periodica de sincronizacion de calendario economico...")
+                count = sync_forexfactory_calendar()
+                logger.info(f"Sincronizacion completada ({count} nuevos eventos).")
+            except Exception as e:
+                logger.error(f"Error en tarea de sincronizacion: {e}")
+            await asyncio.sleep(7200)  # Cada 2 horas
+    asyncio.create_task(run_periodic())
+
+@app.post("/api/v1/news/sync")
+def trigger_sync():
+    """
+    Endpoint para forzar la sincronizacion inmediata del calendario oficial de ForexFactory.
+    """
+    try:
+        count = sync_forexfactory_calendar()
+        return {"status": "success", "inserted": count}
+    except Exception as e:
+        logger.error(f"Error forzando sincronizacion: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/")
 def root():
     return {
@@ -51,7 +81,7 @@ def ping():
 def get_news_for_ratio_id(
     idRatio: int,
     impact: Optional[str] = None,
-    limit: int = 40
+    limit: int = 150
 ):
     conn = get_db_connection()
     try:
@@ -88,7 +118,7 @@ def get_news_timeline(
     startDate: Optional[str] = None,
     endDate: Optional[str] = None,
     impact: Optional[str] = None,
-    limit: int = 50
+    limit: int = 150
 ):
     currencies = list(set(extract_currencies_from_pair(pairA) + extract_currencies_from_pair(pairB)))
     pairs = [pairA, pairB]
@@ -110,7 +140,7 @@ def query_events_from_db(
     startDate: Optional[str] = None,
     endDate: Optional[str] = None,
     impact: Optional[str] = None,
-    limit: int = 50
+    limit: int = 150
 ) -> List[NewsEventItem]:
     conn = get_db_connection()
     try:
@@ -125,9 +155,11 @@ def query_events_from_db(
             if endDate:
                 where_clauses.append("fechaHora <= %s")
                 params.append(endDate)
-            if impact and impact.upper() in ["ALTA", "MEDIA", "BAJA"]:
+            if impact and impact.upper() in ["ALTA", "MEDIA"]:
                 where_clauses.append("afectacion = %s")
                 params.append(impact.upper())
+            else:
+                where_clauses.append("afectacion IN ('ALTA', 'MEDIA')")
 
             where_str = " AND ".join(where_clauses)
             sql = f"""

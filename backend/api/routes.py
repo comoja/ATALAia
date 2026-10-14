@@ -137,7 +137,10 @@ class UserRatioCreate(BaseModel):
     EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
     operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
-    cierreDivergencia: Optional[bool] = Field(True, description="False = Cruce de precios, True = Divergencia (Default)")
+    cierreDivergencia: Optional[Union[bool, int, str]] = Field(2, description="0=Cruce, 1=Divergencia, 2=Diferencia")
+    tipoCierre: Optional[str] = Field("Tolerante", description="Sincrono, Reactivo o Tolerante")
+    umbralDiferencia: Optional[float] = Field(0.2, description="Umbral para Diferencia (default: 0.2)")
+    salirBreakeven: Optional[bool] = Field(False, description="Indica si se sale en Break-Even al vencer ciclos")
     tipoEntrada: Optional[str] = Field("Selectiva", description="'Exhaustiva' o 'Selectiva'")
     accionCierre: Optional[str] = Field("Continua", description="'Continua' o 'Para'")
     startDate: Optional[str] = Field(None, description="Fecha Inicio de calibración")
@@ -191,8 +194,20 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
 
         dias = periodo_val
         operar = bool(payload.operar) if payload.operar is not None else False
-        cierreDivergencia = bool(payload.cierreDivergencia) if payload.cierreDivergencia is not None else True
-        tipoEntrada = str(payload.tipoEntrada) if payload.tipoEntrada else "Selectiva"
+        tipoCierre_val = str(payload.tipoCierre).strip() if payload.tipoCierre else "Tolerante"
+        if tipoCierre_val.lower() in ["cruce", "sincrono", "síncrono"]:
+            tipoCierre_val = "Sincrono"
+            cierreDiv_code = 0
+        elif tipoCierre_val.lower() in ["divergencia", "reactivo"]:
+            tipoCierre_val = "Reactivo"
+            cierreDiv_code = 1
+        else:
+            tipoCierre_val = "Tolerante"
+            cierreDiv_code = 2
+        umbralDiferencia_val = float(payload.umbralDiferencia) if payload.umbralDiferencia is not None else 0.2
+        cierreDivergencia = cierreDiv_code
+        salirBreakeven_val = bool(payload.salirBreakeven) if payload.salirBreakeven is not None else False
+        tipoEntrada = str(payload.tipoEntrada) if payload.tipoEntrada else "Selectiva" 
         accionCierre = str(payload.accionCierre) if payload.accionCierre else "Continua"
 
         # Verificar si el ratio tiene posiciones abiertas en la cuenta
@@ -288,6 +303,9 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
             existingRatio.EMALenta = emaLenta
             existingRatio.operar = operar
             existingRatio.cierreDivergencia = cierreDivergencia
+            existingRatio.tipoCierre = tipoCierre_val
+            existingRatio.umbralDiferencia = umbralDiferencia_val
+            existingRatio.salirBreakeven = salirBreakeven_val
             existingRatio.tipoEntrada = tipoEntrada
             existingRatio.accionCierre = accionCierre
             existingRatio.fixedMinA = fixedMinA
@@ -312,6 +330,9 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                 EMALenta=emaLenta,
                 operar=operar,
                 cierreDivergencia=cierreDivergencia,
+                tipoCierre=tipoCierre_val,
+                umbralDiferencia=umbralDiferencia_val,
+                salirBreakeven=salirBreakeven_val,
                 tipoEntrada=tipoEntrada,
                 accionCierre=accionCierre,
                 fixedMinA=fixedMinA,
@@ -394,7 +415,10 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "EMARapida": ratio.EMARapida if ratio.EMARapida is not None else 3,
         "EMALenta": ratio.EMALenta if ratio.EMALenta is not None else 20,
         "operar": bool(ratio.operar) if getattr(ratio, 'operar', None) is not None else False,
-        "cierreDivergencia": bool(getattr(ratio, 'cierreDivergencia', True) if getattr(ratio, 'cierreDivergencia', None) is not None else True),
+        "cierreDivergencia": getattr(ratio, 'cierreDivergencia', 2),
+        "tipoCierre": getattr(ratio, 'tipoCierre', 'Tolerante') or 'Tolerante',
+        "umbralDiferencia": float(getattr(ratio, 'umbralDiferencia', 0.2) or 0.2),
+        "salirBreakeven": bool(getattr(ratio, 'salirBreakeven', False) if getattr(ratio, 'salirBreakeven', None) is not None else False),
         "tipoEntrada": getattr(ratio, 'tipoEntrada', 'Selectiva') or 'Selectiva',
         "accionCierre": getattr(ratio, 'accionCierre', 'Continua') or 'Continua',
         "createdAt": ratio.createdAt,
@@ -491,7 +515,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     from sqlalchemy import text
     sql = text("""
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
-               openTime, size, entryPrice, margin_used, pnl, intervalo
+               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime
         FROM trades
         WHERE idCuenta = :idc 
           AND status = 'OPEN' 
@@ -631,22 +655,38 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairB)
         avgEntryB = (weightedSumB / totSizeB) if totSizeB > 0 else 0.0
         
-        # Agrupar trades por fecha (YYYY-MM-DD) para consolidar entradas múltiples (múltiplos) en cada día
-        from collections import OrderedDict
-        date_groups = OrderedDict()
+        # Agrupar trades por cada evento de entrada individual (respetando fecha-hora exacta de cada entrada)
+        # Cada evento agrupa los pares (Par A y Par B) ejecutados en esa fecha-hora o vela específica
+        entry_event_groups = []
         for t in t_list:
-            if not t.openTime:
+            t_ot = getattr(t, "openTime", None)
+            t_ct = getattr(t, "candleTime", None)
+            if not t_ot and not t_ct:
                 continue
-            if hasattr(t.openTime, "strftime"):
-                day_key = t.openTime.strftime("%Y-%m-%d")
-                full_time = t.openTime.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                s_ot = str(t.openTime)
-                day_key = s_ot[:10]
-                full_time = s_ot
-            if day_key not in date_groups:
-                date_groups[day_key] = []
-            date_groups[day_key].append((t, full_time))
+
+            ot_dt = t_ot if hasattr(t_ot, "strftime") else (datetime.strptime(str(t_ot)[:19], "%Y-%m-%d %H:%M:%S") if t_ot else None)
+            ct_dt = t_ct if (t_ct and hasattr(t_ct, "strftime")) else (datetime.strptime(str(t_ct)[:19], "%Y-%m-%d %H:%M:%S") if t_ct else None)
+
+            matched_group = None
+            for grp in entry_event_groups:
+                grp_ct = grp["candle_dt"]
+                grp_ot = grp["open_dt"]
+                if ct_dt and grp_ct and ct_dt == grp_ct:
+                    matched_group = grp
+                    break
+                elif ot_dt and grp_ot and abs((ot_dt - grp_ot).total_seconds()) <= 300:
+                    matched_group = grp
+                    break
+
+            if matched_group is None:
+                matched_group = {
+                    "candle_dt": ct_dt,
+                    "open_dt": ot_dt,
+                    "trades": []
+                }
+                entry_event_groups.append(matched_group)
+
+            matched_group["trades"].append(t)
 
         month_names = {
             "01": "Ene", "02": "Feb", "03": "Mar", "04": "Abr",
@@ -654,29 +694,35 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dic"
         }
         entry_groups = []
-        for day_key, group_trades in date_groups.items():
-            first_trade, first_time = group_trades[0]
-            parts = day_key.split("-")
-            month_str = month_names.get(parts[1], parts[1]) if len(parts) > 1 else ""
-            day_str = parts[2] if len(parts) > 2 else ""
-            time_part = first_time[11:16] if len(first_time) >= 16 else ""
-            badge_label = f"{day_str}/{month_str}"
+        for grp in entry_event_groups:
+            group_trades = grp["trades"]
+            first_trade = group_trades[0]
+            ref_dt = grp["open_dt"] or grp["candle_dt"]
+            open_time_str = grp["open_dt"].strftime("%Y-%m-%d %H:%M:%S") if grp["open_dt"] else ""
+            candle_time_str = grp["candle_dt"].strftime("%Y-%m-%d %H:%M:%S") if grp["candle_dt"] else ""
 
-            trades_A = [t for t, _ in group_trades if t.symbol == pairA]
+            day_key = ref_dt.strftime("%Y-%m-%d") if ref_dt else ""
+            month_str = month_names.get(ref_dt.strftime("%m"), ref_dt.strftime("%m")) if ref_dt else ""
+            day_str = ref_dt.strftime("%d") if ref_dt else ""
+            time_part = ref_dt.strftime("%H:%M") if ref_dt else ""
+            badge_label = f"{day_str}/{month_str} {time_part}".strip()
+
+            trades_A = [t for t in group_trades if t.symbol == pairA]
             size_A = sum(float(t.size or 0) for t in trades_A)
             w_sum_A = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in trades_A)
             w_px_A = (w_sum_A / size_A) if size_A > 0 else 0.0
 
-            trades_B = [t for t, _ in group_trades if t.symbol == pairB]
+            trades_B = [t for t in group_trades if t.symbol == pairB]
             size_B = sum(float(t.size or 0) for t in trades_B)
             w_sum_B = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in trades_B)
             w_px_B = (w_sum_B / size_B) if size_B > 0 else 0.0
 
             entry_groups.append({
                 "date": day_key,
-                "openTime": first_time,
+                "openTime": open_time_str,
+                "candleTime": candle_time_str,
                 "badgeLabel": badge_label,
-                "fullLabel": f"{badge_label} {time_part}".strip(),
+                "fullLabel": badge_label,
                 "sizeA": size_A,
                 "sizeB": size_B,
                 "weightedPriceA": round(w_px_A, 5),
@@ -1439,7 +1485,10 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "EMARapida": r.EMARapida,
             "EMALenta": r.EMALenta,
             "operar": r.operar,
-            "cierreDivergencia": bool(getattr(r, "cierreDivergencia", True) if getattr(r, "cierreDivergencia", None) is not None else True),
+            "cierreDivergencia": getattr(r, "cierreDivergencia", 2),
+            "tipoCierre": getattr(r, "tipoCierre", "Tolerante") or "Tolerante",
+            "umbralDiferencia": float(getattr(r, "umbralDiferencia", 0.2) or 0.2),
+            "salirBreakeven": bool(getattr(r, "salirBreakeven", False) if getattr(r, "salirBreakeven", None) is not None else False),
             "tipoEntrada": getattr(r, "tipoEntrada", "Selectiva") or "Selectiva",
             "accionCierre": getattr(r, "accionCierre", "Continua") or "Continua",
             "createdAt": r.createdAt,
@@ -1836,66 +1885,13 @@ async def get_ratio_correlation(
                 latest_norm_b = float(norm_series_b.iloc[-1]) if len(norm_series_b) > 0 else 0.0
                 latest_diff = latest_norm_a - latest_norm_b
                 
-                diff_series = (norm_series_a - norm_series_b).dropna()
-                
-                # histogramBins Bloques fijos de -1.0 a 1.0 con ancho variable según bins
-                bins = np.linspace(-1.0, 1.0, histogramBins + 1)
-                
-                def get_tf_mins(t: str):
-                    t = t.lower().strip()
-                    try:
-                        if t.endswith('m'): return float(t[:-1])
-                        elif t.endswith('h'): return float(t[:-1]) * 60
-                        elif t.endswith('d'): return float(t[:-1]) * 1440
-                        elif t.endswith('w'): return float(t[:-1]) * 10080
-                        return float(t)
-                    except:
-                        return 1440.0
-                
-                tf_mins = get_tf_mins(tf)
-                
-                histogram_data = []
-                for i in range(histogramBins):
-                    low = bins[i]
-                    high = bins[i+1]
-                    # Incluir límite superior en el último bin
-                    if i == histogramBins - 1:
-                        count = int(((diff_series >= low) & (diff_series <= high)).sum())
-                        is_current = (low <= latest_diff <= high)
-                    else:
-                        count = int(((diff_series >= low) & (diff_series < high)).sum())
-                        is_current = (low <= latest_diff < high)
-                    
-                    total_mins = count * tf_mins
-                    days = int(total_mins // 1440)
-                    hours = int((total_mins % 1440) // 60)
-                    mins = int(total_mins % 60)
-                    
-                    time_parts = []
-                    if days > 0: time_parts.append(f"{days}d")
-                    if hours > 0: time_parts.append(f"{hours}h")
-                    if mins > 0 or not time_parts: time_parts.append(f"{mins}m")
-                    time_str = " ".join(time_parts)
-                    
-                    label_str = f"{low:.2f} a {high:.2f} ({time_str})"
-                    
-                    histogram_data.append({
-                        "range": label_str,
-                        "count": count,
-                        "isCurrent": bool(is_current)
-                    })
-                
-                # Curva de Gauss teórica
-                x_vals = np.linspace(-4, 4, 100)
-                y_vals = stats.norm.pdf(x_vals, 0, 1)
-                bell_curve = [{"x": round(float(x), 4), "y": round(float(y), 4)} for x, y in zip(x_vals, y_vals)]
-                
+                # Omitir cálculo pesado de histogramas y campana de Gauss para pantallas ocultas
                 resultado["stats"] = {
                     "zA": latest_norm_a,
                     "zB": latest_norm_b,
                     "zDiff": latest_diff,
-                    "bellCurve": bell_curve,
-                    "histogram": histogram_data
+                    "bellCurve": [],
+                    "histogram": []
                 }
             except Exception as ex:
                 logger.warning(f"Error al calcular stats de Gauss: {ex}")
@@ -2397,6 +2393,8 @@ async def get_cruces_ema_pair_analysis(
     comisionPct: Optional[float] = None,
     tipoEntrada: Optional[str] = "Selectiva",
     cierreDivergencia: Optional[bool] = True,
+    tipoCierre: Optional[str] = None,
+    umbralDiferencia: Optional[float] = None,
     calibDays: Optional[int] = None,
     calibStartDate: Optional[str] = None,
     calibEndDate: Optional[str] = None
@@ -2428,6 +2426,8 @@ async def get_cruces_ema_pair_analysis(
         fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
         fixedCreatedAt = None
         fixedDias = None
+        effectiveTipoCierre = tipoCierre
+        effectiveUmbralDiferencia = umbralDiferencia
         try:
             from backend.database.models import SessionLocal, UserRatio
             with SessionLocal() as r_db:
@@ -2449,9 +2449,17 @@ async def get_cruces_ema_pair_analysis(
                         q_inv = q_inv.filter(UserRatio.idCuenta == idCuenta)
                     existing_r = q_inv.order_by(UserRatio.id.desc()).first()
                 
+                effectiveTipoCierre = tipoCierre
+                effectiveUmbralDiferencia = umbralDiferencia
                 if existing_r:
                     fixedCreatedAt = existing_r.createdAt
                     fixedDias = existing_r.periodo
+                    if not effectiveTipoCierre and hasattr(existing_r, "tipoCierre") and existing_r.tipoCierre:
+                        effectiveTipoCierre = str(existing_r.tipoCierre)
+                    if effectiveUmbralDiferencia is None and hasattr(existing_r, "umbralDiferencia") and existing_r.umbralDiferencia is not None:
+                        effectiveUmbralDiferencia = float(existing_r.umbralDiferencia)
+                    if not tipoEntrada and hasattr(existing_r, "tipoEntrada") and existing_r.tipoEntrada:
+                        tipoEntrada = str(existing_r.tipoEntrada)
                     
                     if existing_r.numerador == pairA:
                         if existing_r.fixedMinA is not None: fixedMinA = float(existing_r.fixedMinA)
@@ -2465,6 +2473,11 @@ async def get_cruces_ema_pair_analysis(
                         if existing_r.fixedMaxA is not None: fixedMaxB = float(existing_r.fixedMaxA)
         except Exception as e_lim:
             logger.warning(f"Error consultando limites fijos en pair_analysis: {e_lim}")
+
+        if not effectiveTipoCierre:
+            effectiveTipoCierre = "Reactivo" if (cierreDivergencia is None or cierreDivergencia) else "Sincrono"
+        if effectiveUmbralDiferencia is None:
+            effectiveUmbralDiferencia = 0.20
 
         # Determinar fecha fin
         if end_date:
@@ -2759,6 +2772,9 @@ async def get_cruces_ema_pair_analysis(
             slippageBps=slippageBps,
             cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
             tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva",
+            tipoCierre=effectiveTipoCierre,
+            umbralDiferencia=effectiveUmbralDiferencia,
+            calibPeriods=int(fixedDias) if fixedDias else (int(calibDays) if calibDays else 48),
             fixedMinA=float(fixedMinA) if fixedMinA is not None else None,
             fixedMaxA=float(fixedMaxA) if fixedMaxA is not None else None,
             fixedMinB=float(fixedMinB) if fixedMinB is not None else None,
@@ -2785,6 +2801,9 @@ async def get_cruces_ema_pair_analysis(
             slippageBps=slippageBps,
             cierreDivergencia=bool(cierreDivergencia) if cierreDivergencia is not None else True,
             tipoEntrada=str(tipoEntrada) if tipoEntrada else "Selectiva",
+            tipoCierre=effectiveTipoCierre,
+            umbralDiferencia=effectiveUmbralDiferencia,
+            calibPeriods=int(fixedDias) if fixedDias else (int(calibDays) if calibDays else 48),
             fixedMinA=float(fixedMinA) if fixedMinA is not None else None,
             fixedMaxA=float(fixedMaxA) if fixedMaxA is not None else None,
             fixedMinB=float(fixedMinB) if fixedMinB is not None else None,
@@ -4100,4 +4119,39 @@ def api_restart_system_service(service_id: str):
         }
     except Exception as e:
         logger.error(f"Error reiniciando servicio {service_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserRatioBreakevenUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    salirBreakeven: bool = Field(..., description="Indica si se sale en Break-Even")
+
+@router.post("/user-ratios/update-breakeven")
+def update_user_ratio_breakeven(payload: UserRatioBreakevenUpdate, db: Session = Depends(get_db)):
+    """
+    Permite modificar salirBreakeven en cualquier momento, incluso con posiciones abiertas.
+    """
+    try:
+        query = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        ratio = query.first()
+        if not ratio:
+            raise HTTPException(status_code=404, detail="Ratio no encontrado")
+        
+        ratio.salirBreakeven = bool(payload.salirBreakeven)
+        db.commit()
+        db.refresh(ratio)
+        logger.info(f"Break-Even actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> salirBreakeven={ratio.salirBreakeven}")
+        return {"status": "success", "message": "Break-Even actualizado correctamente", "salirBreakeven": ratio.salirBreakeven}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar salirBreakeven: {e}")
         raise HTTPException(status_code=500, detail=str(e))

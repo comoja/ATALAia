@@ -412,6 +412,7 @@ public class DashboardBean implements Serializable {
     public static class ActiveEntryGroupDto implements java.io.Serializable {
         private String date = "";
         private String openTime = "";
+        private String candleTime = "";
         private String badgeLabel = "";
         private String fullLabel = "";
         private double sizeA = 0.0;
@@ -426,6 +427,8 @@ public class DashboardBean implements Serializable {
         public void setDate(String date) { this.date = date; }
         public String getOpenTime() { return openTime; }
         public void setOpenTime(String openTime) { this.openTime = openTime; }
+        public String getCandleTime() { return candleTime; }
+        public void setCandleTime(String candleTime) { this.candleTime = candleTime; }
         public String getBadgeLabel() { return badgeLabel; }
         public void setBadgeLabel(String badgeLabel) { this.badgeLabel = badgeLabel; }
         public String getFullLabel() { return fullLabel; }
@@ -2115,13 +2118,43 @@ public class DashboardBean implements Serializable {
     public String getRatioToClose() { return ratioToClose; }
     public void setRatioToClose(String ratioToClose) { this.ratioToClose = ratioToClose; }
 
-    private Boolean cierreDivergencia = true;
-    public Boolean getCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
-    public Boolean isCierreDivergencia() { return cierreDivergencia != null ? cierreDivergencia : true; }
-    public void setCierreDivergencia(Boolean cierreDivergencia) { this.cierreDivergencia = cierreDivergencia; }
+    private String tipoCierre = "Tolerante";
+    public String getTipoCierre() {
+        if (tipoCierre == null || "Diferencia".equalsIgnoreCase(tipoCierre) || "Tolerante".equalsIgnoreCase(tipoCierre)) {
+            return "Tolerante";
+        }
+        if ("Divergencia".equalsIgnoreCase(tipoCierre) || "Reactivo".equalsIgnoreCase(tipoCierre)) {
+            return "Reactivo";
+        }
+        return "Sincrono";
+    }
+    public void setTipoCierre(String tipoCierre) {
+        if ("Diferencia".equalsIgnoreCase(tipoCierre) || "Tolerante".equalsIgnoreCase(tipoCierre)) {
+            this.tipoCierre = "Tolerante";
+        } else if ("Divergencia".equalsIgnoreCase(tipoCierre) || "Reactivo".equalsIgnoreCase(tipoCierre)) {
+            this.tipoCierre = "Reactivo";
+        } else {
+            this.tipoCierre = "Sincrono";
+        }
+        this.cierreDivergencia = "Reactivo".equalsIgnoreCase(this.tipoCierre);
+    }
+
+    private Double umbralDiferencia = 0.2;
+    public Double getUmbralDiferencia() { return umbralDiferencia != null ? umbralDiferencia : 0.2; }
+    public void setUmbralDiferencia(Double umbralDiferencia) { this.umbralDiferencia = umbralDiferencia; }
+
+    private Boolean cierreDivergencia = false;
+    public Boolean getCierreDivergencia() { return "Reactivo".equalsIgnoreCase(this.tipoCierre) || "Divergencia".equalsIgnoreCase(this.tipoCierre); }
+    public Boolean isCierreDivergencia() { return "Reactivo".equalsIgnoreCase(this.tipoCierre) || "Divergencia".equalsIgnoreCase(this.tipoCierre); }
+    public void setCierreDivergencia(Boolean cierreDivergencia) {
+        this.cierreDivergencia = cierreDivergencia;
+        if (Boolean.TRUE.equals(cierreDivergencia)) {
+            this.tipoCierre = "Reactivo";
+        }
+    }
 
     public void onTipoCierreChange() {
-        log.info("▶ Tipo de Cierre cambiado a: {}", Boolean.TRUE.equals(this.cierreDivergencia) ? "DIVERGENCIA" : "CRUCE");
+        log.info("▶ VR cambiado a: {} (Umbral: {})", this.tipoCierre, this.umbralDiferencia);
         if (this.ratioExistsInDb) {
             guardarRatio();
         }
@@ -2135,6 +2168,58 @@ public class DashboardBean implements Serializable {
         log.info("▶ Acción Post-Cierre cambiada a: {}", this.accionCierre);
         if (this.ratioExistsInDb) {
             guardarRatio();
+        }
+    }
+
+    private Boolean salirBreakeven = false;
+    public Boolean getSalirBreakeven() { return salirBreakeven != null ? salirBreakeven : false; }
+    public Boolean isSalirBreakeven() { return salirBreakeven != null ? salirBreakeven : false; }
+    public void setSalirBreakeven(Boolean salirBreakeven) { this.salirBreakeven = salirBreakeven; }
+
+    public void onSalirBreakevenChange() {
+        log.info("▶ Salir Breakeven cambiado a: {} para {}/{} (Cuenta: {})", this.salirBreakeven, this.selectedPair, this.selectedPair2, this.selectedAccountId);
+        actualizarSalirBreakeven();
+    }
+
+    public void actualizarSalirBreakeven() {
+        try {
+            if (this.selectedPair == null || this.selectedPair2 == null) return;
+
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("numerador", this.selectedPair);
+            payload.put("denominador", this.selectedPair2);
+            payload.put("salirBreakeven", Boolean.TRUE.equals(this.salirBreakeven));
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-ratios/update-breakeven";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserRatiosList();
+                String estado = Boolean.TRUE.equals(this.salirBreakeven) ? "Activada" : "Desactivada";
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Break-Even", "Salida en Break-Even " + estado + " para " + this.selectedPair + "/" + this.selectedPair2));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar salirBreakeven: {}", e.getMessage());
         }
     }
 
@@ -2315,11 +2400,30 @@ public class DashboardBean implements Serializable {
         private Boolean operar;
         private String createdAt;
         private Boolean hasOpenTrades = false;
-        private Boolean cierreDivergencia = true;
+        private Boolean cierreDivergencia = false;
+        private String tipoCierre = "Tolerante";
+        public String getTipoCierre() {
+            if (tipoCierre == null || "Diferencia".equalsIgnoreCase(tipoCierre) || "Tolerante".equalsIgnoreCase(tipoCierre)) {
+                return "Tolerante";
+            }
+            if ("Divergencia".equalsIgnoreCase(tipoCierre) || "Reactivo".equalsIgnoreCase(tipoCierre)) {
+                return "Reactivo";
+            }
+            return "Sincrono";
+        }
+        public void setTipoCierre(String tipoCierre) { this.tipoCierre = tipoCierre; }
+        private Double umbralDiferencia = 0.2;
+        public Double getUmbralDiferencia() { return umbralDiferencia != null ? umbralDiferencia : 0.2; }
+        public void setUmbralDiferencia(Double umbralDiferencia) { this.umbralDiferencia = umbralDiferencia; }
         private String tipoEntrada = "Selectiva";
         private String accionCierre = "Continua";
         public String getAccionCierre() { return accionCierre != null ? accionCierre : "Continua"; }
         public void setAccionCierre(String accionCierre) { this.accionCierre = accionCierre; }
+
+        private Boolean salirBreakeven = false;
+        public Boolean getSalirBreakeven() { return salirBreakeven != null ? salirBreakeven : false; }
+        public Boolean isSalirBreakeven() { return salirBreakeven != null ? salirBreakeven : false; }
+        public void setSalirBreakeven(Boolean salirBreakeven) { this.salirBreakeven = salirBreakeven; }
 
         public Boolean getHasOpenTrades() { return hasOpenTrades; }
         public Boolean isHasOpenTrades() { return hasOpenTrades; }
@@ -2895,6 +2999,7 @@ public class DashboardBean implements Serializable {
                                 ActiveEntryGroupDto eg = new ActiveEntryGroupDto();
                                 eg.setDate(egn.path("date").asText(""));
                                 eg.setOpenTime(egn.path("openTime").asText(""));
+                                eg.setCandleTime(egn.path("candleTime").asText(""));
                                 eg.setBadgeLabel(egn.path("badgeLabel").asText(""));
                                 eg.setFullLabel(egn.path("fullLabel").asText(""));
                                 eg.setSizeA(egn.path("sizeA").asDouble(0.0));
@@ -3240,13 +3345,12 @@ public class DashboardBean implements Serializable {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
 
-            // Regla institucional: el backtesting siempre tiene por default 4 meses (calculado según la temporalidad)
+            // Regla institucional: el backtest evalúa de hoy hacia 4 meses atrás
             java.util.Date effEndCruces = getEffectiveEndDate();
             java.util.Calendar calBt = java.util.Calendar.getInstance();
-            calBt.setTime(effEndCruces);
+            calBt.setTime(effEndCruces != null ? effEndCruces : new java.util.Date());
             calBt.add(java.util.Calendar.MONTH, -4);
             java.util.Date btStartDate = calBt.getTime();
-
             int btDays = 120;
             String tfNorm = (timeframe != null && !timeframe.trim().isEmpty()) ? timeframe.toLowerCase().trim() : "1h";
             switch (tfNorm) {
@@ -3311,6 +3415,8 @@ public class DashboardBean implements Serializable {
             }
             urlSb.append("&tipoEntrada=").append(tipoEntrada != null ? tipoEntrada : "Selectiva");
             urlSb.append("&cierreDivergencia=").append(Boolean.TRUE.equals(cierreDivergencia));
+            urlSb.append("&tipoCierre=").append(tipoCierre != null ? java.net.URLEncoder.encode(tipoCierre, "UTF-8") : "Reactivo");
+            urlSb.append("&umbralDiferencia=").append(umbralDiferencia != null ? umbralDiferencia : 0.2);
             urlSb.append("&calibDays=").append(daysBack != null ? daysBack : 180);
             if (startDate != null) {
                 urlSb.append("&calibStartDate=").append(java.net.URLEncoder.encode(sdf.format(startDate), "UTF-8"));
@@ -3708,19 +3814,21 @@ public class DashboardBean implements Serializable {
                 // --- Procesar Estadísticas de la Campana de Gauss ---
                 if (rootNode.has("stats")) {
                     JsonNode statsNode = rootNode.get("stats");
-                    this.zScoreA = statsNode.get("zA").asDouble();
-                    this.zScoreB = statsNode.get("zB").asDouble();
-                    this.zScoreDiff = statsNode.get("zDiff").asDouble();
+                    this.zScoreA = statsNode.has("zA") ? statsNode.get("zA").asDouble() : 0.0;
+                    this.zScoreB = statsNode.has("zB") ? statsNode.get("zB").asDouble() : 0.0;
+                    this.zScoreDiff = statsNode.has("zDiff") ? statsNode.get("zDiff").asDouble() : 0.0;
                     
-                    createGaussianModel(statsNode.get("bellCurve"));
-                    if (statsNode.has("histogram")) {
-                        createHistogramModel(statsNode.get("histogram"));
-                    }
+                    // Omitido para optimizar rendimiento al estar oculta la pestaña de Distribución Estadística
+                    // createGaussianModel(statsNode.get("bellCurve"));
+                    // if (statsNode.has("histogram")) {
+                    //     createHistogramModel(statsNode.get("histogram"));
+                    // }
                 }
 
-                if (rootNode.has("history")) {
-                    createMacdModel(rootNode.get("history"));
-                }
+                // Omitido para optimizar rendimiento al estar oculta la pestaña de Indicador iMACD
+                // if (rootNode.has("history")) {
+                //     createMacdModel(rootNode.get("history"));
+                // }
 
                 analysisResult = "";
                 this.crucesEmaLoaded = false;
@@ -3881,9 +3989,12 @@ public class DashboardBean implements Serializable {
             payload.put("EMARapida", smaPeriodParam != null ? smaPeriodParam : 2);
             payload.put("EMALenta", null);
             payload.put("operar", operar != null ? operar : false);
-            payload.put("cierreDivergencia", Boolean.TRUE.equals(this.cierreDivergencia));
+            payload.put("cierreDivergencia", "Reactivo".equalsIgnoreCase(this.tipoCierre) || "Divergencia".equalsIgnoreCase(this.tipoCierre));
+            payload.put("tipoCierre", this.tipoCierre != null ? this.tipoCierre : "Tolerante");
+            payload.put("umbralDiferencia", this.umbralDiferencia != null ? this.umbralDiferencia : 0.2);
             payload.put("tipoEntrada", this.tipoEntrada != null ? this.tipoEntrada : "Selectiva");
             payload.put("accionCierre", this.accionCierre != null ? this.accionCierre : "Continua");
+            payload.put("salirBreakeven", Boolean.TRUE.equals(this.salirBreakeven));
             if (this.startDate != null) {
                 boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
                 java.text.SimpleDateFormat sdfStart = isIntradayTf
@@ -4126,12 +4237,26 @@ public class DashboardBean implements Serializable {
                         else dto.setOperar(false);
                         if (item.has("hasOpenTrades") && !item.get("hasOpenTrades").isNull()) dto.setHasOpenTrades(item.get("hasOpenTrades").asBoolean());
                         else dto.setHasOpenTrades(false);
+                        if (item.has("tipoCierre") && !item.get("tipoCierre").isNull()) {
+                            dto.setTipoCierre(item.get("tipoCierre").asText());
+                        } else if (item.has("cierreDivergencia") && !item.get("cierreDivergencia").isNull()) {
+                            dto.setTipoCierre(item.get("cierreDivergencia").asBoolean() ? "Reactivo" : "Sincrono");
+                        } else {
+                            dto.setTipoCierre("Tolerante");
+                        }
+                        if (item.has("umbralDiferencia") && !item.get("umbralDiferencia").isNull()) {
+                            dto.setUmbralDiferencia(item.get("umbralDiferencia").asDouble());
+                        } else {
+                            dto.setUmbralDiferencia(0.2);
+                        }
                         if (item.has("cierreDivergencia") && !item.get("cierreDivergencia").isNull()) dto.setCierreDivergencia(item.get("cierreDivergencia").asBoolean());
                         else dto.setCierreDivergencia(true);
                         if (item.has("tipoEntrada") && !item.get("tipoEntrada").isNull()) dto.setTipoEntrada(item.get("tipoEntrada").asText());
                         else dto.setTipoEntrada("Selectiva");
                         if (item.has("accionCierre") && !item.get("accionCierre").isNull()) dto.setAccionCierre(item.get("accionCierre").asText());
                         else dto.setAccionCierre("Continua");
+                        if (item.has("salirBreakeven") && !item.get("salirBreakeven").isNull()) dto.setSalirBreakeven(item.get("salirBreakeven").asBoolean());
+                        else dto.setSalirBreakeven(false);
                         if (item.has("createdAt") && !item.get("createdAt").isNull()) dto.setCreatedAt(item.get("createdAt").asText());
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
@@ -4258,9 +4383,12 @@ public class DashboardBean implements Serializable {
             this.startDate = null;
         }
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
-        this.cierreDivergencia = ratio.getCierreDivergencia() != null ? ratio.getCierreDivergencia() : true;
+        this.setTipoCierre(ratio.getTipoCierre() != null ? ratio.getTipoCierre() : "Tolerante");
+        this.umbralDiferencia = ratio.getUmbralDiferencia() != null ? ratio.getUmbralDiferencia() : 0.2;
+        this.cierreDivergencia = "Divergencia".equalsIgnoreCase(this.tipoCierre);
         this.tipoEntrada = ratio.getTipoEntrada() != null ? ratio.getTipoEntrada() : "Selectiva";
         this.accionCierre = ratio.getAccionCierre() != null ? ratio.getAccionCierre() : "Continua";
+        this.salirBreakeven = ratio.getSalirBreakeven() != null ? ratio.getSalirBreakeven() : false;
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
         this.activeAccordionIndex = "1";
@@ -4352,11 +4480,19 @@ public class DashboardBean implements Serializable {
                     } else {
                         this.hasActiveTradesInDb = false;
                     }
-                    if (rootNode.has("cierreDivergencia") && !rootNode.get("cierreDivergencia").isNull()) {
-                        this.cierreDivergencia = rootNode.get("cierreDivergencia").asBoolean();
+                    if (rootNode.has("tipoCierre") && !rootNode.get("tipoCierre").isNull()) {
+                        this.setTipoCierre(rootNode.get("tipoCierre").asText());
+                    } else if (rootNode.has("cierreDivergencia") && !rootNode.get("cierreDivergencia").isNull()) {
+                        this.setTipoCierre(rootNode.get("cierreDivergencia").asBoolean() ? "Reactivo" : "Sincrono");
                     } else {
-                        this.cierreDivergencia = true;
+                        this.setTipoCierre("Tolerante");
                     }
+                    if (rootNode.has("umbralDiferencia") && !rootNode.get("umbralDiferencia").isNull()) {
+                        this.umbralDiferencia = rootNode.get("umbralDiferencia").asDouble();
+                    } else {
+                        this.umbralDiferencia = 0.2;
+                    }
+                    this.cierreDivergencia = "Divergencia".equalsIgnoreCase(this.tipoCierre);
                     if (rootNode.has("tipoEntrada") && !rootNode.get("tipoEntrada").isNull()) {
                         this.tipoEntrada = rootNode.get("tipoEntrada").asText();
                     } else {
@@ -4366,6 +4502,11 @@ public class DashboardBean implements Serializable {
                         this.accionCierre = rootNode.get("accionCierre").asText();
                     } else {
                         this.accionCierre = "Continua";
+                    }
+                    if (rootNode.has("salirBreakeven") && !rootNode.get("salirBreakeven").isNull()) {
+                        this.salirBreakeven = rootNode.get("salirBreakeven").asBoolean();
+                    } else {
+                        this.salirBreakeven = false;
                     }
                     log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, dias={}, EMARapida={}, EMALenta={}, operar={}",
                             selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar);

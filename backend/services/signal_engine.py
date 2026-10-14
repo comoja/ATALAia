@@ -26,7 +26,8 @@ class SignalEngine:
         fixedMinA: Optional[float] = None,
         fixedMaxA: Optional[float] = None,
         fixedMinB: Optional[float] = None,
-        fixedMaxB: Optional[float] = None
+        fixedMaxB: Optional[float] = None,
+        calibPeriods: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Calcula la normalización Min-Max (0 a 1), la serie de media aritmética entre ambos pares,
@@ -43,11 +44,23 @@ class SignalEngine:
         normA = (seriesA - minA) / rangeA
         normB = (seriesB - minB) / rangeB
 
-        priceMean = (normA + normB) / 2.0
-        avgOfMean = float(priceMean.mean())
+        # Si existen límites fijos anclados, calcular media y desviación estándar sobre la ventana calibrada
+        # para que las bandas correspondan a la escala normalizada del ratio y no a la deriva macro de meses
+        if fixedMinA is not None:
+            k = int(calibPeriods) if (calibPeriods and int(calibPeriods) > 0 and int(calibPeriods) < len(normA)) else min(len(normA), 48)
+            sliceA = normA.iloc[-k:]
+            sliceB = normB.iloc[-k:]
+            priceMean_calib = (sliceA + sliceB) / 2.0
+            avgOfMean = float(priceMean_calib.mean())
+            stdNormA = float(sliceA.std()) if float(sliceA.std()) > 0 else 0.25
+            stdNormB = float(sliceB.std()) if float(sliceB.std()) > 0 else 0.25
+        else:
+            priceMean = (normA + normB) / 2.0
+            avgOfMean = float(priceMean.mean())
+            stdNormA = float(normA.std())
+            stdNormB = float(normB.std())
 
-        stdNormA = float(normA.std())
-        stdNormB = float(normB.std())
+        priceMean = (normA + normB) / 2.0
 
         stdAboveA = avgOfMean + stdNormA
         stdBelowA = avgOfMean - stdNormA
