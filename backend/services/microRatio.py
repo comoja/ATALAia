@@ -267,34 +267,37 @@ def parseCandleDateTime(dtVal: Any) -> datetime:
 
 def isCandleSignalFresh(candleDt: datetime, timeframe: str) -> bool:
     """
-    Valida estrictamente que el cruce haya sucedido en el periodo actual:
-    - 1h: solo cruces de esa hora (máx 1.5 horas).
-    - 4h: solo cruces de esa barra de 4h (máx 4.5 horas).
-    - 15m/30m: solo cruces de esa fracción horaria.
-    - 1d: solo cruces de ese día.
-    - 1week: solo cruces de esa semana.
-    - 1month: solo cruces de ese mes.
+    Valida estrictamente que la señal de entrada ocurra ÚNICAMENTE en su ventana inicial:
+    - 1h: Máximo 15 minutos (900s + 60s tolerancia) desde la apertura de la vela.
+          Si ya pasaron más de 15 minutos de la hora, la entrada se descarta para evitar entrar tarde con el precio ya corrido.
+    - 4h: Máximo 30 minutos desde la apertura.
+    - 30m: Máximo 7.5 minutos desde la apertura.
+    - 15m: Máximo 5 minutos desde la apertura.
+    - 1d: Solo en las primeras 4 horas del día.
     """
     tf = str(timeframe).lower().strip()
     now = datetime.now()
-    deltaSecs = abs((now - candleDt).total_seconds())
+    deltaSecs = (now - candleDt).total_seconds()
 
-    if tf in ["1h", "1h"]:
-        return deltaSecs <= 5400  # Máximo 1 hora y media
-    elif tf in ["4h", "4h"]:
-        return deltaSecs <= 18000  # Máximo 5 horas
+    if deltaSecs < 0:
+        return abs(deltaSecs) <= 180  # Tolerancia máxima de 3 min por desfase leve de reloj
+
+    if tf in ["1h", "1H"]:
+        return deltaSecs <= 960  # Máximo 15 minutos (+60s de margen para ciclo) desde la apertura de la vela
+    elif tf in ["4h", "4H"]:
+        return deltaSecs <= 1860  # Máximo 30 minutos desde apertura
     elif tf in ["15min", "15m"]:
-        return deltaSecs <= 1800   # Máximo 30 min
+        return deltaSecs <= 360   # Máximo 5 minutos
     elif tf in ["30min", "30m"]:
-        return deltaSecs <= 3600   # Máximo 1 hora
-    elif tf in ["1d", "1d"]:
-        return deltaSecs <= 36 * 3600  # Cruces de hoy o cierre inmediato
-    elif tf in ["1week", "1w", "1w"]:
-        return deltaSecs <= 8 * 86400  # Cruces de la semana actual
-    elif tf in ["1month", "1m", "1m"]:
-        return deltaSecs <= 35 * 86400 # Cruces del mes actual
+        return deltaSecs <= 540   # Máximo 7.5 minutos
+    elif tf in ["1d", "1D"]:
+        return deltaSecs <= (4 * 3600) # Primeras 4h del día
+    elif tf in ["1week", "1w", "1W"]:
+        return deltaSecs <= 2 * 86400
+    elif tf in ["1month", "1m", "1M"]:
+        return deltaSecs <= 7 * 86400
 
-    return deltaSecs <= 36 * 3600
+    return deltaSecs <= 960
 
 def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt: datetime, timeframe: str = "1d") -> bool:
     """
@@ -556,8 +559,11 @@ def buildRatioExitAlertMessage(
     retSign = "+" if retPct >= 0 else ""
     nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if "DIFERENCIAL" in closeReason.upper() or "DIF NORM" in closeReason.upper():
-        header_reason = "POR DIFERENCIAL <= 0.20"
+    if "TRAILING" in closeReason.upper():
+        header_reason = "POR TRAILING PROFIT"
+        body_reason = closeReason
+    elif "DIFERENCIAL" in closeReason.upper() or "DIF NORM" in closeReason.upper():
+        header_reason = "POR DIFERENCIAL NORMALIZADO"
         body_reason = closeReason
     elif "CICLO" in closeReason.upper():
         header_reason = "POR LÍMITE DE CICLOS"
@@ -574,9 +580,12 @@ def buildRatioExitAlertMessage(
     elif "CAMBIO" in closeReason.upper():
         header_reason = "POR GIRO DE DIRECCIÓN"
         body_reason = closeReason
-    else:
+    elif "CRUCE" in closeReason.upper():
         header_reason = "POR CRUCE DE PRECIOS"
         body_reason = "POR CONVERGENCIA (●)"
+    else:
+        header_reason = f"POR {closeReason.upper()}"
+        body_reason = closeReason
 
     lines = [
         f"<center>🟥<b>ATALA.ia CIERRE {header_reason}</b>🟥</center>",
@@ -1108,6 +1117,46 @@ def openSingleRatioTradePair(
     return len(insertedTrades) > 0
 
 
+TRAILING_STATE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "logs", "trailing_profit_state.json")
+
+import json
+
+def getTrailingProfitState(key: str) -> Dict[str, Any]:
+    try:
+        if os.path.exists(TRAILING_STATE_FILE):
+            with open(TRAILING_STATE_FILE, "r") as f:
+                data = json.load(f)
+                return data.get(key, {})
+    except Exception as e:
+        logger.warning(f"Error al leer trailing state: {e}")
+    return {}
+
+def saveTrailingProfitState(key: str, state: Dict[str, Any]) -> None:
+    try:
+        os.makedirs(os.path.dirname(TRAILING_STATE_FILE), exist_ok=True)
+        data = {}
+        if os.path.exists(TRAILING_STATE_FILE):
+            with open(TRAILING_STATE_FILE, "r") as f:
+                data = json.load(f)
+        data[key] = state
+        with open(TRAILING_STATE_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Error al guardar trailing state: {e}")
+
+def clearTrailingProfitState(key: str) -> None:
+    try:
+        if os.path.exists(TRAILING_STATE_FILE):
+            with open(TRAILING_STATE_FILE, "r") as f:
+                data = json.load(f)
+            if key in data:
+                del data[key]
+                with open(TRAILING_STATE_FILE, "w") as f:
+                    json.dump(data, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Error al limpiar trailing state: {e}")
+
+
 def closeRatioTrades(
     dbSession,
     idCuenta: int,
@@ -1360,7 +1409,7 @@ def closeRatioTrades(
     newCapital = float(accountData.get("capital", 0.0)) + netReintegration
 
     logger.info(
-        f"🎯 [{setupName}] CRUCE DE PRECIOS (●): {len(openTrades)} trades liquidados en Cuenta #{idCuenta} "
+        f"🎯 [{setupName}] {closeReason}: {len(openTrades)} trades liquidados en Cuenta #{idCuenta} "
         f"| PnL Total:  USD | Comision Total:  USD "
         f"| Margen Reintegrado:  | Impacto Neto en Cuenta:  USD"
     )
@@ -1385,6 +1434,7 @@ def closeRatioTrades(
         closeReason=closeReason
     )
     dispatchRatioTelegramAlert(idCuenta, exitAlertMsg)
+    clearTrailingProfitState(f"{idCuenta}_{setupName}")
 
     return True
 
@@ -1652,6 +1702,62 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             shouldCloseByExitRule = True
             exitRuleReason = f"POR DIFERENCIAL NORMALIZADO <= {umbralDiferencia:.2f} (Dif: {normDiff:.4f} | PnL: +${basketFloatingPnl:.2f} USD)"
 
+        # Regla 2: Trailing Profit 7.5% en Modo Reactivo / Divergencia (Activo ÚNICAMENTE tras ocurrir el cruce de precios ●)
+        elif (tipoCierre in ["Reactivo", "Divergencia"]) and basketFloatingPnl > 0.0:
+            trailingKey = f"{idCuenta}_{setupName}"
+            tState = getTrailingProfitState(trailingKey)
+
+            hasCrossed = bool(tState.get("hasCrossed", False))
+            firstTradeA = next((t for t in dbOpenTrades if t.get("symbol") == numerador), dbOpenTrades[0])
+            firstDirA = firstTradeA.get("direction", "LARGO")
+
+            # Detectar si el cruce ocurrió en este censo o si las curvas normalizadas ya se cruzaron
+            if not hasCrossed:
+                if isPriceCross:
+                    hasCrossed = True
+                elif firstDirA == "LARGO" and nA >= nB:
+                    hasCrossed = True
+                elif firstDirA == "CORTO" and nA <= nB:
+                    hasCrossed = True
+
+                if hasCrossed:
+                    tState["hasCrossed"] = True
+                    tState["crossTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    tState["peakPnl"] = round(basketFloatingPnl, 2)
+                    saveTrailingProfitState(trailingKey, tState)
+                    logger.info(
+                        f"🔄 [{accHeader}] ¡CRUCE DE PRECIOS DETECTADO (●)! "
+                        f"Iniciando fase Reactiva post-cruce. Trailing Profit 7.5% armado con PnL inicial: +${basketFloatingPnl:.2f} USD."
+                    )
+
+            if hasCrossed:
+                prevPeak = float(tState.get("peakPnl", 0.0))
+                if basketFloatingPnl > prevPeak:
+                    tState["peakPnl"] = round(basketFloatingPnl, 2)
+                    tState["peakTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    saveTrailingProfitState(trailingKey, tState)
+                    prevPeak = tState["peakPnl"]
+
+                # Si el pico acumulado post-cruce sobrepasó PPP con un colchón mínimo (>= 2.00 USD), evaluar retroceso del 7.5%
+                if prevPeak >= 2.0:
+                    pullbackFloor = round(prevPeak * 0.925, 2)  # 7.5% de retroceso permitido
+                    logger.info(
+                        f"🎯 [{accHeader}] TRAILING REACTIVO (Post-Cruce): PnL Actual: +${basketFloatingPnl:.2f} USD | "
+                        f"Pico Máximo: +${prevPeak:.2f} USD | Umbral Salida (-7.5%): +${pullbackFloor:.2f} USD"
+                    )
+                    if basketFloatingPnl <= pullbackFloor:
+                        shouldCloseByExitRule = True
+                        exitRuleReason = (
+                            f"POR TRAILING PROFIT 7.5% EN REACTIVO "
+                            f"(Pico: +${prevPeak:.2f} | Cierre: +${basketFloatingPnl:.2f} USD | Retorno: {returnOnMarginPct:+.1f}%)"
+                        )
+                        clearTrailingProfitState(trailingKey)
+            else:
+                logger.info(
+                    f"⏳ [{accHeader}] MODO REACTIVO: Canasta en camino al cruce (flotante: {basketFloatingPnl:+.2f} USD). "
+                    f"Trailing Profit inactivo hasta que ocurra el cruce de precios (●)."
+                )
+
         # Regla 2: [COMENTADA TEMPORALMENTE] Límite de Ciclos Alcanzado con PnL Positivo
         # Desactivado: no cerrar por límite de olas ni por primera ganancia flotante.
         # elif (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed) and basketFloatingPnl > 0.50:
@@ -1744,28 +1850,59 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             logger.info(f"⏳ [{accHeader}] Vela actual ({entryDateStr}) es anterior a la creación del ratio ({createdAtDt}). Se ignora la evaluación.")
             return
 
-        # Validación estricta por temporalidad: solo insertar si el cruce sucedió en esa hora / día
-        if not isCandleSignalFresh(candleDt, periodo):
-            logger.info(
-                f"⏳ [{accHeader}] Cruce de fecha/hora {entryDateStr} no pertenece al periodo actual ({periodo}). "
-                f"Solo se insertan cruces ocurridos en esa hora/día. Omitiendo entrada."
-            )
-            return
-
         sigType = latestSig.get("signalType", "TRIANGULO")
         dirA = "CORTO" if latestSig.get("symbolAAction") == "SELL" else "LARGO"
         dirB = "CORTO" if latestSig.get("symbolBAction") == "SELL" else "LARGO"
 
-        # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP)
+        # Validación estricta por temporalidad: solo insertar dentro de los primeros 15 min de la vela
+        # EXCEPCIÓN (Opción A): Si ya existen operaciones abiertas en el ciclo y el precio actual de AMBAS patas
+        # continúa en máxima expansión (más favorable que la última entrada abierta: más bajo para compra y más alto para venta),
+        # se permite la entrada tardía porque el precio no se devolvió hacia el cruce sino que amplió la divergencia.
+        isFresh = isCandleSignalFresh(candleDt, periodo)
+        if not isFresh:
+            minsOld = int(abs((datetime.now() - candleDt).total_seconds()) / 60)
+            isBetterPriceExpansion = False
+            if dbOpenTrades:
+                openTradesA = [t for t in dbOpenTrades if t.get("symbol") == numerador]
+                openTradesB = [t for t in dbOpenTrades if t.get("symbol") == denominador]
+                if openTradesA and openTradesB:
+                    lastTradeA = openTradesA[-1]
+                    lastTradeB = openTradesB[-1]
+                    lastPxA = float(lastTradeA.get("entryPrice", 0.0))
+                    lastPxB = float(lastTradeB.get("entryPrice", 0.0))
+
+                    betterA = (latestPriceA < lastPxA) if dirA == "LARGO" else (latestPriceA > lastPxA)
+                    betterB = (latestPriceB < lastPxB) if dirB == "LARGO" else (latestPriceB > lastPxB)
+
+                    if betterA and betterB:
+                        isBetterPriceExpansion = True
+                        logger.info(
+                            f"✨ [{accHeader}] Excepción de frescura concedida ({minsOld} min en {periodo}): "
+                            f"Precios en máxima expansión respecto a la última entrada "
+                            f"({numerador} [{dirA}]: actual {latestPriceA:.5f} vs última {lastPxA:.5f} | "
+                            f"{denominador} [{dirB}]: actual {latestPriceB:.5f} vs última {lastPxB:.5f}). "
+                            f"Permitiendo evaluación tardía en vela {entryDateStr}."
+                        )
+
+            if not isBetterPriceExpansion:
+                logger.info(
+                    f"⏳ [{accHeader}] Señal de fecha/hora {entryDateStr} tiene {minsOld} min desde apertura (> 15 min permitidos en {periodo}). "
+                    f"Omitiendo entrada tardía para no entrar con el precio ya desplazado hacia el cruce."
+                )
+                return
+
+        # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP: última entrada de compra/venta se convierte en venta/compra)
         if dbOpenTrades:
-            firstTrade = dbOpenTrades[0]
-            currDirA = firstTrade.get("direction", "")
-            isReversal = (dirA != currDirA)
+            tradesA = [t for t in dbOpenTrades if t.get("symbol") == numerador]
+            lastTradeA = tradesA[-1] if tradesA else dbOpenTrades[-1]
+            lastDirA = lastTradeA.get("direction", "")
+            isReversal = (dirA != lastDirA)
 
             if isReversal:
                 logger.info(
                     f"🔄 [{accHeader}] ¡CAMBIO DE DIRECCIÓN DETECTADO ({sigType})! "
-                    f"Cerrando {len(dbOpenTrades)} posiciones anteriores ({currDirA}) para girar a {dirA}..."
+                    f"La última entrada fue {lastDirA} y la siguiente señal es {dirA}. "
+                    f"Cerrando {len(dbOpenTrades)} posiciones anteriores para girar a {dirA}..."
                 )
                 symMap = {numerador: symDataA, denominador: symDataB}
                 priceMap = {numerador: latestPriceA, denominador: latestPriceB}
@@ -1823,26 +1960,19 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 minA = normInfo.get("minA", 0.0)
                 minB = normInfo.get("minB", 0.0)
 
-                # Buscar la entrada más extrema ya abierta de cada pata (del mismo color)
-                if dirA == "LARGO":
-                    bestPxA = min(t["entryPrice"] for t in openTradesA)
-                else:
-                    bestPxA = max(t["entryPrice"] for t in openTradesA)
+                # Comparar contra la última entrada abierta de cada pata (Opción A)
+                lastPxA = float(openTradesA[-1]["entryPrice"])
+                lastPxB = float(openTradesB[-1]["entryPrice"])
 
-                if dirB == "LARGO":
-                    bestPxB = min(t["entryPrice"] for t in openTradesB)
-                else:
-                    bestPxB = max(t["entryPrice"] for t in openTradesB)
-
-                bestNormA = (bestPxA - minA) / rangeA if rangeA > 0 else 0.5
-                bestNormB = (bestPxB - minB) / rangeB if rangeB > 0 else 0.5
+                lastNormA = (lastPxA - minA) / rangeA if rangeA > 0 else 0.5
+                lastNormB = (lastPxB - minB) / rangeB if rangeB > 0 else 0.5
 
                 isValidSelective, updA, updB, rejectReason = signalEngine.isSelectiveEntryValid(
                     sig=latestSig,
                     currNormA=nA,
                     currNormB=nB,
-                    lastEntryA=bestNormA,
-                    lastEntryB=bestNormB,
+                    lastEntryA=lastNormA,
+                    lastEntryB=lastNormB,
                     stdAboveA=stdUpA,
                     stdBelowA=stdDownA,
                     stdAboveB=stdUpB,

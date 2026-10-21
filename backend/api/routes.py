@@ -4155,3 +4155,47 @@ def update_user_ratio_breakeven(payload: UserRatioBreakevenUpdate, db: Session =
         db.rollback()
         logger.error(f"Error al actualizar salirBreakeven: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserRatioVrUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    tipoCierre: str = Field(..., description="Régimen de salida: Sincrono, Reactivo o Tolerante")
+    umbralDiferencia: Optional[float] = Field(0.20, description="Umbral de diferencia normalizada (para Tolerante)")
+
+@router.post("/user-ratios/update-vr")
+def update_user_ratio_vr(payload: UserRatioVrUpdate, db: Session = Depends(get_db)):
+    """
+    Permite modificar tipoCierre y umbralDiferencia (VR) en cualquier momento, incluso con posiciones abiertas.
+    """
+    try:
+        query = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        ratio = query.first()
+        if not ratio:
+            raise HTTPException(status_code=404, detail="Ratio no encontrado")
+        
+        ratio.tipoCierre = payload.tipoCierre
+        ratio.cierreDivergencia = bool(payload.tipoCierre in ["Reactivo", "Divergencia"])
+        if payload.umbralDiferencia is not None:
+            ratio.umbralDiferencia = payload.umbralDiferencia
+        db.commit()
+        db.refresh(ratio)
+        logger.info(f"VR actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> tipoCierre={ratio.tipoCierre}, umbralDiferencia={ratio.umbralDiferencia}")
+        return {
+            "status": "success",
+            "message": "Vector de Retorno (VR) actualizado correctamente",
+            "tipoCierre": ratio.tipoCierre,
+            "umbralDiferencia": float(ratio.umbralDiferencia) if ratio.umbralDiferencia is not None else 0.20
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar VR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -161,12 +161,13 @@ class CruceEmaEngine:
         cycleMaxAdverseFloat = 0.0
         cycleHadCross = False
         peakFavDiffPostCross = 0.0
+        peakPnlPostCross = 0.0
         has_time = any(hasattr(d, "hour") and (d.hour != 0 or d.minute != 0) for d in commonIdx[:20])
 
         def close_active_cycle(exit_reason_label: str, exit_reason_detail: str, exit_idx: int, exit_pxA: float, exit_pxB: float, exit_d: str):
             nonlocal cycleCounter, rawTradesCount, equity, cycleStartEquity, cycleAvailableEquity
             nonlocal isCycleMarginCapped, cycleStoppedEntries, cyclePeakCapitalReq, cyclePeakMargin, cycleMaxAdverseFloat
-            nonlocal activeTrades, cycleSkippedTrades, cycleLastA, cycleLastB, cycleHadCross, peakFavDiffPostCross
+            nonlocal activeTrades, cycleSkippedTrades, cycleLastA, cycleLastB, cycleHadCross, peakFavDiffPostCross, peakPnlPostCross
 
             cycleCounter += 1
             cycleTrades = []
@@ -365,6 +366,7 @@ class CruceEmaEngine:
             cycleLastB = None
             cycleHadCross = False
             peakFavDiffPostCross = 0.0
+            peakPnlPostCross = 0.0
 
         for i in range(1, totalBars):
             d = dates[i]
@@ -506,15 +508,16 @@ class CruceEmaEngine:
                         reasonLabel = "Cruce de Precios (●)"
                         reasonDetail = f"POR CRUCE DE PRECIOS {d}"
 
-                # Regla 4: Modo Reactivo (Cambio de dirección DESPUÉS de un cruce)
+                # Regla 4: Modo Reactivo (Trailing Profit 7.5% SOLO TRAS CRUCE; Cambio de Dirección se rige por nueva señal contraria en Regla 1)
                 elif str(tipoCierre).lower() == "reactivo":
                     if cycleHadCross:
-                        if favDiffNow > peakFavDiffPostCross:
-                            peakFavDiffPostCross = favDiffNow
-                        elif favDiffNow < prevFavDiff:
+                        if unrealizedTotalPnl > peakPnlPostCross:
+                            peakPnlPostCross = unrealizedTotalPnl
+                        
+                        if peakPnlPostCross >= 2.0 and unrealizedTotalPnl <= (peakPnlPostCross * 0.925):
                             shouldClose = True
-                            reasonLabel = "Giro Post-Cruce"
-                            reasonDetail = f"CAMBIO DE DIRECCIÓN DESPUÉS DE CRUCE {d}"
+                            reasonLabel = "Trailing Profit 7.5%"
+                            reasonDetail = f"TRAILING PROFIT 7.5% EN REACTIVO (Pico: +${peakPnlPostCross:.2f} | Cierre: +${unrealizedTotalPnl:.2f}) {d}"
 
                 if shouldClose:
                     close_active_cycle(reasonLabel, reasonDetail, i, pxA, pxB, d)

@@ -2156,7 +2156,50 @@ public class DashboardBean implements Serializable {
     public void onTipoCierreChange() {
         log.info("▶ VR cambiado a: {} (Umbral: {})", this.tipoCierre, this.umbralDiferencia);
         if (this.ratioExistsInDb) {
-            guardarRatio();
+            actualizarTipoCierre();
+        }
+    }
+
+    public void actualizarTipoCierre() {
+        try {
+            if (this.selectedPair == null || this.selectedPair2 == null) return;
+
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("numerador", this.selectedPair);
+            payload.put("denominador", this.selectedPair2);
+            payload.put("tipoCierre", this.tipoCierre != null ? this.tipoCierre : "Tolerante");
+            payload.put("umbralDiferencia", this.umbralDiferencia != null ? this.umbralDiferencia : 0.2);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-ratios/update-vr";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserRatiosList();
+                String umbralText = "Tolerante".equalsIgnoreCase(this.tipoCierre) ? (" (≤ " + this.umbralDiferencia + ")") : "";
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Vector de Retorno (VR)", "Régimen de cierre actualizado a " + this.tipoCierre + umbralText + " para " + this.selectedPair + "/" + this.selectedPair2));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar tipoCierre (VR): {}", e.getMessage());
         }
     }
 
