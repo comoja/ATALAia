@@ -401,6 +401,10 @@ public class DashboardBean implements Serializable {
         public void setPnl(double pnl) { this.pnl = pnl; }
         public String getOpenTime() { return openTime; }
         public void setOpenTime(String openTime) { this.openTime = openTime; }
+        private String strategy = "RATIO ATALAia";
+        public String getStrategy() { return strategy; }
+        public void setStrategy(String strategy) { this.strategy = strategy; }
+        public boolean isCoverage() { return "COBERTURA".equalsIgnoreCase(strategy); }
 
         public String getFormattedEntryPrice() { return String.format(java.util.Locale.US, "%,.5f", entryPrice); }
         public String getFormattedCurrentPrice() { return String.format(java.util.Locale.US, "%,.5f", currentPrice); }
@@ -654,11 +658,70 @@ public class DashboardBean implements Serializable {
         public String getRetSign() { return returnPct >= 0 ? "+" : ""; }
         public String getFormattedTotalPnl() { return String.format(java.util.Locale.US, "%,.2f", totalPnl); }
         public String getFormattedReturnPct() { return String.format(java.util.Locale.US, "%,.1f", returnPct); }
+        public double getReturnPctA() { return marginA > 0 ? (pnlA / marginA) * 100.0 : 0.0; }
+        public double getReturnPctB() { return marginB > 0 ? (pnlB / marginB) * 100.0 : 0.0; }
+        public String getRetSignA() { return getReturnPctA() >= 0 ? "+" : ""; }
+        public String getRetSignB() { return getReturnPctB() >= 0 ? "+" : ""; }
+        public String getFormattedReturnPctA() { return String.format(java.util.Locale.US, "%,.1f", getReturnPctA()); }
+        public String getFormattedReturnPctB() { return String.format(java.util.Locale.US, "%,.1f", getReturnPctB()); }
         public String getFormattedTotalMargin() { return String.format(java.util.Locale.US, "%,.2f", totalMargin); }
         public String getFormattedMarginA() { return String.format(java.util.Locale.US, "%,.2f", marginA); }
         public String getFormattedMarginB() { return String.format(java.util.Locale.US, "%,.2f", marginB); }
         public String getFormattedPnlA() { return String.format(java.util.Locale.US, "%,.2f", pnlA); }
         public String getFormattedPnlB() { return String.format(java.util.Locale.US, "%,.2f", pnlB); }
+
+        private boolean hasCoverageA = false;
+        private boolean hasCoverageB = false;
+        private double coverageSizeA = 0.0;
+        private double coverageSizeB = 0.0;
+        private double coveragePnlA = 0.0;
+        private double coveragePnlB = 0.0;
+        private double coverageReturnPctA = 0.0;
+        private double coverageReturnPctB = 0.0;
+        private String coverageDirA = "";
+        private String coverageDirB = "";
+
+        public boolean isHasCoverageA() { return hasCoverageA; }
+        public void setHasCoverageA(boolean hasCoverageA) { this.hasCoverageA = hasCoverageA; }
+        public boolean isHasCoverageB() { return hasCoverageB; }
+        public void setHasCoverageB(boolean hasCoverageB) { this.hasCoverageB = hasCoverageB; }
+        public double getCoverageSizeA() { return coverageSizeA; }
+        public void setCoverageSizeA(double coverageSizeA) { this.coverageSizeA = coverageSizeA; }
+        public double getCoverageSizeB() { return coverageSizeB; }
+        public void setCoverageSizeB(double coverageSizeB) { this.coverageSizeB = coverageSizeB; }
+        public double getCoveragePnlA() { return coveragePnlA; }
+        public void setCoveragePnlA(double coveragePnlA) { this.coveragePnlA = coveragePnlA; }
+        public double getCoveragePnlB() { return coveragePnlB; }
+        public void setCoveragePnlB(double coveragePnlB) { this.coveragePnlB = coveragePnlB; }
+        public double getCoverageReturnPctA() { return coverageReturnPctA; }
+        public void setCoverageReturnPctA(double coverageReturnPctA) { this.coverageReturnPctA = coverageReturnPctA; }
+        public double getCoverageReturnPctB() { return coverageReturnPctB; }
+        public void setCoverageReturnPctB(double coverageReturnPctB) { this.coverageReturnPctB = coverageReturnPctB; }
+        public String getCoverageDirA() { return coverageDirA; }
+        public void setCoverageDirA(String coverageDirA) { this.coverageDirA = coverageDirA; }
+        public String getCoverageDirB() { return coverageDirB; }
+        public void setCoverageDirB(String coverageDirB) { this.coverageDirB = coverageDirB; }
+
+        public String getFormattedCoverageSizeA() { return String.format(java.util.Locale.US, "%,.0f", coverageSizeA); }
+        public String getFormattedCoverageSizeB() { return String.format(java.util.Locale.US, "%,.0f", coverageSizeB); }
+        public String getFormattedCoveragePnlA() {
+            return String.format(java.util.Locale.US, "%s$%,.2f", coveragePnlA >= 0 ? "+" : "-", Math.abs(coveragePnlA));
+        }
+        public String getFormattedCoveragePnlB() {
+            return String.format(java.util.Locale.US, "%s$%,.2f", coveragePnlB >= 0 ? "+" : "-", Math.abs(coveragePnlB));
+        }
+        public String getCoveragePnlColorA() { return coveragePnlA >= 0 ? "#15803d" : "#b91c1c"; }
+        public String getCoveragePnlColorB() { return coveragePnlB >= 0 ? "#15803d" : "#b91c1c"; }
+        public String getCoverageBgColorA() { return coveragePnlA >= 0 ? "#ecfdf5" : "#fef2f2"; }
+        public String getCoverageBgColorB() { return coveragePnlB >= 0 ? "#ecfdf5" : "#fef2f2"; }
+        public String getCoverageBorderColorA() { return coveragePnlA >= 0 ? "#a7f3d0" : "#fecaca"; }
+        public String getCoverageBorderColorB() { return coveragePnlB >= 0 ? "#a7f3d0" : "#fecaca"; }
+        public String getFormattedCoverageReturnPctA() {
+            return String.format(java.util.Locale.US, "%s%.1f%%", coverageReturnPctA >= 0 ? "+" : "-", Math.abs(coverageReturnPctA));
+        }
+        public String getFormattedCoverageReturnPctB() {
+            return String.format(java.util.Locale.US, "%s%.1f%%", coverageReturnPctB >= 0 ? "+" : "-", Math.abs(coverageReturnPctB));
+        }
         public String getShortDirection() {
             if (direction == null || direction.isEmpty()) return "N/A";
             return direction.replace("LONG ", "L:").replace("SHORT ", "S:").replace(" / ", " | ");
@@ -3016,6 +3079,16 @@ public class DashboardBean implements Serializable {
                         dto.setCurrentPriceB(n.path("currentPriceB").asDouble(0.0));
                         dto.setDirA(n.path("dirA").asText("BUY"));
                         dto.setDirB(n.path("dirB").asText("SELL"));
+                        dto.setHasCoverageA(n.path("hasCoverageA").asBoolean(false));
+                        dto.setHasCoverageB(n.path("hasCoverageB").asBoolean(false));
+                        dto.setCoverageSizeA(n.path("coverageSizeA").asDouble(0.0));
+                        dto.setCoverageSizeB(n.path("coverageSizeB").asDouble(0.0));
+                        dto.setCoveragePnlA(n.path("coveragePnlA").asDouble(0.0));
+                        dto.setCoveragePnlB(n.path("coveragePnlB").asDouble(0.0));
+                        dto.setCoverageReturnPctA(n.path("coverageReturnPctA").asDouble(0.0));
+                        dto.setCoverageReturnPctB(n.path("coverageReturnPctB").asDouble(0.0));
+                        dto.setCoverageDirA(n.path("coverageDirA").asText(""));
+                        dto.setCoverageDirB(n.path("coverageDirB").asText(""));
 
                         JsonNode tradesNode = n.path("trades");
                         if (tradesNode.isArray()) {
@@ -3031,6 +3104,7 @@ public class DashboardBean implements Serializable {
                                 item.setMargin(tn.path("margin").asDouble());
                                 item.setPnl(tn.path("pnl").asDouble());
                                 item.setOpenTime(tn.path("openTime").asText(""));
+                                item.setStrategy(tn.path("strategy").asText("RATIO ATALAia"));
                                 tList.add(item);
                             }
                             dto.setTrades(tList);
@@ -6140,10 +6214,12 @@ public class DashboardBean implements Serializable {
 
     public String getCalibrationTabTitle() {
         Integer rId = getCurrentRatioId();
-        if (rId != null && rId > 0) {
-            return "2. Calibración del Ratio " + rId;
+        String base = (rId != null && rId > 0) ? ("2. Calibración del Ratio " + rId) : "2. Calibración del Ratio";
+        ActiveCycleSummaryDto summary = getActiveCycleSummary();
+        if (summary != null && summary.isHasActiveCycle()) {
+            return base + " (" + summary.getRetSign() + summary.getFormattedReturnPct() + "%)";
         }
-        return "2. Calibración del Ratio";
+        return base;
     }
 
     private String ratioCreatedAt = "";

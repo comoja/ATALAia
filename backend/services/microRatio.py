@@ -423,10 +423,10 @@ def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) ->
 def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict[str, Any]]:
     """
     Verifica si existen operaciones actualmente en estado 'OPEN' para este setup y cuenta,
-    incluyendo su ticketId para la gestión de órdenes en bróker.
+    incluyendo su ticketId y strategy para la gestión de órdenes en bróker y coberturas.
     """
     sqlQuery = text("""
-        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, candleTime, openTime, ticketId
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, candleTime, openTime, ticketId, strategy
         FROM trades
         WHERE idCuenta = :idc
           AND setup = :stp
@@ -445,7 +445,8 @@ def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict
             "margin_used": float(r[5]) if r[5] is not None else 0.0,
             "candleTime": r[6],
             "openTime": r[7],
-            "ticketId": str(r[8]) if r[8] else None
+            "ticketId": str(r[8]) if r[8] else None,
+            "strategy": str(r[9]) if len(r) > 9 and r[9] else "RATIO ATALAia"
         })
     return openTrades
 
@@ -1157,6 +1158,44 @@ def clearTrailingProfitState(key: str) -> None:
         logger.warning(f"Error al limpiar trailing state: {e}")
 
 
+COVERAGE_STATE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "logs", "coverage_state.json")
+
+def getCoverageState(key: str) -> Dict[str, Any]:
+    try:
+        if os.path.exists(COVERAGE_STATE_FILE):
+            with open(COVERAGE_STATE_FILE, "r") as f:
+                data = json.load(f)
+                return data.get(key, {})
+    except Exception as e:
+        logger.warning(f"Error al leer coverage state: {e}")
+    return {}
+
+def saveCoverageState(key: str, state: Dict[str, Any]) -> None:
+    try:
+        os.makedirs(os.path.dirname(COVERAGE_STATE_FILE), exist_ok=True)
+        data = {}
+        if os.path.exists(COVERAGE_STATE_FILE):
+            with open(COVERAGE_STATE_FILE, "r") as f:
+                data = json.load(f)
+        data[key] = state
+        with open(COVERAGE_STATE_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Error al guardar coverage state: {e}")
+
+def clearCoverageState(key: str) -> None:
+    try:
+        if os.path.exists(COVERAGE_STATE_FILE):
+            with open(COVERAGE_STATE_FILE, "r") as f:
+                data = json.load(f)
+            if key in data:
+                del data[key]
+                with open(COVERAGE_STATE_FILE, "w") as f:
+                    json.dump(data, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Error al limpiar coverage state: {e}")
+
+
 def closeRatioTrades(
     dbSession,
     idCuenta: int,
@@ -1435,9 +1474,261 @@ def closeRatioTrades(
     )
     dispatchRatioTelegramAlert(idCuenta, exitAlertMsg)
     clearTrailingProfitState(f"{idCuenta}_{setupName}")
+    clearCoverageState(f"{idCuenta}_{setupName}_{numerador}")
+    clearCoverageState(f"{idCuenta}_{setupName}_{denominador}")
 
     return True
 
+
+
+def openSingleCoverageTrade(
+    dbSession,
+    idCuenta: int,
+    setupName: str,
+    symbol: str,
+    direction: str,
+    size: float,
+    entryPrice: float,
+    accountData: Dict[str, Any],
+    symData: Dict[str, Any],
+    periodo: str = "1h",
+    legReason: str = ""
+) -> Optional[Dict[str, Any]]:
+    """
+    Abre una orden de cobertura para una pata específica cuando supera el -10% de pérdida en modo protección.
+    1. Si hay bróker conectado, despacha al bróker por Webhook.
+    2. Registra en BD con strategy = 'COBERTURA'.
+    3. Inicializa el estado de seguimiento de la cobertura.
+    4. Envía notificación por Telegram.
+    """
+    accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
+    margenRate = float(symData.get("margenRate", 0.0025))
+    margenPct = symData.get("margenPct", 0.5)
+    chunkMargin = calculate_margin(symbol, size, entryPrice, margenPct)
+
+    nowDt = datetime.now()
+    nowStr = nowDt
+
+    query = text("""
+        SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
+        FROM brokercuenta bc
+        LEFT JOIN broker b ON bc.idBroker = b.idBroker
+        WHERE bc.idCuenta = :idc AND bc.activo = 1
+    """)
+    activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
+
+    ticketId = None
+    fillPrice = entryPrice
+
+    if activeBrokers:
+        covOrder = [{
+            "symbol": symbol,
+            "direction": direction,
+            "action": "buy" if direction == "LARGO" else "sell",
+            "size": size,
+            "entryPrice": entryPrice,
+            "margenRate": margenRate,
+            "margenPct": margenPct,
+            "strategy": "COBERTURA",
+            "setup": setupName
+        }]
+        logger.info(f"🛡️ [{setupName}] Despachando COBERTURA al bróker: {symbol} {direction} {size} unidades para Cuenta #{idCuenta}...")
+        execResults = sendRatioWebhookOrders(dbSession, idCuenta, covOrder)
+        if not execResults or not execResults[0].get("success"):
+            err = execResults[0].get("error", "Rechazado") if execResults else "Sin respuesta"
+            logger.error(f"❌ [COBERTURA RECHAZADA] Bróker rechazó la cobertura para {symbol} en Cuenta #{idCuenta}: {err}")
+            return None
+        
+        ticketId = execResults[0].get("order_id")
+        fp = float(execResults[0].get("fill_price", 0.0) or 0.0)
+        if fp > 0:
+            fillPrice = fp
+
+    dbSession.commit()
+    existingTrade = None
+    if ticketId:
+        existingTrade = dbSession.execute(text("""
+            SELECT idTrade FROM trades 
+            WHERE idCuenta = :idc AND ticketId = :tid AND status = 'OPEN' 
+            ORDER BY idTrade ASC LIMIT 1
+        """), {"idc": idCuenta, "tid": str(ticketId)}).fetchone()
+
+    if existingTrade:
+        newTradeId = existingTrade[0]
+        dbSession.execute(text("""
+            UPDATE trades 
+            SET strategy = 'COBERTURA',
+                setup = :setup,
+                margin_used = :margin_used
+            WHERE idTrade = :idt
+        """), {"setup": setupName, "margin_used": chunkMargin, "idt": newTradeId})
+        dbSession.commit()
+    else:
+        insertSql = text("""
+            INSERT INTO trades (
+                idCuenta, strategy, setup, symbol, status, direction,
+                intervalo, pnl, candleTime, openTime, size, entryPrice,
+                stopLoss, takeProfit, margin_used, ticketId
+            ) VALUES (
+                :idCuenta, 'COBERTURA', :setup, :symbol, 'OPEN', :direction,
+                :intervalo, 0.0, :candleTime, :openTime, :size, :entryPrice,
+                NULL, NULL, :margin_used, :ticketId
+            )
+        """)
+        res = dbSession.execute(insertSql, {
+            "idCuenta": idCuenta,
+            "setup": setupName,
+            "symbol": symbol,
+            "direction": direction,
+            "intervalo": periodo,
+            "candleTime": nowStr,
+            "openTime": nowStr,
+            "size": size,
+            "entryPrice": fillPrice,
+            "margin_used": chunkMargin,
+            "ticketId": str(ticketId) if ticketId else None
+        })
+        newTradeId = res.lastrowid
+        dbSession.commit()
+
+    stateKey = f"{idCuenta}_{setupName}_{symbol}"
+    saveCoverageState(stateKey, {
+        "tradeId": newTradeId,
+        "symbol": symbol,
+        "direction": direction,
+        "size": size,
+        "entryPrice": fillPrice,
+        "marginUsed": chunkMargin,
+        "entryTime": nowDt.strftime("%Y-%m-%d %H:%M:%S"),
+        "peakReturnPct": 0.0,
+        "reachedTarget": False
+    })
+
+    msg = (
+        f"🛡️ <b>[COBERTURA ACTIVADA]</b>\n"
+        f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
+        f"<b>Ratio:</b> {setupName}\n"
+        f"<b>Símbolo:</b> {symbol}\n"
+        f"<b>Operación:</b> {direction} {size:,.0f} unidades @ {fillPrice}\n"
+        f"<b>Margen:</b> ${chunkMargin:.2f} USD\n"
+        f"<b>Motivo:</b> Pérdida en pata supera -10.0% ({legReason})\n"
+        f"<i>Posición congelada para proteger capital.</i>"
+    )
+    dispatchRatioTelegramAlert(idCuenta, msg)
+    logger.info(f"✅ [{setupName}] Cobertura activada con éxito para {symbol} (Trade #{newTradeId} | Ticket {ticketId}).")
+    return {
+        "idTrade": newTradeId,
+        "symbol": symbol,
+        "direction": direction,
+        "size": size,
+        "entryPrice": fillPrice,
+        "margin_used": chunkMargin,
+        "ticketId": str(ticketId) if ticketId else None,
+        "strategy": "COBERTURA"
+    }
+
+
+def closeSingleCoverageTrade(
+    dbSession,
+    idCuenta: int,
+    setupName: str,
+    coverageTrade: Dict[str, Any],
+    latestPrice: float,
+    symData: Dict[str, Any],
+    accountData: Dict[str, Any],
+    closeReason: str = "POR REGLA DE COBERTURA"
+) -> bool:
+    """
+    Liquida y cierra una sola posición de cobertura en el bróker y en la base de datos.
+    Reintegra el margen y registra el PnL obtenido.
+    """
+    accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
+    sym = coverageTrade["symbol"]
+    tId = coverageTrade.get("ticketId")
+    idTrade = coverageTrade["idTrade"]
+    size = float(coverageTrade["size"])
+    entryPx = float(coverageTrade["entryPrice"])
+    direction = coverageTrade["direction"]
+    pipSize = symData.get("pip", 0.0001)
+
+    if tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
+        closeOrder = [{
+            "strategy": "COBERTURA",
+            "setup": setupName,
+            "symbol": sym,
+            "action": "close",
+            "size": size,
+            "entryPrice": 0.0,
+            "ticketId": tId,
+            "idTrade": idTrade
+        }]
+        logger.info(f"🔒 [closeSingleCoverageTrade] Despachando orden de cierre de cobertura al bróker para Trade #{idTrade} (Ticket {tId})...")
+        execResults = sendRatioWebhookOrders(dbSession, idCuenta, closeOrder)
+        failedResults = [r for r in execResults if not r.get("success")]
+        if failedResults:
+            err = failedResults[0].get("error", "Rechazado")
+            logger.error(f"❌ [ABORTAR CIERRE COBERTURA] El bróker rechazó el cierre de cobertura {sym} en Cuenta #{idCuenta}: {err}")
+            return False
+        if execResults and execResults[0].get("fill_price"):
+            fp = float(execResults[0]["fill_price"])
+            if fp > 0:
+                latestPrice = fp
+
+    pnl, pips, _, _ = calculate_unrealized_pnl(
+        symbol=sym,
+        direction=direction,
+        entry_price=entryPx,
+        current_price=latestPrice,
+        size=size,
+        pip_size=pipSize
+    )
+    marginUsed = float(coverageTrade.get("margin_used") or 0.0)
+    returnPct = (pnl / marginUsed * 100.0) if marginUsed > 0 else 0.0
+
+    nowDt = datetime.now()
+    nowStr = nowDt
+
+    dbSession.execute(text("""
+        UPDATE trades
+        SET status = 'CLOSED',
+            exitPrice = :exitPrice,
+            closeTime = :closeTime,
+            pnl = :pnl,
+            commission = 0.0
+        WHERE idTrade = :idt
+    """), {
+        "exitPrice": latestPrice,
+        "closeTime": nowStr,
+        "pnl": pnl,
+        "idt": idTrade
+    })
+
+    netReintegration = marginUsed + pnl
+    dbSession.execute(text("""
+        UPDATE cuenta
+        SET Capital = Capital + :netReintegration
+        WHERE idCuenta = :idc
+    """), {
+        "netReintegration": netReintegration,
+        "idc": idCuenta
+    })
+    dbSession.commit()
+
+    clearCoverageState(f"{idCuenta}_{setupName}_{sym}")
+
+    msg = (
+        f"🎯 <b>[COBERTURA CERRADA]</b>\n"
+        f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
+        f"<b>Ratio:</b> {setupName}\n"
+        f"<b>Símbolo:</b> {sym} ({direction})\n"
+        f"<b>PnL Cobertura:</b> {pnl:+.2f} USD ({returnPct:+.2f}%)\n"
+        f"<b>Precio Salida:</b> {latestPrice}\n"
+        f"<b>Motivo:</b> {closeReason}\n"
+        f"<i>Margen liberado: ${marginUsed:.2f} USD</i>"
+    )
+    dispatchRatioTelegramAlert(idCuenta, msg)
+    logger.info(f"✅ [{setupName}] Cobertura cerrada con éxito para {sym}: PnL {pnl:+.2f} USD ({returnPct:+.2f}%).")
+    return True
 
 
 def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
@@ -1640,6 +1931,9 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     maxHoursAllowed = maxAllowedCycles * dias
 
     if dbOpenTrades:
+        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+        coverageTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() == "COBERTURA"]
+
         basketFloatingPnl = 0.0
         basketMarginUsed = 0.0
         distinctCandleTimes = set()
@@ -1665,6 +1959,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             basketFloatingPnl += tPnl
             basketMarginUsed += float(tr.get("margin_used") or 0.0)
 
+        # Olas y tiempos basados estrictamente en entradas regulares
+        for tr in regularTrades:
             cTime = tr.get("candleTime") or tr.get("openTime")
             if cTime:
                 cDt = parseCandleDateTime(cTime)
@@ -1807,6 +2103,133 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     dbSession.execute(text("UPDATE user_ratios SET operar = 0 WHERE id = :rid"), {"rid": ratioRecord["id"]})
                     dbSession.commit()
                 return
+
+        # 3.2 GESTIÓN DE COBERTURAS EN MODO PROTECCIÓN (Límite de Olas/Horas Alcanzado)
+        isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed)
+        if isProtectionMode:
+            legsToEvaluate = [
+                ("A", numerador, symDataA, latestPriceA),
+                ("B", denominador, symDataB, latestPriceB)
+            ]
+            for legName, legSym, legSymData, legCurPx in legsToEvaluate:
+                legRegTrades = [t for t in regularTrades if t.get("symbol") == legSym]
+                legCobTrades = [t for t in coverageTrades if t.get("symbol") == legSym]
+
+                if not legRegTrades:
+                    continue
+
+                legPnl = 0.0
+                legMargin = 0.0
+                legSize = 0.0
+                legDir = legRegTrades[0].get("direction", "LARGO")
+                pipSize = legSymData.get("pip", 0.0001)
+
+                for tr in legRegTrades:
+                    tPnl, _, _, _ = calculate_unrealized_pnl(
+                        symbol=legSym,
+                        direction=tr.get("direction"),
+                        entry_price=float(tr.get("entryPrice", 0.0)),
+                        current_price=legCurPx,
+                        size=float(tr.get("size", 0.0)),
+                        pip_size=pipSize
+                    )
+                    legPnl += tPnl
+                    legMargin += float(tr.get("margin_used") or 0.0)
+                    legSize += float(tr.get("size", 0.0))
+
+                legReturnPct = (legPnl / legMargin * 100.0) if legMargin > 0 else 0.0
+                oppDir = "CORTO" if legDir == "LARGO" else "LARGO"
+                stateKey = f"{idCuenta}_{setupName}_{legSym}"
+
+                # CASO 1: NO HAY COBERTURA ACTIVA -> EVALUAR ENTRADA SI PÉRDIDA <= -10.0%
+                if not legCobTrades:
+                    if legReturnPct <= -10.0 and legSize > 0:
+                        logger.warning(
+                            f"🛡️ [{accHeader}] DISPARO DE COBERTURA PATA {legName} ({legSym}): "
+                            f"Retorno {legReturnPct:+.2f}% <= -10.0% (PnL: ${legPnl:+.2f} | Margen: ${legMargin:.2f}). "
+                            f"Abriendo cobertura en {oppDir} por {legSize:.0f} unidades..."
+                        )
+                        newCob = openSingleCoverageTrade(
+                            dbSession=dbSession,
+                            idCuenta=idCuenta,
+                            setupName=setupName,
+                            symbol=legSym,
+                            direction=oppDir,
+                            size=legSize,
+                            entryPrice=legCurPx,
+                            accountData=accountData,
+                            symData=legSymData,
+                            periodo=periodo,
+                            legReason=f"Pata {legName} {legSym} con pérdida {legReturnPct:+.2f}%"
+                        )
+                        if newCob:
+                            coverageTrades.append(newCob)
+                            dbOpenTrades.append(newCob)
+
+                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE DE COBERTURA
+                else:
+                    activeCob = legCobTrades[0]
+                    cobPx = float(activeCob.get("entryPrice", 0.0))
+                    cobSz = float(activeCob.get("size", 0.0))
+                    cobDir = activeCob.get("direction", oppDir)
+                    cobPnl, _, _, _ = calculate_unrealized_pnl(
+                        symbol=legSym,
+                        direction=cobDir,
+                        entry_price=cobPx,
+                        current_price=legCurPx,
+                        size=cobSz,
+                        pip_size=pipSize
+                    )
+                    cobMargin = float(activeCob.get("margin_used") or 0.0)
+                    cobReturnPct = (cobPnl / cobMargin * 100.0) if cobMargin > 0 else 0.0
+
+                    cobState = getCoverageState(stateKey)
+                    prevPeak = float(cobState.get("peakReturnPct", 0.0))
+                    peakReturn = max(prevPeak, cobReturnPct)
+                    reachedTarget = bool(cobState.get("reachedTarget", False)) or (cobReturnPct >= 5.0)
+
+                    cobState["peakReturnPct"] = peakReturn
+                    cobState["reachedTarget"] = reachedTarget
+                    saveCoverageState(stateKey, cobState)
+
+                    logger.info(
+                        f"🛡️ [{accHeader}] COBERTURA ACTIVA Pata {legName} ({legSym} {cobDir}): "
+                        f"PnL: {cobPnl:+.2f} USD ({cobReturnPct:+.2f}%) | "
+                        f"Pico: {peakReturn:+.2f}% | Meta +5% alcanzada: {reachedTarget}"
+                    )
+
+                    shouldCloseCoverage = False
+                    cobCloseReason = ""
+
+                    # Regla A: Superó +5% y ahora retrocede por debajo de +5%
+                    if reachedTarget and cobReturnPct < 5.0:
+                        shouldCloseCoverage = True
+                        cobCloseReason = f"POR RETROCESO INFERIOR A +5% (Retorno: {cobReturnPct:+.2f}% | Pico: {peakReturn:+.2f}%)"
+
+                    # Regla B: Si el precio baja respecto al de entrada (retorno < 0%), se cierra para no perder con la cobertura
+                    elif (not reachedTarget) and (cobReturnPct < 0.0 or cobPnl < 0.0):
+                        shouldCloseCoverage = True
+                        cobCloseReason = f"POR PRECIO INFERIOR A ENTRADA / EVITAR PÉRDIDA EN COBERTURA (PnL: {cobPnl:+.2f} USD | Retorno: {cobReturnPct:+.2f}%)"
+
+                    if shouldCloseCoverage:
+                        logger.info(
+                            f"🎯 [{accHeader}] DISPARO DE SALIDA DE COBERTURA Pata {legName} ({legSym}) {cobCloseReason}! "
+                            f"Liquidando posición de cobertura..."
+                        )
+                        closeSuccess = closeSingleCoverageTrade(
+                            dbSession=dbSession,
+                            idCuenta=idCuenta,
+                            setupName=setupName,
+                            coverageTrade=activeCob,
+                            latestPrice=legCurPx,
+                            symData=legSymData,
+                            accountData=accountData,
+                            closeReason=cobCloseReason
+                        )
+                        if closeSuccess:
+                            accountData = fetchAccountData(dbSession, idCuenta)
+                            coverageTrades = [t for t in coverageTrades if t.get("idTrade") != activeCob.get("idTrade")]
+                            dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != activeCob.get("idTrade")]
 
     if sameSide:
         logger.info(

@@ -519,7 +519,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         FROM trades
         WHERE idCuenta = :idc 
           AND status = 'OPEN' 
-          AND strategy = 'RATIO ATALAia' 
+          AND strategy IN ('RATIO ATALAia', 'COBERTURA') 
           AND setup LIKE '%-%'
         ORDER BY setup, openTime ASC, idTrade ASC
     """)
@@ -630,6 +630,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 
             trade_items.append({
                 "idTrade": t.idTrade,
+                "strategy": str(t.strategy or "RATIO ATALAia"),
                 "symbol": sym,
                 "direction": "LONG" if is_long else "SHORT",
                 "size": size,
@@ -732,6 +733,36 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 "tradeCount": len(group_trades)
             })
 
+        cob_trades_A = [t for t in t_list if str(t.strategy or "").upper() == "COBERTURA" and t.symbol == pairA]
+        cob_trades_B = [t for t in t_list if str(t.strategy or "").upper() == "COBERTURA" and t.symbol == pairB]
+        
+        hasCoverageA = len(cob_trades_A) > 0
+        hasCoverageB = len(cob_trades_B) > 0
+        
+        cobSizeA = sum(float(t.size or 0) for t in cob_trades_A)
+        cobSizeB = sum(float(t.size or 0) for t in cob_trades_B)
+        
+        cobMarginA = sum(float(t.margin_used or 0) for t in cob_trades_A)
+        cobMarginB = sum(float(t.margin_used or 0) for t in cob_trades_B)
+        
+        cobPnlA = 0.0
+        cobPnlB = 0.0
+        cobDirA = ""
+        cobDirB = ""
+        
+        for t in cob_trades_A:
+            cPnl, _, _, _ = calculate_unrealized_pnl(symbol=pairA, direction=str(t.direction), entry_price=float(t.entryPrice or 0), current_price=curA, size=float(t.size or 0), pip_size=pipA)
+            cobPnlA += cPnl
+            cobDirA = "BUY" if ("LARG" in str(t.direction).upper() or "BUY" in str(t.direction).upper()) else "SELL"
+            
+        for t in cob_trades_B:
+            cPnl, _, _, _ = calculate_unrealized_pnl(symbol=pairB, direction=str(t.direction), entry_price=float(t.entryPrice or 0), current_price=curB, size=float(t.size or 0), pip_size=pipB)
+            cobPnlB += cPnl
+            cobDirB = "BUY" if ("LARG" in str(t.direction).upper() or "BUY" in str(t.direction).upper()) else "SELL"
+            
+        cobReturnPctA = (cobPnlA / cobMarginA * 100.0) if cobMarginA > 0 else 0.0
+        cobReturnPctB = (cobPnlB / cobMarginB * 100.0) if cobMarginB > 0 else 0.0
+
         trade_tf = t_list[0].intervalo if (t_list and hasattr(t_list[0], 'intervalo') and t_list[0].intervalo) else "1d"
         results.append({
             "sizeA": totSizeA,
@@ -759,6 +790,16 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "direction": dir_text,
             "firstEntryDate": open_dates[0] if open_dates else "",
             "lastEntryDate": open_dates[-1] if open_dates else "",
+            "hasCoverageA": hasCoverageA,
+            "hasCoverageB": hasCoverageB,
+            "coverageSizeA": cobSizeA,
+            "coverageSizeB": cobSizeB,
+            "coveragePnlA": round(cobPnlA, 2),
+            "coveragePnlB": round(cobPnlB, 2),
+            "coverageReturnPctA": round(cobReturnPctA, 2),
+            "coverageReturnPctB": round(cobReturnPctB, 2),
+            "coverageDirA": cobDirA,
+            "coverageDirB": cobDirB,
             "trades": trade_items,
             "entryGroups": entry_groups
         })
