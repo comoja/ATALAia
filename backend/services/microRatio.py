@@ -1495,7 +1495,7 @@ def openSingleCoverageTrade(
     legReason: str = ""
 ) -> Optional[Dict[str, Any]]:
     """
-    Abre una orden de cobertura para una pata específica cuando supera el -10% de pérdida en modo protección.
+    Abre una orden de cobertura para una pata específica cuando supera el -25% de pérdida en modo protección.
     1. Si hay bróker conectado, despacha al bróker por Webhook.
     2. Registra en BD con strategy = 'COBERTURA'.
     3. Inicializa el estado de seguimiento de la cobertura.
@@ -1600,8 +1600,9 @@ def openSingleCoverageTrade(
         "entryPrice": fillPrice,
         "marginUsed": chunkMargin,
         "entryTime": nowDt.strftime("%Y-%m-%d %H:%M:%S"),
-        "peakReturnPct": 0.0,
-        "reachedTarget": False
+        "peakPxMovePct": 0.0,
+        "target05Reached": False,
+        "safeZoneRecovered": False
     })
 
     msg = (
@@ -1611,7 +1612,7 @@ def openSingleCoverageTrade(
         f"<b>Símbolo:</b> {symbol}\n"
         f"<b>Operación:</b> {direction} {size:,.0f} unidades @ {fillPrice}\n"
         f"<b>Margen:</b> ${chunkMargin:.2f} USD\n"
-        f"<b>Motivo:</b> Pérdida en pata supera -10.0% ({legReason})\n"
+        f"<b>Motivo:</b> Pérdida en pata supera -25.0% ({legReason})\n"
         f"<i>Posición congelada para proteger capital.</i>"
     )
     dispatchRatioTelegramAlert(idCuenta, msg)
@@ -1714,7 +1715,11 @@ def closeSingleCoverageTrade(
     })
     dbSession.commit()
 
-    clearCoverageState(f"{idCuenta}_{setupName}_{sym}")
+    saveCoverageState(f"{idCuenta}_{setupName}_{sym}", {
+        "safeZoneRecovered": False,
+        "lastClosedPrice": latestPrice,
+        "lastCloseTime": nowDt.strftime("%Y-%m-%d %H:%M:%S")
+    })
 
     msg = (
         f"🎯 <b>[COBERTURA CERRADA]</b>\n"
@@ -2004,7 +2009,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             tState = getTrailingProfitState(trailingKey)
 
             hasCrossed = bool(tState.get("hasCrossed", False))
-            firstTradeA = next((t for t in dbOpenTrades if t.get("symbol") == numerador), dbOpenTrades[0])
+            firstTradeA = next((t for t in regularTrades if t.get("symbol") == numerador), (regularTrades[0] if regularTrades else dbOpenTrades[0]))
             firstDirA = firstTradeA.get("direction", "LARGO")
 
             # Detectar si el cruce ocurrió en este censo o si las curvas normalizadas ya se cruzaron
@@ -2104,8 +2109,10 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     dbSession.commit()
                 return
 
-        # 3.2 GESTIÓN DE COBERTURAS EN MODO PROTECCIÓN (Límite de Olas/Horas Alcanzado)
-        isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed)
+        # 3.2 GESTIÓN DE COBERTURAS POR PRECIO (+1% ENTRADA / TRAILING 0.5% / STOP 0.5%)
+        # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
+        ENABLE_COBERTURAS = True
+        isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles) and ENABLE_COBERTURAS and (idCuenta != 3)
         if isProtectionMode:
             legsToEvaluate = [
                 ("A", numerador, symDataA, latestPriceA),
@@ -2118,36 +2125,45 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 if not legRegTrades:
                     continue
 
-                legPnl = 0.0
-                legMargin = 0.0
-                legSize = 0.0
-                legDir = legRegTrades[0].get("direction", "LARGO")
+                lastRegTrade = legRegTrades[-1]
+                lastEntryPx = float(lastRegTrade.get("entryPrice", 0.0))
+                legDir = lastRegTrade.get("direction", "LARGO")
+                oppDir = "CORTO" if legDir == "LARGO" else "LARGO"
+                legTotSize = sum(float(tr.get("size", 0.0)) for tr in legRegTrades)
                 pipSize = legSymData.get("pip", 0.0001)
 
-                for tr in legRegTrades:
-                    tPnl, _, _, _ = calculate_unrealized_pnl(
-                        symbol=legSym,
-                        direction=tr.get("direction"),
-                        entry_price=float(tr.get("entryPrice", 0.0)),
-                        current_price=legCurPx,
-                        size=float(tr.get("size", 0.0)),
-                        pip_size=pipSize
-                    )
-                    legPnl += tPnl
-                    legMargin += float(tr.get("margin_used") or 0.0)
-                    legSize += float(tr.get("size", 0.0))
-
-                legReturnPct = (legPnl / legMargin * 100.0) if legMargin > 0 else 0.0
-                oppDir = "CORTO" if legDir == "LARGO" else "LARGO"
                 stateKey = f"{idCuenta}_{setupName}_{legSym}"
+                cobState = getCoverageState(stateKey)
 
-                # CASO 1: NO HAY COBERTURA ACTIVA -> EVALUAR ENTRADA SI PÉRDIDA <= -10.0%
+                # Nivel de disparo al 1% respecto a la última entrada
+                if legDir == "LARGO":
+                    triggerPx = lastEntryPx * 0.99
+                    isAdverse = (legCurPx <= triggerPx)
+                    isSafeZone = (legCurPx > triggerPx)
+                else:
+                    triggerPx = lastEntryPx * 1.01
+                    isAdverse = (legCurPx >= triggerPx)
+                    isSafeZone = (legCurPx < triggerPx)
+
+                # CASO 1: NO HAY COBERTURA ACTIVA -> EVALUAR ENTRADA AL 1% ADVERSO
                 if not legCobTrades:
-                    if legReturnPct <= -10.0 and legSize > 0:
+                    # Si el precio recuperó a la zona segura, habilitar la siguiente re-entrada
+                    if isSafeZone and not cobState.get("safeZoneRecovered", True):
+                        cobState["safeZoneRecovered"] = True
+                        saveCoverageState(stateKey, cobState)
+                        logger.info(
+                            f"🛡️ [{accHeader}] Pata {legName} ({legSym}) recuperó zona segura "
+                            f"(Precio {legCurPx:.5f} volvió dentro del 1% respecto a última entrada {lastEntryPx:.5f}). "
+                            f"Re-entrada de cobertura rearmada."
+                        )
+
+                    canEnter = cobState.get("safeZoneRecovered", True)
+                    if isAdverse and canEnter and legTotSize > 0:
                         logger.warning(
                             f"🛡️ [{accHeader}] DISPARO DE COBERTURA PATA {legName} ({legSym}): "
-                            f"Retorno {legReturnPct:+.2f}% <= -10.0% (PnL: ${legPnl:+.2f} | Margen: ${legMargin:.2f}). "
-                            f"Abriendo cobertura en {oppDir} por {legSize:.0f} unidades..."
+                            f"Precio {legCurPx:.5f} alcanzó/superó el 1% adverso desde última entrada {lastEntryPx:.5f} "
+                            f"(Umbral: {triggerPx:.5f}). Abriendo cobertura en {oppDir} por {legTotSize:.0f} unidades "
+                            f"(volumen total de la pata)..."
                         )
                         newCob = openSingleCoverageTrade(
                             dbSession=dbSession,
@@ -2155,23 +2171,34 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             setupName=setupName,
                             symbol=legSym,
                             direction=oppDir,
-                            size=legSize,
+                            size=legTotSize,
                             entryPrice=legCurPx,
                             accountData=accountData,
                             symData=legSymData,
                             periodo=periodo,
-                            legReason=f"Pata {legName} {legSym} con pérdida {legReturnPct:+.2f}%"
+                            legReason=f"Pata {legName} {legSym} {legDir} superó 1% adverso desde última entrada ({lastEntryPx:.5f} -> {legCurPx:.5f})"
                         )
                         if newCob:
                             coverageTrades.append(newCob)
                             dbOpenTrades.append(newCob)
+                            cobState["safeZoneRecovered"] = False
+                            cobState["peakPxMovePct"] = 0.0
+                            cobState["target05Reached"] = False
+                            saveCoverageState(stateKey, cobState)
 
-                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE DE COBERTURA
+                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE (TRAILING 0.5% / STOP -0.5%)
                 else:
                     activeCob = legCobTrades[0]
                     cobPx = float(activeCob.get("entryPrice", 0.0))
                     cobSz = float(activeCob.get("size", 0.0))
                     cobDir = activeCob.get("direction", oppDir)
+
+                    # Variación porcentual en precio de la cobertura
+                    if cobDir in ["LARGO", "BUY"]:
+                        cobPxMovePct = ((legCurPx - cobPx) / cobPx) * 100.0
+                    else:
+                        cobPxMovePct = ((cobPx - legCurPx) / cobPx) * 100.0
+
                     cobPnl, _, _, _ = calculate_unrealized_pnl(
                         symbol=legSym,
                         direction=cobDir,
@@ -2180,36 +2207,33 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                         size=cobSz,
                         pip_size=pipSize
                     )
-                    cobMargin = float(activeCob.get("margin_used") or 0.0)
-                    cobReturnPct = (cobPnl / cobMargin * 100.0) if cobMargin > 0 else 0.0
 
-                    cobState = getCoverageState(stateKey)
-                    prevPeak = float(cobState.get("peakReturnPct", 0.0))
-                    peakReturn = max(prevPeak, cobReturnPct)
-                    reachedTarget = bool(cobState.get("reachedTarget", False)) or (cobReturnPct >= 5.0)
+                    prevPeak = float(cobState.get("peakPxMovePct", 0.0))
+                    peakPxMove = max(prevPeak, cobPxMovePct)
+                    target05Reached = bool(cobState.get("target05Reached", False)) or (cobPxMovePct >= 0.5)
 
-                    cobState["peakReturnPct"] = peakReturn
-                    cobState["reachedTarget"] = reachedTarget
+                    cobState["peakPxMovePct"] = peakPxMove
+                    cobState["target05Reached"] = target05Reached
                     saveCoverageState(stateKey, cobState)
 
                     logger.info(
                         f"🛡️ [{accHeader}] COBERTURA ACTIVA Pata {legName} ({legSym} {cobDir}): "
-                        f"PnL: {cobPnl:+.2f} USD ({cobReturnPct:+.2f}%) | "
-                        f"Pico: {peakReturn:+.2f}% | Meta +5% alcanzada: {reachedTarget}"
+                        f"Precio Ent: {cobPx:.5f} | Act: {legCurPx:.5f} | Mov: {cobPxMovePct:+.2f}% | "
+                        f"Pico: {peakPxMove:+.2f}% | Meta +0.5% alcanzada: {target05Reached} | PnL: ${cobPnl:+.2f}"
                     )
 
                     shouldCloseCoverage = False
                     cobCloseReason = ""
 
-                    # Regla A: Superó +5% y ahora retrocede por debajo de +5%
-                    if reachedTarget and cobReturnPct < 5.0:
+                    # Regla A: Superó +0.5% en precio y retrocede a <= +0.5% (asegurar ganancia)
+                    if target05Reached and cobPxMovePct <= 0.5:
                         shouldCloseCoverage = True
-                        cobCloseReason = f"POR RETROCESO INFERIOR A +5% (Retorno: {cobReturnPct:+.2f}% | Pico: {peakReturn:+.2f}%)"
+                        cobCloseReason = f"POR RETROCESO A +0.5% EN PRECIO TRAS PICO DE {peakPxMove:+.2f}% (Movimiento: {cobPxMovePct:+.2f}% | PnL: ${cobPnl:+.2f})"
 
-                    # Regla B: Si el precio baja respecto al de entrada (retorno < 0%), se cierra para no perder con la cobertura
-                    elif (not reachedTarget) and (cobReturnPct < 0.0 or cobPnl < 0.0):
+                    # Regla B: Stop de protección si el precio se mueve en contra de la cobertura <= -0.5%
+                    elif cobPxMovePct <= -0.5:
                         shouldCloseCoverage = True
-                        cobCloseReason = f"POR PRECIO INFERIOR A ENTRADA / EVITAR PÉRDIDA EN COBERTURA (PnL: {cobPnl:+.2f} USD | Retorno: {cobReturnPct:+.2f}%)"
+                        cobCloseReason = f"POR STOP DE PROTECCIÓN -0.5% EN PRECIO (Movimiento: {cobPxMovePct:+.2f}% | PnL: ${cobPnl:+.2f})"
 
                     if shouldCloseCoverage:
                         logger.info(
@@ -2285,9 +2309,10 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         if not isFresh:
             minsOld = int(abs((datetime.now() - candleDt).total_seconds()) / 60)
             isBetterPriceExpansion = False
-            if dbOpenTrades:
-                openTradesA = [t for t in dbOpenTrades if t.get("symbol") == numerador]
-                openTradesB = [t for t in dbOpenTrades if t.get("symbol") == denominador]
+            regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+            if regularTrades:
+                openTradesA = [t for t in regularTrades if t.get("symbol") == numerador]
+                openTradesB = [t for t in regularTrades if t.get("symbol") == denominador]
                 if openTradesA and openTradesB:
                     lastTradeA = openTradesA[-1]
                     lastTradeB = openTradesB[-1]
@@ -2314,10 +2339,19 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 )
                 return
 
-        # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP: última entrada de compra/venta se convierte en venta/compra)
-        if dbOpenTrades:
-            tradesA = [t for t in dbOpenTrades if t.get("symbol") == numerador]
-            lastTradeA = tradesA[-1] if tradesA else dbOpenTrades[-1]
+        # REGLA DE LÍMITE DE CICLOS / MODO PROTECCIÓN: Si ya se alcanzó el límite de ciclos, NO acumular ni girar por señales
+        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+        if regularTrades and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed):
+            logger.info(
+                f"🛡️ [{accHeader}] Modo Protección activo: Ya se alcanzó el límite de {maxAllowedCycles} ciclos "
+                f"({detectedWaves} olas / {hoursOpen:.1f}h abiertas). Nuevas entradas y giros bloqueados mientras gestiona cobertura/salida."
+            )
+            return
+
+        # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP) basado EXCLUSIVAMENTE en trades regulares
+        if regularTrades:
+            tradesA = [t for t in regularTrades if t.get("symbol") == numerador]
+            lastTradeA = tradesA[-1] if tradesA else regularTrades[-1]
             lastDirA = lastTradeA.get("direction", "")
             isReversal = (dirA != lastDirA)
 
@@ -2350,7 +2384,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     return
 
         # REGLA ESTRICTA DE PRIMERA ENTRADA: Ambos pares deben estar fuera de sus desviaciones estándar en lados opuestos
-        if not dbOpenTrades:
+        if not regularTrades:
             if dirA == "CORTO":
                 isOutA = bool(nA >= stdUpA)
                 isOutB = bool(nB <= stdDownB)
@@ -2374,9 +2408,9 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
 
         # REGLA SELECTIVA DE ENTRADAS: Si hay operaciones abiertas del mismo ciclo, validar selectividad (solo si tipoEntrada es Selectiva)
         tipoEntrada = str(ratioRecord.get("tipoEntrada", "Selectiva")).strip().capitalize()
-        if tipoEntrada == "Selectiva" and dbOpenTrades:
-            openTradesA = [t for t in dbOpenTrades if t["symbol"] == numerador]
-            openTradesB = [t for t in dbOpenTrades if t["symbol"] == denominador]
+        if tipoEntrada == "Selectiva" and regularTrades:
+            openTradesA = [t for t in regularTrades if t["symbol"] == numerador]
+            openTradesB = [t for t in regularTrades if t["symbol"] == denominador]
             if openTradesA and openTradesB:
                 rangeA = normInfo.get("rangeA", 0.0)
                 rangeB = normInfo.get("rangeB", 0.0)

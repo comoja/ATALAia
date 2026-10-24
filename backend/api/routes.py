@@ -233,67 +233,75 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                 }
             )
 
-        # Calcular los límites históricos estáticos
-        # Bloqueo de fechas: Inicio = Fecha Inicio (pantalla de calibración), Fin = createdAt
+        # Preservar límites estáticos y fecha de calibración si el ratio ya existe en BD
+        # para no alterar los niveles de desviación estándar ni las normalizaciones
         fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
-        # Siempre que se guarde (creación o modificación), se actualiza createdAt al momento actual
         now_dt = datetime.now().replace(microsecond=0)
         target_created_at = now_dt
         dt_end = target_created_at
 
-        try:
-            import pandas as pd
-            import pymysql
-            import asyncio
-
-            tf_lower = str(temporalidad_val).lower().strip()
-            is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
-            
-            hrs_per_candle = 1
-            if "4h" in tf_lower: hrs_per_candle = 4
-            elif "15m" in tf_lower: hrs_per_candle = 0.25
-            elif "30m" in tf_lower: hrs_per_candle = 0.5
-            elif "5m" in tf_lower: hrs_per_candle = 0.0833
-            elif "1d" in tf_lower: hrs_per_candle = 24
-
-            start_date_param = payload.startDate or payload.fechaInicio
-            dt_start = None
-            if start_date_param:
-                try:
-                    dt_start = pd.to_datetime(start_date_param).tz_localize(None)
-                except Exception as ex_dt:
-                    logger.warning(f"Error parseando startDate en saveUserRatio: {ex_dt}")
-
-            if dt_start is None:
-                calendar_hours_needed = int(dias * hrs_per_candle * 1.55) + 48
-                dt_start = dt_end - timedelta(hours=calendar_hours_needed)
-
-            if is_intraday:
-                def query_intraday(sym):
-                    conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
-                    try:
-                        sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
-                        df = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
-                        if not df.empty:
-                            df['closePrice'] = pd.to_numeric(df['closePrice'], errors='coerce')
-                            return df
-                        return pd.DataFrame()
-                    finally:
-                        conn.close()
+        is_already_calibrated = bool(existingRatio and existingRatio.fixedMinA is not None and existingRatio.fixedMaxA is not None)
+        if is_already_calibrated:
+            fixedMinA = existingRatio.fixedMinA
+            fixedMaxA = existingRatio.fixedMaxA
+            fixedMinB = existingRatio.fixedMinB
+            fixedMaxB = existingRatio.fixedMaxB
+            if existingRatio.createdAt:
+                target_created_at = existingRatio.createdAt
+        else:
+            try:
+                import pandas as pd
+                import pymysql
+                import asyncio
+    
+                tf_lower = str(temporalidad_val).lower().strip()
+                is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
                 
-                dfA = await asyncio.to_thread(query_intraday, payload.numerador)
-                dfB = await asyncio.to_thread(query_intraday, payload.denominador)
-            else:
-                from middleware.database.dbManager import getStockPricesFromDb
-                dfA = await getStockPricesFromDb(symbol=payload.numerador, limit=dias)
-                dfB = await getStockPricesFromDb(symbol=payload.denominador, limit=dias)
-
-            if not dfA.empty and 'closePrice' in dfA.columns:
-                fixedMinA, fixedMaxA = float(dfA['closePrice'].min()), float(dfA['closePrice'].max())
-            if not dfB.empty and 'closePrice' in dfB.columns:
-                fixedMinB, fixedMaxB = float(dfB['closePrice'].min()), float(dfB['closePrice'].max())
-        except Exception as ex_lim:
-            logger.warning(f"No se pudieron calcular los limites estaticos para {payload.numerador}/{payload.denominador}: {ex_lim}")
+                hrs_per_candle = 1
+                if "4h" in tf_lower: hrs_per_candle = 4
+                elif "15m" in tf_lower: hrs_per_candle = 0.25
+                elif "30m" in tf_lower: hrs_per_candle = 0.5
+                elif "5m" in tf_lower: hrs_per_candle = 0.0833
+                elif "1d" in tf_lower: hrs_per_candle = 24
+    
+                start_date_param = payload.startDate or payload.fechaInicio
+                dt_start = None
+                if start_date_param:
+                    try:
+                        dt_start = pd.to_datetime(start_date_param).tz_localize(None)
+                    except Exception as ex_dt:
+                        logger.warning(f"Error parseando startDate en saveUserRatio: {ex_dt}")
+    
+                if dt_start is None:
+                    calendar_hours_needed = int(dias * hrs_per_candle * 1.55) + 48
+                    dt_start = dt_end - timedelta(hours=calendar_hours_needed)
+    
+                if is_intraday:
+                    def query_intraday(sym):
+                        conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                        try:
+                            sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
+                            df = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                            if not df.empty:
+                                df['closePrice'] = pd.to_numeric(df['closePrice'], errors='coerce')
+                                return df
+                            return pd.DataFrame()
+                        finally:
+                            conn.close()
+                    
+                    dfA = await asyncio.to_thread(query_intraday, payload.numerador)
+                    dfB = await asyncio.to_thread(query_intraday, payload.denominador)
+                else:
+                    from middleware.database.dbManager import getStockPricesFromDb
+                    dfA = await getStockPricesFromDb(symbol=payload.numerador, limit=dias)
+                    dfB = await getStockPricesFromDb(symbol=payload.denominador, limit=dias)
+    
+                if not dfA.empty and 'closePrice' in dfA.columns:
+                    fixedMinA, fixedMaxA = float(dfA['closePrice'].min()), float(dfA['closePrice'].max())
+                if not dfB.empty and 'closePrice' in dfB.columns:
+                    fixedMinB, fixedMaxB = float(dfB['closePrice'].min()), float(dfB['closePrice'].max())
+            except Exception as ex_lim:
+                logger.warning(f"No se pudieron calcular los limites estaticos para {payload.numerador}/{payload.denominador}: {ex_lim}")
 
         if existingRatio:
             existingRatio.idCuenta = cuentaId
@@ -308,12 +316,13 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
             existingRatio.salirBreakeven = salirBreakeven_val
             existingRatio.tipoEntrada = tipoEntrada
             existingRatio.accionCierre = accionCierre
-            existingRatio.fixedMinA = fixedMinA
-            existingRatio.fixedMaxA = fixedMaxA
-            existingRatio.fixedMinB = fixedMinB
-            existingRatio.fixedMaxB = fixedMaxB
+            if not is_already_calibrated:
+                existingRatio.fixedMinA = fixedMinA
+                existingRatio.fixedMaxA = fixedMaxA
+                existingRatio.fixedMinB = fixedMinB
+                existingRatio.fixedMaxB = fixedMaxB
+                existingRatio.createdAt = target_created_at
             existingRatio.borrado = False
-            existingRatio.createdAt = target_created_at
             db.commit()
             db.refresh(existingRatio)
             logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, CierreDivergencia: {cierreDivergencia}, Borrado: False]")
@@ -660,6 +669,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         # Cada evento agrupa los pares (Par A y Par B) ejecutados en esa fecha-hora o vela específica
         entry_event_groups = []
         for t in t_list:
+            if str(getattr(t, "strategy", "") or "").upper() == "COBERTURA":
+                continue
             t_ot = getattr(t, "openTime", None)
             t_ct = getattr(t, "candleTime", None)
             if not t_ot and not t_ct:
@@ -763,8 +774,23 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         cobReturnPctA = (cobPnlA / cobMarginA * 100.0) if cobMarginA > 0 else 0.0
         cobReturnPctB = (cobPnlB / cobMarginB * 100.0) if cobMarginB > 0 else 0.0
 
+        ENABLE_COBERTURAS = True
+        last_trades_A = [t for t in t_list if str(t.strategy or "").upper() != "COBERTURA" and t.symbol == pairA]
+        last_trades_B = [t for t in t_list if str(t.strategy or "").upper() != "COBERTURA" and t.symbol == pairB]
+        
+        lastEntryA = float(last_trades_A[-1].entryPrice or 0.0) if last_trades_A else 0.0
+        lastEntryB = float(last_trades_B[-1].entryPrice or 0.0) if last_trades_B else 0.0
+        
+        is_buy_A = "BUY" in str(dirA).upper() or "LARG" in str(dirA).upper()
+        is_buy_B = "BUY" in str(dirB).upper() or "LARG" in str(dirB).upper()
+        
+        minus10_px_A = round(lastEntryA * 0.99 if is_buy_A else lastEntryA * 1.01, 5) if (ENABLE_COBERTURAS and lastEntryA > 0) else 0.0
+        minus10_px_B = round(lastEntryB * 0.99 if is_buy_B else lastEntryB * 1.01, 5) if (ENABLE_COBERTURAS and lastEntryB > 0) else 0.0
+
         trade_tf = t_list[0].intervalo if (t_list and hasattr(t_list[0], 'intervalo') and t_list[0].intervalo) else "1d"
         results.append({
+            "minus10PriceA": minus10_px_A,
+            "minus10PriceB": minus10_px_B,
             "sizeA": totSizeA,
             "sizeB": totSizeB,
             "avgEntryPriceA": round(avgEntryA, 5),
@@ -4239,4 +4265,44 @@ def update_user_ratio_vr(payload: UserRatioVrUpdate, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         logger.error(f"Error al actualizar VR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserRatioOperarUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    operar: bool = Field(..., description="Indica si se generan órdenes para este ratio")
+
+@router.post("/user-ratios/update-operar")
+def update_user_ratio_operar(payload: UserRatioOperarUpdate, db: Session = Depends(get_db)):
+    """
+    Modifica ÚNICAMENTE el campo operar (Generar Órdenes) en user_ratios.
+    NO modifica ningún otro campo ni altera límites de calibración ni desviación estándar.
+    """
+    try:
+        query = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        ratio = query.first()
+        if not ratio:
+            raise HTTPException(status_code=404, detail="Ratio no encontrado")
+
+        ratio.operar = bool(payload.operar)
+        db.commit()
+        db.refresh(ratio)
+        logger.info(f"Generar Órdenes (operar) actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> operar={ratio.operar}")
+        return {
+            "status": "success",
+            "message": "Generar Órdenes actualizado correctamente",
+            "operar": ratio.operar
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar operar: {e}")
         raise HTTPException(status_code=500, detail=str(e))

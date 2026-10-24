@@ -680,6 +680,13 @@ public class DashboardBean implements Serializable {
         private double coverageReturnPctB = 0.0;
         private String coverageDirA = "";
         private String coverageDirB = "";
+        private double minus10PriceA = 0.0;
+        private double minus10PriceB = 0.0;
+
+        public double getMinus10PriceA() { return minus10PriceA; }
+        public void setMinus10PriceA(double minus10PriceA) { this.minus10PriceA = minus10PriceA; }
+        public double getMinus10PriceB() { return minus10PriceB; }
+        public void setMinus10PriceB(double minus10PriceB) { this.minus10PriceB = minus10PriceB; }
 
         public boolean isHasCoverageA() { return hasCoverageA; }
         public void setHasCoverageA(boolean hasCoverageA) { this.hasCoverageA = hasCoverageA; }
@@ -3089,6 +3096,8 @@ public class DashboardBean implements Serializable {
                         dto.setCoverageReturnPctB(n.path("coverageReturnPctB").asDouble(0.0));
                         dto.setCoverageDirA(n.path("coverageDirA").asText(""));
                         dto.setCoverageDirB(n.path("coverageDirB").asText(""));
+                        dto.setMinus10PriceA(n.path("minus10PriceA").asDouble(0.0));
+                        dto.setMinus10PriceB(n.path("minus10PriceB").asDouble(0.0));
 
                         JsonNode tradesNode = n.path("trades");
                         if (tradesNode.isArray()) {
@@ -4304,8 +4313,50 @@ public class DashboardBean implements Serializable {
                             "Modo Solo Lectura", "No puedes modificar el estado de operar de otro usuario."));
             return;
         }
-        log.info("Estado de Operar actualizado a {} para {} / {}. Guardando en BD...", operar, selectedPair, selectedPair2);
-        guardarRatio();
+        log.info("Estado de Operar actualizado a {} para {} / {}. Actualizando únicamente campo operar...", operar, selectedPair, selectedPair2);
+        actualizarOperar();
+    }
+
+    public void actualizarOperar() {
+        try {
+            if (this.selectedPair == null || this.selectedPair2 == null) return;
+
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("numerador", this.selectedPair);
+            payload.put("denominador", this.selectedPair2);
+            payload.put("operar", Boolean.TRUE.equals(this.operar));
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-ratios/update-operar";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserRatiosList();
+                String estado = Boolean.TRUE.equals(this.operar) ? "Activada" : "Desactivada";
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Generar Órdenes", "Generación de órdenes " + estado + " para " + this.selectedPair + "/" + this.selectedPair2));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar operar: {}", e.getMessage());
+        }
     }
 
         public void loadUserRatiosList() {
