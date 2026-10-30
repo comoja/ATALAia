@@ -53,6 +53,8 @@ def ensureStrategyRegistered(dbSession) -> None:
     """Asegura que la estrategia RATIO ATALAia esté registrada en strategyconfig."""
     try:
         dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('RATIO ATALAia', 1)"))
+        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA', 1)"))
+        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA INICIAL', 1)"))
         dbSession.commit()
     except Exception as e:
         dbSession.rollback()
@@ -1042,6 +1044,7 @@ def openSingleRatioTradePair(
             for cLot in confirmedBrokerLots:
                 resInsert = dbSession.execute(insertTradeSql, {
                     "idCuenta": idCuenta,
+            "stratName": strategyName,
                     "setup": setupName,
                     "symbol": cLot["symbol"],
                     "direction": cLot["direction"],
@@ -1270,6 +1273,12 @@ def closeRatioTrades(
                 if sym:
                     brokerPricesMap[sym] = fp
 
+    # Asegurar sesión viva de DB tras despachos prolongados al broker
+    try:
+        dbSession.rollback()
+    except Exception:
+        pass
+
     # Identificar la cuenta concentradora del usuario que administra la cuenta
     idCuentaConcentradora = None
     try:
@@ -1492,7 +1501,8 @@ def openSingleCoverageTrade(
     accountData: Dict[str, Any],
     symData: Dict[str, Any],
     periodo: str = "1h",
-    legReason: str = ""
+    legReason: str = "",
+    strategyName: str = "COBERTURA"
 ) -> Optional[Dict[str, Any]]:
     """
     Abre una orden de cobertura para una pata específica cuando supera el -25% de pérdida en modo protección.
@@ -1529,14 +1539,14 @@ def openSingleCoverageTrade(
             "entryPrice": entryPrice,
             "margenRate": margenRate,
             "margenPct": margenPct,
-            "strategy": "COBERTURA",
+            "strategy": strategyName,
             "setup": setupName
         }]
-        logger.info(f"🛡️ [{setupName}] Despachando COBERTURA al bróker: {symbol} {direction} {size} unidades para Cuenta #{idCuenta}...")
+        logger.info(f"🛡️ [{setupName}] Despachando {strategyName} al bróker: {symbol} {direction} {size} unidades para Cuenta #{idCuenta}...")
         execResults = sendRatioWebhookOrders(dbSession, idCuenta, covOrder)
         if not execResults or not execResults[0].get("success"):
             err = execResults[0].get("error", "Rechazado") if execResults else "Sin respuesta"
-            logger.error(f"❌ [COBERTURA RECHAZADA] Bróker rechazó la cobertura para {symbol} en Cuenta #{idCuenta}: {err}")
+            logger.error(f"❌ [{strategyName} RECHAZADA] Bróker rechazó la cobertura para {symbol} en Cuenta #{idCuenta}: {err}")
             return None
         
         ticketId = execResults[0].get("order_id")
@@ -1557,11 +1567,11 @@ def openSingleCoverageTrade(
         newTradeId = existingTrade[0]
         dbSession.execute(text("""
             UPDATE trades 
-            SET strategy = 'COBERTURA',
+            SET strategy = :stratName,
                 setup = :setup,
                 margin_used = :margin_used
             WHERE idTrade = :idt
-        """), {"setup": setupName, "margin_used": chunkMargin, "idt": newTradeId})
+        """), {"stratName": strategyName, "setup": setupName, "margin_used": chunkMargin, "idt": newTradeId})
         dbSession.commit()
     else:
         insertSql = text("""
@@ -1570,13 +1580,14 @@ def openSingleCoverageTrade(
                 intervalo, pnl, candleTime, openTime, size, entryPrice,
                 stopLoss, takeProfit, margin_used, ticketId
             ) VALUES (
-                :idCuenta, 'COBERTURA', :setup, :symbol, 'OPEN', :direction,
+                :idCuenta, :stratName, :setup, :symbol, 'OPEN', :direction,
                 :intervalo, 0.0, :candleTime, :openTime, :size, :entryPrice,
                 NULL, NULL, :margin_used, :ticketId
             )
         """)
         res = dbSession.execute(insertSql, {
             "idCuenta": idCuenta,
+            "stratName": strategyName,
             "setup": setupName,
             "symbol": symbol,
             "direction": direction,
@@ -1591,7 +1602,7 @@ def openSingleCoverageTrade(
         newTradeId = res.lastrowid
         dbSession.commit()
 
-    stateKey = f"{idCuenta}_{setupName}_{symbol}"
+    stateKey = f"{idCuenta}_{setupName}_{symbol}_COB_INI" if strategyName == "COBERTURA INICIAL" else f"{idCuenta}_{setupName}_{symbol}"
     saveCoverageState(stateKey, {
         "tradeId": newTradeId,
         "symbol": symbol,
@@ -1600,23 +1611,28 @@ def openSingleCoverageTrade(
         "entryPrice": fillPrice,
         "marginUsed": chunkMargin,
         "entryTime": nowDt.strftime("%Y-%m-%d %H:%M:%S"),
+        "peakPrice": fillPrice if direction == "LARGO" else None,
+        "troughPrice": fillPrice if direction == "CORTO" else None,
         "peakPxMovePct": 0.0,
         "target05Reached": False,
         "safeZoneRecovered": False
     })
 
+    title = "COBERTURA INICIAL ACTIVADA" if strategyName == "COBERTURA INICIAL" else "COBERTURA ACTIVADA"
+    descMotivo = f"Primer cuadro/triángulo del ratio ({legReason})" if strategyName == "COBERTURA INICIAL" else f"Pérdida en pata supera -25.0% ({legReason})"
+    descSub = "Cobertura inicial simultánea en sentido contrario al ratio." if strategyName == "COBERTURA INICIAL" else "Posición congelada para proteger capital."
     msg = (
-        f"🛡️ <b>[COBERTURA ACTIVADA]</b>\n"
+        f"🛡️ <b>[{title}]</b>\n"
         f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
         f"<b>Ratio:</b> {setupName}\n"
         f"<b>Símbolo:</b> {symbol}\n"
         f"<b>Operación:</b> {direction} {size:,.0f} unidades @ {fillPrice}\n"
         f"<b>Margen:</b> ${chunkMargin:.2f} USD\n"
-        f"<b>Motivo:</b> Pérdida en pata supera -25.0% ({legReason})\n"
-        f"<i>Posición congelada para proteger capital.</i>"
+        f"<b>Motivo:</b> {descMotivo}\n"
+        f"<i>{descSub}</i>"
     )
     dispatchRatioTelegramAlert(idCuenta, msg)
-    logger.info(f"✅ [{setupName}] Cobertura activada con éxito para {symbol} (Trade #{newTradeId} | Ticket {ticketId}).")
+    logger.info(f"✅ [{setupName}] {strategyName} activada con éxito para {symbol} (Trade #{newTradeId} | Ticket {ticketId}).")
     return {
         "idTrade": newTradeId,
         "symbol": symbol,
@@ -1625,7 +1641,7 @@ def openSingleCoverageTrade(
         "entryPrice": fillPrice,
         "margin_used": chunkMargin,
         "ticketId": str(ticketId) if ticketId else None,
-        "strategy": "COBERTURA"
+        "strategy": strategyName
     }
 
 
@@ -1652,9 +1668,10 @@ def closeSingleCoverageTrade(
     direction = coverageTrade["direction"]
     pipSize = symData.get("pip", 0.0001)
 
+    stratName = str(coverageTrade.get("strategy") or "COBERTURA").strip()
     if tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
         closeOrder = [{
-            "strategy": "COBERTURA",
+            "strategy": strategyName,
             "setup": setupName,
             "symbol": sym,
             "action": "close",
@@ -1715,14 +1732,19 @@ def closeSingleCoverageTrade(
     })
     dbSession.commit()
 
-    saveCoverageState(f"{idCuenta}_{setupName}_{sym}", {
-        "safeZoneRecovered": False,
-        "lastClosedPrice": latestPrice,
-        "lastCloseTime": nowDt.strftime("%Y-%m-%d %H:%M:%S")
-    })
+    stateKey = f"{idCuenta}_{setupName}_{sym}_COB_INI" if stratName == "COBERTURA INICIAL" else f"{idCuenta}_{setupName}_{sym}"
+    if stratName == "COBERTURA INICIAL":
+        clearCoverageState(stateKey)
+    else:
+        saveCoverageState(stateKey, {
+            "safeZoneRecovered": False,
+            "lastClosedPrice": latestPrice,
+            "lastCloseTime": nowDt.strftime("%Y-%m-%d %H:%M:%S")
+        })
 
+    titleClose = f"{stratName} CERRADA"
     msg = (
-        f"🎯 <b>[COBERTURA CERRADA]</b>\n"
+        f"🎯 <b>[{titleClose}]</b>\n"
         f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
         f"<b>Ratio:</b> {setupName}\n"
         f"<b>Símbolo:</b> {sym} ({direction})\n"
@@ -1936,8 +1958,9 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     maxHoursAllowed = maxAllowedCycles * dias
 
     if dbOpenTrades:
-        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() not in ["COBERTURA", "COBERTURA INICIAL"]]
         coverageTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() == "COBERTURA"]
+        coberturaInicialTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() == "COBERTURA INICIAL"]
 
         basketFloatingPnl = 0.0
         basketMarginUsed = 0.0
@@ -2255,6 +2278,90 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             coverageTrades = [t for t in coverageTrades if t.get("idTrade") != activeCob.get("idTrade")]
                             dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != activeCob.get("idTrade")]
 
+        # 3.3 GESTIÓN DE COBERTURA INICIAL (Pata por Pata)
+        # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
+        if (idCuenta != 3) and coberturaInicialTrades:
+            isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed)
+            for cobIni in list(coberturaInicialTrades):
+                legSym = cobIni.get("symbol")
+                legDir = cobIni.get("direction", "LARGO")
+                cobEntryPx = float(cobIni.get("entryPrice", 0.0))
+                cobSize = float(cobIni.get("size", 0.0))
+                legCurPx = latestPriceA if legSym == numerador else latestPriceB
+                legSymData = symDataA if legSym == numerador else symDataB
+                pipSize = legSymData.get("pip", 0.0001)
+
+                cobPnl, _pips, _pipVal, _mov = calculate_unrealized_pnl(
+                    symbol=legSym,
+                    direction=legDir,
+                    entry_price=cobEntryPx,
+                    current_price=legCurPx,
+                    size=cobSize,
+                    pip_size=pipSize
+                )
+
+                shouldCloseCobIni = False
+                cobIniCloseReason = ""
+
+                stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
+                cobState = getCoverageState(stateKey)
+
+                # Monitoreo de precio extremo alcanzado durante el alejamiento adverso
+                if legDir == "LARGO":
+                    # Cobertura COMPRA: Monitorear precio máximo alcanzado
+                    extremePx = float(cobState.get("peakPrice") or cobEntryPx)
+                    if legCurPx > extremePx:
+                        extremePx = legCurPx
+                        cobState["peakPrice"] = extremePx
+                        saveCoverageState(stateKey, cobState)
+
+                    # Umbral de retroceso de 0.25% desde el precio máximo
+                    pullbackTriggerPx = round(extremePx * (1.0 - 0.0025), 5)
+                    isPullback025 = (legCurPx <= pullbackTriggerPx)
+                    pullbackDesc = f"Máx: {extremePx:.5f} -> Actual: {legCurPx:.5f} <= Umbral (-0.25%): {pullbackTriggerPx:.5f}"
+                else:
+                    # Cobertura VENTA: Monitorear precio mínimo alcanzado
+                    extremePx = float(cobState.get("troughPrice") or cobEntryPx)
+                    if legCurPx < extremePx:
+                        extremePx = legCurPx
+                        cobState["troughPrice"] = extremePx
+                        saveCoverageState(stateKey, cobState)
+
+                    # Umbral de retroceso/rebote de 0.25% desde el precio mínimo
+                    pullbackTriggerPx = round(extremePx * (1.0 + 0.0025), 5)
+                    isPullback025 = (legCurPx >= pullbackTriggerPx)
+                    pullbackDesc = f"Mín: {extremePx:.5f} -> Actual: {legCurPx:.5f} >= Umbral (+0.25%): {pullbackTriggerPx:.5f}"
+
+                # CAUSA 1: Retroceso del 0.25% desde el precio extremo (asegurando el beneficio del movimiento adverso)
+                if isPullback025:
+                    shouldCloseCobIni = True
+                    cobIniCloseReason = f"POR RETROCESO DE 0.25% DESDE PRECIO EXTREMO ({pullbackDesc} | PnL: ${cobPnl:+.2f} USD)"
+
+                # CAUSA 2: Entrada inmediata en Modo Protección por Oleaje (sin esperar nuevo cuadro/triángulo)
+                elif isProtectionMode:
+                    shouldCloseCobIni = True
+                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL: ${cobPnl:+.2f} USD)"
+
+                if shouldCloseCobIni:
+                    logger.info(
+                        f"🎯 [{accHeader}] DISPARO DE SALIDA DE COBERTURA INICIAL Pata {legSym} ({legDir}): {cobIniCloseReason}"
+                    )
+                    closeSuccess = closeSingleCoverageTrade(
+                        dbSession=dbSession,
+                        idCuenta=idCuenta,
+                        setupName=setupName,
+                        coverageTrade=cobIni,
+                        latestPrice=legCurPx,
+                        symData=legSymData,
+                        accountData=accountData,
+                        closeReason=cobIniCloseReason
+                    )
+                    if closeSuccess:
+                        clearCoverageState(stateKey)
+                        accountData = fetchAccountData(dbSession, idCuenta)
+                        coberturaInicialTrades = [t for t in coberturaInicialTrades if t.get("idTrade") != cobIni.get("idTrade")]
+                        dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != cobIni.get("idTrade")]
+
     if sameSide:
         logger.info(
             f"🛡️ [{accHeader}] Ambos precios normalizados en el mismo lado de la desviación estándar "
@@ -2309,7 +2416,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
         if not isFresh:
             minsOld = int(abs((datetime.now() - candleDt).total_seconds()) / 60)
             isBetterPriceExpansion = False
-            regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+            regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() not in ["COBERTURA", "COBERTURA INICIAL"]]
             if regularTrades:
                 openTradesA = [t for t in regularTrades if t.get("symbol") == numerador]
                 openTradesB = [t for t in regularTrades if t.get("symbol") == denominador]
@@ -2340,12 +2447,34 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 return
 
         # REGLA DE LÍMITE DE CICLOS / MODO PROTECCIÓN: Si ya se alcanzó el límite de ciclos, NO acumular ni girar por señales
-        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() != "COBERTURA"]
+        regularTrades = [t for t in dbOpenTrades if str(t.get("strategy") or "").upper() not in ["COBERTURA", "COBERTURA INICIAL"]]
         if regularTrades and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed):
             logger.info(
                 f"🛡️ [{accHeader}] Modo Protección activo: Ya se alcanzó el límite de {maxAllowedCycles} ciclos "
                 f"({detectedWaves} olas / {hoursOpen:.1f}h abiertas). Nuevas entradas y giros bloqueados mientras gestiona cobertura/salida."
             )
+            # CAUSA 2: En modo protección, ante nueva señal se liquida cualquier Cobertura Inicial abierta
+            if (idCuenta != 3) and coberturaInicialTrades:
+                for cobIni in list(coberturaInicialTrades):
+                    cSym = cobIni.get("symbol")
+                    cCurPx = latestPriceA if cSym == numerador else latestPriceB
+                    cSymData = symDataA if cSym == numerador else symDataB
+                    cCloseReason = f"POR NUEVA SEÑAL ({sigType}) EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves} OLAS)"
+                    logger.info(f"🎯 [{accHeader}] Cierre Causa 2 de Cobertura Inicial Pata {cSym}: {cCloseReason}")
+                    closeSuccess = closeSingleCoverageTrade(
+                        dbSession=dbSession,
+                        idCuenta=idCuenta,
+                        setupName=setupName,
+                        coverageTrade=cobIni,
+                        latestPrice=cCurPx,
+                        symData=cSymData,
+                        accountData=accountData,
+                        closeReason=cCloseReason
+                    )
+                    if closeSuccess:
+                        accountData = fetchAccountData(dbSession, idCuenta)
+                        coberturaInicialTrades = [t for t in coberturaInicialTrades if t.get("idTrade") != cobIni.get("idTrade")]
+                        dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != cobIni.get("idTrade")]
             return
 
         # Verificar si hay posiciones abiertas en dirección contraria (REVERSAL / FLIP) basado EXCLUSIVAMENTE en trades regulares
@@ -2468,7 +2597,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 f"Dirección: {numerador} {dirA} + {denominador} {dirB} | "
                 f"Ind. Margen: {marginInd:.1f}% >= {accountData.get('indicadorMargen', 200.0):.0f}%). Registrando en trades..."
             )
-            openSingleRatioTradePair(
+            isFirstRatioEntry = not regularTrades
+            tradePairOpened = openSingleRatioTradePair(
                 dbSession=dbSession,
                 idCuenta=idCuenta,
                 setupName=setupName,
@@ -2485,6 +2615,55 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 symDataA=symDataA,
                 symDataB=symDataB
             )
+
+            # APERTURA DE COBERTURA INICIAL: Solo en el primer cuadro/triángulo de la canasta (1:1 en sentido opuesto)
+            # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
+            if tradePairOpened and isFirstRatioEntry and (idCuenta != 3):
+                freshTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
+                freshA = [t for t in freshTrades if t.get("symbol") == numerador and "RATIO" in str(t.get("strategy") or "").upper()]
+                freshB = [t for t in freshTrades if t.get("symbol") == denominador and "RATIO" in str(t.get("strategy") or "").upper()]
+                totSizeA = sum(float(t.get("size", 0.0)) for t in freshA)
+                totSizeB = sum(float(t.get("size", 0.0)) for t in freshB)
+
+                oppDirA = "CORTO" if dirA == "LARGO" else "LARGO"
+                oppDirB = "CORTO" if dirB == "LARGO" else "LARGO"
+
+                logger.info(
+                    f"🛡️ [{accHeader}] DISPARANDO COBERTURA INICIAL (1er {sigType}): "
+                    f"{numerador} {oppDirA} {totSizeA:,.0f} u + {denominador} {oppDirB} {totSizeB:,.0f} u"
+                )
+
+                if totSizeA > 0:
+                    openSingleCoverageTrade(
+                        dbSession=dbSession,
+                        idCuenta=idCuenta,
+                        setupName=setupName,
+                        symbol=numerador,
+                        direction=oppDirA,
+                        size=totSizeA,
+                        entryPrice=latestPriceA,
+                        accountData=accountData,
+                        symData=symDataA,
+                        periodo=periodo,
+                        legReason=f"Primer {sigType} del ratio",
+                        strategyName="COBERTURA INICIAL"
+                    )
+
+                if totSizeB > 0:
+                    openSingleCoverageTrade(
+                        dbSession=dbSession,
+                        idCuenta=idCuenta,
+                        setupName=setupName,
+                        symbol=denominador,
+                        direction=oppDirB,
+                        size=totSizeB,
+                        entryPrice=latestPriceB,
+                        accountData=accountData,
+                        symData=symDataB,
+                        periodo=periodo,
+                        legReason=f"Primer {sigType} del ratio",
+                        strategyName="COBERTURA INICIAL"
+                    )
         else:
             logger.info(f"ℹ️ [{accHeader}] Señal ({sigType}) de fecha {entryDateStr} ya fue registrada previamente en trades.")
     else:

@@ -4589,7 +4589,8 @@ public class DashboardBean implements Serializable {
                     java.net.URLEncoder.encode(selectedPair2 != null ? selectedPair2 : "", "UTF-8"));
 
             log.info("Buscando relación guardada en backend: {}", url);
-            String responseStr = restTemplate.getForObject(url, String.class);
+            java.net.URI uri = java.net.URI.create(url);
+            String responseStr = restTemplate.getForObject(uri, String.class);
 
             if (responseStr != null && !responseStr.isEmpty()) {
                 JsonNode rootNode = mapper.readTree(responseStr);

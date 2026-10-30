@@ -158,6 +158,8 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
     Guarda o actualiza (UPSERT) en user_ratios la relación entre idUsuario, idCuenta, numerador y denominador.
     """
     try:
+        payload.numerador = unquote(unquote(str(payload.numerador or ""))).strip()
+        payload.denominador = unquote(unquote(str(payload.denominador or ""))).strip()
         cuentaId = payload.idCuenta
         if not cuentaId:
             uc = db.query(UsuarioCuenta).filter(UsuarioCuenta.idUsuario == payload.idUsuario, UsuarioCuenta.activo == True).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
@@ -240,7 +242,14 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
         target_created_at = now_dt
         dt_end = target_created_at
 
-        is_already_calibrated = bool(existingRatio and existingRatio.fixedMinA is not None and existingRatio.fixedMaxA is not None)
+        is_recalibration = False
+        if existingRatio:
+            if existingRatio.periodo != periodo_val or str(existingRatio.Temporalidad or "").strip().lower() != str(temporalidad_val or "").strip().lower():
+                is_recalibration = True
+            elif (payload.startDate and str(payload.startDate).strip()) or (payload.fechaInicio and str(payload.fechaInicio).strip()):
+                is_recalibration = True
+
+        is_already_calibrated = bool(existingRatio and existingRatio.fixedMinA is not None and existingRatio.fixedMaxA is not None and not is_recalibration)
         if is_already_calibrated:
             fixedMinA = existingRatio.fixedMinA
             fixedMaxA = existingRatio.fixedMaxA
@@ -272,9 +281,14 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                     except Exception as ex_dt:
                         logger.warning(f"Error parseando startDate en saveUserRatio: {ex_dt}")
     
-                if dt_start is None:
+                if dt_start is not None:
+                    target_created_at = dt_start + timedelta(hours=int(dias * hrs_per_candle))
+                    calendar_hours_needed = int(dias * hrs_per_candle * 1.55) + 48
+                    dt_end = dt_start + timedelta(hours=calendar_hours_needed)
+                else:
                     calendar_hours_needed = int(dias * hrs_per_candle * 1.55) + 48
                     dt_start = dt_end - timedelta(hours=calendar_hours_needed)
+                    target_created_at = now_dt
     
                 if is_intraday:
                     def query_intraday(sym):
@@ -367,6 +381,8 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
     Busca la configuración de un ratio guardado por su clave compuesta (idCuenta/idUsuario, numerador, denominador).
     Prioriza idCuenta si se suministra y ordena por id DESC para devolver la configuración más reciente.
     """
+    numerador = unquote(unquote(str(numerador or ""))).strip()
+    denominador = unquote(unquote(str(denominador or ""))).strip()
     query = db.query(UserRatio).filter(
         UserRatio.numerador == numerador,
         UserRatio.denominador == denominador,
@@ -528,7 +544,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         FROM trades
         WHERE idCuenta = :idc 
           AND status = 'OPEN' 
-          AND strategy IN ('RATIO ATALAia', 'COBERTURA') 
+          AND strategy IN ('RATIO ATALAia', 'COBERTURA', 'COBERTURA INICIAL') 
           AND setup LIKE '%-%'
         ORDER BY setup, openTime ASC, idTrade ASC
     """)
@@ -669,7 +685,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         # Cada evento agrupa los pares (Par A y Par B) ejecutados en esa fecha-hora o vela específica
         entry_event_groups = []
         for t in t_list:
-            if str(getattr(t, "strategy", "") or "").upper() == "COBERTURA":
+            if str(getattr(t, "strategy", "") or "").upper() in ["COBERTURA", "COBERTURA INICIAL"]:
                 continue
             t_ot = getattr(t, "openTime", None)
             t_ct = getattr(t, "candleTime", None)
@@ -744,8 +760,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 "tradeCount": len(group_trades)
             })
 
-        cob_trades_A = [t for t in t_list if str(t.strategy or "").upper() == "COBERTURA" and t.symbol == pairA]
-        cob_trades_B = [t for t in t_list if str(t.strategy or "").upper() == "COBERTURA" and t.symbol == pairB]
+        cob_trades_A = [t for t in t_list if "COBERTURA" in str(t.strategy or "").upper() and t.symbol == pairA]
+        cob_trades_B = [t for t in t_list if "COBERTURA" in str(t.strategy or "").upper() and t.symbol == pairB]
         
         hasCoverageA = len(cob_trades_A) > 0
         hasCoverageB = len(cob_trades_B) > 0
@@ -775,8 +791,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         cobReturnPctB = (cobPnlB / cobMarginB * 100.0) if cobMarginB > 0 else 0.0
 
         ENABLE_COBERTURAS = True
-        last_trades_A = [t for t in t_list if str(t.strategy or "").upper() != "COBERTURA" and t.symbol == pairA]
-        last_trades_B = [t for t in t_list if str(t.strategy or "").upper() != "COBERTURA" and t.symbol == pairB]
+        last_trades_A = [t for t in t_list if "COBERTURA" not in str(t.strategy or "").upper() and t.symbol == pairA]
+        last_trades_B = [t for t in t_list if "COBERTURA" not in str(t.strategy or "").upper() and t.symbol == pairB]
         
         lastEntryA = float(last_trades_A[-1].entryPrice or 0.0) if last_trades_A else 0.0
         lastEntryB = float(last_trades_B[-1].entryPrice or 0.0) if last_trades_B else 0.0
@@ -3548,6 +3564,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
 
         current_cycle = 0
         last_directions = {}
+        max_prev_close = None
         min_dt = None
         max_dt = None
         now_dt = datetime.now()
@@ -3602,6 +3619,17 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 exit_price_val = round(cur_px, 5)
             else:
                 pnl_val = float(r.pnl or 0.0)
+                if pnl_val == 0.0 and r.exitPrice is not None and r.entryPrice is not None and float(r.entryPrice) > 0 and float(r.exitPrice) > 0:
+                    pip_sz = 0.01 if "JPY" in r.symbol else 0.0001
+                    calc_fb_pnl, _, _, _ = calculate_unrealized_pnl(
+                        symbol=r.symbol,
+                        direction=r.direction,
+                        entry_price=float(r.entryPrice),
+                        current_price=float(r.exitPrice),
+                        size=float(r.size or 0.0),
+                        pip_size=pip_sz
+                    )
+                    pnl_val = round(calc_fb_pnl, 2)
                 net_trade_pnl = pnl_val - comm_val
                 cur_px = None
                 exit_price_val = float(r.exitPrice) if r.exitPrice is not None else None
@@ -3621,14 +3649,23 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
 
             sym = r.symbol
             direction_str = str(r.direction or "").upper()
+            is_new_cycle = False
             if current_cycle == 0:
-                current_cycle = 1
-                last_directions = {sym: direction_str}
+                is_new_cycle = True
+            elif max_prev_close and t_open and t_open > max_prev_close:
+                is_new_cycle = True
             elif sym in last_directions and last_directions[sym] != direction_str:
+                is_new_cycle = True
+
+            if is_new_cycle:
                 current_cycle += 1
                 last_directions = {sym: direction_str}
             else:
                 last_directions[sym] = direction_str
+
+            if t_close:
+                if max_prev_close is None or t_close > max_prev_close:
+                    max_prev_close = t_close
 
             t_dict = {
                 "idTrade": r.idTrade,
