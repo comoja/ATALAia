@@ -1044,7 +1044,6 @@ def openSingleRatioTradePair(
             for cLot in confirmedBrokerLots:
                 resInsert = dbSession.execute(insertTradeSql, {
                     "idCuenta": idCuenta,
-            "stratName": strategyName,
                     "setup": setupName,
                     "symbol": cLot["symbol"],
                     "direction": cLot["direction"],
