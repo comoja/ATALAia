@@ -3934,6 +3934,26 @@ public class DashboardBean implements Serializable {
                     this.arbitrageType = rootNode.get("arbitrageType").asText();
                 }
 
+                // Guardar límites estáticos de calibración para la normalización en pantalla
+                if (rootNode.has("fixedMinA") && !rootNode.get("fixedMinA").isNull()) {
+                    this.signalBtFixedMinA = rootNode.get("fixedMinA").asDouble();
+                }
+                if (rootNode.has("fixedMaxA") && !rootNode.get("fixedMaxA").isNull()) {
+                    this.signalBtFixedMaxA = rootNode.get("fixedMaxA").asDouble();
+                }
+                if (rootNode.has("fixedMinB") && !rootNode.get("fixedMinB").isNull()) {
+                    this.signalBtFixedMinB = rootNode.get("fixedMinB").asDouble();
+                }
+                if (rootNode.has("fixedMaxB") && !rootNode.get("fixedMaxB").isNull()) {
+                    this.signalBtFixedMaxB = rootNode.get("fixedMaxB").asDouble();
+                }
+                if (rootNode.has("createdAt") && !rootNode.get("createdAt").isNull()) {
+                    String ca = rootNode.get("createdAt").asText();
+                    if (ca != null && !ca.trim().isEmpty()) {
+                        this.ratioCreatedAt = ca.replace("T", " ").trim();
+                    }
+                }
+
                 // Obtener historial de velas serializado
                 this.historyJson = mapper.writeValueAsString(rootNode.get("history"));
 
