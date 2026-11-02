@@ -637,16 +637,18 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 pip_size=pip_sz
             )
             
+            is_coverage = 'COBERTURA' in str(t.strategy or '').upper()
+
             if sym == pairA:
                 tot_marginA += margin
-                pnlA += item_pnl_usd
-                pipsTotalA += pips
-                dirA = "BUY" if is_long else "SELL"
+                if not is_coverage:
+                    pnlA += item_pnl_usd
+                    pipsTotalA += pips
             elif sym == pairB:
                 tot_marginB += margin
-                pnlB += item_pnl_usd
-                pipsTotalB += pips
-                dirB = "BUY" if is_long else "SELL"
+                if not is_coverage:
+                    pnlB += item_pnl_usd
+                    pipsTotalB += pips
                 
             tot_pnl += item_pnl_usd
             if t.openTime:
@@ -670,16 +672,28 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 "openTime": str(t.openTime)
             })
             
-        ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
-        dir_text = f"{dirA} {pairA} + {dirB} {pairB}" if (dirA and dirB) else (dirA or dirB)
 
-        totSizeA = sum(float(t.size or 0) for t in t_list if t.symbol == pairA)
-        weightedSumA = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairA)
+
+        # Excluir coberturas del cálculo de tamaño, precio promedio ponderado y dirección de la canasta principal
+        main_trades_A = [t for t in t_list if t.symbol == pairA and 'COBERTURA' not in str(t.strategy or '').upper()]
+        main_trades_B = [t for t in t_list if t.symbol == pairB and 'COBERTURA' not in str(t.strategy or '').upper()]
+
+        totSizeA = sum(float(t.size or 0) for t in main_trades_A)
+        weightedSumA = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in main_trades_A)
         avgEntryA = (weightedSumA / totSizeA) if totSizeA > 0 else 0.0
 
-        totSizeB = sum(float(t.size or 0) for t in t_list if t.symbol == pairB)
-        weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in t_list if t.symbol == pairB)
+        totSizeB = sum(float(t.size or 0) for t in main_trades_B)
+        weightedSumB = sum(float(t.entryPrice or 0) * float(t.size or 0) for t in main_trades_B)
         avgEntryB = (weightedSumB / totSizeB) if totSizeB > 0 else 0.0
+
+        # La dirección principal de la canasta debe ser la de las operaciones principales (no la de la cobertura)
+        if main_trades_A:
+            dirA = 'BUY' if ('LARG' in str(main_trades_A[0].direction).upper() or 'BUY' in str(main_trades_A[0].direction).upper()) else 'SELL'
+        if main_trades_B:
+            dirB = 'BUY' if ('LARG' in str(main_trades_B[0].direction).upper() or 'BUY' in str(main_trades_B[0].direction).upper()) else 'SELL'
+
+        ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
+        dir_text = f"{dirA} {pairA} + {dirB} {pairB}" if (dirA and dirB) else (dirA or dirB)
         
         # Agrupar trades por cada evento de entrada individual (respetando fecha-hora exacta de cada entrada)
         # Cada evento agrupa los pares (Par A y Par B) ejecutados en esa fecha-hora o vela específica
@@ -776,16 +790,28 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         cobPnlB = 0.0
         cobDirA = ""
         cobDirB = ""
+        cobTypeA = ""
+        cobTypeB = ""
         
         for t in cob_trades_A:
             cPnl, _, _, _ = calculate_unrealized_pnl(symbol=pairA, direction=str(t.direction), entry_price=float(t.entryPrice or 0), current_price=curA, size=float(t.size or 0), pip_size=pipA)
             cobPnlA += cPnl
             cobDirA = "BUY" if ("LARG" in str(t.direction).upper() or "BUY" in str(t.direction).upper()) else "SELL"
+            stratU = str(t.strategy or "").upper()
+            if "INICIAL" in stratU:
+                cobTypeA = "INICIAL"
+            elif not cobTypeA:
+                cobTypeA = "PROTECCION"
             
         for t in cob_trades_B:
             cPnl, _, _, _ = calculate_unrealized_pnl(symbol=pairB, direction=str(t.direction), entry_price=float(t.entryPrice or 0), current_price=curB, size=float(t.size or 0), pip_size=pipB)
             cobPnlB += cPnl
             cobDirB = "BUY" if ("LARG" in str(t.direction).upper() or "BUY" in str(t.direction).upper()) else "SELL"
+            stratU = str(t.strategy or "").upper()
+            if "INICIAL" in stratU:
+                cobTypeB = "INICIAL"
+            elif not cobTypeB:
+                cobTypeB = "PROTECCION"
             
         cobReturnPctA = (cobPnlA / cobMarginA * 100.0) if cobMarginA > 0 else 0.0
         cobReturnPctB = (cobPnlB / cobMarginB * 100.0) if cobMarginB > 0 else 0.0
@@ -842,6 +868,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             "coverageReturnPctB": round(cobReturnPctB, 2),
             "coverageDirA": cobDirA,
             "coverageDirB": cobDirB,
+            "coverageTypeA": cobTypeA,
+            "coverageTypeB": cobTypeB,
             "trades": trade_items,
             "entryGroups": entry_groups
         })
@@ -3486,6 +3514,89 @@ async def manual_close_ratio(
         "status": "ok",
         "message": f"Successfully sent close signals for {setupName}",
         "operar": targetOperar
+    }
+
+
+@router.post("/trades/close-coverage/{idCuenta}")
+async def manual_close_coverage(
+    idCuenta: int,
+    setup: str,
+    symbol: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Cierra manualmente la(s) cobertura(s) activa(s) de un ratio a discreción del usuario.
+    Permite cerrar la cobertura de una pata específica (symbol) o de ambas patas del ratio.
+    NO cierra las operaciones principales del ratio ni desactiva user_ratios.operar.
+    """
+    from backend.services.microRatio import (
+        fetchAccountData, fetchSymbolData, closeSingleCoverageTrade, get_live_price_from_mt5
+    )
+    from sqlalchemy import text
+
+    # Proteger estrictamente la cuenta #3 (Raúl Colin)
+    if idCuenta == 3:
+        raise HTTPException(status_code=403, detail="Operación no permitida en cuenta #3 (Modo solo lectura protegido)")
+
+    accountData = fetchAccountData(db, idCuenta)
+    if not accountData:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
+               openTime, size, entryPrice, margin_used, pnl, ticketId
+        FROM trades
+        WHERE idCuenta = :idc 
+          AND status = 'OPEN' 
+          AND strategy IN ('COBERTURA', 'COBERTURA INICIAL') 
+          AND (setup = :setup OR setup LIKE :setupPattern)
+    """)
+    trades_rows = db.execute(sql, {"idc": idCuenta, "setup": setup, "setupPattern": f"%{setup}%"}).fetchall()
+    
+    if not trades_rows:
+        raise HTTPException(status_code=404, detail="No active coverage trades found for this ratio")
+
+    coverage_trades = [dict(r._mapping) for r in trades_rows]
+    if symbol and symbol.strip():
+        sym_clean = symbol.strip().upper()
+        coverage_trades = [t for t in coverage_trades if t.get("symbol", "").replace("/", "").upper() == sym_clean.replace("/", "")]
+
+    if not coverage_trades:
+        raise HTTPException(status_code=404, detail=f"No active coverage trade found for symbol {symbol}")
+
+    closed_count = 0
+    errors = []
+
+    for cob_trade in coverage_trades:
+        sym = cob_trade["symbol"]
+        sym_data = fetchSymbolData(db, sym)
+        live_px = get_live_price_from_mt5(sym)
+        if live_px is None or live_px <= 0:
+            row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": sym.replace("/", "").upper()}).fetchone()
+            live_px = float(row_c[0]) if row_c and row_c[0] else float(cob_trade.get("entryPrice", 1.0))
+
+        success = closeSingleCoverageTrade(
+            dbSession=db,
+            idCuenta=idCuenta,
+            setupName=setup,
+            coverageTrade=cob_trade,
+            latestPrice=live_px,
+            symData=sym_data,
+            accountData=accountData,
+            closeReason="CIERRE MANUAL A DISCRECIÓN DEL USUARIO"
+        )
+        if success:
+            closed_count += 1
+        else:
+            errors.append(f"Fallo al cerrar cobertura para {sym}")
+
+    if closed_count == 0 and errors:
+        raise HTTPException(status_code=500, detail="; ".join(errors))
+
+    return {
+        "status": "ok",
+        "closedCount": closed_count,
+        "message": f"Se cerraron {closed_count} cobertura(s) manualmente para {setup}"
     }
 
 

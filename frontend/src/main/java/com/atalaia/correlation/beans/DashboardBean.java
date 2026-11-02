@@ -680,6 +680,19 @@ public class DashboardBean implements Serializable {
         private double coverageReturnPctB = 0.0;
         private String coverageDirA = "";
         private String coverageDirB = "";
+        private String coverageTypeA = "";
+        private String coverageTypeB = "";
+
+        public String getCoverageTypeA() { return coverageTypeA; }
+        public void setCoverageTypeA(String coverageTypeA) { this.coverageTypeA = coverageTypeA; }
+        public String getCoverageTypeB() { return coverageTypeB; }
+        public void setCoverageTypeB(String coverageTypeB) { this.coverageTypeB = coverageTypeB; }
+        public boolean isCoverageInicialA() { return "INICIAL".equalsIgnoreCase(coverageTypeA); }
+        public boolean isCoverageInicialB() { return "INICIAL".equalsIgnoreCase(coverageTypeB); }
+        public String getCoverageIconA() { return isCoverageInicialA() ? "pi pi-send" : "pi pi-shield"; }
+        public String getCoverageIconB() { return isCoverageInicialB() ? "pi pi-send" : "pi pi-shield"; }
+        public String getCoverageLabelA() { return isCoverageInicialA() ? "COB. INICIAL" : "COBERTURA"; }
+        public String getCoverageLabelB() { return isCoverageInicialB() ? "COB. INICIAL" : "COBERTURA"; }
         private double minus10PriceA = 0.0;
         private double minus10PriceB = 0.0;
 
@@ -3096,6 +3109,8 @@ public class DashboardBean implements Serializable {
                         dto.setCoverageReturnPctB(n.path("coverageReturnPctB").asDouble(0.0));
                         dto.setCoverageDirA(n.path("coverageDirA").asText(""));
                         dto.setCoverageDirB(n.path("coverageDirB").asText(""));
+                        dto.setCoverageTypeA(n.path("coverageTypeA").asText(""));
+                        dto.setCoverageTypeB(n.path("coverageTypeB").asText(""));
                         dto.setMinus10PriceA(n.path("minus10PriceA").asDouble(0.0));
                         dto.setMinus10PriceB(n.path("minus10PriceB").asDouble(0.0));
 
@@ -5773,6 +5788,74 @@ public class DashboardBean implements Serializable {
                 new javax.faces.application.FacesMessage(
                     javax.faces.application.FacesMessage.SEVERITY_ERROR,
                     "Excepción",
+                    e.getMessage()
+                )
+            );
+            org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
+        }
+    }
+
+    public void closeCoveragePosition(ActiveCycleSummaryDto cycle, String symbol) {
+        if (isReadOnly()) {
+            log.warn("⚠️ Intento de cerrar cobertura bloqueado: Modo solo lectura.");
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes cerrar operaciones en este modo."));
+            return;
+        }
+        if (cycle == null) return;
+        try {
+            Integer accId = this.selectedAccountId;
+            if ((accId == null || accId == 0) && userAccountsCombo != null && !userAccountsCombo.isEmpty()) {
+                accId = userAccountsCombo.get(0).getIdCuenta();
+            }
+            if (accId == null || accId == 0) {
+                accId = 2;
+            }
+
+            log.info("🛡️ Solicitando cierre manual de cobertura para setup='{}', symbol='{}' en idCuenta={}", cycle.getSetup(), symbol, accId);
+            String encodedSetup = java.net.URLEncoder.encode(cycle.getSetup(), java.nio.charset.StandardCharsets.UTF_8);
+            String url = backendUrl + "/api/v1/trades/close-coverage/" + accId + "?setup=" + encodedSetup;
+            if (symbol != null && !symbol.trim().isEmpty()) {
+                url += "&symbol=" + java.net.URLEncoder.encode(symbol.trim(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> requestEntity = new org.springframework.http.HttpEntity<>("{}", headers);
+
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            log.info("📥 Respuesta de backend close-coverage: status={} body={}", response.getStatusCodeValue(), response.getBody());
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                        javax.faces.application.FacesMessage.SEVERITY_INFO,
+                        "Cobertura Cerrada",
+                        "La cobertura " + (symbol != null ? symbol : "") + " de " + cycle.getSetup() + " fue liquidada exitosamente."
+                    )
+                );
+                loadAllActiveCycles();
+                fetchUserRatioDetails();
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion", "aetherForm:growl", "aetherForm:chartPanel");
+            } else {
+                log.error("❌ Error backend close-coverage: {}", response.getBody());
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                        javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                        "Error al Cerrar Cobertura",
+                        response.getBody()
+                    )
+                );
+                org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
+            }
+        } catch (Exception e) {
+            log.error("❌ Excepción en closeCoveragePosition: ", e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(
+                    javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                    "Excepción al Cerrar Cobertura",
                     e.getMessage()
                 )
             );

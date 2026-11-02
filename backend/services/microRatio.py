@@ -48,6 +48,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("microRatio")
 
+# Umbral porcentual de corte de pérdida para Cobertura Inicial (ej: 0.20 = 0.20%)
+COBERTURA_INICIAL_STOP_LOSS_PCT = 0.07
+
 
 def ensureStrategyRegistered(dbSession) -> None:
     """Asegura que la estrategia RATIO ATALAia esté registrada en strategyconfig."""
@@ -425,7 +428,8 @@ def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) ->
 def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict[str, Any]]:
     """
     Verifica si existen operaciones actualmente en estado 'OPEN' para este setup y cuenta,
-    incluyendo su ticketId y strategy para la gestión de órdenes en bróker y coberturas.
+    incluyendo operaciones regulares de Ratio y sus coberturas ('COBERTURA' y 'COBERTURA INICIAL'),
+    asegurando ticketId y strategy para la correcta gestión y cierre total en bróker y BD.
     """
     sqlQuery = text("""
         SELECT idTrade, symbol, direction, size, entryPrice, margin_used, candleTime, openTime, ticketId, strategy
@@ -433,6 +437,7 @@ def checkActiveOpenTrades(dbSession, idCuenta: int, setupName: str) -> List[Dict
         WHERE idCuenta = :idc
           AND setup = :stp
           AND status = 'OPEN'
+          AND strategy IN ('RATIO ATALAia', 'COBERTURA', 'COBERTURA INICIAL')
         ORDER BY idTrade ASC
     """)
     rows = dbSession.execute(sqlQuery, {"idc": idCuenta, "stp": setupName}).fetchall()
@@ -1484,6 +1489,8 @@ def closeRatioTrades(
     clearTrailingProfitState(f"{idCuenta}_{setupName}")
     clearCoverageState(f"{idCuenta}_{setupName}_{numerador}")
     clearCoverageState(f"{idCuenta}_{setupName}_{denominador}")
+    clearCoverageState(f"{idCuenta}_{setupName}_{numerador}_COB_INI")
+    clearCoverageState(f"{idCuenta}_{setupName}_{denominador}_COB_INI")
 
     return True
 
@@ -1538,7 +1545,7 @@ def openSingleCoverageTrade(
             "entryPrice": entryPrice,
             "margenRate": margenRate,
             "margenPct": margenPct,
-            "strategy": strategyName,
+            "strategy": stratName,
             "setup": setupName
         }]
         logger.info(f"🛡️ [{setupName}] Despachando {strategyName} al bróker: {symbol} {direction} {size} unidades para Cuenta #{idCuenta}...")
@@ -1670,7 +1677,7 @@ def closeSingleCoverageTrade(
     stratName = str(coverageTrade.get("strategy") or "COBERTURA").strip()
     if tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
         closeOrder = [{
-            "strategy": strategyName,
+            "strategy": stratName,
             "setup": setupName,
             "symbol": sym,
             "action": "close",
@@ -2305,41 +2312,33 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
                 cobState = getCoverageState(stateKey)
 
-                # Monitoreo de precio extremo alcanzado durante el alejamiento adverso
+                # Monitoreo de límite de pérdida respecto al precio de entrada usando variable configurable
+                stopLossPct = COBERTURA_INICIAL_STOP_LOSS_PCT
+                stopLossRatio = stopLossPct / 100.0
+                isStopLossTriggered = False
+                dropDesc = ""
                 if legDir == "LARGO":
-                    # Cobertura COMPRA: Monitorear precio máximo alcanzado
-                    extremePx = float(cobState.get("peakPrice") or cobEntryPx)
-                    if legCurPx > extremePx:
-                        extremePx = legCurPx
-                        cobState["peakPrice"] = extremePx
-                        saveCoverageState(stateKey, cobState)
-
-                    # Umbral de retroceso de 0.25% desde el precio máximo
-                    pullbackTriggerPx = round(extremePx * (1.0 - 0.0025), 5)
-                    isPullback025 = (legCurPx <= pullbackTriggerPx)
-                    pullbackDesc = f"Máx: {extremePx:.5f} -> Actual: {legCurPx:.5f} <= Umbral (-0.25%): {pullbackTriggerPx:.5f}"
+                    # Cobertura COMPRA: Umbral de corte por caída contra el precio de entrada
+                    entryDropTriggerPx = round(cobEntryPx * (1.0 - stopLossRatio), 5)
+                    isStopLossTriggered = (legCurPx <= entryDropTriggerPx)
+                    movePctFromEntry = ((legCurPx - cobEntryPx) / cobEntryPx) * 100.0
+                    dropDesc = f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} ({movePctFromEntry:+.2f}% vs -{stopLossPct:.2f}% | Umbral: {entryDropTriggerPx:.5f})"
                 else:
-                    # Cobertura VENTA: Monitorear precio mínimo alcanzado
-                    extremePx = float(cobState.get("troughPrice") or cobEntryPx)
-                    if legCurPx < extremePx:
-                        extremePx = legCurPx
-                        cobState["troughPrice"] = extremePx
-                        saveCoverageState(stateKey, cobState)
+                    # Cobertura VENTA: Umbral de corte por subida contra el precio de entrada
+                    entryDropTriggerPx = round(cobEntryPx * (1.0 + stopLossRatio), 5)
+                    isStopLossTriggered = (legCurPx >= entryDropTriggerPx)
+                    movePctFromEntry = ((cobEntryPx - legCurPx) / cobEntryPx) * 100.0
+                    dropDesc = f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} ({movePctFromEntry:+.2f}% vs -{stopLossPct:.2f}% | Umbral: {entryDropTriggerPx:.5f})"
 
-                    # Umbral de retroceso/rebote de 0.25% desde el precio mínimo
-                    pullbackTriggerPx = round(extremePx * (1.0 + 0.0025), 5)
-                    isPullback025 = (legCurPx >= pullbackTriggerPx)
-                    pullbackDesc = f"Mín: {extremePx:.5f} -> Actual: {legCurPx:.5f} >= Umbral (+0.25%): {pullbackTriggerPx:.5f}"
-
-                # CAUSA 1: Retroceso del 0.25% desde el precio extremo (asegurando el beneficio del movimiento adverso)
-                if isPullback025:
+                # CAUSA 1: Pérdida respecto al precio de entrada (corte de pérdida de la cobertura)
+                if isStopLossTriggered:
                     shouldCloseCobIni = True
-                    cobIniCloseReason = f"POR RETROCESO DE 0.25% DESDE PRECIO EXTREMO ({pullbackDesc} | PnL: ${cobPnl:+.2f} USD)"
+                    cobIniCloseReason = f"POR ALCANZAR LÍMITE DE PÉRDIDA DE -{stopLossPct:.2f}% RESPECTO A LA ENTRADA ({dropDesc} | PnL:  USD)"
 
                 # CAUSA 2: Entrada inmediata en Modo Protección por Oleaje (sin esperar nuevo cuadro/triángulo)
                 elif isProtectionMode:
                     shouldCloseCobIni = True
-                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL: ${cobPnl:+.2f} USD)"
+                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL:  USD)"
 
                 if shouldCloseCobIni:
                     logger.info(
