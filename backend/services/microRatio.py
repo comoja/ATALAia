@@ -1917,8 +1917,21 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     dbOpenTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
     if createdAtDt:
         dbOpenTrades = [t for t in dbOpenTrades if (t.get("openTime") or t.get("candleTime")) and parseCandleDateTime(t.get("openTime") or t.get("candleTime")) >= createdAtDt]
-    latestPriceA = float(dfATf["closePrice"].iloc[-1])
-    latestPriceB = float(dfBTf["closePrice"].iloc[-1])
+    # Para cálculo de indicadores y señales se usa el precio de la vela (dfATf/dfBTf).
+    # Para monitoreo de riesgo y salidas (stop loss de coberturas, trailing profit, PnL flotante),
+    # se consulta el precio en vivo (MT5) si está disponible, con fallback a la última vela.
+    candlePriceA = float(dfATf["closePrice"].iloc[-1])
+    candlePriceB = float(dfBTf["closePrice"].iloc[-1])
+    try:
+        from backend.api.routes import get_live_price_from_mt5
+        liveA = get_live_price_from_mt5(numerador)
+        liveB = get_live_price_from_mt5(denominador)
+        latestPriceA = float(liveA) if (liveA is not None and float(liveA) > 0) else candlePriceA
+        latestPriceB = float(liveB) if (liveB is not None and float(liveB) > 0) else candlePriceB
+    except Exception as eLive:
+        logger.warning(f"⚠️ Error obteniendo precio en vivo para {setupName}: {eLive}. Usando precio de vela.")
+        latestPriceA = candlePriceA
+        latestPriceB = candlePriceB
     tipoCierre = str(ratioRecord.get("tipoCierre", "Tolerante")).strip().capitalize()
     umbralDiferencia = float(ratioRecord.get("umbralDiferencia") or 0.2)
     salirBreakeven = bool(ratioRecord.get("salirBreakeven", False))
