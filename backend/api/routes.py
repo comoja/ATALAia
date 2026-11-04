@@ -3530,9 +3530,14 @@ async def manual_close_coverage(
     NO cierra las operaciones principales del ratio ni desactiva user_ratios.operar.
     """
     from backend.services.microRatio import (
-        fetchAccountData, fetchSymbolData, closeSingleCoverageTrade, get_live_price_from_mt5
+        fetchAccountData, fetchSymbolData, closeSingleCoverageTrade
     )
     from sqlalchemy import text
+
+    from urllib.parse import unquote
+    setup = unquote(unquote(str(setup or ""))).strip()
+    if symbol:
+        symbol = unquote(unquote(str(symbol or ""))).strip()
 
     # Proteger estrictamente la cuenta #3 (Raúl Colin)
     if idCuenta == 3:

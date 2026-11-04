@@ -1545,7 +1545,7 @@ def openSingleCoverageTrade(
             "entryPrice": entryPrice,
             "margenRate": margenRate,
             "margenPct": margenPct,
-            "strategy": stratName,
+            "strategy": strategyName,
             "setup": setupName
         }]
         logger.info(f"🛡️ [{setupName}] Despachando {strategyName} al bróker: {symbol} {direction} {size} unidades para Cuenta #{idCuenta}...")
