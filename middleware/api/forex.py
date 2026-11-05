@@ -44,7 +44,7 @@ if mt5 is not None:
 def _is_bridge_online() -> bool:
     """Verifica si el servidor MT5 Bridge de Wine está activo."""
     try:
-        res = requests.get(f"{MT5_BRIDGE_URL}/health", timeout=1)
+        res = requests.get(f"{MT5_BRIDGE_URL}/health", timeout=3)
         if res.status_code == 200 and res.json().get("status") == "online":
             return True
     except Exception:
@@ -206,7 +206,7 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
                 df = pd.DataFrame()
         else:
             # 2. Consultar a través del Bridge de Wine
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=60) as client:
                 body = {
                     "symbol": symbol,
                     "interval": interval,

@@ -6,7 +6,8 @@ el Python nativo de Linux pueda consultar tasas, órdenes y cuenta.
 import sys
 import json
 import logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 import pandas as pd
 import pytz
@@ -18,6 +19,8 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("MT5Bridge")
+
+mt5_lock = threading.Lock()
 
 TIMEFRAME_MAP = {}
 if mt5:
@@ -88,15 +91,15 @@ class MT5Handler(BaseHTTPRequestHandler):
                 return
 
             mt5_tf = TIMEFRAME_MAP.get(interval, mt5.TIMEFRAME_M5)
-            mt5.symbol_select(symbol, True)
-
             rates = None
-            if ts_from and ts_to:
-                rates = mt5.copy_rates_range(symbol, mt5_tf, int(ts_from), int(ts_to))
-            elif ts_from:
-                rates = mt5.copy_rates_from(symbol, mt5_tf, int(ts_from), output_size)
-            else:
-                rates = mt5.copy_rates_from_pos(symbol, mt5_tf, 0, output_size)
+            with mt5_lock:
+                mt5.symbol_select(symbol, True)
+                if ts_from and ts_to:
+                    rates = mt5.copy_rates_range(symbol, mt5_tf, int(ts_from), int(ts_to))
+                elif ts_from:
+                    rates = mt5.copy_rates_from(symbol, mt5_tf, int(ts_from), output_size)
+                else:
+                    rates = mt5.copy_rates_from_pos(symbol, mt5_tf, 0, output_size)
 
             if rates is None or len(rates) == 0:
                 self._send_json({"rates": []})
@@ -115,8 +118,8 @@ class MT5Handler(BaseHTTPRequestHandler):
 
 def run_server(port=8005):
     server_address = ("127.0.0.1", port)
-    httpd = HTTPServer(server_address, MT5Handler)
-    logger.info(f"🚀 MT5 Bridge Server iniciado en http://127.0.0.1:{port}")
+    httpd = ThreadingHTTPServer(server_address, MT5Handler)
+    logger.info(f"🚀 MT5 Bridge Server multihilo iniciado en http://127.0.0.1:{port}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

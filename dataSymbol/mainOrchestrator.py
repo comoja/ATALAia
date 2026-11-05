@@ -3,6 +3,7 @@ import sys
 import time
 import logging
 import asyncio
+import subprocess
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict, Any, Optional
 import pandas as pd
@@ -38,49 +39,45 @@ DAYS_PER_CALL = 30
 ACCOUNT_NAMES = ["Jaime", "Raul", "Sebastian", "Ana"]
 TIMEZONE_LOCAL = pytz.timezone(TIMEZONE)
 
-MAX_CANDLES_PER_CALL = 5000
-CANDLE_INTERVAL_MINUTES = 5
+MAX_CANDLES_PER_CALL = 100000
+CANDLE_INTERVAL_MINUTES = 1
 MAX_MINUTES_PER_CALL = MAX_CANDLES_PER_CALL * CANDLE_INTERVAL_MINUTES
+DEFAULT_START_DATE_1MIN = datetime(2026, 9, 1, 0, 0, 0)
 
-def next_5min_time(now):
-    next_minute = (now.minute // 5 + 1) * 5
-    if next_minute == 60:
-        return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    else:
-        return now.replace(minute=next_minute, second=0, microsecond=0)
+def next_1min_time(now):
+    return now.replace(second=0, microsecond=0) + timedelta(minutes=1)
 
-def seconds_until_next_5min(now, buffer_seconds=120):
-    next_time = next_5min_time(now)
-    next_time = next_time + timedelta(seconds=buffer_seconds if DATA_SOURCE != "forex" else 3)
+def seconds_until_next_1min(now, buffer_seconds=2):
+    next_time = next_1min_time(now) + timedelta(seconds=buffer_seconds)
     sleep_seconds = int((next_time - now).total_seconds())
     return max(0, sleep_seconds), next_time
 
 # --- Funciones Auxiliares ---
-def round5min(timestamp):
+def round1min(timestamp):
     if isinstance(timestamp, str):
-        dt = datetime.strptime(timestamp, "%Y/%m/%d %H:%M:%S")
+        fmt = "%Y-%m-%d %H:%M:%S" if "-" in timestamp else "%Y/%m/%d %H:%M:%S"
+        dt = datetime.strptime(timestamp[:19], fmt)
     else:
         dt = timestamp
-    minute = (dt.minute // 5) * 5
-    return dt.replace(minute=minute, second=0, microsecond=0)
+    return dt.replace(second=0, microsecond=0)
 
 def adjust_to_market_open(dt):
     attempts = 0
     while isRestTime(dt) and attempts < 2000: 
-        dt += timedelta(minutes=5)
+        dt += timedelta(minutes=1)
         attempts += 1
     return dt
 
-def get_safe_last_candle(now, interval=5):
+def get_safe_last_candle(now, interval=1):
     """
     Calcula el timestamp de la última vela CERRADA usando la función estándar del middleware.
-    A las 18:35:02, devuelve 18:30 (la vela 18:30-18:35 que acaba de cerrar a las 18:35:00).
+    A las 18:35:02 con interval=1, devuelve 18:34 (la vela 18:34-18:35 que acaba de cerrar a las 18:35:00).
     """
     return _get_last_closed_candle(now, interval)
 
 from middleware.utils.time_utils import get_last_closed_candle as _get_last_closed_candle
 
-def get_last_closed_candle(now, interval=5, df=None):
+def get_last_closed_candle(now, interval=1, df=None):
     """Alias for middleware version to support legacy bot imports."""
     return _get_last_closed_candle(now, interval, df=df)
 
@@ -170,11 +167,11 @@ def get_symbols_needing_candles(symbols, db, now_local, completed_in_rest=None):
         sym = s_data['symbol']
         if sym in completed_in_rest:
             continue
-        cnt = db.getCandleCount(sym, "5min")
+        cnt = db.getCandleCount(sym, "1min")
         if cnt == 0:
             pendientes.append(s_data)
             continue
-        last_db = db.getLastTimestamp(sym, "5min")
+        last_db = db.getLastTimestamp(sym, "1min")
         if not last_db:
             pendientes.append(s_data)
             continue
@@ -184,10 +181,97 @@ def get_symbols_needing_candles(symbols, db, now_local, completed_in_rest=None):
     return pendientes
 
 
+MAX_WORKERS = int(os.getenv("DATASYMBOL_WORKERS", "5"))
+
+async def process_single_symbol(symbolData: dict, db: DatabaseManager, limiter: MultiAccountRateLimiter, semaphore: asyncio.Semaphore, now_local: datetime) -> dict:
+    async with semaphore:
+        symbol = str(symbolData['symbol'])
+        try:
+            lastDb = await asyncio.to_thread(db.getLastTimestamp, symbol, "1min")
+            
+            if lastDb:
+                startDate = lastDb + timedelta(minutes=1)
+            else:
+                if DATA_SOURCE == "forex":
+                    startDate = DEFAULT_START_DATE_1MIN
+                else:
+                    startDateRaw = symbolData.get('startDate')
+                    if isinstance(startDateRaw, str):
+                        startDate = datetime.strptime(startDateRaw, '%Y-%m-%d')
+                    elif startDateRaw:
+                        startDate = datetime.combine(startDateRaw, datetime.min.time())
+                    else:
+                        startDate = DEFAULT_START_DATE_1MIN
+
+            TZ = pytz.timezone(TIMEZONE)
+            startDate = normalize_datetime(startDate, TZ)
+            lastClosed = get_safe_last_candle(now_local, interval=1)
+            
+            if startDate.date() == now_local.date():
+                endDate = lastClosed
+                if endDate < startDate:
+                    return {"symbol": symbol, "status": "up_to_date", "inserted": 0}
+            else:
+                endDate = round1min(startDate + timedelta(minutes=MAX_MINUTES_PER_CALL))
+                if endDate > lastClosed:
+                    endDate = lastClosed
+            
+            if endDate < startDate:
+                return {"symbol": symbol, "status": "up_to_date", "inserted": 0}
+
+            # Obtener cuenta o bypass si es forex
+            if DATA_SOURCE == "forex":
+                apiKey = None
+                accountName = "MetaTrader5"
+                params = {
+                    "symbol": symbol,
+                    "interval": "1min",
+                    "start_date": startDate,
+                    "end_date": endDate
+                }
+            else:
+                apiKey, accountName = limiter.getNextAccount()
+                if not apiKey:
+                    return {"symbol": symbol, "status": "rate_limited", "inserted": 0}
+                params = {
+                    "symbol": symbol,
+                    "interval": "1min",
+                    "apikey": apiKey,
+                    "start_date": startDate,
+                    "end_date": endDate
+                }            
+
+            if DATA_SOURCE == "forex":
+                from middleware.api import forex
+                df = await forex.getTimeSeries(params)
+            else:
+                df = await _callTimeSeriesApi(params)
+                limiter.recordCall(apiKey, accountName)
+            
+            inserted = 0
+            if df is not None and not df.empty:
+                inserted = await asyncio.to_thread(db.saveBulkData, df, symbol, "1min")
+                if inserted > 0:
+                    logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%Y-%m-%d %H:%M')} a {endDate.strftime('%Y-%m-%d %H:%M')} --> {inserted} velas de 1min.")
+            
+            if DATA_SOURCE != "forex":
+                await asyncio.sleep(SLEEP_BETWEEN_CALLS)
+
+            return {"symbol": symbol, "status": "ok", "inserted": inserted}
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if DATA_SOURCE != "forex" and 'apiKey' in locals() and apiKey:
+                if "rate limit" in error_msg or "too many requests" in error_msg:
+                    limiter.blockAccount(apiKey)
+            logger.error(f"❌ Error API [{symbol}]: {e}")
+            return {"symbol": symbol, "status": "error", "error": str(e), "inserted": 0}
+
+
 async def main():
     logger.info("=" * 60)
-    logger.info("DataSymbol - Descarga Optimizada (Multi-Account 4x Speed)")
-    logger.info(f"Configuración: {TOTAL_ACCOUNTS} cuentas | Límite: {RATE_LIMIT_PER_MINUTE}/min | Delay: {SLEEP_BETWEEN_CALLS:.2f}s")
+    logger.info(f"DataSymbol - Descarga Paralela Multi-Hilo ({MAX_WORKERS} Workers)")
+    logger.info(f"Fuente: {DATA_SOURCE} | Concurrencia: {MAX_WORKERS} hilos")
     logger.info("=" * 60)
     
     limiter = MultiAccountRateLimiter(API_KEYS, ACCOUNT_NAMES)
@@ -196,10 +280,7 @@ async def main():
     # TwelveData resetea a las 00:00 UTC según la observación del usuario
     api_tz = pytz.utc
     lastResetDate = datetime.now(api_tz).date()
-    symbolIndex = 0
-    ultimoLogMinuto = -1
     _last_hourly_stockprices_sync = None
-    symbols_up_to_date_in_rest = set()
     
     while True:
         try:
@@ -221,7 +302,6 @@ async def main():
                         logger.error(f"Error iniciando sincronización de StockPrices: {e}")
 
             # --- Optimización Semanal (Viernes 00:15) ---
-            # Se ejecuta a las 00:15 de cada viernes (weekday 4 = Viernes)
             current_minute_str = now_local.strftime("%Y-%m-%d %H:%M")
             if now_local.weekday() == 4 and now_local.hour == 0 and now_local.minute == 15:
                 global _last_weekly_optimization
@@ -237,17 +317,6 @@ async def main():
                         logger.info("✅ Optimización semanal iniciada en background.")
                     except Exception as e:
                         logger.error(f"Error iniciando optimización semanal: {e}")
-
-            # --- Descansos de mercado comentados ---
-            # Si el mercado está cerrado, no hay cambios y MT5 no devuelve nada,
-            # por lo que no se requieren descansos obligatorios y se mantiene el ciclo normal.
-            # rest_mode = isRestTime()
-            # if isRestTime():
-            #     segundosSueño = get_seconds_until_market_opens()
-            #     segundosSueño += 10.0
-            #     tiempoSueñoParcial = min(60.0, segundosSueño)
-            #     await asyncio.sleep(tiempoSueñoParcial)
-            #     continue
             
             # Reset diario basado en el reloj de TwelveData (UTC)
             if DATA_SOURCE != "forex" and today_api > lastResetDate:
@@ -257,7 +326,6 @@ async def main():
                 limiter.callsToday = {key: 0 for key in limiter.apiKeys}
                 limiter.callsThisMinute = {key: [] for key in limiter.apiKeys}
                 lastResetDate = today_api
-                symbolIndex = 0
             
             symbols = middlewareDb.getDataSymbols()
             if not symbols:
@@ -273,105 +341,26 @@ async def main():
                     await asyncio.sleep(tiempoSueñoParcial)
                     segundosEspera -= tiempoSueñoParcial
                 continue
-        
-            if symbolIndex >= len(symbols):
-                symbolIndex = 0
-                sleepSeconds, nextTime = seconds_until_next_5min(now_local)
-                statusStr = "MetaTrader5 Local" if DATA_SOURCE == "forex" else limiter.getStatus()
-                logger.info(f"✅ Ronda completada. Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {statusStr}) \n")
-                while sleepSeconds > 0:
-                    tiempoSueñoParcial = min(60.0, sleepSeconds)
-                    await asyncio.sleep(tiempoSueñoParcial)
-                    sleepSeconds -= tiempoSueñoParcial
-                continue
-            
-            symbolData = symbols[symbolIndex]
-            symbol = str(symbolData['symbol'])        
-            
-            lastDb = db.getLastTimestamp(symbol, "5min")
-            symbolIndex += 1
-            
-            if lastDb:
-                startDate = lastDb + timedelta(minutes=5)
-            else:
-                if DATA_SOURCE == "forex":
-                    startDate = datetime(2025, 5, 1)  # Historial broker MT5 disponible desde mayo 2025
-                else:
-                    startDateRaw = symbolData.get('startDate')
-                    if isinstance(startDateRaw, str):
-                        startDate = datetime.strptime(startDateRaw, '%Y-%m-%d')
-                    elif startDateRaw:
-                        startDate = datetime.combine(startDateRaw, datetime.min.time())
-                    else:
-                        startDate = datetime(2020, 1, 1)
 
-            TZ = pytz.timezone(TIMEZONE)
-            startDate = normalize_datetime(startDate, TZ)
-            lastClosed = get_safe_last_candle(now_local)
-            
-            if startDate.date() == now_local.date():
-                endDate = lastClosed
-                if endDate < startDate:
-                    continue
-            else:
-                endDate = round5min(startDate + timedelta(minutes=MAX_MINUTES_PER_CALL))
-                if endDate > lastClosed:
-                    endDate = lastClosed
-            
-            if endDate < startDate:
-                continue
+            # Procesamiento concurrente de toda la ronda con 5 hilos
+            round_start = time.time()
+            semaphore = asyncio.Semaphore(MAX_WORKERS)
+            tasks = [
+                process_single_symbol(sData, db, limiter, semaphore, now_local)
+                for sData in symbols
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            elapsed = time.time() - round_start
+            total_inserted = sum(r.get("inserted", 0) for r in results if isinstance(r, dict))
 
-            # Obtener cuenta o bypass si es forex
-            if DATA_SOURCE == "forex":
-                apiKey = None
-                accountName = "MetaTrader5"
-                params = {
-                    "symbol": symbol,
-                    "interval": "5min",
-                    "start_date": startDate,
-                    "end_date": endDate
-                }
-            else:
-                # Obtener siguiente cuenta disponible para Twelve Data
-                apiKey, accountName = limiter.getNextAccount()
-                if not apiKey:
-                    # Si no hay cuenta disponible ahora (límite por minuto alcanzado), esperamos un poco
-                    await asyncio.sleep(2)
-                    continue
-                params = {
-                    "symbol": symbol,
-                    "interval": "5min",
-                    "apikey": apiKey,
-                    "start_date": startDate,
-                    "end_date": endDate
-                }            
-            
-            
-            try:               
-                
-                if DATA_SOURCE == "forex":
-                    from middleware.api import forex
-                    df = await forex.getTimeSeries(params)
-                else:
-                    df = await _callTimeSeriesApi(params)
-                    # Registrar llamada exitosa en Twelve Data
-                    limiter.recordCall(apiKey, accountName)
-                
-                if df is not None and not df.empty:
-                    inserted = db.saveBulkData(df, symbol, "5min")
-                    if inserted > 0:
-                        logger.info(f"[{symbol}] -> {accountName} | {startDate.strftime('%Y-%m-%d %H:%M')} a {endDate.strftime('%Y-%m-%d %H:%M')} --> {inserted} velas de {DATA_SOURCE}.")
-                
-                # Espera dinámica entre llamadas
-                await asyncio.sleep(SLEEP_BETWEEN_CALLS)
-                
-            except Exception as e:
-                error_msg = str(e).lower()
-                if DATA_SOURCE != "forex" and apiKey:
-                    if "rate limit" in error_msg or "too many requests" in error_msg:
-                        limiter.blockAccount(apiKey)
-                logger.error(f"❌ Error API [{symbol}] con {accountName}: {e}")
-                await asyncio.sleep(1)
+            sleepSeconds, nextTime = seconds_until_next_1min(datetime.now(TIMEZONE_LOCAL))
+            statusStr = f"MetaTrader5 Local ({MAX_WORKERS} hilos)" if DATA_SOURCE == "forex" else limiter.getStatus()
+            logger.info(f"✅ Ronda completada ({len(symbols)} símbolos en {MAX_WORKERS} hilos en {elapsed:.1f}s | {total_inserted} velas). Próximo escaneo: {nextTime.strftime('%H:%M:%S')} (Status: {statusStr}) \n")
+
+            while sleepSeconds > 0:
+                tiempoSueñoParcial = min(60.0, sleepSeconds)
+                await asyncio.sleep(tiempoSueñoParcial)
+                sleepSeconds -= tiempoSueñoParcial
                 
         except Exception as e:
             logger.error(f"⚠️ Error en ciclo principal: {e}", exc_info=True)

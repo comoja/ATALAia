@@ -650,7 +650,7 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
     Obtiene el historial de precios del par desde candles (intradía) o stockprices (diario+).
     """
     tfLower = str(timeframe or "1h").lower().strip()
-    isIntraday = tfLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+    isIntraday = tfLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
     conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
     try:
         if isIntraday:
@@ -658,16 +658,16 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             sql = """
                 SELECT timestamp, close AS closePrice
                 FROM candles
-                WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s
-                ORDER BY timestamp ASC
+                WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s
+                ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
             """
             df = pd.read_sql(sql, conn, params=(symbol, dtStart.strftime("%Y-%m-%d %H:%M:%S")))
             if df.empty:
                 return pd.DataFrame()
             df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df = df.set_index("timestamp")
+            df = df.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
             df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            ruleMap = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+            ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
             rule = ruleMap.get(tfLower, "1h")
             return df.resample(rule).agg({"closePrice": "last"}).dropna().tail(max(40, days))
         else:
@@ -855,7 +855,7 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
     - En días (1d): coincidencia por día DATE(candleTime) = DATE(:cdt).
     """
     tf = str(timeframe).lower().strip()
-    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]:
+    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]:
         sqlQuery = text("""
             SELECT COUNT(*)
             FROM trades
@@ -1146,7 +1146,7 @@ def runCycle(isHourlyTick: bool = True) -> None:
 
         for rec in rows:
             tf = str(rec.get("Temporalidad") or "1h").lower().strip()
-            isIntraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+            isIntraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
             if not isIntraday and not isHourlyTick:
                 continue
 
@@ -1163,7 +1163,7 @@ def runCycle(isHourlyTick: bool = True) -> None:
 def main() -> None:
     """
     Bucle principal adaptativo del demonio microCart.py:
-    - Escanea cada 5 minutos (:00, :05, :10, :15...) para temporalidad 1h (intradía).
+    - Escanea cada 1 minuto para temporalidades intradía (1min, 5min, 15min, 1h, etc.).
     - En el minuto :00 escanea además temporalidades diarias (1d) o mayores.
     """
     logger.info("==========================================================")
@@ -1173,20 +1173,20 @@ def main() -> None:
         runCycle(isHourlyTick=True)
         return
 
-    logger.info("🚀 [microCart] Demonio adaptativo iniciado: censo cada 5 min (1h) y cada hora (1d).")
+    logger.info("🚀 [microCart] Demonio adaptativo iniciado: censo cada 1 min (intradía) y cada hora (1d).")
     while True:
         now = datetime.now()
-        isHourlyTick = (now.minute < 5)
+        isHourlyTick = (now.minute == 0)
         try:
             runCycle(isHourlyTick=isHourlyTick)
         except Exception as e:
             logger.error(f"Error en ciclo principal de microCart: {e}", exc_info=True)
 
         now = datetime.now()
-        secondsUntilNext5Min = (5 - (now.minute % 5) - 1) * 60 + (60 - now.second)
-        nextMin = (now.minute + (secondsUntilNext5Min // 60) + 1) % 60
-        logger.info(f"💤 [microCart] Próximo censo en {secondsUntilNext5Min // 60}m {secondsUntilNext5Min % 60}s (en el minuto :{nextMin:02d}).")
-        time.sleep(max(5, secondsUntilNext5Min))
+        secondsUntilNext1Min = (60 - now.second) + 2
+        nextMin = (now.minute + 1) % 60
+        logger.info(f"💤 [microCart] Próximo censo en {secondsUntilNext1Min}s (en el minuto :{nextMin:02d}).")
+        time.sleep(max(3, secondsUntilNext1Min))
 
 
 if __name__ == "__main__":

@@ -191,25 +191,25 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
 
 def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365, timeframe: str = "1d") -> pd.DataFrame:
     """
-    Carga el historial de precios: si es intradía (1h, 4h, etc.), consulta 'candles' (5min).
+    Carga el historial de precios: si es intradía (1h, 4h, etc.), consulta 'candles' (1min o 5min).
     Si es diario (1d, 1w), consulta 'stockprices'.
     """
     pLower = str(timeframe).lower().strip()
-    isIntraday = pLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+    isIntraday = pLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
     if isIntraday:
         cutoff = datetime.now() - timedelta(days=daysLimit)
         sqlQuery = text("""
             SELECT timestamp as priceDate, close as closePrice
             FROM candles
-            WHERE symbol = :sym AND timeframe = '5min' AND timestamp >= :cutoff
-            ORDER BY timestamp ASC
+            WHERE symbol = :sym AND timeframe IN ('1min', '5min') AND timestamp >= :cutoff
+            ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
         """)
         rows = dbSession.execute(sqlQuery, {"sym": symbol, "cutoff": cutoff}).fetchall()
         if rows:
             df = pd.DataFrame(rows, columns=["priceDate", "closePrice"])
             df["priceDate"] = pd.to_datetime(df["priceDate"])
             df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            return df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+            return df.dropna().drop_duplicates(subset=["priceDate"], keep="first").sort_values("priceDate").set_index("priceDate")
 
     sqlQuery = text("""
         SELECT priceDate, closePrice
@@ -236,6 +236,10 @@ def resamplePriceData(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         return df
 
     ruleMap = {
+        "1min": "1min",
+        "1m": "1min",
+        "5min": "5min",
+        "5m": "5min",
         "1d": "D",
         "1D": "D",
         "1h": "1h",
@@ -287,14 +291,18 @@ def isCandleSignalFresh(candleDt: datetime, timeframe: str) -> bool:
     if deltaSecs < 0:
         return abs(deltaSecs) <= 180  # Tolerancia máxima de 3 min por desfase leve de reloj
 
-    if tf in ["1h", "1H"]:
-        return deltaSecs <= 960  # Máximo 15 minutos (+60s de margen para ciclo) desde la apertura de la vela
-    elif tf in ["4h", "4H"]:
-        return deltaSecs <= 1860  # Máximo 30 minutos desde apertura
+    if tf in ["1min", "1m"]:
+        return deltaSecs <= 75   # Máximo 1 minuto (+15s margen)
+    elif tf in ["5min", "5m"]:
+        return deltaSecs <= 180  # Máximo 3 minutos
     elif tf in ["15min", "15m"]:
         return deltaSecs <= 360   # Máximo 5 minutos
     elif tf in ["30min", "30m"]:
         return deltaSecs <= 540   # Máximo 7.5 minutos
+    elif tf in ["1h", "1H"]:
+        return deltaSecs <= 960  # Máximo 15 minutos (+60s de margen para ciclo) desde la apertura de la vela
+    elif tf in ["4h", "4H"]:
+        return deltaSecs <= 1860  # Máximo 30 minutos desde apertura
     elif tf in ["1d", "1D"]:
         return deltaSecs <= (4 * 3600) # Primeras 4h del día
     elif tf in ["1week", "1w", "1W"]:
@@ -307,13 +315,13 @@ def isCandleSignalFresh(candleDt: datetime, timeframe: str) -> bool:
 def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt: datetime, timeframe: str = "1d") -> bool:
     """
     Verifica si ya existe un trade abierto para el mismo periodo según la temporalidad:
-    - En horas (1h, 4h, 15m): busca coincidencia exacta de fecha y hora (candleTime = :cdt).
+    - En intradía/horas (1min, 5min, 15m, 1h, 4h): busca coincidencia exacta de fecha y hora (candleTime = :cdt).
     - En días (1d): busca coincidencia por día (DATE(candleTime) = DATE(:cdt)).
     - En semanas (1w): busca coincidencia por semana (YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)).
     - En meses (1m): busca coincidencia por mes (YEAR/MONTH).
     """
     tf = str(timeframe).lower().strip()
-    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]:
+    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]:
         sqlQuery = text("""
             SELECT COUNT(*)
             FROM trades
@@ -2730,7 +2738,7 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
 
             for r in activeRatios:
                 tf = str(r.get("Temporalidad") or r.get("timeframe") or "1h").lower().strip()
-                is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+                is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
 
                 # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar
                 if not is_intraday and not is_hourly_tick:
@@ -2758,15 +2766,15 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
 async def runAdaptiveScheduler():
     """
     Bucle asíncrono adaptable:
-    - Censa cada 5 minutos para ratios en temporalidad horaria (1h).
+    - Censa cada 1 minuto para ratios en temporalidad intradía (1min, 5min, 15min, 1h, etc.).
     - En el minuto :00 (hora en punto), censa además los ratios en temporalidad diaria (1d) o mayor.
     - Candado estricto: máximo 1 orden por temporalidad (1 por hora en 1h, 1 por día en 1d).
     """
-    logger.info("🚀 [microRatio] Demonio adaptativo iniciado: censo cada 5 min (1h) y cada hora (1d).")
+    logger.info("🚀 [microRatio] Demonio adaptativo iniciado: censo cada 1 min (intradía) y cada hora (1d).")
     while True:
         now = datetime.now()
-        # Se considera censo horario si estamos en los primeros 4 minutos de la hora
-        is_hourly_tick = (now.minute < 5)
+        # Se considera censo horario si estamos en el minuto 0 de la hora
+        is_hourly_tick = (now.minute == 0)
 
         try:
             processAllActiveRatios(is_hourly_tick=is_hourly_tick)
@@ -2774,11 +2782,11 @@ async def runAdaptiveScheduler():
             logger.error(f"Error en ejecución de microRatio: {e}", exc_info=True)
 
         now = datetime.now()
-        # Calcular segundos restantes hasta el próximo bloque de 5 minutos (:00, :05, :10, :15, etc.)
-        secondsUntilNext5Min = (5 - (now.minute % 5) - 1) * 60 + (60 - now.second)
-        nextMin = (now.minute + (secondsUntilNext5Min // 60) + 1) % 60
-        logger.info(f"💤 Próximo censo en {secondsUntilNext5Min // 60}m {secondsUntilNext5Min % 60}s (en el minuto :{nextMin:02d}).")
-        await asyncio.sleep(max(5, secondsUntilNext5Min))
+        # Calcular segundos restantes hasta el próximo minuto
+        secondsUntilNext1Min = (60 - now.second) + 2
+        nextMin = (now.minute + 1) % 60
+        logger.info(f"💤 Próximo censo en {secondsUntilNext1Min}s (en el minuto :{nextMin:02d}).")
+        await asyncio.sleep(max(3, secondsUntilNext1Min))
 
 
 def main():

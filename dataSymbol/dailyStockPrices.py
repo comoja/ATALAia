@@ -30,7 +30,7 @@ def compute_symbol_daily_stock_prices(symbol: str, conn, from_date: datetime = N
     Zona horaria de origen (candles): America/Mexico_City
     Zona horaria de referencia (sesión de trading): America/New_York
     """
-    where_clause = "symbol = %s AND timeframe = '5min'"
+    where_clause = "symbol = %s AND timeframe IN ('1min', '5min')"
     params = [symbol]
     
     if from_date:
@@ -43,7 +43,7 @@ def compute_symbol_daily_stock_prices(symbol: str, conn, from_date: datetime = N
     SELECT timestamp, close 
     FROM candles 
     WHERE {where_clause}
-    ORDER BY timestamp ASC
+    ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
     """
     
     with conn.cursor() as cur:
@@ -54,6 +54,7 @@ def compute_symbol_daily_stock_prices(symbol: str, conn, from_date: datetime = N
         return pd.DataFrame()
         
     df = pd.DataFrame(rows, columns=['timestamp', 'close'])
+    df = df.drop_duplicates(subset=['timestamp'], keep='first')
     df['close'] = pd.to_numeric(df['close'], errors='coerce')
     
     # 1. Localizar en hora CDMX y convertir a America/New_York (ajuste automático de DST)
@@ -120,7 +121,7 @@ async def syncDailyStockPrices(full_rebuild: bool = False):
     try:
         # Obtener lista de símbolos disponibles en candles
         with conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT symbol FROM candles WHERE timeframe = '5min' ORDER BY symbol ASC")
+            cur.execute("SELECT DISTINCT symbol FROM candles WHERE timeframe IN ('1min', '5min') ORDER BY symbol ASC")
             symbols = [r[0] for r in cur.fetchall()]
             
         if not symbols:

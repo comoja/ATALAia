@@ -294,7 +294,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                     def query_intraday(sym):
                         conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
                         try:
-                            sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
+                            sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
                             df = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
                             if not df.empty:
                                 df['closePrice'] = pd.to_numeric(df['closePrice'], errors='coerce')
@@ -1786,16 +1786,16 @@ async def get_ratio_correlation(
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
-                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC
+                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
                     """
                     df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
                     if df_res.empty:
                         return pd.DataFrame()
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
-                    df_res = df_res.set_index('timestamp')
+                    df_res = df_res.drop_duplicates(subset=['timestamp'], keep='first').set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
-                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
                     rule = rule_map.get(tf_lower, "1h")
                     return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
                 finally:
@@ -2665,16 +2665,16 @@ async def get_cruces_ema_pair_analysis(
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
-                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC
+                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
                     """
                     df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
                     if df_res.empty:
                         return pd.DataFrame()
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
-                    df_res = df_res.set_index('timestamp')
+                    df_res = df_res.drop_duplicates(subset=['timestamp'], keep='first').set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
-                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
                     rule = rule_map.get(tf_lower, "1h")
                     return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
                 finally:
@@ -2842,7 +2842,7 @@ async def get_cruces_ema_pair_analysis(
                     import pymysql
                     conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
                     try:
-                        sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
+                        sql = "SELECT close as closePrice FROM candles WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s ORDER BY timestamp ASC"
                         df_c = pd.read_sql(sql, conn, params=(sym, dt_calib_start.strftime('%Y-%m-%d %H:%M:%S'), dt_calib_end.strftime('%Y-%m-%d %H:%M:%S')))
                         if not df_c.empty:
                             df_c['closePrice'] = pd.to_numeric(df_c['closePrice'], errors='coerce')
@@ -3138,8 +3138,8 @@ async def get_cruces_ema_denominators_optimization(
                 sql = f"""
                     SELECT symbol, timestamp, close as closePrice
                     FROM candles
-                    WHERE symbol IN ({placeholders}) AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-                    ORDER BY timestamp ASC
+                    WHERE symbol IN ({placeholders}) AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
+                    ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
                 """
                 params = tuple(all_symbols) + (dt_start.strftime("%Y-%m-%d %H:%M:%S"), dt_end.strftime("%Y-%m-%d %H:%M:%S"))
                 df_raw = pd.read_sql(sql, conn, params=params)
@@ -3149,9 +3149,9 @@ async def get_cruces_ema_denominators_optimization(
                 for sym, g in df_raw.groupby("symbol"):
                     df_sym = g.copy()
                     df_sym["timestamp"] = pd.to_datetime(df_sym["timestamp"])
-                    df_sym = df_sym.set_index("timestamp")
+                    df_sym = df_sym.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
                     df_sym["closePrice"] = pd.to_numeric(df_sym["closePrice"], errors="coerce")
-                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "30min": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "30min": "30min"}
                     rule = rule_map.get(timeframe.lower(), "1h")
                     res_dict[sym] = df_sym.resample(rule).agg({"closePrice": "last"}).dropna()
                 return res_dict
@@ -5080,16 +5080,16 @@ async def getCartAnalysis(
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
-                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC
+                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
                     """
                     df_res = pd.read_sql(sql, conn, params=(sym_str, dt_bt_start.strftime("%Y-%m-%d %H:%M:%S"), dt_end.strftime("%Y-%m-%d %H:%M:%S")))
                     if df_res.empty:
                         return pd.DataFrame()
                     df_res["timestamp"] = pd.to_datetime(df_res["timestamp"])
-                    df_res = df_res.set_index("timestamp")
+                    df_res = df_res.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
                     df_res["closePrice"] = pd.to_numeric(df_res["closePrice"], errors="coerce")
-                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
                     rule = rule_map.get(tf_lower, "1h")
                     return df_res.resample(rule).agg({"closePrice": "last"}).dropna()
                 finally:
