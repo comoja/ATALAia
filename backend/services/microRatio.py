@@ -1409,9 +1409,9 @@ def closeRatioTrades(
             "idt": tradeId
         })
 
-        totalMarginToRelease += marginUsed
-        totalNetPnl += tradePnl
-        totalCommissionCharged += tradeCommission
+        totalMarginToRelease += float(marginUsed or 0.0)
+        totalNetPnl += float(tradePnl or 0.0)
+        totalCommissionCharged += float(tradeCommission or 0.0)
 
         # Si se cobró comisión y la cuenta no es la misma concentradora, registrar en cuenta concentradora
         if tradeCommission > 0 and idCuentaConcentradora and idCuentaConcentradora != idCuenta:

@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("microCart")
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8002/api/v1/webhook")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8002/webhook/tradingview")
 STRATEGY_NAME = "CART ATALAia"
 CART_STOP_LOSS_PCT = 0.25  # Cierre por pérdida del 0.25% respecto al precio de entrada
 
@@ -171,34 +171,21 @@ def evaluateCartSignals(
 
             if prevPx is not None and prevCMax is not None and prevCMin is not None:
                 # 1. Si hay una posición abierta:
-                #    - Cierra si el precio de entrada tiene una pérdida >= 0.5% (Stop Loss)
-                #    - O cierra al reingresar al CAR (COMPRA en cMax, VENTA en cMin)
+                #    Cierra cuando el precio ingresa nuevamente al CAR (COMPRA en cMax, VENTA en cMin)
                 if activeDir == "COMPRA":
-                    stopTriggerPx = round(activeEntryPx * (1.0 - stopLossRatio), 5) if activeEntryPx else 0.0
-                    hitStopLoss = (activeEntryPx is not None and px <= stopTriggerPx)
                     hitCarReentry = (px <= cMax)
-                    if hitStopLoss or hitCarReentry:
+                    if hitCarReentry:
                         hasBuyExit = True
-                        if hitStopLoss and (not hitCarReentry or stopTriggerPx >= cMax):
-                            exitPxVal = stopTriggerPx
-                            signalLabel = "BUY_EXIT_SL"
-                        else:
-                            exitPxVal = cMax
-                            signalLabel = "BUY_EXIT"
+                        exitPxVal = cMax
+                        signalLabel = "BUY_EXIT"
                         activeDir = None
                         activeEntryPx = None
                 elif activeDir == "VENTA":
-                    stopTriggerPx = round(activeEntryPx * (1.0 + stopLossRatio), 5) if activeEntryPx else 999999999.0
-                    hitStopLoss = (activeEntryPx is not None and px >= stopTriggerPx)
                     hitCarReentry = (px >= cMin)
-                    if hitStopLoss or hitCarReentry:
+                    if hitCarReentry:
                         hasSellExit = True
-                        if hitStopLoss and (not hitCarReentry or stopTriggerPx <= cMin):
-                            exitPxVal = stopTriggerPx
-                            signalLabel = "SELL_EXIT_SL"
-                        else:
-                            exitPxVal = cMin
-                            signalLabel = "SELL_EXIT"
+                        exitPxVal = cMin
+                        signalLabel = "SELL_EXIT"
                         activeDir = None
                         activeEntryPx = None
                 # 2. Si no hay posición abierta, verificar salida del canal desde dentro del CAR:
@@ -332,41 +319,21 @@ def runCartBacktest(
         if openPositions:
             currentDir = openPositions[0]["direction"]
             entryPxRef = float(openPositions[0]["entryPrice"])
-            stopLossRatio = CART_STOP_LOSS_PCT / 100.0
             shouldClose = False
-            isStopLossExit = False
             exitBoundaryPx = px
             if currentDir == "COMPRA":
-                stopTriggerPx = round(entryPxRef * (1.0 - stopLossRatio), 5)
-                hitStopLoss = (px <= stopTriggerPx)
                 hitCarReentry = (px <= cMax)
-                if hitStopLoss or hitCarReentry:
+                if hitCarReentry:
                     shouldClose = True
-                    if hitStopLoss and (not hitCarReentry or stopTriggerPx >= cMax):
-                        isStopLossExit = True
-                        exitBoundaryPx = stopTriggerPx
-                    else:
-                        isStopLossExit = False
-                        exitBoundaryPx = cMax
+                    exitBoundaryPx = cMax
             elif currentDir == "VENTA":
-                stopTriggerPx = round(entryPxRef * (1.0 + stopLossRatio), 5)
-                hitStopLoss = (px >= stopTriggerPx)
                 hitCarReentry = (px >= cMin)
-                if hitStopLoss or hitCarReentry:
+                if hitCarReentry:
                     shouldClose = True
-                    if hitStopLoss and (not hitCarReentry or stopTriggerPx <= cMin):
-                        isStopLossExit = True
-                        exitBoundaryPx = stopTriggerPx
-                    else:
-                        isStopLossExit = False
-                        exitBoundaryPx = cMin
+                    exitBoundaryPx = cMin
 
             if shouldClose:
-                exitReasonLabel = (
-                    f"Stop Loss (-{CART_STOP_LOSS_PCT:.2f}%)"
-                    if isStopLossExit
-                    else f"Reingreso CAR {'Superior' if currentDir == 'COMPRA' else 'Inferior'}"
-                )
+                exitReasonLabel = f"Reingreso CAR {'Superior' if currentDir == 'COMPRA' else 'Inferior'}"
                 cycleCounter += 1
                 cyclePnl = 0.0
                 cycleMargin = 0.0
@@ -722,33 +689,95 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
         conn.close()
 
 
-def sendWebhookOrder(idCuenta: int, symbol: str, action: str, size: float, price: float, comment: str) -> Dict[str, Any]:
+def sendCartWebhookOrder(
+    dbSession,
+    idCuenta: int,
+    symbol: str,
+    action: str,  # "buy", "sell", "close"
+    size: float,
+    price: float,
+    ticketId: Optional[str] = None,
+    idTrade: Optional[int] = None,
+    comment: str = ""
+) -> Dict[str, Any]:
     """
-    Envía orden al servidor Webhook local para ejecución en bróker (FOREX.com / MT5).
+    Envía orden al servidor Webhook local (/webhook/tradingview) para ejecución en bróker (FOREX.com / MT5),
+    utilizando autenticación cifrada por cuenta.
+    Retorna diccionario con 'success', 'order_id', 'fill_price', etc.
     """
-    payload = {
-        "idCuenta": idCuenta,
-        "symbol": symbol,
-        "action": action,
-        "size": size,
-        "price": price,
-        "strategy": STRATEGY_NAME,
-        "comment": comment
-    }
     try:
-        dataBytes = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            WEBHOOK_URL,
-            data=dataBytes,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            return body
+        query = text("""
+            SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
+            FROM brokercuenta bc
+            JOIN broker b ON b.idBroker = bc.idBroker
+            WHERE bc.idCuenta = :idc AND bc.activo = 1
+        """)
+        activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
+        if not activeBrokers:
+            logger.warning(f"⚠️ [CART] No hay brokers activos en brokercuenta para idCuenta {idCuenta}. Operando en modo local.")
+            return {"success": True, "order_id": "", "fill_price": price}
+
+        import requests
+        from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
+
+        webhookUrl = os.getenv("WEBHOOK_URL") or "http://127.0.0.1:8002/webhook/tradingview"
+        rawPassphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+        encryptedPassphrase = encryptValue(rawPassphrase) if rawPassphrase else ""
+
+        for bc in activeBrokers:
+            loginUsuario = bc.get("loginUsuario", "")
+            tokenAcceso = bc.get("tokenAcceso", "")
+            nombreBroker = bc.get("nombreBroker", "Broker")
+
+            encryptedAccountToken = buildEncryptedAccountToken(
+                idCuenta=idCuenta,
+                loginUsuario=loginUsuario,
+                tokenAcceso=tokenAcceso
+            )
+
+            orderPayload = {
+                "strategy": STRATEGY_NAME,
+                "setup": symbol,
+                "passphrase": encryptedPassphrase,
+                "time": time.time(),
+                "action": action,
+                "ticker": symbol,
+                "entry": float(price or 0.0),
+                "quantity": float(size or 1000.0),
+                "tp": 0.0,
+                "sl": 0.0,
+                "sync": True,
+                "ticketId": ticketId,
+                "idTrade": idTrade,
+                "FOREX_USERNAME": encryptedAccountToken
+            }
+
+            logger.info(f"🌐 [CART Webhook] Enviando {action.upper()} {symbol} ({size:,.0f} u) a FOREX.com para {loginUsuario} ({nombreBroker})...")
+            try:
+                resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
+                if resp.status_code == 200:
+                    resData = resp.json() if resp.text else {}
+                    isSuccess = (resData.get("status") == "success") or (resData.get("success") is True)
+                    orderId = str(resData.get("order_id") or resData.get("ticketId") or resData.get("OrderId") or "")
+                    fillPrice = float(resData.get("fill_price") or resData.get("Price") or price)
+                    logger.info(f"✅ [CART Webhook] Respuesta de FOREX.com -> Success: {isSuccess}, OrderId: {orderId}, FillPrice: {fillPrice}")
+                    return {
+                        "success": isSuccess,
+                        "order_id": orderId,
+                        "fill_price": fillPrice,
+                        "raw": resData
+                    }
+                else:
+                    logger.error(f"❌ [CART Webhook] Error HTTP {resp.status_code}: {resp.text}")
+                    return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text}"}
+            except Exception as exReq:
+                logger.error(f"❌ [CART Webhook] Excepción conectando a {webhookUrl}: {exReq}")
+                return {"success": False, "error": str(exReq)}
+
+        return {"success": False, "error": "No broker processed"}
     except Exception as ex:
-        logger.error(f"Error enviando orden Webhook para {symbol} ({action}): {ex}")
-        return {"status": "error", "message": str(ex)}
+        logger.error(f"❌ [CART Webhook] Error general despachando orden: {ex}", exc_info=True)
+        return {"success": False, "error": str(ex)}
 
 
 def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) -> Tuple[bool, float, float, float, float]:
@@ -834,6 +863,7 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
               AND strategy = :strat
               AND (symbol = :sym OR setup = :sym)
               AND candleTime = :cdt
+              AND status = 'OPEN'
         """)
     elif tf in ["1week", "1w"]:
         sqlQuery = text("""
@@ -843,6 +873,7 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
               AND strategy = :strat
               AND (symbol = :sym OR setup = :sym)
               AND YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)
+              AND status = 'OPEN'
         """)
     elif tf in ["1month", "1m"]:
         sqlQuery = text("""
@@ -853,6 +884,7 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
               AND (symbol = :sym OR setup = :sym)
               AND YEAR(candleTime) = YEAR(:cdt)
               AND MONTH(candleTime) = MONTH(:cdt)
+              AND status = 'OPEN'
         """)
     else:
         sqlQuery = text("""
@@ -862,6 +894,7 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
               AND strategy = :strat
               AND (symbol = :sym OR setup = :sym)
               AND DATE(candleTime) = DATE(:cdt)
+              AND status = 'OPEN'
         """)
     cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol, "cdt": candleDt}).scalar()
     return bool(cnt and cnt > 0)
@@ -905,7 +938,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
     hasSell = latestSig.get("hasSellSignal", False)
 
     openTrades = dbSession.execute(text("""
-        SELECT idTrade, symbol, direction, size, entryPrice, margin_used
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId
         FROM trades
         WHERE idCuenta = :idc
           AND strategy = :strat
@@ -923,48 +956,55 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         firstDir = str(openTrades[0]["direction"] or "LARGO").upper()
         isLong = "LARG" in firstDir or "BUY" in firstDir or "COMPRA" in firstDir
         avgEntryPx = sum(float(tr["entryPrice"] or px) for tr in openTrades) / len(openTrades)
-        stopLossRatio = CART_STOP_LOSS_PCT / 100.0
         if isLong:
-            stopTriggerPx = round(avgEntryPx * (1.0 - stopLossRatio), 5)
-            hitStopLoss = (px <= stopTriggerPx)
             hitCarReentry = (px <= cMax)
         else:
-            stopTriggerPx = round(avgEntryPx * (1.0 + stopLossRatio), 5)
-            hitStopLoss = (px >= stopTriggerPx)
             hitCarReentry = (px >= cMin)
 
-        shouldClose = hitStopLoss or hitCarReentry
+        shouldClose = hitCarReentry
 
         if shouldClose:
-            closeReasonComment = (
-                f"Cierre CART por Stop Loss (-{CART_STOP_LOSS_PCT:.2f}%)"
-                if hitStopLoss
-                else "Cierre CART por reingreso al CAR"
+            closeReasonComment = "Cierre CART por reingreso al CAR"
+            logger.info(
+                f"🎯 [CART] Reingreso al CAR detectado para {symbol} en Cuenta #{idCuenta} "
+                f"(Px={px:.5f}, Límite={cMax if isLong else cMin:.5f}). Cerrando {len(openTrades)} trade(s)..."
             )
-            if hitStopLoss:
-                logger.info(
-                    f"🛑 [CART] Stop Loss (-{CART_STOP_LOSS_PCT:.2f}%) activado para {symbol} en Cuenta #{idCuenta} "
-                    f"(Entrada={avgEntryPx:.5f}, Px={px:.5f}, Umbral={stopTriggerPx:.5f}). Cerrando {len(openTrades)} trade(s)..."
-                )
-            else:
-                logger.info(
-                    f"🎯 [CART] Reingreso al CAR detectado para {symbol} en Cuenta #{idCuenta} (Px={px}). Cerrando {len(openTrades)} trade(s)..."
-                )
             cleanSym = symbol.replace("/", "").upper()
             rowSym = dbSession.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
             pipSz = float(rowSym[0]) if rowSym and rowSym[0] else (0.01 if "JPY" in symbol else 0.0001)
 
             for tr in openTrades:
-                closeAct = "sell" if isLong else "buy"
-                sendWebhookOrder(idCuenta, symbol, closeAct, float(tr["size"] or 1000.0), px, closeReasonComment)
-                pnlVal, _, _, _ = calculate_unrealized_pnl(
+                closeAct = "close"
+                tId = str(tr["ticketId"] or "") if "ticketId" in tr and tr["ticketId"] else ""
+                idt = int(tr["idTrade"])
+                whRes = sendCartWebhookOrder(
+                    dbSession=dbSession,
+                    idCuenta=idCuenta,
                     symbol=symbol,
-                    direction=firstDir,
-                    entry_price=float(tr["entryPrice"] or px),
-                    current_price=px,
+                    action=closeAct,
                     size=float(tr["size"] or 1000.0),
-                    pip_size=pipSz
+                    price=px,
+                    ticketId=tId,
+                    idTrade=idt,
+                    comment=closeReasonComment
                 )
+                if not whRes.get("success"):
+                    logger.error(f"❌ [CART] Falló cierre en FOREX.com para Trade #{idt} (Ticket {tId}): {whRes.get('error')}. Se mantiene OPEN en BD para reintentar.")
+                    continue
+
+                exitFillPx = float(whRes.get("fill_price") or px)
+                reportedPnl = whRes.get("pnl")
+                if reportedPnl is not None:
+                    pnlVal = float(reportedPnl)
+                else:
+                    pnlVal, _, _, _ = calculate_unrealized_pnl(
+                        symbol=symbol,
+                        direction=firstDir,
+                        entry_price=float(tr["entryPrice"] or px),
+                        current_price=exitFillPx,
+                        size=float(tr["size"] or 1000.0),
+                        pip_size=pipSz
+                    )
                 dbSession.execute(text("""
                     UPDATE trades
                     SET status = 'CLOSED',
@@ -972,7 +1012,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                         pnl = :pnl,
                         closeTime = NOW()
                     WHERE idTrade = :idt
-                """), {"epx": px, "pnl": round(pnlVal, 2), "idt": tr["idTrade"]})
+                """), {"epx": exitFillPx, "pnl": round(pnlVal, 2), "idt": tr["idTrade"]})
             dbSession.commit()
 
             if str(cartRecord.get("accionCierre") or "Continua").strip().lower() == "para":
@@ -980,17 +1020,21 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                 dbSession.commit()
             return
 
-    if not openTrades and operar and (hasBuy or hasSell) and px is not None:
+    isPriceBelowCar = bool(px is not None and cMin is not None and px < cMin)
+    isPriceAboveCar = bool(px is not None and cMax is not None and px > cMax)
+    effectiveBuy = hasBuy or (isPriceAboveCar and not isPriceBelowCar)
+    effectiveSell = hasSell or (isPriceBelowCar and not isPriceAboveCar)
+
+    if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
         candleDt = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
         if checkCartTradeExistsForCandle(dbSession, idCuenta, symbol, candleDt, timeframe):
             logger.info(
-                f"🔒 [CART] [{symbol}] Candado de vela activo para Cuenta #{idCuenta}: "
-                f"Ya se operó en la vela {candleDt} ({timeframe}). Se omite re-entrada."
+                f"🔒 [CART] [{symbol}] Ya existe un trade OPEN en la vela {candleDt} ({timeframe}) para Cuenta #{idCuenta}. Se omite re-entrada."
             )
             return
 
-        directionStr = "LARGO" if hasBuy else "CORTO"
-        actionStr = "buy" if hasBuy else "sell"
+        directionStr = "LARGO" if effectiveBuy else "CORTO"
+        actionStr = "buy" if effectiveBuy else "sell"
         rowAcc = dbSession.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
         cap = float(rowAcc[0] or 1000.0) if rowAcc else 1000.0
         riesgoPct = float(rowAcc[1] or 1.0) if rowAcc else 1.0
@@ -1040,8 +1084,21 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             f"🚀 [CART] Entrada {directionStr} por ruptura de CAR en {symbol} "
             f"(Px={px}, Units={units:g}, Margen=${marginUsed:,.2f}, Ind.Margen={projectedIndicator:.1f}% >= {minMarginRequired:.0f}%) para Cuenta #{idCuenta}"
         )
-        whRes = sendWebhookOrder(idCuenta, symbol, actionStr, units, px, f"Entrada CART ({directionStr})")
-        ticketId = str(whRes.get("orderId") or "")
+        whRes = sendCartWebhookOrder(
+            dbSession=dbSession,
+            idCuenta=idCuenta,
+            symbol=symbol,
+            action=actionStr,
+            size=units,
+            price=px,
+            comment=f"Entrada CART ({directionStr})"
+        )
+        if not whRes.get("success"):
+            logger.error(f"❌ [CART] No se pudo ejecutar orden en Webhook para Cuenta #{idCuenta} {symbol}: {whRes.get('error')}")
+            return
+
+        ticketId = str(whRes.get("order_id") or "")
+        fillPrice = float(whRes.get("fill_price") or px)
 
         dbSession.execute(text("""
             INSERT INTO trades (
@@ -1060,11 +1117,12 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             "tf": timeframe,
             "cdt": candleDt,
             "sz": units,
-            "epx": px,
+            "epx": fillPrice,
             "mrg": marginUsed,
             "tkt": ticketId
         })
         dbSession.commit()
+        logger.info(f"✅ [CART] Trade insertado exitosamente en BD (idCuenta={idCuenta}, Ticket={ticketId}, Symbol={symbol}, Units={units:g}, Px={fillPrice})")
 
 
 def runCycle(isHourlyTick: bool = True) -> None:

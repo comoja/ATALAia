@@ -38,7 +38,12 @@ def is_usd_denominator(symbol: str) -> bool:
     if "/" in clean:
         parts = clean.split("/")
         return parts[1].strip() == "USD"
-    return clean.endswith("USD") and not clean.startswith("USD")
+    # Pares de divisas continuos de 6 letras (EURUSD, USDJPY)
+    if len(clean) == 6 and clean.isalpha():
+        return clean.endswith("USD") and not clean.startswith("USD")
+    # CFDs de índices, acciones y criptos (SPX500, NAS100, APPLE, QCOMM, ETHEREUM)
+    # cotizan en USD en FOREX.com: PnL = delta * cantidad (sin dividir entre el precio)
+    return True
 
 
 def calculate_unrealized_pnl(

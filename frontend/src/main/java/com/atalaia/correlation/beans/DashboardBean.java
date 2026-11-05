@@ -6463,6 +6463,7 @@ public class DashboardBean implements Serializable {
     private List<RealTradeItemDto> cartRealTradesList = new ArrayList<>();
     private RealTradesSummaryDto cartRealTradesSummary = new RealTradesSummaryDto();
     private String cartRealTradesEquityCurveJson = "[]";
+    private String cartRealTradesJson = "[]";
     private java.util.Date cartRealTradesStartDate = null;
     private java.util.Date cartRealTradesEndDate = null;
 
@@ -6475,7 +6476,13 @@ public class DashboardBean implements Serializable {
     public void selectStrategy(String strat) {
         this.activeStrategy = (strat != null && !strat.trim().isEmpty()) ? strat.trim().toUpperCase() : "RATIOS";
         if ("CART".equals(this.activeStrategy)) {
-            if (this.cartHistoryJson == null || "[]".equals(this.cartHistoryJson)) {
+            loadUserCartList();
+            loadCartActiveCycles();
+            if (this.selectedUserCart != null) {
+                onSelectUserCart(this.selectedUserCart);
+            } else if (this.userCartList != null && !this.userCartList.isEmpty()) {
+                onSelectUserCart(this.userCartList.get(0));
+            } else {
                 initCartState();
             }
         }
@@ -6573,6 +6580,7 @@ public class DashboardBean implements Serializable {
     public List<RealTradeItemDto> getCartRealTradesList() { return cartRealTradesList; }
     public RealTradesSummaryDto getCartRealTradesSummary() { return cartRealTradesSummary; }
     public String getCartRealTradesEquityCurveJson() { return cartRealTradesEquityCurveJson; }
+    public String getCartRealTradesJson() { return cartRealTradesJson != null ? cartRealTradesJson : "[]"; }
     public java.util.Date getCartRealTradesStartDate() { return cartRealTradesStartDate; }
     public void setCartRealTradesStartDate(java.util.Date cartRealTradesStartDate) { this.cartRealTradesStartDate = cartRealTradesStartDate; }
     public java.util.Date getCartRealTradesEndDate() { return cartRealTradesEndDate; }
@@ -6580,6 +6588,44 @@ public class DashboardBean implements Serializable {
 
     public List<ActiveCycleSummaryDto> getCartActiveCycles() { return cartActiveCycles; }
     public ActiveCycleSummaryDto getCartActiveCycleSummary() { return cartActiveCycleSummary; }
+
+    public String getCartActiveTradesJson() {
+        if (cartActiveCycleSummary != null && cartActiveCycleSummary.getTradesJson() != null && !cartActiveCycleSummary.getTradesJson().equals("[]")) {
+            return cartActiveCycleSummary.getTradesJson();
+        }
+        return "[]";
+    }
+
+    public void closeCartPosition(String symbol) {
+        if (isReadOnly()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes cerrar operaciones de otro usuario."));
+            return;
+        }
+        try {
+            Integer accId = this.selectedAccountId != null ? this.selectedAccountId : 2;
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("symbol", symbol);
+            payload.put("operar", 0);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/trades/close-cart/" + accId;
+            restTemplate.postForEntity(url, entity, String.class);
+            loadCartActiveCycles();
+            analyzeCartPair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Cierre RIDER", "Posición cerrada exitosamente para " + symbol));
+        } catch (Exception e) {
+            log.error("Error cerrando posición RIDER para {}: {}", symbol, e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error Cierre", "No se pudo cerrar la posición RIDER: " + e.getMessage()));
+        }
+    }
 
     public void initCartState() {
         try {
@@ -6665,6 +6711,23 @@ public class DashboardBean implements Serializable {
         this.cartExistsInDb = true;
         this.cartHasActiveTradesInDb = Boolean.TRUE.equals(cartDto.getHasOpenTrades());
         this.activeCartAccordionIndex = "1";
+        loadCartActiveCycles();
+        analyzeCartPair();
+        loadCartRealTradesMovimientos();
+    }
+
+    public void onSelectUserCartBySymbol(String symbol) {
+        if (symbol == null || symbol.trim().isEmpty()) return;
+        if (this.userCartList != null) {
+            for (UserRatioDto u : this.userCartList) {
+                if (symbol.equalsIgnoreCase(u.getNumerador()) || symbol.equalsIgnoreCase(u.getDenominador())) {
+                    onSelectUserCart(u);
+                    return;
+                }
+            }
+        }
+        this.selectedCartPair = symbol;
+        this.cartExistsInDb = false;
         analyzeCartPair();
         loadCartRealTradesMovimientos();
     }
@@ -6754,11 +6817,15 @@ public class DashboardBean implements Serializable {
                     this.cartBtTradesJson = btTrades.isArray() ? mapper.writeValueAsString(btTrades) : "[]";
 
                     List<SignalTradeDto> tList = new ArrayList<>();
+                    int btEntryCounter = 1;
                     if (btTrades.isArray()) {
                         for (JsonNode tn : btTrades) {
+                            if (tn.path("isSubtotal").asBoolean(false)) {
+                                continue;
+                            }
                             SignalTradeDto st = new SignalTradeDto();
-                            if (!tn.path("tradeNum").isNull()) st.setTradeNum(tn.path("tradeNum").asInt());
-                            st.setIsSubtotal(tn.path("isSubtotal").asBoolean(false));
+                            st.setTradeNum(btEntryCounter++);
+                            st.setIsSubtotal(false);
                             st.setIsSkipped(tn.path("isSkipped").asBoolean(false));
                             st.setIsOpen(tn.path("isOpen").asBoolean(false));
                             st.setDirection(tn.path("direction").asText(""));
@@ -6938,6 +7005,25 @@ public class DashboardBean implements Serializable {
                         dto.setDirA(n.path("dirA").asText("LARGO"));
                         dto.setFirstEntryDate(n.path("firstEntryDate").asText(""));
                         dto.setLastEntryDate(n.path("lastEntryDate").asText(""));
+
+                        List<ActiveTradeItemDto> tList = new ArrayList<>();
+                        if (n.has("trades") && n.path("trades").isArray()) {
+                            for (JsonNode trNode : n.path("trades")) {
+                                ActiveTradeItemDto ti = new ActiveTradeItemDto();
+                                ti.setIdTrade(trNode.path("idTrade").asInt(0));
+                                ti.setSymbol(trNode.path("symbol").asText(""));
+                                ti.setDirection(trNode.path("direction").asText(""));
+                                ti.setSize(trNode.path("size").asDouble(0.0));
+                                ti.setEntryPrice(trNode.path("entryPrice").asDouble(0.0));
+                                ti.setCurrentPrice(trNode.path("currentPrice").asDouble(0.0));
+                                ti.setMargin(trNode.path("margin").asDouble(0.0));
+                                ti.setPnl(trNode.path("pnl").asDouble(0.0));
+                                ti.setOpenTime(trNode.path("openTime").asText(""));
+                                tList.add(ti);
+                            }
+                        }
+                        dto.setTrades(tList);
+
                         this.cartActiveCycles.add(dto);
                     }
                 }
@@ -6951,8 +7037,13 @@ public class DashboardBean implements Serializable {
     private void updateCartActiveCycleSummaryForSelectedPair() {
         this.cartActiveCycleSummary = new ActiveCycleSummaryDto();
         if (this.cartActiveCycles != null && this.selectedCartPair != null) {
+            String selClean = this.selectedCartPair.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
             for (ActiveCycleSummaryDto c : this.cartActiveCycles) {
-                if (this.selectedCartPair.equalsIgnoreCase(c.getPairA()) || this.selectedCartPair.equalsIgnoreCase(c.getSetup())) {
+                String pairClean = c.getPairA() != null ? c.getPairA().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                String setupClean = c.getSetup() != null ? c.getSetup().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                if (selClean.equals(pairClean) || selClean.equals(setupClean)
+                        || this.selectedCartPair.equalsIgnoreCase(c.getPairA())
+                        || this.selectedCartPair.equalsIgnoreCase(c.getSetup())) {
                     this.cartActiveCycleSummary = c;
                     break;
                 }
@@ -7012,8 +7103,13 @@ public class DashboardBean implements Serializable {
 
                 List<RealTradeItemDto> items = new ArrayList<>();
                 JsonNode tArr = root.path("trades");
-                if (tArr.isArray()) {
+                this.cartRealTradesJson = (tArr != null && tArr.isArray()) ? mapper.writeValueAsString(tArr) : "[]";
+                int realEntryCounter = 1;
+                if (tArr != null && tArr.isArray()) {
                     for (JsonNode tn : tArr) {
+                        if (tn.path("isSubtotal").asBoolean(false)) {
+                            continue;
+                        }
                         RealTradeItemDto item = new RealTradeItemDto();
                         item.setIdTrade(tn.path("idTrade").asInt(0));
                         item.setTicketId(tn.path("ticketId").asText(""));
@@ -7028,7 +7124,7 @@ public class DashboardBean implements Serializable {
                         item.setCommission(tn.path("commission").asDouble(0.0));
                         item.setPnl(tn.path("pnl").asDouble(0.0));
                         item.setNetPnl(tn.path("netPnl").asDouble(0.0));
-                        item.setCycleNum(tn.path("cycleNum").asInt(1));
+                        item.setCycleNum(realEntryCounter++);
                         item.setIsSubtotal(false);
                         items.add(item);
                     }
