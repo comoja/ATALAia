@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from backend.services.signal_engine import signalEngine, SignalEngine
+from backend.core.pnl_calculator import calculate_margin
 
 logger = logging.getLogger("cruceEmaEngine")
 
@@ -231,8 +232,8 @@ class CruceEmaEngine:
                     "accumCapital": round(float(equity), 2),
                     "multA": t["multA"],
                     "multB": t["multB"],
-                    "unitsA": int(t["unitsA"]),
-                    "unitsB": int(t["unitsB"]),
+                    "unitsA": int(t["unitsA"]) if float(t["unitsA"]).is_integer() else round(float(t["unitsA"]), 4),
+                    "unitsB": int(t["unitsB"]) if float(t["unitsB"]).is_integer() else round(float(t["unitsB"]), 4),
                     "pipsA": round(float(pipsA), 1),
                     "pipsB": round(float(pipsB), 1),
                     "pnlA": round(float(pnlA), 2),
@@ -329,8 +330,8 @@ class CruceEmaEngine:
                 "accumCapital": round(float(equity), 2),
                 "multA": None,
                 "multB": None,
-                "unitsA": int(cycleUnitsA),
-                "unitsB": int(cycleUnitsB),
+                "unitsA": int(cycleUnitsA) if float(cycleUnitsA).is_integer() else round(float(cycleUnitsA), 4),
+                "unitsB": int(cycleUnitsB) if float(cycleUnitsB).is_integer() else round(float(cycleUnitsB), 4),
                 "pipsA": round(float(sum(ct["pipsA"] for ct in operatedCycleTrades if ct.get("pipsA") is not None)), 1),
                 "pipsB": round(float(sum(ct["pipsB"] for ct in operatedCycleTrades if ct.get("pipsB") is not None)), 1),
                 "pnlA": round(float(sum(ct["pnlA"] for ct in operatedCycleTrades if ct.get("pnlA") is not None)), 2),
@@ -560,8 +561,12 @@ class CruceEmaEngine:
                             cycleLastB = float(normBVals[i])
 
                 # 3. ABRIR NUEVA ENTRADA (O DETENER SI EL INDICADOR DE MARGEN BAJARÍA DE 200)
-                minMargen1LotA = minLotsA * margenRateA
-                minMargen1LotB = minLotsB * margenRateB
+                minMargen1LotA = calculate_margin(pairA, minLotsA, pxA, margenPctA) if pairA else (minLotsA * margenRateA)
+                minMargen1LotB = calculate_margin(pairB, minLotsB, pxB, margenPctB) if pairB else (minLotsB * margenRateB)
+                if minMargen1LotA <= 0:
+                    minMargen1LotA = minLotsA * margenRateA
+                if minMargen1LotB <= 0:
+                    minMargen1LotB = minLotsB * margenRateB
                 minReqMargen = minMargen1LotA + minMargen1LotB
 
                 currActiveMarginBefore = sum(t["margin"] for t in activeTrades)
@@ -611,8 +616,8 @@ class CruceEmaEngine:
                         projectedIndicator = (cycleStartEquity / projectedMargen) * 100.0 if (projectedMargen > 0 and cycleStartEquity > 0) else 0.0
 
                     if (totalMargen <= cycleAvailableEquity) and (projectedIndicator >= minMarginIndicator):
-                        unitsA = multA * minLotsA
-                        unitsB = multB * minLotsB
+                        unitsA = round(float(multA * minLotsA), 4)
+                        unitsB = round(float(multB * minLotsB), 4)
 
                         cycleAvailableEquity = max(0.0, cycleAvailableEquity - totalMargen)
 
@@ -713,8 +718,8 @@ class CruceEmaEngine:
                     "accumCapital": round(float(equity + tradePnl), 2),
                     "multA": t["multA"],
                     "multB": t["multB"],
-                    "unitsA": int(t["unitsA"]),
-                    "unitsB": int(t["unitsB"]),
+                    "unitsA": int(t["unitsA"]) if float(t["unitsA"]).is_integer() else round(float(t["unitsA"]), 4),
+                    "unitsB": int(t["unitsB"]) if float(t["unitsB"]).is_integer() else round(float(t["unitsB"]), 4),
                     "pipsA": round(float(pipsA), 1),
                     "pipsB": round(float(pipsB), 1),
                     "pnlA": round(float(pnlA), 2),
@@ -815,8 +820,8 @@ class CruceEmaEngine:
                 "accumCapital": round(float(equity + openPnl), 2),
                 "multA": None,
                 "multB": None,
-                "unitsA": int(openUnitsA),
-                "unitsB": int(openUnitsB),
+                "unitsA": int(openUnitsA) if float(openUnitsA).is_integer() else round(float(openUnitsA), 4),
+                "unitsB": int(openUnitsB) if float(openUnitsB).is_integer() else round(float(openUnitsB), 4),
                 "pipsA": round(float(sum(ot["pipsA"] for ot in operatedOpenTrades if ot.get("pipsA") is not None)), 1),
                 "pipsB": round(float(sum(ot["pipsB"] for ot in operatedOpenTrades if ot.get("pipsB") is not None)), 1),
                 "pnlA": round(float(sum(ot["pnlA"] for ot in operatedOpenTrades if ot.get("pnlA") is not None)), 2),

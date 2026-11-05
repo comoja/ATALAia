@@ -31,7 +31,7 @@ from backend.services.monthlyBalanceService import (
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UsuarioCuenta, Usuario
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UsuarioCuenta, Usuario
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -3629,26 +3629,40 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 if row_acc[1] is not None:
                     account_name = str(row_acc[1])
 
-        query = """
-            SELECT 
-                idTrade, idCuenta, strategy, setup, symbol, status, direction,
-                intervalo, pnl, candleTime, openTime, closeTime, size,
-                entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
-                commission, margin_used, ticketId
-            FROM trades
-            WHERE (
-                setup = :setupAB 
-                OR setup = :setupBA
-                OR ((setup IS NULL OR setup = '') AND symbol IN (:pA, :pB) AND (strategy LIKE '%%RATIO%%' OR (:strat IS NOT NULL AND strategy = :strat)))
-            )
-        """
-        params = {
-            "setupAB": setup_ab,
-            "setupBA": setup_ba,
-            "pA": pairA,
-            "pB": pairB,
-            "strat": strategy
-        }
+        is_cart_strategy = bool(strategy and "CART" in str(strategy).upper())
+        if is_cart_strategy:
+            query = """
+                SELECT 
+                    idTrade, idCuenta, strategy, setup, symbol, status, direction,
+                    intervalo, pnl, candleTime, openTime, closeTime, size,
+                    entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
+                    commission, margin_used, ticketId
+                FROM trades
+                WHERE strategy LIKE '%%CART%%'
+                  AND (symbol = :pA OR setup = :pA)
+            """
+            params = {"pA": pairA}
+        else:
+            query = """
+                SELECT 
+                    idTrade, idCuenta, strategy, setup, symbol, status, direction,
+                    intervalo, pnl, candleTime, openTime, closeTime, size,
+                    entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
+                    commission, margin_used, ticketId
+                FROM trades
+                WHERE (
+                    setup = :setupAB 
+                    OR setup = :setupBA
+                    OR ((setup IS NULL OR setup = '') AND symbol IN (:pA, :pB) AND (strategy LIKE '%%RATIO%%' OR (:strat IS NOT NULL AND strategy = :strat)))
+                )
+            """
+            params = {
+                "setupAB": setup_ab,
+                "setupBA": setup_ba,
+                "pA": pairA,
+                "pB": pairB,
+                "strat": strategy
+            }
         if idCuenta:
             query += " AND idCuenta = :idc"
             params["idc"] = idCuenta
@@ -3820,35 +3834,54 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 open_trades.append(t_dict)
                 total_margin_open += margin_val
 
-        # Configuración del Ratio desde user_ratios respetando la cuenta seleccionada y excluyendo borrados
+        # Configuración del Ratio / CART respetando la cuenta seleccionada y excluyendo borrados
         cleanA = pairA.replace("/", "").strip()
         cleanB = pairB.replace("/", "").strip()
 
         ratio_cfg = None
-        if idCuenta:
-            ratio_cfg = db_session.execute(text("""
-                SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
-                FROM user_ratios
-                WHERE (
-                    (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
-                    OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
-                )
-                AND idCuenta = :idc
-                AND (borrado = 0 OR borrado IS NULL)
-                ORDER BY id DESC LIMIT 1
-            """), {"cleanA": cleanA, "cleanB": cleanB, "idc": idCuenta}).fetchone()
+        if is_cart_strategy:
+            if idCuenta:
+                ratio_cfg = db_session.execute(text("""
+                    SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
+                    FROM userCART
+                    WHERE REPLACE(symbol, '/', '') = :cleanA
+                      AND idCuenta = :idc
+                      AND (borrado = 0 OR borrado IS NULL)
+                    ORDER BY id DESC LIMIT 1
+                """), {"cleanA": cleanA, "idc": idCuenta}).fetchone()
+            if not ratio_cfg:
+                ratio_cfg = db_session.execute(text("""
+                    SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
+                    FROM userCART
+                    WHERE REPLACE(symbol, '/', '') = :cleanA
+                      AND (borrado = 0 OR borrado IS NULL)
+                    ORDER BY id DESC LIMIT 1
+                """), {"cleanA": cleanA}).fetchone()
+        else:
+            if idCuenta:
+                ratio_cfg = db_session.execute(text("""
+                    SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
+                    FROM user_ratios
+                    WHERE (
+                        (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
+                        OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
+                    )
+                    AND idCuenta = :idc
+                    AND (borrado = 0 OR borrado IS NULL)
+                    ORDER BY id DESC LIMIT 1
+                """), {"cleanA": cleanA, "cleanB": cleanB, "idc": idCuenta}).fetchone()
 
-        if not ratio_cfg:
-            ratio_cfg = db_session.execute(text("""
-                SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
-                FROM user_ratios
-                WHERE (
-                    (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
-                    OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
-                )
-                AND (borrado = 0 OR borrado IS NULL)
-                ORDER BY id DESC LIMIT 1
-            """), {"cleanA": cleanA, "cleanB": cleanB}).fetchone()
+            if not ratio_cfg:
+                ratio_cfg = db_session.execute(text("""
+                    SELECT Temporalidad, periodo, EMARapida, EMALenta, operar 
+                    FROM user_ratios
+                    WHERE (
+                        (REPLACE(numerador, '/', '') = :cleanA AND REPLACE(denominador, '/', '') = :cleanB)
+                        OR (REPLACE(numerador, '/', '') = :cleanB AND REPLACE(denominador, '/', '') = :cleanA)
+                    )
+                    AND (borrado = 0 OR borrado IS NULL)
+                    ORDER BY id DESC LIMIT 1
+                """), {"cleanA": cleanA, "cleanB": cleanB}).fetchone()
 
         if ratio_cfg:
             ratio_timeframe = str(ratio_cfg[0] or "1h")
@@ -4324,12 +4357,15 @@ def api_restart_system_service(service_id: str):
             "mt5bridge": ("atalaia-5-atalaia", False),
             "frontend": ("atalaia-5-atalaia", False),
             "microratio": ("microRatio", False),
+            "microcart": ("microCart", False),
             "ngrok": ("ngrok", False)
         }
         if service_id not in unit_map:
             raise HTTPException(status_code=400, detail=f"Servicio no reiniciable o desconocido: {service_id}")
             
         unit, is_system = unit_map[service_id]
+        if not is_system:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=5)
         cmd = ["sudo", "systemctl", "restart", unit] if is_system else ["systemctl", "--user", "restart", unit]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         return {
@@ -4459,3 +4495,585 @@ def update_user_ratio_operar(payload: UserRatioOperarUpdate, db: Session = Depen
         db.rollback()
         logger.error(f"Error al actualizar operar: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINTS DE ESTRATEGIA CART (Canal Adaptativo de Ruido por Tendencia)
+# ==============================================================================
+
+class UserCartCreate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo / Par único a operar en CART")
+    Temporalidad: Optional[str] = Field("1h", description="Temporalidad (ej. 1h, 1d)")
+    periodo: Optional[Union[int, str]] = Field(180, description="Periodos de calibración")
+    dias: Optional[int] = Field(None, description="Alias de periodo")
+    EMARapida: Optional[int] = Field(2, description="Periodo RIDE / EMA Rápida")
+    EMALenta: Optional[int] = Field(20, description="Ventana CAR / EMA Lenta")
+    carWindow: Optional[int] = Field(20, description="Ventana de cálculo de ruido CAR")
+    carMultiplier: Optional[float] = Field(1.5, description="Multiplicador sigma del canal CAR")
+    operar: Optional[bool] = Field(False, description="Indica si genera órdenes automáticas")
+    tipoCierre: Optional[str] = Field("Tolerante", description="Régimen de salida")
+    umbralDiferencia: Optional[float] = Field(0.20, description="Umbral de diferencia")
+    salirBreakeven: Optional[bool] = Field(False, description="Indica salida en Break-Even")
+    tipoEntrada: Optional[str] = Field("Selectiva", description="Tipo de entrada")
+    accionCierre: Optional[str] = Field("Continua", description="Acción al cerrar: Continua o Para")
+    startDate: Optional[str] = Field(None, description="Fecha de inicio opcional")
+
+
+class UserCartDelete(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo a borrar de userCART")
+
+
+class UserCartOperarUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo en userCART")
+    operar: bool = Field(..., description="Indica si se generan órdenes para este par CART")
+
+
+@router.get("/user-cart/buscar")
+def findUserCart(
+    idUsuario: Optional[int] = None,
+    symbol: str = "",
+    idCuenta: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Busca la configuración de un par guardado en userCART por cuenta/usuario y symbol.
+    """
+    symbol = unquote(unquote(str(symbol or ""))).strip()
+    query = db.query(UserCart).filter(
+        UserCart.symbol == symbol,
+        (UserCart.borrado == False) | (UserCart.borrado == None)
+    )
+    if idCuenta:
+        query = query.filter(UserCart.idCuenta == idCuenta)
+    elif idUsuario:
+        query = query.filter(UserCart.idUsuario == idUsuario)
+
+    item = query.order_by(UserCart.id.desc()).first()
+    if not item:
+        return {"found": False, "hasOpenTrades": False}
+
+    has_open_trades = False
+    open_count = 0
+    if item.idCuenta:
+        cnt = db.execute(text("""
+            SELECT COUNT(*) FROM trades
+            WHERE idCuenta = :idc
+              AND strategy LIKE '%CART%'
+              AND (symbol = :sym OR setup = :sym)
+              AND status = 'OPEN'
+        """), {"idc": item.idCuenta, "sym": item.symbol}).scalar()
+        if cnt and cnt > 0:
+            has_open_trades = True
+            open_count = int(cnt)
+
+    return {
+        "found": True,
+        "id": item.id,
+        "idUsuario": item.idUsuario,
+        "idCuenta": item.idCuenta,
+        "symbol": item.symbol,
+        "Temporalidad": item.Temporalidad or "1h",
+        "temporalidad": item.Temporalidad or "1h",
+        "periodo": item.periodo or 180,
+        "dias": item.periodo or 180,
+        "EMARapida": item.EMARapida if item.EMARapida is not None else 2,
+        "EMALenta": item.EMALenta if item.EMALenta is not None else 20,
+        "carWindow": item.carWindow if item.carWindow is not None else 20,
+        "carMultiplier": float(item.carMultiplier if item.carMultiplier is not None else 1.5),
+        "operar": bool(item.operar),
+        "tipoCierre": item.tipoCierre or "Tolerante",
+        "umbralDiferencia": float(item.umbralDiferencia or 0.2),
+        "salirBreakeven": bool(item.salirBreakeven),
+        "tipoEntrada": item.tipoEntrada or "Selectiva",
+        "accionCierre": item.accionCierre or "Continua",
+        "createdAt": item.createdAt,
+        "hasOpenTrades": has_open_trades,
+        "openTradesCount": open_count
+    }
+
+
+@router.get("/user-cart/{idUsuario}")
+def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Obtiene todos los pares CART guardados en userCART para la cuenta o usuario.
+    """
+    if idCuenta:
+        query = db.query(UserCart).filter(
+            UserCart.idCuenta == idCuenta,
+            (UserCart.borrado == False) | (UserCart.borrado == None)
+        )
+    else:
+        query = db.query(UserCart).filter(
+            UserCart.idUsuario == idUsuario,
+            (UserCart.borrado == False) | (UserCart.borrado == None)
+        )
+    items = query.order_by(UserCart.id.desc()).all()
+
+    results = []
+    for r in items:
+        has_open = False
+        if r.idCuenta:
+            cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy LIKE '%CART%'
+                  AND (symbol = :sym OR setup = :sym)
+                  AND status = 'OPEN'
+            """), {"idc": r.idCuenta, "sym": r.symbol}).scalar()
+            if cnt and cnt > 0:
+                has_open = True
+
+        results.append({
+            "id": r.id,
+            "idUsuario": r.idUsuario,
+            "idCuenta": r.idCuenta,
+            "symbol": r.symbol,
+            "numerador": r.symbol,
+            "denominador": "",
+            "Temporalidad": r.Temporalidad or "1h",
+            "temporalidad": r.Temporalidad or "1h",
+            "periodo": r.periodo or 180,
+            "dias": r.periodo or 180,
+            "EMARapida": r.EMARapida if r.EMARapida is not None else 2,
+            "EMALenta": r.EMALenta if r.EMALenta is not None else 20,
+            "carWindow": r.carWindow if r.carWindow is not None else 20,
+            "carMultiplier": float(r.carMultiplier if r.carMultiplier is not None else 1.5),
+            "operar": bool(r.operar),
+            "tipoCierre": r.tipoCierre or "Tolerante",
+            "umbralDiferencia": float(r.umbralDiferencia or 0.2),
+            "salirBreakeven": bool(r.salirBreakeven),
+            "tipoEntrada": r.tipoEntrada or "Selectiva",
+            "accionCierre": r.accionCierre or "Continua",
+            "createdAt": r.createdAt,
+            "hasOpenTrades": has_open
+        })
+    return results
+
+
+@router.post("/user-cart/guardar")
+async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
+    """
+    Guarda o actualiza (UPSERT) en userCART la configuración de un par para la estrategia CART.
+    """
+    try:
+        payload.symbol = unquote(unquote(str(payload.symbol or ""))).strip()
+        cuentaId = payload.idCuenta
+        if not cuentaId:
+            uc = db.query(UsuarioCuenta).filter(
+                UsuarioCuenta.idUsuario == payload.idUsuario,
+                UsuarioCuenta.activo == True
+            ).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
+            cuentaId = uc.idCuenta if uc else 1
+
+        cnt = db.execute(text("""
+            SELECT COUNT(*) FROM trades
+            WHERE idCuenta = :idc
+              AND strategy LIKE '%CART%'
+              AND (symbol = :sym OR setup = :sym)
+              AND status = 'OPEN'
+        """), {"idc": cuentaId, "sym": payload.symbol}).scalar()
+        if cnt and cnt > 0:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": f"No se puede modificar {payload.symbol} en CART porque tiene posiciones abiertas en la cuenta."
+                }
+            )
+
+        query = db.query(UserCart).filter(
+            UserCart.idUsuario == payload.idUsuario,
+            UserCart.idCuenta == cuentaId,
+            UserCart.symbol == payload.symbol
+        )
+        existing = query.first()
+
+        temporalidad_val = payload.Temporalidad or "1h"
+        periodo_val = int(payload.periodo) if isinstance(payload.periodo, int) else (int(payload.dias) if payload.dias else 180)
+        ema_rapida = payload.EMARapida if payload.EMARapida is not None else 2
+        ema_lenta = payload.EMALenta if payload.EMALenta is not None else 20
+        car_win = payload.carWindow if payload.carWindow is not None else 20
+        car_mult = float(payload.carMultiplier) if payload.carMultiplier is not None else 1.5
+        operar_val = bool(payload.operar) if payload.operar is not None else False
+        tipo_cierre = str(payload.tipoCierre or "Tolerante").strip()
+        umbral_dif = float(payload.umbralDiferencia) if payload.umbralDiferencia is not None else 0.2
+        salir_be = bool(payload.salirBreakeven) if payload.salirBreakeven is not None else False
+        tipo_entrada = str(payload.tipoEntrada or "Selectiva")
+        accion_cierre = str(payload.accionCierre or "Continua")
+
+        if existing:
+            existing.Temporalidad = temporalidad_val
+            existing.periodo = periodo_val
+            existing.EMARapida = ema_rapida
+            existing.EMALenta = ema_lenta
+            existing.carWindow = car_win
+            existing.carMultiplier = car_mult
+            existing.operar = operar_val
+            existing.tipoCierre = tipo_cierre
+            existing.umbralDiferencia = umbral_dif
+            existing.salirBreakeven = salir_be
+            existing.tipoEntrada = tipo_entrada
+            existing.accionCierre = accion_cierre
+            existing.borrado = False
+            db.commit()
+            db.refresh(existing)
+            return {"status": "success", "message": "Configuración CART actualizada exitosamente", "id": existing.id, "idCuenta": cuentaId, "action": "updated"}
+        else:
+            nuevo = UserCart(
+                idUsuario=payload.idUsuario,
+                idCuenta=cuentaId,
+                symbol=payload.symbol,
+                Temporalidad=temporalidad_val,
+                periodo=periodo_val,
+                EMARapida=ema_rapida,
+                EMALenta=ema_lenta,
+                carWindow=car_win,
+                carMultiplier=car_mult,
+                operar=operar_val,
+                tipoCierre=tipo_cierre,
+                umbralDiferencia=umbral_dif,
+                salirBreakeven=salir_be,
+                tipoEntrada=tipo_entrada,
+                accionCierre=accion_cierre,
+                borrado=False,
+                createdAt=datetime.now().replace(microsecond=0)
+            )
+            db.add(nuevo)
+            db.commit()
+            db.refresh(nuevo)
+            return {"status": "success", "message": "Configuración CART guardada exitosamente", "id": nuevo.id, "idCuenta": cuentaId, "action": "created"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al guardar userCART: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-cart/borrar")
+def deleteUserCart(payload: UserCartDelete, db: Session = Depends(get_db)):
+    """
+    Elimina lógica o físicamente un par de userCART.
+    """
+    try:
+        query = db.query(UserCart).filter(
+            UserCart.idUsuario == payload.idUsuario,
+            UserCart.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserCart.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="No se encontró el par en userCART.")
+
+        targetAccount = item.idCuenta or payload.idCuenta
+        if targetAccount:
+            open_cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy LIKE '%CART%'
+                  AND (symbol = :sym OR setup = :sym)
+                  AND status = 'OPEN'
+            """), {"idc": targetAccount, "sym": payload.symbol}).scalar()
+            if open_cnt and open_cnt > 0:
+                raise HTTPException(status_code=400, detail=f"No se puede borrar {payload.symbol} porque tiene {open_cnt} posición(es) abierta(s).")
+
+            total_trades = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy LIKE '%CART%'
+                  AND (symbol = :sym OR setup = :sym)
+            """), {"idc": targetAccount, "sym": payload.symbol}).scalar() or 0
+        else:
+            total_trades = 0
+
+        if total_trades > 0:
+            item.borrado = True
+            item.operar = False
+            db.commit()
+            return {"status": "success", "action": "logical_delete", "message": f"Par CART {payload.symbol} archivado lógicamente."}
+        else:
+            db.delete(item)
+            db.commit()
+            return {"status": "success", "action": "physical_delete", "message": f"Par CART {payload.symbol} eliminado de la base de datos."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-cart/update-operar")
+def updateUserCartOperar(payload: UserCartOperarUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza el campo operar en userCART.
+    """
+    try:
+        query = db.query(UserCart).filter(
+            UserCart.idUsuario == payload.idUsuario,
+            UserCart.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserCart.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Par CART no encontrado")
+        item.operar = bool(payload.operar)
+        db.commit()
+        db.refresh(item)
+        return {"status": "success", "message": "Generar Órdenes CART actualizado", "operar": item.operar}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades/active-summary-cart/{idCuenta}")
+def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene las posiciones activas en trades para la estrategia CART ATALAia en la cuenta.
+    """
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, direction,
+               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime
+        FROM trades
+        WHERE idCuenta = :idc
+          AND status = 'OPEN'
+          AND strategy LIKE '%CART%'
+        ORDER BY symbol, openTime ASC, idTrade ASC
+    """)
+    rows = db.execute(sql, {"idc": idCuenta}).fetchall()
+    if not rows:
+        return []
+
+    by_symbol = {}
+    for r in rows:
+        sym = r.symbol or r.setup or "CART"
+        by_symbol.setdefault(sym, []).append(r)
+
+    results = []
+    for sym, t_list in by_symbol.items():
+        clean = sym.replace("/", "").upper()
+        live_price = get_live_price_from_mt5(sym)
+        row_s = db.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+        if live_price is None:
+            row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+            cur_px = float(row_c[0]) if row_c and row_c[0] else float(t_list[-1].entryPrice or 1.0)
+        else:
+            cur_px = float(live_price)
+
+        tot_margin = 0.0
+        tot_pnl = 0.0
+        tot_size = 0.0
+        w_entry = 0.0
+        open_dates = []
+        dir_str = ""
+        trade_items = []
+        for t in t_list:
+            sz = float(t.size or 0.0)
+            ep = float(t.entryPrice or cur_px)
+            mg = float(t.margin_used or 0.0)
+            d_str = str(t.direction or "LARGO").upper()
+            dir_str = d_str
+            tot_margin += mg
+            tot_size += sz
+            w_entry += ep * sz
+            item_pnl, pips, _, _ = calculate_unrealized_pnl(
+                symbol=sym,
+                direction=d_str,
+                entry_price=ep,
+                current_price=cur_px,
+                size=sz,
+                pip_size=pip_size
+            )
+            tot_pnl += item_pnl
+            dt_val = t.openTime or t.candleTime
+            if dt_val:
+                open_dates.append(dt_val.strftime("%Y-%m-%d %H:%M"))
+            trade_items.append({
+                "idTrade": t.idTrade,
+                "symbol": sym,
+                "direction": d_str,
+                "size": sz,
+                "entryPrice": ep,
+                "currentPrice": cur_px,
+                "margin": mg,
+                "pnl": round(item_pnl, 2),
+                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if dt_val else ""
+            })
+
+        avg_entry = (w_entry / tot_size) if tot_size > 0 else cur_px
+        ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
+        results.append({
+            "setup": sym,
+            "pairA": sym,
+            "pairB": "",
+            "totalOpenTrades": len(t_list),
+            "totalPnl": round(tot_pnl, 2),
+            "totalMargin": round(tot_margin, 2),
+            "returnPct": round(ret_pct, 2),
+            "avgEntryPriceA": round(avg_entry, 5),
+            "currentPriceA": round(cur_px, 5),
+            "sizeA": round(tot_size, 2),
+            "marginA": round(tot_margin, 2),
+            "pnlA": round(tot_pnl, 2),
+            "dirA": dir_str,
+            "firstEntryDate": open_dates[0] if open_dates else "",
+            "lastEntryDate": open_dates[-1] if open_dates else "",
+            "trades": trade_items
+        })
+    return results
+
+
+@router.get("/cart/analysis/{symbol:path}")
+async def getCartAnalysis(
+    symbol: str,
+    timeframe: str = "1h",
+    days: int = 180,
+    smaPeriod: int = 2,
+    carWindow: int = 20,
+    carMultiplier: float = 1.5,
+    start_date: str = "",
+    end_date: str = "",
+    idCuenta: Optional[int] = None,
+    initialCapital: float = 1000.0,
+    allocationPct: float = 1.0,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Obtiene el historial de precios reales (sin normalización) para un único par en CART,
+    junto con su Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ) y su BackTest de 4 meses.
+    """
+    try:
+        from backend.services.microCart import runCartBacktest, evaluateCartSignals
+        import pymysql
+
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        tf_lower = str(timeframe or "1h").lower().strip()
+        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+
+        account_capital = float(initialCapital or 1000.0)
+        allocation_pct = float(allocationPct or 1.0)
+        min_margin_ind = 200.0
+        if idCuenta:
+            row_acc = db.execute(
+                text("SELECT Capital, riesgoPorOperacion, ganancia, COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc"),
+                {"idc": idCuenta}
+            ).fetchone()
+            if row_acc:
+                if row_acc[0] is not None and float(row_acc[0]) > 0:
+                    account_capital = float(row_acc[0])
+                if row_acc[1] is not None and float(row_acc[1]) > 0:
+                    allocation_pct = float(row_acc[1])
+                elif row_acc[2] is not None and float(row_acc[2]) > 0:
+                    allocation_pct = float(row_acc[2])
+                if row_acc[3] is not None and float(row_acc[3]) > 0:
+                    min_margin_ind = float(row_acc[3])
+
+        clean_sym = symbol.replace("/", "").upper()
+        row_sym = db.execute(
+            text("SELECT min_lots, margen, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"),
+            {"s": clean_sym}
+        ).fetchone()
+        min_lots = float(row_sym[0]) if row_sym and row_sym[0] else 1000.0
+        margen_pct = float(row_sym[1]) if row_sym and row_sym[1] else 0.5
+        pip_size = float(row_sym[2]) if row_sym and row_sym[2] else (0.01 if "JPY" in symbol else 0.0001)
+
+        now_dt = datetime.now()
+        dt_bt_start = now_dt - timedelta(days=125)
+        dt_end = now_dt + timedelta(days=1)
+
+        if is_intraday:
+            def query_cart_candles(sym_str: str):
+                conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
+                try:
+                    sql = """
+                        SELECT timestamp, close as closePrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
+                    """
+                    df_res = pd.read_sql(sql, conn, params=(sym_str, dt_bt_start.strftime("%Y-%m-%d %H:%M:%S"), dt_end.strftime("%Y-%m-%d %H:%M:%S")))
+                    if df_res.empty:
+                        return pd.DataFrame()
+                    df_res["timestamp"] = pd.to_datetime(df_res["timestamp"])
+                    df_res = df_res.set_index("timestamp")
+                    df_res["closePrice"] = pd.to_numeric(df_res["closePrice"], errors="coerce")
+                    rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule = rule_map.get(tf_lower, "1h")
+                    return df_res.resample(rule).agg({"closePrice": "last"}).dropna()
+                finally:
+                    conn.close()
+
+            df_tf = await asyncio.to_thread(query_cart_candles, symbol)
+            if df_tf.empty:
+                df_tf = await getStockPricesFromDb(symbol=symbol, limit=5000)
+        else:
+            df_raw = await getStockPricesFromDb(symbol=symbol, limit=5000)
+            if df_raw.empty:
+                raise HTTPException(status_code=404, detail=f"Sin precios para {symbol}")
+            if tf_lower == "1month":
+                df_tf = df_raw.resample("ME").agg({"closePrice": "last"}).dropna()
+            elif tf_lower == "1week":
+                df_tf = df_raw.resample("W").agg({"closePrice": "last"}).dropna()
+            else:
+                df_tf = df_raw.resample("D").agg({"closePrice": "last"}).dropna()
+
+        live_px = get_live_price_from_mt5(symbol)
+        if len(df_tf) > 1 and live_px is not None:
+            df_tf.iloc[-1, df_tf.columns.get_loc("closePrice")] = live_px
+
+        # Backtest y cálculo completo de señales sobre ventana histórica completa (con calentamiento previo de EMA/CAR)
+        btResult = runCartBacktest(
+            df=df_tf,
+            symbol=symbol,
+            smaPeriod=smaPeriod,
+            carWindow=carWindow,
+            carMultiplier=carMultiplier,
+            initialCapital=account_capital,
+            allocationPct=allocation_pct,
+            minLots=min_lots,
+            margenPct=margen_pct,
+            pipSize=pip_size,
+            minMarginIndicator=min_margin_ind
+        )
+
+        # Recorte para la gráfica principal de calibración CART a partir de la serie ya calentada
+        full_hist = btResult.get("history", [])
+        calib_hist = full_hist[-max(30, int(days or 180)):] if full_hist else []
+        if start_date or end_date:
+            s_str = str(start_date).strip() if start_date else ""
+            e_str = str(end_date).strip() if end_date else ""
+            if len(e_str) == 10:
+                e_str = e_str + " 23:59:59"
+            calib_hist = [
+                h for h in full_hist
+                if (not s_str or str(h.get("datetime", "")) >= s_str)
+                and (not e_str or str(h.get("datetime", "")) <= e_str)
+            ]
+
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "days": days,
+            "smaPeriod": smaPeriod,
+            "carWindow": carWindow,
+            "carMultiplier": carMultiplier,
+            "initialCapital": account_capital,
+            "allocationPct": allocation_pct,
+            "minMarginIndicator": min_margin_ind,
+            "calibHistory": calib_hist,
+            "backtest": btResult
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en getCartAnalysis para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+

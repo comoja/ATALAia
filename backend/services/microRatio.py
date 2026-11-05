@@ -818,8 +818,8 @@ def openSingleRatioTradePair(
     multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA and margen1LotA > 0) else 1
     multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB and margen1LotB > 0) else 1
 
-    unitsA = multA * minLotsA
-    unitsB = multB * minLotsB
+    unitsA = round(multA * minLotsA, 4)
+    unitsB = round(multB * minLotsB, 4)
 
     candleDt = parseCandleDateTime(candleDateStr)
 
@@ -830,23 +830,23 @@ def openSingleRatioTradePair(
     chunksA = []
     if multiploA and multiploA > 0 and unitsA > multiploA:
         remA = float(unitsA)
-        while remA > 0:
-            cA = min(remA, float(multiploA))
+        while remA > 1e-9:
+            cA = round(min(remA, float(multiploA)), 4)
             chunksA.append(cA)
-            remA -= cA
+            remA = round(remA - cA, 4)
     else:
-        chunksA = [float(unitsA)]
+        chunksA = [round(float(unitsA), 4)]
 
     multiploB = symDataB.get("multiplo")
     chunksB = []
     if multiploB and multiploB > 0 and unitsB > multiploB:
         remB = float(unitsB)
-        while remB > 0:
-            cB = min(remB, float(multiploB))
+        while remB > 1e-9:
+            cB = round(min(remB, float(multiploB)), 4)
             chunksB.append(cB)
-            remB -= cB
+            remB = round(remB - cB, 4)
     else:
-        chunksB = [float(unitsB)]
+        chunksB = [round(float(unitsB), 4)]
 
     # Construir lista ordenada de todos los lotes a despachar
     lotsToExecute = []
@@ -872,6 +872,18 @@ def openSingleRatioTradePair(
             "margenPct": symDataB.get("margenPct", 0.5),
             "leg": "2"
         })
+
+    totalPlannedMargin = round(sum(
+        calculate_margin(lot["symbol"], float(lot["size"]), float(lot["entryPrice"]), lot.get("margenPct", 0.5))
+        for lot in lotsToExecute
+    ), 2)
+    if totalPlannedMargin > accountCapital:
+        logger.error(
+            f"⛔ [MARGEN INSUFICIENTE] [{setupName}] El margen requerido total (${totalPlannedMargin:,.2f} USD) "
+            f"para {numerador} ({unitsA:g} u) + {denominador} ({unitsB:g} u) supera el capital disponible "
+            f"(${accountCapital:,.2f} USD) de Cuenta #{idCuenta} ({accountName}). Se aborta antes de enviar a FOREX.com."
+        )
+        return False
 
     # Consultar brokers activos para la cuenta
     queryBrokers = text("""
@@ -949,7 +961,7 @@ def openSingleRatioTradePair(
                     "FOREX_USERNAME": encryptedAccountToken
                 }
 
-                logger.info(f"🌐 [Lote {idx+1}/{totalLotsCount}] Enviando a FOREX.com: {act.upper()} {sym} ({sz:,.0f} u) para {loginUsuario} ({nombreBroker})...")
+                logger.info(f"🌐 [Lote {idx+1}/{totalLotsCount}] Enviando a FOREX.com: {act.upper()} {sym} ({sz:g} u) para {loginUsuario} ({nombreBroker})...")
 
                 isConfirmed = False
                 orderId = None
@@ -1041,11 +1053,22 @@ def openSingleRatioTradePair(
             except Exception as exTel:
                 logger.error(f"Error despachando alerta Telegram de rollback: {exTel}")
                 
+            try:
+                dbSession.execute(text("SELECT 1"))
+            except Exception:
+                try:
+                    dbSession.rollback()
+                except Exception:
+                    pass
             return False
 
         # FASE 2: PERSISTENCIA ATÓMICA EN BASE DE DATOS (MYSQL)
         # Solo se ejecuta si TODOS los lotes del ratio están 100% confirmados por Forex
         try:
+            try:
+                dbSession.execute(text("SELECT 1"))
+            except Exception:
+                dbSession.rollback()
             for cLot in confirmedBrokerLots:
                 resInsert = dbSession.execute(insertTradeSql, {
                     "idCuenta": idCuenta,
@@ -2717,6 +2740,10 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
                     processSingleUserRatio(dbSession, r)
                     processedCount += 1
                 except Exception as exRatio:
+                    try:
+                        dbSession.rollback()
+                    except Exception:
+                        pass
                     logger.error(f"❌ Error procesando ratio ID #{r.get('id')} ({r.get('numerador')}/{r.get('denominador')}): {exRatio}", exc_info=True)
 
         except Exception as exGlobal:

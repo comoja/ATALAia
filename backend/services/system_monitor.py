@@ -106,6 +106,16 @@ class SystemMonitorService:
             "description": "Daemon de seguimiento horario de ratios, gestión de PnL y liquidación por convergencia."
         },
         {
+            "id": "microcart",
+            "name": "microCart Daemon",
+            "unit": "microCart",
+            "is_system": False,
+            "port": None,
+            "category": "Trading Cuantitativo",
+            "icon": "pi pi-sliders-h",
+            "description": "Daemon de la estrategia CART (Canal Adaptativo de Ruido por Tendencia) sobre un solo par."
+        },
+        {
             "id": "ngrok",
             "name": "Ngrok Tunnel (WebHook)",
             "unit": "ngrok",
@@ -217,6 +227,15 @@ class SystemMonitorService:
                 # Para subcomponentes de la suite (FastAPI, MT5, Frontend)
                 if svc_id in ["backend", "mt5bridge", "frontend"]:
                     is_active = is_listening or unit_info["active"]
+                elif svc_id in ["microratio", "microcart"] and not is_active:
+                    proc_match = "microRatio.py" if svc_id == "microratio" else "microCart.py"
+                    proc_info = cls.check_process(proc_match)
+                    if proc_info["active"]:
+                        is_active = True
+                        pid_info = ",".join(proc_info["pids"])
+                        want_link = os.path.expanduser(f"~/.config/systemd/user/default.target.wants/{svc['unit']}.service")
+                        if os.path.exists(want_link):
+                            auto_start = "Habilitado"
 
             # Si tiene puerto asociado y está escuchando, se considera activo
             if port and is_listening and not is_active:
@@ -318,6 +337,9 @@ class SystemMonitorService:
 
         if svc_lower in ["all", "microratio", "ratio"]:
             add_from_file("microRatio", f"{base_dir}/logs/microRatio.log", 30)
+
+        if svc_lower in ["all", "microcart", "cart"]:
+            add_from_file("microCart", f"{base_dir}/logs/microCart.log", 30)
 
         if svc_lower in ["all", "backend", "fastapi"]:
             add_from_file("Backend-FastAPI", f"{base_dir}/logs/backend_output.log", 25)

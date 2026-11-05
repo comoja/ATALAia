@@ -183,6 +183,35 @@ class UserRatio(Base):
     fixedMinB = Column(Float, nullable=True)
     fixedMaxB = Column(Float, nullable=True)
 
+class UserCart(Base):
+    """
+    Tabla de relación entre usuario, cuenta y pares guardados para la estrategia CART
+    (Canal Adaptativo de Ruido por Tendencia).
+    """
+    __tablename__ = "userCART"
+    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "symbol", name="ukUserCartSymbol"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
+    symbol = Column(String(20), nullable=False)
+    Temporalidad = Column(String(20), nullable=False, default="1h")
+    periodo = Column(Integer, default=180)
+    EMARapida = Column(Integer, default=2)
+    EMALenta = Column(Integer, default=20)
+    carWindow = Column(Integer, default=20)
+    carMultiplier = Column(Float, default=1.5)
+    operar = Column(Boolean, default=False)
+    tipoCierre = Column(String(20), default="Tolerante")
+    umbralDiferencia = Column(Float, default=0.2)
+    salirBreakeven = Column(Boolean, default=False)
+    tipoEntrada = Column(String(20), default="Selectiva")
+    accionCierre = Column(String(20), default="Continua")
+    borrado = Column(Boolean, default=False, nullable=False)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    fixedMin = Column(Float, nullable=True)
+    fixedMax = Column(Float, nullable=True)
+
 class UsuarioCuenta(Base):
     """
     Tabla de relación entre usuarios y cuentas de trading (1 usuario administra N cuentas).

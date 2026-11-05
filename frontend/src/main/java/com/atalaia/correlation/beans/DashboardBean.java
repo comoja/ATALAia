@@ -3002,6 +3002,7 @@ public class DashboardBean implements Serializable {
             loadDenominatorsReturns();
             analyzePair();
         }
+        initCartState();
     }
 
     public void refreshDashboard() {
@@ -3053,6 +3054,7 @@ public class DashboardBean implements Serializable {
             loadDenominatorsReturns();
             analyzePair();
         }
+        initCartState();
     }
 
     public void loadAllActiveCycles() {
@@ -4302,6 +4304,7 @@ public class DashboardBean implements Serializable {
                 org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion:userRatiosTable", "aetherForm:mainTabView:leftAccordion");
             }
         } catch (Exception ignored) {}
+        initCartState();
     }
 
     public void onUsuarioChange() {
@@ -4338,6 +4341,7 @@ public class DashboardBean implements Serializable {
                 org.primefaces.PrimeFaces.current().ajax().update("aetherForm:mainTabView:leftAccordion:userRatiosTable", "aetherForm:mainTabView:leftAccordion");
             }
         } catch (Exception ignored) {}
+        initCartState();
     }
 
     public void onOperarToggle() {
@@ -6415,6 +6419,625 @@ public class DashboardBean implements Serializable {
 
     public boolean getRatioEditBlocked() {
         return isRatioEditBlocked();
+    }
+
+    // =========================================================================
+    // ESTRATEGIA CART (Canal Adaptativo de Ruido por Tendencia) - 1 SOLO PAR
+    // =========================================================================
+    private String activeStrategy = "RATIOS"; // "RATIOS" o "CART"
+    private int activeCartTabIndex = 0;
+    private String activeCartAccordionIndex = "0";
+
+    private List<UserRatioDto> userCartList = new ArrayList<>();
+    private UserRatioDto selectedUserCart = null;
+    private Integer currentCartId = null;
+    private boolean cartExistsInDb = false;
+    private boolean cartHasActiveTradesInDb = false;
+
+    private String selectedCartPair = "EUR/USD";
+    private String cartTimeframe = "1h";
+    private Integer cartDaysBack = 180;
+    private Integer cartSmaPeriod = 2;
+    private Integer cartCarWindow = 20;
+    private Double cartCarMultiplier = 1.5;
+    private boolean cartOperar = false;
+    private String cartAccionCierre = "Continua";
+    private java.util.Date cartStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
+    private java.util.Date cartEndDate = new java.util.Date();
+
+    private String cartHistoryJson = "[]";
+    private String cartBtHistoryJson = "[]";
+    private String cartBtTradesJson = "[]";
+    private String cartBtEquityCurveJson = "[]";
+    private List<SignalTradeDto> cartBtTradesList = new ArrayList<>();
+    private SignalBacktestMetricsDto cartBtMetrics = new SignalBacktestMetricsDto();
+    private String cartBtStartDate = "-";
+    private String cartBtEndDate = "-";
+    private Integer cartBtTotalBars = 0;
+    private Integer cartBtTotalDays = 0;
+    private Integer cartBtTotalCycles = 0;
+    private Double cartBtAvgCycleHours = 0.0;
+    private Double cartBtInitialCapital = 1000.0;
+    private Double cartBtAllocationPct = 1.0;
+
+    private List<RealTradeItemDto> cartRealTradesList = new ArrayList<>();
+    private RealTradesSummaryDto cartRealTradesSummary = new RealTradesSummaryDto();
+    private String cartRealTradesEquityCurveJson = "[]";
+    private java.util.Date cartRealTradesStartDate = null;
+    private java.util.Date cartRealTradesEndDate = null;
+
+    private List<ActiveCycleSummaryDto> cartActiveCycles = new ArrayList<>();
+    private ActiveCycleSummaryDto cartActiveCycleSummary = new ActiveCycleSummaryDto();
+
+    public String getActiveStrategy() { return activeStrategy != null ? activeStrategy : "RATIOS"; }
+    public void setActiveStrategy(String activeStrategy) { this.activeStrategy = activeStrategy; }
+
+    public void selectStrategy(String strat) {
+        this.activeStrategy = (strat != null && !strat.trim().isEmpty()) ? strat.trim().toUpperCase() : "RATIOS";
+        if ("CART".equals(this.activeStrategy)) {
+            if (this.cartHistoryJson == null || "[]".equals(this.cartHistoryJson)) {
+                initCartState();
+            }
+        }
+    }
+
+    public int getActiveCartTabIndex() { return activeCartTabIndex; }
+    public void setActiveCartTabIndex(int activeCartTabIndex) { this.activeCartTabIndex = activeCartTabIndex; }
+
+    public String getActiveCartAccordionIndex() { return activeCartAccordionIndex; }
+    public void setActiveCartAccordionIndex(String activeCartAccordionIndex) { this.activeCartAccordionIndex = activeCartAccordionIndex; }
+
+    public void onCartTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.tabview.TabView) {
+            org.primefaces.component.tabview.TabView tv = (org.primefaces.component.tabview.TabView) event.getComponent();
+            this.activeCartTabIndex = tv.getActiveIndex();
+            if (this.activeCartTabIndex == 3) {
+                loadCartRealTradesMovimientos();
+            }
+        }
+    }
+
+    public void onCartAccordionTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.accordionpanel.AccordionPanel) {
+            org.primefaces.component.accordionpanel.AccordionPanel ap = (org.primefaces.component.accordionpanel.AccordionPanel) event.getComponent();
+            this.activeCartAccordionIndex = ap.getActiveIndex();
+        }
+    }
+
+    public List<UserRatioDto> getUserCartList() { return userCartList; }
+    public void setUserCartList(List<UserRatioDto> userCartList) { this.userCartList = userCartList; }
+    public UserRatioDto getSelectedUserCart() { return selectedUserCart; }
+    public void setSelectedUserCart(UserRatioDto selectedUserCart) { this.selectedUserCart = selectedUserCart; }
+    public Integer getCurrentCartId() { return currentCartId; }
+    public void setCurrentCartId(Integer currentCartId) { this.currentCartId = currentCartId; }
+    public boolean isCartExistsInDb() { return cartExistsInDb; }
+    public boolean isCartHasActiveTradesInDb() { return cartHasActiveTradesInDb; }
+    public boolean isCartEditBlocked() { return isReadOnly() || this.cartHasActiveTradesInDb; }
+
+    public String getCartCalibrationTabTitle() {
+        return (currentCartId != null && currentCartId > 0)
+                ? ("2. Calibración RIDER #" + currentCartId + " (" + selectedCartPair + ")")
+                : ("2. Calibración RIDER (" + selectedCartPair + ")");
+    }
+
+    public String getSelectedCartPair() { return selectedCartPair; }
+    public void setSelectedCartPair(String selectedCartPair) { this.selectedCartPair = selectedCartPair; }
+    public String getCartTimeframe() { return cartTimeframe; }
+    public void setCartTimeframe(String cartTimeframe) { this.cartTimeframe = cartTimeframe; }
+    public Integer getCartDaysBack() { return cartDaysBack; }
+    public void setCartDaysBack(Integer cartDaysBack) { this.cartDaysBack = cartDaysBack; }
+    public Integer getCartSmaPeriod() { return cartSmaPeriod; }
+    public void setCartSmaPeriod(Integer cartSmaPeriod) { this.cartSmaPeriod = cartSmaPeriod; }
+    public Integer getCartCarWindow() { return cartCarWindow; }
+    public void setCartCarWindow(Integer cartCarWindow) { this.cartCarWindow = cartCarWindow; }
+    public Double getCartCarMultiplier() { return cartCarMultiplier; }
+    public void setCartCarMultiplier(Double cartCarMultiplier) { this.cartCarMultiplier = cartCarMultiplier; }
+    public boolean isCartOperar() { return cartOperar; }
+    public void setCartOperar(boolean cartOperar) { this.cartOperar = cartOperar; }
+    public String getCartAccionCierre() { return cartAccionCierre; }
+    public void setCartAccionCierre(String cartAccionCierre) { this.cartAccionCierre = cartAccionCierre; }
+    public java.util.Date getCartStartDate() { return cartStartDate; }
+    public void setCartStartDate(java.util.Date cartStartDate) { this.cartStartDate = cartStartDate; }
+    public java.util.Date getCartEndDate() { return cartEndDate; }
+    public void setCartEndDate(java.util.Date cartEndDate) { this.cartEndDate = cartEndDate; }
+
+    public String getCartHistoryJson() { return cartHistoryJson; }
+    public void setCartHistoryJson(String cartHistoryJson) { this.cartHistoryJson = cartHistoryJson; }
+    public String getCartBtHistoryJson() { return cartBtHistoryJson; }
+    public void setCartBtHistoryJson(String cartBtHistoryJson) { this.cartBtHistoryJson = cartBtHistoryJson; }
+    public String getCartBtTradesJson() { return cartBtTradesJson; }
+    public void setCartBtTradesJson(String cartBtTradesJson) { this.cartBtTradesJson = cartBtTradesJson; }
+    public String getCartBtEquityCurveJson() { return cartBtEquityCurveJson; }
+    public void setCartBtEquityCurveJson(String cartBtEquityCurveJson) { this.cartBtEquityCurveJson = cartBtEquityCurveJson; }
+    public List<SignalTradeDto> getCartBtTradesList() { return cartBtTradesList; }
+    public SignalBacktestMetricsDto getCartBtMetrics() { return cartBtMetrics; }
+    public String getCartBtStartDate() { return cartBtStartDate; }
+    public String getCartBtEndDate() { return cartBtEndDate; }
+    public Integer getCartBtTotalBars() { return cartBtTotalBars; }
+    public Integer getCartBtTotalDays() { return cartBtTotalDays; }
+    public Integer getCartBtTotalCycles() { return cartBtTotalCycles; }
+    public String getFormattedCartBtTotalBars() { return String.format(java.util.Locale.US, "%,d", cartBtTotalBars != null ? cartBtTotalBars : 0); }
+    public String getFormattedCartBtTotalDays() { return String.format(java.util.Locale.US, "%,d", cartBtTotalDays != null ? cartBtTotalDays : 0); }
+    public String getFormattedCartBtTotalCycles() { return String.format(java.util.Locale.US, "%,d", cartBtTotalCycles != null ? cartBtTotalCycles : 0); }
+    public String getFormattedCartBtInitialCapital() { return String.format(java.util.Locale.US, "%,.2f", cartBtInitialCapital != null ? cartBtInitialCapital : 1000.0); }
+    public String getFormattedCartBtAllocationPct() { return String.format(java.util.Locale.US, "%.1f", cartBtAllocationPct != null ? cartBtAllocationPct : 1.0); }
+    public String getFormattedCartBtFinalCapital() { return String.format(java.util.Locale.US, "%,.2f", cartBtMetrics != null ? cartBtMetrics.getFinalCapital() : 1000.0); }
+    public String getFormattedCartBtTotalPnl() { return String.format(java.util.Locale.US, "%,.2f", cartBtMetrics != null ? cartBtMetrics.getNetProfit() : 0.0); }
+    public String getCartBtFormattedAvgCycleTime() {
+        double hrs = cartBtAvgCycleHours != null ? cartBtAvgCycleHours : 0.0;
+        if (hrs <= 0.0) return "—";
+        if (hrs >= 24.0) return String.format(java.util.Locale.US, "%.1f días", hrs / 24.0);
+        return String.format(java.util.Locale.US, "%.1f hrs", hrs);
+    }
+
+    public List<RealTradeItemDto> getCartRealTradesList() { return cartRealTradesList; }
+    public RealTradesSummaryDto getCartRealTradesSummary() { return cartRealTradesSummary; }
+    public String getCartRealTradesEquityCurveJson() { return cartRealTradesEquityCurveJson; }
+    public java.util.Date getCartRealTradesStartDate() { return cartRealTradesStartDate; }
+    public void setCartRealTradesStartDate(java.util.Date cartRealTradesStartDate) { this.cartRealTradesStartDate = cartRealTradesStartDate; }
+    public java.util.Date getCartRealTradesEndDate() { return cartRealTradesEndDate; }
+    public void setCartRealTradesEndDate(java.util.Date cartRealTradesEndDate) { this.cartRealTradesEndDate = cartRealTradesEndDate; }
+
+    public List<ActiveCycleSummaryDto> getCartActiveCycles() { return cartActiveCycles; }
+    public ActiveCycleSummaryDto getCartActiveCycleSummary() { return cartActiveCycleSummary; }
+
+    public void initCartState() {
+        try {
+            loadUserCartList();
+            loadCartActiveCycles();
+            if (this.userCartList != null && !this.userCartList.isEmpty()) {
+                UserRatioDto firstCart = this.userCartList.get(0);
+                onSelectUserCart(firstCart);
+            } else {
+                if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) {
+                    this.selectedCartPair = (this.selectedPair != null && !this.selectedPair.isEmpty()) ? this.selectedPair : "EUR/USD";
+                }
+                this.cartExistsInDb = false;
+                this.currentCartId = null;
+                this.cartOperar = false;
+                analyzeCartPair();
+                loadCartRealTradesMovimientos();
+            }
+        } catch (Exception e) {
+            log.warn("Error inicializando estado de CART: {}", e.getMessage());
+        }
+    }
+
+    public void loadUserCartList() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/user-cart/" + userId + (selectedAccountId != null ? "?idCuenta=" + selectedAccountId : "");
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UserRatioDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UserRatioDto dto = new UserRatioDto();
+                        dto.setId(item.path("id").asInt(0));
+                        dto.setIdUsuario(item.path("idUsuario").asInt(userId));
+                        dto.setIdCuenta(item.path("idCuenta").asInt(selectedAccountId != null ? selectedAccountId : 1));
+                        String sym = item.path("symbol").asText(item.path("numerador").asText("EUR/USD"));
+                        dto.setNumerador(sym);
+                        dto.setDenominador("");
+                        dto.setTemporalidad(item.path("Temporalidad").asText("1h"));
+                        dto.setPeriodo(item.path("periodo").asInt(180));
+                        dto.setEmaRapida(item.path("EMARapida").asInt(2));
+                        dto.setEmaLenta(item.path("carWindow").asInt(20));
+                        dto.setOperar(item.path("operar").asBoolean(false));
+                        dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
+                        dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
+                        dto.setCreatedAt(item.path("createdAt").asText(""));
+                        list.add(dto);
+                    }
+                }
+            }
+            this.userCartList = list;
+        } catch (Exception e) {
+            log.error("Error cargando userCART list: {}", e.getMessage());
+            this.userCartList = new ArrayList<>();
+        }
+    }
+
+    public void onCartRowSelect(org.primefaces.event.SelectEvent<UserRatioDto> event) {
+        if (event != null && event.getObject() != null) {
+            onSelectUserCart(event.getObject());
+        }
+    }
+
+    public void onSelectUserCart(UserRatioDto cartDto) {
+        if (cartDto == null) return;
+        this.selectedUserCart = cartDto;
+        this.currentCartId = cartDto.getId();
+        this.selectedCartPair = cartDto.getNumerador();
+        this.cartTimeframe = cartDto.getTemporalidad() != null ? cartDto.getTemporalidad() : "1h";
+        this.cartDaysBack = cartDto.getPeriodo() != null ? cartDto.getPeriodo() : 180;
+        this.cartSmaPeriod = cartDto.getEmaRapida() != null ? cartDto.getEmaRapida() : 2;
+        this.cartCarWindow = cartDto.getEmaLenta() != null ? cartDto.getEmaLenta() : 20;
+        this.cartOperar = Boolean.TRUE.equals(cartDto.getOperar());
+        this.cartAccionCierre = cartDto.getAccionCierre() != null ? cartDto.getAccionCierre() : "Continua";
+        this.cartExistsInDb = true;
+        this.cartHasActiveTradesInDb = Boolean.TRUE.equals(cartDto.getHasOpenTrades());
+        this.activeCartAccordionIndex = "1";
+        analyzeCartPair();
+        loadCartRealTradesMovimientos();
+    }
+
+    public void onCartSymbolChange() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            String encSym = java.net.URLEncoder.encode(this.selectedCartPair != null ? this.selectedCartPair : "EUR/USD", "UTF-8");
+            String url = backendUrl + "/api/v1/user-cart/buscar?symbol=" + encSym
+                    + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "&idUsuario=" + userId);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(resp);
+                if (node.path("found").asBoolean(false)) {
+                    this.cartExistsInDb = true;
+                    this.currentCartId = node.path("id").asInt(0);
+                    this.cartTimeframe = node.path("Temporalidad").asText("1h");
+                    this.cartDaysBack = node.path("periodo").asInt(180);
+                    this.cartSmaPeriod = node.path("EMARapida").asInt(2);
+                    this.cartCarWindow = node.path("carWindow").asInt(20);
+                    this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.5);
+                    this.cartOperar = node.path("operar").asBoolean(false);
+                    this.cartAccionCierre = node.path("accionCierre").asText("Continua");
+                    this.cartHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
+                } else {
+                    this.cartExistsInDb = false;
+                    this.currentCartId = null;
+                    this.cartOperar = false;
+                    this.cartHasActiveTradesInDb = false;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error buscando par CART: {}", e.getMessage());
+        }
+        analyzeCartPair();
+        loadCartRealTradesMovimientos();
+    }
+
+    public void analyzeCartPair() {
+        try {
+            if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) {
+                this.selectedCartPair = "EUR/USD";
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedCartPair, "UTF-8");
+            String url = String.format(java.util.Locale.US,
+                    "%s/api/v1/cart/analysis/%s?timeframe=%s&days=%d&smaPeriod=%d&carWindow=%d&carMultiplier=%.2f%s",
+                    backendUrl,
+                    encSym,
+                    this.cartTimeframe != null ? this.cartTimeframe : "1h",
+                    this.cartDaysBack != null ? this.cartDaysBack : 180,
+                    this.cartSmaPeriod != null ? this.cartSmaPeriod : 2,
+                    this.cartCarWindow != null ? this.cartCarWindow : 20,
+                    this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.5,
+                    this.selectedAccountId != null ? ("&idCuenta=" + this.selectedAccountId) : ""
+            );
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                this.cartBtInitialCapital = root.path("initialCapital").asDouble(1000.0);
+                this.cartBtAllocationPct = root.path("allocationPct").asDouble(1.0);
+
+                JsonNode calibHist = root.path("calibHistory");
+                this.cartHistoryJson = calibHist.isArray() ? mapper.writeValueAsString(calibHist) : "[]";
+
+                JsonNode bt = root.path("backtest");
+                if (!bt.isMissingNode()) {
+                    this.cartBtStartDate = bt.path("startDate").asText("-");
+                    this.cartBtEndDate = bt.path("endDate").asText("-");
+                    this.cartBtTotalBars = bt.path("totalBars").asInt(0);
+                    this.cartBtTotalDays = bt.path("totalDays").asInt(0);
+                    this.cartBtTotalCycles = bt.path("totalCycles").asInt(0);
+                    this.cartBtAvgCycleHours = bt.path("avgCycleHours").asDouble(0.0);
+
+                    JsonNode btHist = bt.path("history");
+                    this.cartBtHistoryJson = btHist.isArray() ? mapper.writeValueAsString(btHist) : "[]";
+
+                    JsonNode btEq = bt.path("equityCurve");
+                    this.cartBtEquityCurveJson = btEq.isArray() ? mapper.writeValueAsString(btEq) : "[]";
+
+                    JsonNode btTrades = bt.path("trades");
+                    this.cartBtTradesJson = btTrades.isArray() ? mapper.writeValueAsString(btTrades) : "[]";
+
+                    List<SignalTradeDto> tList = new ArrayList<>();
+                    if (btTrades.isArray()) {
+                        for (JsonNode tn : btTrades) {
+                            SignalTradeDto st = new SignalTradeDto();
+                            if (!tn.path("tradeNum").isNull()) st.setTradeNum(tn.path("tradeNum").asInt());
+                            st.setIsSubtotal(tn.path("isSubtotal").asBoolean(false));
+                            st.setIsSkipped(tn.path("isSkipped").asBoolean(false));
+                            st.setIsOpen(tn.path("isOpen").asBoolean(false));
+                            st.setDirection(tn.path("direction").asText(""));
+                            st.setSignalType(tn.path("signalType").asText(""));
+                            st.setEntryDate(tn.path("entryDate").asText(""));
+                            st.setExitDate(tn.path("exitDate").asText(""));
+                            st.setDurationBars(tn.path("durationBars").asInt(1));
+                            st.setEntryPriceA(tn.path("entryPriceA").asDouble(0.0));
+                            st.setExitPriceA(tn.path("exitPriceA").asDouble(0.0));
+                            st.setAllocatedCapital(tn.path("allocatedCapital").asDouble(0.0));
+                            st.setMarginA(tn.path("marginA").asDouble(0.0));
+                            st.setUnitsA(tn.path("unitsA").asInt(0));
+                            st.setMultA(tn.path("multA").asInt(1));
+                            st.setAvailableCapital(tn.path("availableCapital").asDouble(0.0));
+                            st.setPeakCapitalRequired(tn.path("peakCapitalRequired").asDouble(0.0));
+                            st.setMarginIndicator(tn.path("marginIndicator").asDouble(0.0));
+                            st.setReturnPct(tn.path("returnPct").asDouble(0.0));
+                            st.setPnl(tn.path("pnl").asDouble(0.0));
+                            st.setPnlA(tn.path("pnlA").asDouble(0.0));
+                            st.setPipsA(tn.path("pipsA").asDouble(0.0));
+                            st.setIsWin(tn.path("isWin").asBoolean(true));
+                            st.setAccumCapital(tn.path("accumCapital").asDouble(this.cartBtInitialCapital));
+                            tList.add(st);
+                        }
+                    }
+                    this.cartBtTradesList = tList;
+
+                    JsonNode mNode = bt.path("metrics");
+                    SignalBacktestMetricsDto mDto = new SignalBacktestMetricsDto();
+                    mDto.setTotalTrades(mNode.path("totalTrades").asInt(0));
+                    mDto.setWinningTrades(mNode.path("winningTrades").asInt(0));
+                    mDto.setLosingTrades(mNode.path("losingTrades").asInt(0));
+                    mDto.setWinRate(mNode.path("winRate").asDouble(0.0));
+                    mDto.setNetProfit(mNode.path("netProfit").asDouble(0.0));
+                    mDto.setTotalReturnPct(mNode.path("totalReturnPct").asDouble(0.0));
+                    mDto.setProfitFactor(mNode.path("profitFactor").asDouble(0.0));
+                    mDto.setSharpeRatio(mNode.path("sharpeRatio").asDouble(0.0));
+                    mDto.setMaxDrawdown(mNode.path("maxDrawdown").asDouble(0.0));
+                    mDto.setFinalCapital(mNode.path("finalCapital").asDouble(this.cartBtInitialCapital));
+                    mDto.setAvgReturnPerCycle(mNode.path("avgReturnPerCycle").asDouble(0.0));
+                    mDto.setAvgPnlPerCycle(mNode.path("avgPnlPerCycle").asDouble(0.0));
+                    mDto.setAvgEntriesPerCycle(mNode.path("avgEntriesPerCycle").asDouble(0.0));
+                    mDto.setTotalCycles(mNode.path("totalCycles").asInt(0));
+                    this.cartBtMetrics = mDto;
+                }
+            }
+            updateCartActiveCycleSummaryForSelectedPair();
+        } catch (Exception e) {
+            log.error("Error en analyzeCartPair: {}", e.getMessage());
+        }
+    }
+
+    public void guardarCart() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedCartPair);
+            payload.put("Temporalidad", this.cartTimeframe != null ? this.cartTimeframe : "1h");
+            payload.put("periodo", this.cartDaysBack != null ? this.cartDaysBack : 180);
+            payload.put("EMARapida", this.cartSmaPeriod != null ? this.cartSmaPeriod : 2);
+            payload.put("carWindow", this.cartCarWindow != null ? this.cartCarWindow : 20);
+            payload.put("carMultiplier", this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.5);
+            payload.put("operar", this.cartOperar);
+            payload.put("accionCierre", this.cartAccionCierre != null ? this.cartAccionCierre : "Continua");
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/guardar", entity, String.class);
+            this.cartExistsInDb = true;
+            loadUserCartList();
+            analyzeCartPair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "RIDER Guardado", "Se guardó la configuración RIDER para " + this.selectedCartPair));
+        } catch (Exception e) {
+            log.error("Error guardando CART: {}", e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Guardar RIDER", e.getMessage()));
+        }
+    }
+
+    public void borrarCart() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedCartPair);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/borrar", entity, String.class);
+            this.cartExistsInDb = false;
+            this.currentCartId = null;
+            this.cartOperar = false;
+            loadUserCartList();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "RIDER Eliminado", "Se eliminó el par " + this.selectedCartPair + " de RIDER."));
+        } catch (Exception e) {
+            log.error("Error borrando CART: {}", e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Borrar RIDER", e.getMessage()));
+        }
+    }
+
+    public void onCartOperarToggle() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedCartPair);
+            payload.put("operar", this.cartOperar);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/update-operar", entity, String.class);
+            loadUserCartList();
+            String estado = this.cartOperar ? "ACTIVADA" : "DESACTIVADA";
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Generar Órdenes RIDER", "Generación de órdenes " + estado + " para " + this.selectedCartPair));
+        } catch (Exception e) {
+            log.error("Error actualizando operar en CART: {}", e.getMessage());
+        }
+    }
+
+    public void loadCartActiveCycles() {
+        this.cartActiveCycles = new ArrayList<>();
+        if (this.selectedAccountId == null) return;
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = backendUrl + "/api/v1/trades/active-summary-cart/" + this.selectedAccountId;
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode arr = mapper.readTree(resp);
+                if (arr.isArray()) {
+                    for (JsonNode n : arr) {
+                        ActiveCycleSummaryDto dto = new ActiveCycleSummaryDto();
+                        dto.setHasActiveCycle(true);
+                        dto.setSetup(n.path("setup").asText(""));
+                        dto.setPairA(n.path("pairA").asText(""));
+                        dto.setPairB("");
+                        dto.setTotalOpenTrades(n.path("totalOpenTrades").asInt(0));
+                        dto.setTotalPnl(n.path("totalPnl").asDouble(0.0));
+                        dto.setTotalMargin(n.path("totalMargin").asDouble(0.0));
+                        dto.setReturnPct(n.path("returnPct").asDouble(0.0));
+                        dto.setAvgEntryPriceA(n.path("avgEntryPriceA").asDouble(0.0));
+                        dto.setCurrentPriceA(n.path("currentPriceA").asDouble(0.0));
+                        dto.setSizeA(n.path("sizeA").asDouble(0.0));
+                        dto.setMarginA(n.path("marginA").asDouble(0.0));
+                        dto.setPnlA(n.path("pnlA").asDouble(0.0));
+                        dto.setDirA(n.path("dirA").asText("LARGO"));
+                        dto.setFirstEntryDate(n.path("firstEntryDate").asText(""));
+                        dto.setLastEntryDate(n.path("lastEntryDate").asText(""));
+                        this.cartActiveCycles.add(dto);
+                    }
+                }
+            }
+            updateCartActiveCycleSummaryForSelectedPair();
+        } catch (Exception e) {
+            log.warn("Error cargando posiciones activas CART: {}", e.getMessage());
+        }
+    }
+
+    private void updateCartActiveCycleSummaryForSelectedPair() {
+        this.cartActiveCycleSummary = new ActiveCycleSummaryDto();
+        if (this.cartActiveCycles != null && this.selectedCartPair != null) {
+            for (ActiveCycleSummaryDto c : this.cartActiveCycles) {
+                if (this.selectedCartPair.equalsIgnoreCase(c.getPairA()) || this.selectedCartPair.equalsIgnoreCase(c.getSetup())) {
+                    this.cartActiveCycleSummary = c;
+                    break;
+                }
+            }
+        }
+    }
+
+    public void loadCartRealTradesMovimientos() {
+        try {
+            if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) {
+                this.selectedCartPair = "EUR/USD";
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedCartPair, "UTF-8");
+            String encStrat = java.net.URLEncoder.encode("CART ATALAia", "UTF-8");
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startParam = (this.cartRealTradesStartDate != null) ? ("&startDate=" + sdf.format(this.cartRealTradesStartDate)) : "";
+            String endParam = (this.cartRealTradesEndDate != null) ? ("&endDate=" + sdf.format(this.cartRealTradesEndDate)) : "";
+            String accParam = (this.selectedAccountId != null) ? ("&idCuenta=" + this.selectedAccountId) : "";
+
+            String url = String.format("%s/api/v1/trades/movimientos/%s?pairB=%s&strategy=%s%s%s%s",
+                    backendUrl, encSym, encSym, encStrat, accParam, startParam, endParam);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode sNode = root.path("summary");
+                RealTradesSummaryDto sum = new RealTradesSummaryDto();
+                sum.setTotalTrades(sNode.path("totalTrades").asInt(0));
+                sum.setOpenTrades(sNode.path("openTrades").asInt(0));
+                sum.setClosedTrades(sNode.path("closedTrades").asInt(0));
+                sum.setWinningTrades(sNode.path("winningTrades").asInt(0));
+                sum.setLosingTrades(sNode.path("losingTrades").asInt(0));
+                sum.setWinRate(sNode.path("winRate").asDouble(0.0));
+                sum.setProfitFactor(sNode.path("profitFactor").asDouble(0.0));
+                sum.setTotalPnl(sNode.path("totalPnl").asDouble(0.0));
+                sum.setTotalCommission(sNode.path("totalCommission").asDouble(0.0));
+                sum.setNetProfit(sNode.path("netProfit").asDouble(0.0));
+                sum.setTotalReturnPct(sNode.path("totalReturnPct").asDouble(0.0));
+                sum.setInitialCapital(sNode.path("initialCapital").asDouble(1000.0));
+                sum.setCurrentCapital(sNode.path("currentCapital").asDouble(1000.0));
+                sum.setTotalMarginUsed(sNode.path("totalMarginUsed").asDouble(0.0));
+                sum.setAccountName(sNode.path("accountName").asText(""));
+                sum.setTotalCycles(sNode.path("totalCycles").asInt(0));
+                sum.setStartDate(sNode.path("startDate").asText("-"));
+                sum.setEndDate(sNode.path("endDate").asText("-"));
+                sum.setTotalDays(sNode.path("totalDays").asInt(0));
+                sum.setAvgCycleHours(sNode.path("avgCycleHours").asDouble(0.0));
+                sum.setAvgCycleDays(sNode.path("avgCycleDays").asDouble(0.0));
+                sum.setRatioTimeframe(sNode.path("ratioTimeframe").asText(this.cartTimeframe));
+                sum.setRatioEmaRapida(sNode.path("ratioEmaRapida").asInt(this.cartSmaPeriod != null ? this.cartSmaPeriod : 2));
+                sum.setRatioOperar(sNode.path("ratioOperar").asBoolean(this.cartOperar));
+                this.cartRealTradesSummary = sum;
+
+                JsonNode eqNode = root.path("equityCurve");
+                this.cartRealTradesEquityCurveJson = eqNode.isArray() ? mapper.writeValueAsString(eqNode) : "[]";
+
+                List<RealTradeItemDto> items = new ArrayList<>();
+                JsonNode tArr = root.path("trades");
+                if (tArr.isArray()) {
+                    for (JsonNode tn : tArr) {
+                        RealTradeItemDto item = new RealTradeItemDto();
+                        item.setIdTrade(tn.path("idTrade").asInt(0));
+                        item.setTicketId(tn.path("ticketId").asText(""));
+                        item.setSymbol(tn.path("symbol").asText(this.selectedCartPair));
+                        item.setDirection(tn.path("direction").asText("LARGO"));
+                        item.setStatus(tn.path("status").asText("CLOSED"));
+                        item.setSize(tn.path("size").asDouble(0.0));
+                        if (!tn.path("entryPrice").isNull()) item.setEntryPrice(tn.path("entryPrice").asDouble());
+                        if (!tn.path("exitPrice").isNull()) item.setExitPrice(tn.path("exitPrice").asDouble());
+                        item.setOpenTime(tn.path("openTime").asText(""));
+                        item.setCloseTime(tn.path("closeTime").asText(""));
+                        item.setCommission(tn.path("commission").asDouble(0.0));
+                        item.setPnl(tn.path("pnl").asDouble(0.0));
+                        item.setNetPnl(tn.path("netPnl").asDouble(0.0));
+                        item.setCycleNum(tn.path("cycleNum").asInt(1));
+                        item.setIsSubtotal(false);
+                        items.add(item);
+                    }
+                }
+                this.cartRealTradesList = items;
+            }
+        } catch (Exception e) {
+            log.warn("Error cargando movimientos reales de CART: {}", e.getMessage());
+        }
     }
 
 }
