@@ -4929,6 +4929,92 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     return results
 
 
+@router.post("/trades/close-cart/{idCuenta}")
+async def manual_close_cart(
+    idCuenta: int,
+    raw_req: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Cierra manualmente una posición RIDER (CART) desde la interfaz gráfica.
+    Envía orden de cierre al Webhook hacia FOREX.com y actualiza trades y userCART.
+    """
+    body = {}
+    try:
+        body = await raw_req.json()
+    except Exception:
+        pass
+    symbol = body.get("symbol")
+    targetOperar = int(body.get("operar", 0))
+
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+
+    from backend.services.microCart import sendCartWebhookOrder, calculate_unrealized_pnl
+
+    openTrades = db.execute(text("""
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId
+        FROM trades
+        WHERE idCuenta = :idc
+          AND strategy LIKE '%CART%'
+          AND (symbol = :sym OR setup = :sym)
+          AND status = 'OPEN'
+        ORDER BY idTrade ASC
+    """), {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
+
+    if not openTrades:
+        raise HTTPException(status_code=404, detail="No active trades found for this symbol")
+
+    cleanSym = symbol.replace("/", "").upper()
+    rowSym = db.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
+    pipSz = float(rowSym[0]) if rowSym and rowSym[0] else (0.01 if "JPY" in symbol else 0.0001)
+
+    px = None
+    rowPx = db.execute(text("SELECT closePrice FROM stockprices WHERE symbol = :sym ORDER BY priceDate DESC LIMIT 1"), {"sym": symbol}).fetchone()
+    if rowPx and rowPx[0]:
+        px = float(rowPx[0])
+
+    for tr in openTrades:
+        tId = str(tr["ticketId"] or "") if "ticketId" in tr and tr["ticketId"] else ""
+        idt = int(tr["idTrade"])
+        epx = float(tr["entryPrice"] or (px or 1.0))
+        curPx = px or epx
+        closeReason = f"Cierre manual RIDER desde Dashboard ({symbol})"
+
+        whRes = sendCartWebhookOrder(
+            dbSession=db,
+            idCuenta=idCuenta,
+            symbol=symbol,
+            action="close",
+            size=float(tr["size"] or 1000.0),
+            price=curPx,
+            ticketId=tId,
+            idTrade=idt,
+            comment=closeReason
+        )
+        fillPx = float(whRes.get("fill_price") or curPx) if whRes.get("success") else curPx
+        pnlVal, _, _, _ = calculate_unrealized_pnl(
+            symbol=symbol,
+            direction=str(tr["direction"] or "CORTO").upper(),
+            entry_price=epx,
+            current_price=fillPx,
+            size=float(tr["size"] or 1000.0),
+            pip_size=pipSz
+        )
+        db.execute(text("""
+            UPDATE trades
+            SET status = 'CLOSED',
+                exitPrice = :epx,
+                pnl = :pnl,
+                closeTime = NOW()
+            WHERE idTrade = :idt
+        """), {"epx": fillPx, "pnl": round(pnlVal, 2), "idt": idt})
+
+    db.execute(text("UPDATE userCART SET operar = :op WHERE idCuenta = :idc AND (symbol = :sym)"), {"op": targetOperar, "idc": idCuenta, "sym": symbol})
+    db.commit()
+    return {"status": "success", "message": f"Posiciones RIDER para {symbol} cerradas exitosamente"}
+
+
 @router.get("/cart/analysis/{symbol:path}")
 async def getCartAnalysis(
     symbol: str,
