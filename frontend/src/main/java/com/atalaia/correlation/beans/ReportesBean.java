@@ -72,6 +72,16 @@ public class ReportesBean implements Serializable {
     // Listado de Movimientos de Capital
     private List<MovimientoCapitalDto> movimientosCapitalList = new ArrayList<>();
 
+    // Resumen y Detalle por Estrategia
+    private List<EstrategiaResumenDto> resumenEstrategias = new ArrayList<>();
+    private List<EstrategiaDetalleDto> detalleEstrategias = new ArrayList<>();
+
+    public List<EstrategiaResumenDto> getResumenEstrategias() { return resumenEstrategias; }
+    public void setResumenEstrategias(List<EstrategiaResumenDto> resumenEstrategias) { this.resumenEstrategias = resumenEstrategias; }
+
+    public List<EstrategiaDetalleDto> getDetalleEstrategias() { return detalleEstrategias; }
+    public void setDetalleEstrategias(List<EstrategiaDetalleDto> detalleEstrategias) { this.detalleEstrategias = detalleEstrategias; }
+
     public String getNuevoTipo() { return nuevoTipo; }
     public void setNuevoTipo(String nuevoTipo) { this.nuevoTipo = nuevoTipo; }
 
@@ -288,9 +298,74 @@ public class ReportesBean implements Serializable {
                         this.tradesList.add(tr);
                     }
                 }
+
+                // 1. Parsear Resumen por Estrategia
+                this.resumenEstrategias.clear();
+                JsonNode resStratNode = data.path("resumenPorEstrategia");
+                if (resStratNode.isArray()) {
+                    for (JsonNode rs : resStratNode) {
+                        EstrategiaResumenDto ed = new EstrategiaResumenDto();
+                        ed.setEstrategia(rs.path("estrategia").asText(""));
+                        ed.setTotalTrades(rs.path("totalTrades").asInt(0));
+                        ed.setTradesGanadores(rs.path("tradesGanadores").asInt(0));
+                        ed.setTradesPerdedores(rs.path("tradesPerdedores").asInt(0));
+                        ed.setWinRate(rs.path("winRate").asDouble(0.0));
+                        ed.setLotes(rs.path("lotes").asDouble(0.0));
+                        ed.setPnlBruto(rs.path("pnlBruto").asDouble(0.0));
+                        ed.setComisiones(rs.path("comisiones").asDouble(0.0));
+                        ed.setPnlNeto(rs.path("pnlNeto").asDouble(0.0));
+                        ed.setContribucionPct(rs.path("contribucionPct").asDouble(0.0));
+                        this.resumenEstrategias.add(ed);
+                    }
+                }
+
+                // 2. Parsear Detalle por Estrategia
+                this.detalleEstrategias.clear();
+                JsonNode detStratNode = data.path("detallePorEstrategia");
+                if (detStratNode.isArray()) {
+                    for (JsonNode ds : detStratNode) {
+                        EstrategiaDetalleDto det = new EstrategiaDetalleDto();
+                        det.setEstrategia(ds.path("estrategia").asText(""));
+
+                        JsonNode rNode = ds.path("resumen");
+                        EstrategiaResumenDto rDto = new EstrategiaResumenDto();
+                        rDto.setEstrategia(rNode.path("estrategia").asText(""));
+                        rDto.setTotalTrades(rNode.path("totalTrades").asInt(0));
+                        rDto.setTradesGanadores(rNode.path("tradesGanadores").asInt(0));
+                        rDto.setTradesPerdedores(rNode.path("tradesPerdedores").asInt(0));
+                        rDto.setWinRate(rNode.path("winRate").asDouble(0.0));
+                        rDto.setLotes(rNode.path("lotes").asDouble(0.0));
+                        rDto.setPnlBruto(rNode.path("pnlBruto").asDouble(0.0));
+                        rDto.setComisiones(rNode.path("comisiones").asDouble(0.0));
+                        rDto.setPnlNeto(rNode.path("pnlNeto").asDouble(0.0));
+                        rDto.setContribucionPct(rNode.path("contribucionPct").asDouble(0.0));
+                        det.setResumen(rDto);
+
+                        JsonNode trList = ds.path("trades");
+                        if (trList.isArray()) {
+                            for (JsonNode t : trList) {
+                                TradeReportDto tr = new TradeReportDto();
+                                tr.setIdTrade(t.path("idTrade").asInt());
+                                tr.setSetup(t.path("setup").asText());
+                                tr.setSymbol(t.path("symbol").asText());
+                                tr.setDirection(t.path("direction").asText());
+                                tr.setSize(t.path("size").asDouble());
+                                tr.setEntryPrice(t.path("entryPrice").asDouble());
+                                tr.setExitPrice(t.path("exitPrice").asDouble());
+                                tr.setPnl(t.path("pnl").asDouble());
+                                tr.setCommission(t.path("commission").asDouble());
+                                tr.setCloseTime(t.path("closeTime").asText());
+                                tr.setTicketId(t.path("ticketId").asText("-"));
+                                det.getTrades().add(tr);
+                            }
+                        }
+                        this.detalleEstrategias.add(det);
+                    }
+                }
+
                 this.consultado = true;
-                log.info("Estado de cuenta cargado con éxito: {} trades, Saldo Inicial={}, Saldo Final={}",
-                        this.tradesList.size(), this.saldoInicial, this.saldoFinal);
+                log.info("Estado de cuenta cargado con éxito: {} trades, {} estrategias, Saldo Inicial={}, Saldo Final={}",
+                        this.tradesList.size(), this.resumenEstrategias.size(), this.saldoInicial, this.saldoFinal);
             }
         } catch (Exception e) {
             log.error("Error al consultar estado de cuenta mensual: {}", e.getMessage(), e);
@@ -486,5 +561,63 @@ public class ReportesBean implements Serializable {
         public void setCloseTime(String closeTime) { this.closeTime = closeTime; }
         public String getTicketId() { return ticketId; }
         public void setTicketId(String ticketId) { this.ticketId = ticketId; }
+    }
+
+    public static class EstrategiaResumenDto implements Serializable {
+        private String estrategia = "";
+        private Integer totalTrades = 0;
+        private Integer tradesGanadores = 0;
+        private Integer tradesPerdedores = 0;
+        private Double winRate = 0.0;
+        private Double lotes = 0.0;
+        private Double pnlBruto = 0.0;
+        private Double comisiones = 0.0;
+        private Double pnlNeto = 0.0;
+        private Double contribucionPct = 0.0;
+
+        public String getEstrategia() { return estrategia; }
+        public void setEstrategia(String estrategia) { this.estrategia = estrategia; }
+
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+
+        public Integer getTradesGanadores() { return tradesGanadores; }
+        public void setTradesGanadores(Integer tradesGanadores) { this.tradesGanadores = tradesGanadores; }
+
+        public Integer getTradesPerdedores() { return tradesPerdedores; }
+        public void setTradesPerdedores(Integer tradesPerdedores) { this.tradesPerdedores = tradesPerdedores; }
+
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+
+        public Double getLotes() { return lotes; }
+        public void setLotes(Double lotes) { this.lotes = lotes; }
+
+        public Double getPnlBruto() { return pnlBruto; }
+        public void setPnlBruto(Double pnlBruto) { this.pnlBruto = pnlBruto; }
+
+        public Double getComisiones() { return comisiones; }
+        public void setComisiones(Double comisiones) { this.comisiones = comisiones; }
+
+        public Double getPnlNeto() { return pnlNeto; }
+        public void setPnlNeto(Double pnlNeto) { this.pnlNeto = pnlNeto; }
+
+        public Double getContribucionPct() { return contribucionPct; }
+        public void setContribucionPct(Double contribucionPct) { this.contribucionPct = contribucionPct; }
+    }
+
+    public static class EstrategiaDetalleDto implements Serializable {
+        private String estrategia = "";
+        private EstrategiaResumenDto resumen = new EstrategiaResumenDto();
+        private List<TradeReportDto> trades = new ArrayList<>();
+
+        public String getEstrategia() { return estrategia; }
+        public void setEstrategia(String estrategia) { this.estrategia = estrategia; }
+
+        public EstrategiaResumenDto getResumen() { return resumen; }
+        public void setResumen(EstrategiaResumenDto resumen) { this.resumen = resumen; }
+
+        public List<TradeReportDto> getTrades() { return trades; }
+        public void setTrades(List<TradeReportDto> trades) { this.trades = trades; }
     }
 }

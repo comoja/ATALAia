@@ -410,7 +410,8 @@ public class DashboardBean implements Serializable {
         public String getFormattedCurrentPrice() { return String.format(java.util.Locale.US, "%,.5f", currentPrice); }
         public String getFormattedMargin() { return String.format(java.util.Locale.US, "%,.2f", margin); }
         public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
-        public String getFormattedUnits() { return String.format(java.util.Locale.US, "%,.0f", size); }
+        public String getFormattedUnits() { return ActiveCycleSummaryDto.formatSizeDisplay(size); }
+        public String getFormattedSize() { return ActiveCycleSummaryDto.formatSizeDisplay(size); }
     }
 
     public static class ActiveEntryGroupDto implements java.io.Serializable {
@@ -541,8 +542,22 @@ public class DashboardBean implements Serializable {
         public double getCurrentPriceB() { return currentPriceB; }
         public void setCurrentPriceB(double currentPriceB) { this.currentPriceB = currentPriceB; }
 
-        public String getFormattedSizeA() { return String.format(java.util.Locale.US, "%,.0f", sizeA); }
-        public String getFormattedSizeB() { return String.format(java.util.Locale.US, "%,.0f", sizeB); }
+        public static String formatSizeDisplay(double val) {
+            if (val == 0.0) return "0";
+            if (Math.abs(val - Math.round(val)) > 1e-5) {
+                if (Math.abs(val * 100.0 - Math.round(val * 100.0)) > 1e-4) {
+                    return String.format(java.util.Locale.US, "%,.4f", val);
+                }
+                return String.format(java.util.Locale.US, "%,.2f", val);
+            }
+            if (val > 0.0 && val < 10.0) {
+                return String.format(java.util.Locale.US, "%,.2f", val);
+            }
+            return String.format(java.util.Locale.US, "%,.0f", val);
+        }
+
+        public String getFormattedSizeA() { return formatSizeDisplay(sizeA); }
+        public String getFormattedSizeB() { return formatSizeDisplay(sizeB); }
         public String getFormattedAvgEntryPriceA() {
             if (pairA != null && pairA.contains("JPY")) {
                 return String.format(java.util.Locale.US, "%,.3f", avgEntryPriceA);
@@ -1223,7 +1238,7 @@ public class DashboardBean implements Serializable {
             return netPnl >= 0 ? "#15803d" : "#dc2626";
         }
 
-        public String getFormattedSize() { return String.format(java.util.Locale.US, "%,.0f", size); }
+        public String getFormattedSize() { return ActiveCycleSummaryDto.formatSizeDisplay(size); }
         public String getFormattedEntryPrice() { return entryPrice != null ? String.format(java.util.Locale.US, "%.5f", entryPrice) : "-"; }
         public String getFormattedExitPrice() {
             if (isOpen()) {
@@ -2523,6 +2538,7 @@ public class DashboardBean implements Serializable {
         private Integer periodo;
         private Integer emaRapida;
         private Integer emaLenta;
+        private Double carMultiplier = 1.0;
         private Boolean operar;
         private String createdAt;
         private Boolean hasOpenTrades = false;
@@ -2582,6 +2598,8 @@ public class DashboardBean implements Serializable {
         public void setEmaRapida(Integer emaRapida) { this.emaRapida = emaRapida; }
         public Integer getEmaLenta() { return emaLenta; }
         public void setEmaLenta(Integer emaLenta) { this.emaLenta = emaLenta; }
+        public Double getCarMultiplier() { return carMultiplier != null ? carMultiplier : 1.0; }
+        public void setCarMultiplier(Double carMultiplier) { this.carMultiplier = carMultiplier; }
         public Boolean getOperar() { return operar; }
         public void setOperar(Boolean operar) { this.operar = operar; }
         public String getCreatedAt() { return createdAt; }
@@ -6435,11 +6453,11 @@ public class DashboardBean implements Serializable {
     private boolean cartHasActiveTradesInDb = false;
 
     private String selectedCartPair = "EUR/USD";
-    private String cartTimeframe = "1h";
+    private String cartTimeframe = "1min";
     private Integer cartDaysBack = 180;
     private Integer cartSmaPeriod = 2;
     private Integer cartCarWindow = 20;
-    private Double cartCarMultiplier = 1.5;
+    private Double cartCarMultiplier = 1.0;
     private boolean cartOperar = false;
     private String cartAccionCierre = "Continua";
     private java.util.Date cartStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
@@ -6523,7 +6541,7 @@ public class DashboardBean implements Serializable {
 
     public String getCartCalibrationTabTitle() {
         return (currentCartId != null && currentCartId > 0)
-                ? ("2. Calibración RIDER #" + currentCartId + " (" + selectedCartPair + ")")
+                ? ("2. Calibración RIDER " + currentCartId + " (" + selectedCartPair + ")")
                 : ("2. Calibración RIDER (" + selectedCartPair + ")");
     }
 
@@ -6581,6 +6599,7 @@ public class DashboardBean implements Serializable {
     public RealTradesSummaryDto getCartRealTradesSummary() { return cartRealTradesSummary; }
     public String getCartRealTradesEquityCurveJson() { return cartRealTradesEquityCurveJson; }
     public String getCartRealTradesJson() { return cartRealTradesJson != null ? cartRealTradesJson : "[]"; }
+    public void setCartRealTradesJson(String cartRealTradesJson) { this.cartRealTradesJson = cartRealTradesJson; }
     public java.util.Date getCartRealTradesStartDate() { return cartRealTradesStartDate; }
     public void setCartRealTradesStartDate(java.util.Date cartRealTradesStartDate) { this.cartRealTradesStartDate = cartRealTradesStartDate; }
     public java.util.Date getCartRealTradesEndDate() { return cartRealTradesEndDate; }
@@ -6594,6 +6613,33 @@ public class DashboardBean implements Serializable {
             return cartActiveCycleSummary.getTradesJson();
         }
         return "[]";
+    }
+    public void setCartActiveTradesJson(String cartActiveTradesJson) {
+        // No-op para compatibilidad con JSF Update Model phase
+    }
+
+    public String getCartActiveCycleSummaryJson() {
+        if (cartActiveCycleSummary == null || !cartActiveCycleSummary.isHasActiveCycle() || cartActiveCycleSummary.getTotalOpenTrades() <= 0) {
+            return "{\"hasActiveCycle\":false,\"totalOpenTrades\":0,\"totalPnl\":0.0,\"formattedTotalPnl\":\"0.00\",\"returnPct\":0.0,\"formattedReturnPct\":\"0.0%\",\"dirA\":\"\",\"isBuyA\":true}";
+        }
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.Map<String, Object> map = new java.util.HashMap<>();
+            map.put("hasActiveCycle", true);
+            map.put("totalOpenTrades", cartActiveCycleSummary.getTotalOpenTrades());
+            map.put("totalPnl", cartActiveCycleSummary.getTotalPnl());
+            map.put("formattedTotalPnl", cartActiveCycleSummary.getFormattedTotalPnl());
+            map.put("returnPct", cartActiveCycleSummary.getReturnPct());
+            map.put("formattedReturnPct", cartActiveCycleSummary.getFormattedReturnPct());
+            map.put("dirA", cartActiveCycleSummary.getDirA() != null ? cartActiveCycleSummary.getDirA() : "");
+            map.put("isBuyA", cartActiveCycleSummary.isBuyA());
+            return mapper.writeValueAsString(map);
+        } catch (Exception e) {
+            return "{\"hasActiveCycle\":false,\"totalOpenTrades\":0,\"totalPnl\":0.0,\"formattedTotalPnl\":\"0.00\",\"returnPct\":0.0,\"formattedReturnPct\":\"0.0%\",\"dirA\":\"\",\"isBuyA\":true}";
+        }
+    }
+    public void setCartActiveCycleSummaryJson(String cartActiveCycleSummaryJson) {
+        // No-op para compatibilidad con JSF Update Model phase
     }
 
     public void closeCartPosition(String symbol) {
@@ -6629,11 +6675,40 @@ public class DashboardBean implements Serializable {
 
     public void initCartState() {
         try {
+            String prevAccordion = this.activeCartAccordionIndex;
+            Integer prevCartId = (this.selectedUserCart != null && this.selectedUserCart.getId() != null)
+                    ? this.selectedUserCart.getId()
+                    : this.currentCartId;
+            String prevSymbol = this.selectedCartPair;
+
             loadUserCartList();
             loadCartActiveCycles();
+
             if (this.userCartList != null && !this.userCartList.isEmpty()) {
-                UserRatioDto firstCart = this.userCartList.get(0);
-                onSelectUserCart(firstCart);
+                UserRatioDto targetCart = null;
+                if (prevCartId != null) {
+                    for (UserRatioDto u : this.userCartList) {
+                        if (prevCartId.equals(u.getId())) {
+                            targetCart = u;
+                            break;
+                        }
+                    }
+                }
+                if (targetCart == null && prevSymbol != null && !prevSymbol.trim().isEmpty()) {
+                    for (UserRatioDto u : this.userCartList) {
+                        if (prevSymbol.equalsIgnoreCase(u.getNumerador())) {
+                            targetCart = u;
+                            break;
+                        }
+                    }
+                }
+                if (targetCart == null) {
+                    targetCart = this.userCartList.get(0);
+                }
+                onSelectUserCart(targetCart);
+                if (prevAccordion != null && !prevAccordion.trim().isEmpty()) {
+                    this.activeCartAccordionIndex = prevAccordion;
+                }
             } else {
                 if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) {
                     this.selectedCartPair = (this.selectedPair != null && !this.selectedPair.isEmpty()) ? this.selectedPair : "EUR/USD";
@@ -6676,6 +6751,11 @@ public class DashboardBean implements Serializable {
                         dto.setPeriodo(item.path("periodo").asInt(180));
                         dto.setEmaRapida(item.path("EMARapida").asInt(2));
                         dto.setEmaLenta(item.path("carWindow").asInt(20));
+                        if (item.has("carMultiplier") && !item.get("carMultiplier").isNull()) {
+                            dto.setCarMultiplier(item.path("carMultiplier").asDouble(1.0));
+                        } else {
+                            dto.setCarMultiplier(1.0);
+                        }
                         dto.setOperar(item.path("operar").asBoolean(false));
                         dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
                         dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
@@ -6702,10 +6782,11 @@ public class DashboardBean implements Serializable {
         this.selectedUserCart = cartDto;
         this.currentCartId = cartDto.getId();
         this.selectedCartPair = cartDto.getNumerador();
-        this.cartTimeframe = cartDto.getTemporalidad() != null ? cartDto.getTemporalidad() : "1h";
+        this.cartTimeframe = cartDto.getTemporalidad() != null ? cartDto.getTemporalidad() : "1min";
         this.cartDaysBack = cartDto.getPeriodo() != null ? cartDto.getPeriodo() : 180;
         this.cartSmaPeriod = cartDto.getEmaRapida() != null ? cartDto.getEmaRapida() : 2;
         this.cartCarWindow = cartDto.getEmaLenta() != null ? cartDto.getEmaLenta() : 20;
+        this.cartCarMultiplier = cartDto.getCarMultiplier() != null ? cartDto.getCarMultiplier() : 1.0;
         this.cartOperar = Boolean.TRUE.equals(cartDto.getOperar());
         this.cartAccionCierre = cartDto.getAccionCierre() != null ? cartDto.getAccionCierre() : "Continua";
         this.cartExistsInDb = true;
@@ -6748,11 +6829,11 @@ public class DashboardBean implements Serializable {
                 if (node.path("found").asBoolean(false)) {
                     this.cartExistsInDb = true;
                     this.currentCartId = node.path("id").asInt(0);
-                    this.cartTimeframe = node.path("Temporalidad").asText("1h");
+                    this.cartTimeframe = node.path("Temporalidad").asText("1min");
                     this.cartDaysBack = node.path("periodo").asInt(180);
                     this.cartSmaPeriod = node.path("EMARapida").asInt(2);
                     this.cartCarWindow = node.path("carWindow").asInt(20);
-                    this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.5);
+                    this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.0);
                     this.cartOperar = node.path("operar").asBoolean(false);
                     this.cartAccionCierre = node.path("accionCierre").asText("Continua");
                     this.cartHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
@@ -6780,11 +6861,11 @@ public class DashboardBean implements Serializable {
                     "%s/api/v1/cart/analysis/%s?timeframe=%s&days=%d&smaPeriod=%d&carWindow=%d&carMultiplier=%.2f%s",
                     backendUrl,
                     encSym,
-                    this.cartTimeframe != null ? this.cartTimeframe : "1h",
+                    this.cartTimeframe != null ? this.cartTimeframe : "1min",
                     this.cartDaysBack != null ? this.cartDaysBack : 180,
                     this.cartSmaPeriod != null ? this.cartSmaPeriod : 2,
                     this.cartCarWindow != null ? this.cartCarWindow : 20,
-                    this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.5,
+                    this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.0,
                     this.selectedAccountId != null ? ("&idCuenta=" + this.selectedAccountId) : ""
             );
             RestTemplate restTemplate = new RestTemplate();
@@ -6833,6 +6914,7 @@ public class DashboardBean implements Serializable {
                             st.setEntryDate(tn.path("entryDate").asText(""));
                             st.setExitDate(tn.path("exitDate").asText(""));
                             st.setDurationBars(tn.path("durationBars").asInt(1));
+                            st.setExitReason(tn.path("exitReason").asText(""));
                             st.setEntryPriceA(tn.path("entryPriceA").asDouble(0.0));
                             st.setExitPriceA(tn.path("exitPriceA").asDouble(0.0));
                             st.setAllocatedCapital(tn.path("allocatedCapital").asDouble(0.0));
@@ -6872,7 +6954,7 @@ public class DashboardBean implements Serializable {
                     this.cartBtMetrics = mDto;
                 }
             }
-            updateCartActiveCycleSummaryForSelectedPair();
+            loadCartActiveCycles();
         } catch (Exception e) {
             log.error("Error en analyzeCartPair: {}", e.getMessage());
         }
@@ -6892,11 +6974,11 @@ public class DashboardBean implements Serializable {
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", this.selectedAccountId);
             payload.put("symbol", this.selectedCartPair);
-            payload.put("Temporalidad", this.cartTimeframe != null ? this.cartTimeframe : "1h");
+            payload.put("Temporalidad", this.cartTimeframe != null ? this.cartTimeframe : "1min");
             payload.put("periodo", this.cartDaysBack != null ? this.cartDaysBack : 180);
             payload.put("EMARapida", this.cartSmaPeriod != null ? this.cartSmaPeriod : 2);
             payload.put("carWindow", this.cartCarWindow != null ? this.cartCarWindow : 20);
-            payload.put("carMultiplier", this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.5);
+            payload.put("carMultiplier", this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.0);
             payload.put("operar", this.cartOperar);
             payload.put("accionCierre", this.cartAccionCierre != null ? this.cartAccionCierre : "Continua");
 
@@ -7105,6 +7187,11 @@ public class DashboardBean implements Serializable {
                 JsonNode tArr = root.path("trades");
                 this.cartRealTradesJson = (tArr != null && tArr.isArray()) ? mapper.writeValueAsString(tArr) : "[]";
                 int realEntryCounter = 1;
+                double totalRealSize = 0.0;
+                double totalRealCommission = 0.0;
+                double totalRealPnl = 0.0;
+                double totalRealNetPnl = 0.0;
+
                 if (tArr != null && tArr.isArray()) {
                     for (JsonNode tn : tArr) {
                         if (tn.path("isSubtotal").asBoolean(false)) {
@@ -7116,19 +7203,46 @@ public class DashboardBean implements Serializable {
                         item.setSymbol(tn.path("symbol").asText(this.selectedCartPair));
                         item.setDirection(tn.path("direction").asText("LARGO"));
                         item.setStatus(tn.path("status").asText("CLOSED"));
-                        item.setSize(tn.path("size").asDouble(0.0));
+                        double sz = tn.path("size").asDouble(0.0);
+                        item.setSize(sz);
+                        totalRealSize += sz;
                         if (!tn.path("entryPrice").isNull()) item.setEntryPrice(tn.path("entryPrice").asDouble());
                         if (!tn.path("exitPrice").isNull()) item.setExitPrice(tn.path("exitPrice").asDouble());
                         item.setOpenTime(tn.path("openTime").asText(""));
                         item.setCloseTime(tn.path("closeTime").asText(""));
-                        item.setCommission(tn.path("commission").asDouble(0.0));
-                        item.setPnl(tn.path("pnl").asDouble(0.0));
-                        item.setNetPnl(tn.path("netPnl").asDouble(0.0));
+                        double comm = tn.path("commission").asDouble(0.0);
+                        item.setCommission(comm);
+                        totalRealCommission += comm;
+                        double pnl = tn.path("pnl").asDouble(0.0);
+                        item.setPnl(pnl);
+                        totalRealPnl += pnl;
+                        double netPnl = tn.path("netPnl").asDouble(0.0);
+                        item.setNetPnl(netPnl);
+                        totalRealNetPnl += netPnl;
                         item.setCycleNum(realEntryCounter++);
                         item.setIsSubtotal(false);
                         items.add(item);
                     }
                 }
+
+                // Fila de TOTAL consolidado para Hechos
+                if (!items.isEmpty()) {
+                    RealTradeItemDto totalRow = new RealTradeItemDto();
+                    totalRow.setIsSubtotal(true);
+                    totalRow.setStrategy("TOTAL");
+                    totalRow.setTicketId("TOTAL");
+                    totalRow.setSymbol("TOTAL");
+                    totalRow.setDirection("");
+                    totalRow.setStatus("");
+                    totalRow.setSize(totalRealSize);
+                    totalRow.setTradeCount(items.size());
+                    totalRow.setCommission(totalRealCommission);
+                    totalRow.setPnl(totalRealPnl);
+                    totalRow.setNetPnl(totalRealNetPnl);
+                    totalRow.setCycleNum(0);
+                    items.add(totalRow);
+                }
+
                 this.cartRealTradesList = items;
             }
         } catch (Exception e) {

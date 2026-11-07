@@ -181,7 +181,7 @@ def get_symbols_needing_candles(symbols, db, now_local, completed_in_rest=None):
     return pendientes
 
 
-MAX_WORKERS = int(os.getenv("DATASYMBOL_WORKERS", "5"))
+MAX_WORKERS = int(os.getenv("DATASYMBOL_WORKERS", "10"))
 
 async def process_single_symbol(symbolData: dict, db: DatabaseManager, limiter: MultiAccountRateLimiter, semaphore: asyncio.Semaphore, now_local: datetime) -> dict:
     async with semaphore:
@@ -342,7 +342,7 @@ async def main():
                     segundosEspera -= tiempoSueñoParcial
                 continue
 
-            # Procesamiento concurrente de toda la ronda con 5 hilos
+            # Procesamiento concurrente de toda la ronda con 10 hilos
             round_start = time.time()
             semaphore = asyncio.Semaphore(MAX_WORKERS)
             tasks = [

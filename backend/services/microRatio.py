@@ -48,8 +48,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("microRatio")
 
-# Umbral porcentual de corte de pérdida para Cobertura Inicial (ej: 0.20 = 0.20%)
+# ==============================================================================
+# CONFIGURACIÓN DE TRAILING STOP LOSS Y VOLATILIDAD (NATR) PARA COBERTURAS
+# ==============================================================================
+COBERTURA_NATR_PERIOD = 14
+COBERTURA_NATR_MULTIPLIER = 1.5
+COBERTURA_NATR_DEFAULT_PCT = 0.15
+COBERTURA_NATR_MIN_PCT = 0.05
+COBERTURA_NATR_MAX_PCT = 2.50
+
+# Umbral porcentual de corte de pérdida para Cobertura Inicial (legacy fallback)
 COBERTURA_INICIAL_STOP_LOSS_PCT = 0.07
+
+# Cache en memoria para cálculos de NATR: {cacheKey: (tslPct, timestamp)}
+_NATR_CACHE: Dict[str, Tuple[float, float]] = {}
+_NATR_CACHE_TTL_SECONDS = 300  # 5 minutos
+
 
 
 def ensureStrategyRegistered(dbSession) -> None:
@@ -261,6 +275,126 @@ def resamplePriceData(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
         if len(dfResampled) > 1:
             return dfResampled
     return df
+
+
+def calculateSymbolNATR(
+    dbSession,
+    symbol: str,
+    timeframe: str = "1h",
+    period: int = COBERTURA_NATR_PERIOD,
+    kMultiplier: float = COBERTURA_NATR_MULTIPLIER,
+    minPct: float = COBERTURA_NATR_MIN_PCT,
+    maxPct: float = COBERTURA_NATR_MAX_PCT
+) -> float:
+    """
+    Calcula el Trailing Stop Loss porcentual adaptativo basado en NATR (Normalized ATR):
+        NATR = (ATR(period) / ClosePrice) * 100.0
+        TSL_PCT = clamp(kMultiplier * NATR, minPct, maxPct)
+
+    Utiliza el historial de velas en 'candles' (timeframe 5min resampleado al periodo del setup o 1h).
+    Posee cache en memoria con TTL de 5 minutos y fallback automático a stockprices o valor seguro.
+    """
+    nowTs = time.time()
+    cacheKey = f"{symbol}_{timeframe}_{period}_{kMultiplier}"
+    if cacheKey in _NATR_CACHE:
+        val, cachedAt = _NATR_CACHE[cacheKey]
+        if (nowTs - cachedAt) < _NATR_CACHE_TTL_SECONDS:
+            return val
+
+    try:
+        # Priorizar velas vivas de 1min (timeframe activo del sistema)
+        sql = text("""
+            SELECT high, low, close, timestamp 
+            FROM candles 
+            WHERE symbol = :sym AND timeframe = '1min' 
+            ORDER BY timestamp DESC LIMIT 1500
+        """)
+        rows = dbSession.execute(sql, {"sym": symbol}).fetchall()
+
+        # Fallback a 5min si no hay suficientes velas de 1min
+        if not rows or len(rows) < 20:
+            sql5m = text("""
+                SELECT high, low, close, timestamp 
+                FROM candles 
+                WHERE symbol = :sym AND timeframe = '5min' 
+                ORDER BY timestamp DESC LIMIT 600
+            """)
+            rows = dbSession.execute(sql5m, {"sym": symbol}).fetchall()
+
+        if rows and len(rows) >= 15:
+            df = pd.DataFrame(rows, columns=["high", "low", "close", "timestamp"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.sort_values("timestamp").set_index("timestamp")
+            df["high"] = pd.to_numeric(df["high"], errors="coerce")
+            df["low"] = pd.to_numeric(df["low"], errors="coerce")
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            df = df.dropna()
+
+            tf = str(timeframe).lower().strip() if timeframe else "1h"
+            ruleMap = {
+                "1d": "1D", "d": "1D", "1day": "1D",
+                "4h": "4h",
+                "1h": "1h",
+                "15min": "15min", "15m": "15min",
+                "30min": "30min", "30m": "30min",
+                "5min": "5min", "5m": "5min"
+            }
+            resampleRule = ruleMap.get(tf, "1h")
+            dfRes = df.resample(resampleRule).agg({"high": "max", "low": "min", "close": "last"}).dropna()
+
+            if len(dfRes) < (period + 1):
+                dfRes = df
+
+            prevClose = dfRes["close"].shift(1)
+            tr1 = dfRes["high"] - dfRes["low"]
+            tr2 = (dfRes["high"] - prevClose).abs()
+            tr3 = (dfRes["low"] - prevClose).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr = tr.rolling(period).mean().iloc[-1]
+            lastPx = float(dfRes["close"].iloc[-1])
+
+            if lastPx > 0 and pd.notna(atr) and float(atr) > 0:
+                natr = (float(atr) / lastPx) * 100.0
+                tslPct = round(max(minPct, min(maxPct, natr * kMultiplier)), 3)
+                _NATR_CACHE[cacheKey] = (tslPct, nowTs)
+                return tslPct
+
+        spSql = text("""
+            SELECT closePrice, priceDate 
+            FROM stockprices 
+            WHERE symbol = :sym 
+            ORDER BY priceDate DESC LIMIT 30
+        """)
+        spRows = dbSession.execute(spSql, {"sym": symbol}).fetchall()
+        if spRows and len(spRows) >= period:
+            closes = [float(r[0]) for r in spRows[::-1] if r[0] is not None]
+            if len(closes) >= period:
+                diffs = [abs(closes[i] - closes[i-1]) for i in range(1, len(closes))]
+                avgDiff = sum(diffs[-period:]) / period
+                lastPx = closes[-1]
+                if lastPx > 0 and avgDiff > 0:
+                    natr = (avgDiff / lastPx) * 100.0
+                    tslPct = round(max(minPct, min(maxPct, natr * kMultiplier)), 3)
+                    _NATR_CACHE[cacheKey] = (tslPct, nowTs)
+                    return tslPct
+
+    except Exception as e:
+        logger.warning(f"⚠️ Error calculando NATR dinámico para {symbol}: {e}")
+
+    symUpper = symbol.upper()
+    if any(k in symUpper for k in ["BTC", "ETH"]):
+        fallback = 1.50
+    elif any(k in symUpper for k in ["SPX", "NAS", "US30", "GER"]):
+        fallback = 0.90
+    elif any(k in symUpper for k in ["XAU", "XAG", "XTI", "XBR"]):
+        fallback = 0.85
+    elif "/" in symUpper:
+        fallback = 0.18
+    else:
+        fallback = COBERTURA_NATR_DEFAULT_PCT
+
+    _NATR_CACHE[cacheKey] = (fallback, nowTs)
+    return fallback
 
 
 def parseCandleDateTime(dtVal: Any) -> datetime:
@@ -1639,6 +1773,7 @@ def openSingleCoverageTrade(
         newTradeId = res.lastrowid
         dbSession.commit()
 
+    initTslPct = calculateSymbolNATR(dbSession, symbol, timeframe=periodo)
     stateKey = f"{idCuenta}_{setupName}_{symbol}_COB_INI" if strategyName == "COBERTURA INICIAL" else f"{idCuenta}_{setupName}_{symbol}"
     saveCoverageState(stateKey, {
         "tradeId": newTradeId,
@@ -1651,7 +1786,8 @@ def openSingleCoverageTrade(
         "peakPrice": fillPrice if direction == "LARGO" else None,
         "troughPrice": fillPrice if direction == "CORTO" else None,
         "peakPxMovePct": 0.0,
-        "target05Reached": False,
+        "tslPct": initTslPct,
+        "tslThreshold": -initTslPct,
         "safeZoneRecovered": False
     })
 
@@ -2256,17 +2392,18 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             dbOpenTrades.append(newCob)
                             cobState["safeZoneRecovered"] = False
                             cobState["peakPxMovePct"] = 0.0
+                            cobState["tslThreshold"] = -COBERTURA_NATR_DEFAULT_PCT
                             cobState["target05Reached"] = False
                             saveCoverageState(stateKey, cobState)
 
-                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE (TRAILING 0.5% / STOP -0.5%)
+                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE CON TRAILING STOP LOSS (NATR)
                 else:
                     activeCob = legCobTrades[0]
                     cobPx = float(activeCob.get("entryPrice", 0.0))
                     cobSz = float(activeCob.get("size", 0.0))
                     cobDir = activeCob.get("direction", oppDir)
 
-                    # Variación porcentual en precio de la cobertura
+                    # Variación porcentual en precio de la cobertura (+ a favor, - en contra)
                     if cobDir in ["LARGO", "BUY"]:
                         cobPxMovePct = ((legCurPx - cobPx) / cobPx) * 100.0
                     else:
@@ -2281,32 +2418,44 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                         pip_size=pipSize
                     )
 
+                    # Distancia de TSL dinámico adaptado a la volatilidad del par (Opción C: NATR)
+                    tslPct = calculateSymbolNATR(dbSession, legSym, timeframe=periodo, kMultiplier=COBERTURA_NATR_MULTIPLIER)
+
                     prevPeak = float(cobState.get("peakPxMovePct", 0.0))
                     peakPxMove = max(prevPeak, cobPxMovePct)
-                    target05Reached = bool(cobState.get("target05Reached", False)) or (cobPxMovePct >= 0.5)
+
+                    # TSL estrictamente monótono: el umbral solo puede avanzar a favor, nunca retroceder
+                    prevThreshold = float(cobState.get("tslThreshold", -tslPct))
+                    trailStop = (peakPxMove - tslPct) if peakPxMove > 0 else -tslPct
+                    stopThreshold = max(prevThreshold, trailStop)
 
                     cobState["peakPxMovePct"] = peakPxMove
-                    cobState["target05Reached"] = target05Reached
+                    cobState["tslThreshold"] = stopThreshold
+                    cobState["tslPct"] = tslPct
                     saveCoverageState(stateKey, cobState)
 
                     logger.info(
                         f"🛡️ [{accHeader}] COBERTURA ACTIVA Pata {legName} ({legSym} {cobDir}): "
                         f"Precio Ent: {cobPx:.5f} | Act: {legCurPx:.5f} | Mov: {cobPxMovePct:+.2f}% | "
-                        f"Pico: {peakPxMove:+.2f}% | Meta +0.5% alcanzada: {target05Reached} | PnL: ${cobPnl:+.2f}"
+                        f"Pico: {peakPxMove:+.2f}% | TSL NATR ({tslPct:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
                     )
 
                     shouldCloseCoverage = False
                     cobCloseReason = ""
 
-                    # Regla A: Superó +0.5% en precio y retrocede a <= +0.5% (asegurar ganancia)
-                    if target05Reached and cobPxMovePct <= 0.5:
+                    # Disparo si el precio perfora el Trailing Stop Loss o el Stop Loss de Protección inicial
+                    if cobPxMovePct <= stopThreshold:
                         shouldCloseCoverage = True
-                        cobCloseReason = f"POR RETROCESO A +0.5% EN PRECIO TRAS PICO DE {peakPxMove:+.2f}% (Movimiento: {cobPxMovePct:+.2f}% | PnL: ${cobPnl:+.2f})"
-
-                    # Regla B: Stop de protección si el precio se mueve en contra de la cobertura <= -0.5%
-                    elif cobPxMovePct <= -0.5:
-                        shouldCloseCoverage = True
-                        cobCloseReason = f"POR STOP DE PROTECCIÓN -0.5% EN PRECIO (Movimiento: {cobPxMovePct:+.2f}% | PnL: ${cobPnl:+.2f})"
+                        if stopThreshold > 0:
+                            cobCloseReason = (
+                                f"POR DISPARO DE TRAILING STOP LOSS NATR (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
+                                f"Mov: {cobPxMovePct:+.2f}% | Distancia TSL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
+                            )
+                        else:
+                            cobCloseReason = (
+                                f"POR STOP DE PROTECCIÓN NATR ({stopThreshold:.2f}% | "
+                                f"Mov: {cobPxMovePct:+.2f}% | Distancia SL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
+                            )
 
                     if shouldCloseCoverage:
                         logger.info(
@@ -2328,7 +2477,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             coverageTrades = [t for t in coverageTrades if t.get("idTrade") != activeCob.get("idTrade")]
                             dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != activeCob.get("idTrade")]
 
-        # 3.3 GESTIÓN DE COBERTURA INICIAL (Pata por Pata)
+        # 3.3 GESTIÓN DE COBERTURA INICIAL (Pata por Pata con Trailing Stop Loss NATR)
         # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
         if (idCuenta != 3) and coberturaInicialTrades:
             isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed)
@@ -2356,33 +2505,52 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
                 cobState = getCoverageState(stateKey)
 
-                # Monitoreo de límite de pérdida respecto al precio de entrada usando variable configurable
-                stopLossPct = COBERTURA_INICIAL_STOP_LOSS_PCT
-                stopLossRatio = stopLossPct / 100.0
-                isStopLossTriggered = False
-                dropDesc = ""
-                if legDir == "LARGO":
-                    # Cobertura COMPRA: Umbral de corte por caída contra el precio de entrada
-                    entryDropTriggerPx = round(cobEntryPx * (1.0 - stopLossRatio), 5)
-                    isStopLossTriggered = (legCurPx <= entryDropTriggerPx)
-                    movePctFromEntry = ((legCurPx - cobEntryPx) / cobEntryPx) * 100.0
-                    dropDesc = f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} ({movePctFromEntry:+.2f}% vs -{stopLossPct:.2f}% | Umbral: {entryDropTriggerPx:.5f})"
-                else:
-                    # Cobertura VENTA: Umbral de corte por subida contra el precio de entrada
-                    entryDropTriggerPx = round(cobEntryPx * (1.0 + stopLossRatio), 5)
-                    isStopLossTriggered = (legCurPx >= entryDropTriggerPx)
-                    movePctFromEntry = ((cobEntryPx - legCurPx) / cobEntryPx) * 100.0
-                    dropDesc = f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} ({movePctFromEntry:+.2f}% vs -{stopLossPct:.2f}% | Umbral: {entryDropTriggerPx:.5f})"
+                # Distancia de TSL dinámico adaptado a la volatilidad del par (Opción C: NATR)
+                tslPct = calculateSymbolNATR(dbSession, legSym, timeframe=periodo, kMultiplier=COBERTURA_NATR_MULTIPLIER)
 
-                # CAUSA 1: Pérdida respecto al precio de entrada (corte de pérdida de la cobertura)
-                if isStopLossTriggered:
+                # Variación porcentual en precio de la cobertura inicial (+ a favor, - en contra)
+                if legDir in ["LARGO", "BUY"]:
+                    movePctFromEntry = ((legCurPx - cobEntryPx) / cobEntryPx) * 100.0
+                else:
+                    movePctFromEntry = ((cobEntryPx - legCurPx) / cobEntryPx) * 100.0
+
+                prevPeak = float(cobState.get("peakPxMovePct", 0.0))
+                peakPxMove = max(prevPeak, movePctFromEntry)
+
+                # TSL estrictamente monótono: el umbral solo puede avanzar a favor, nunca retroceder
+                prevThreshold = float(cobState.get("tslThreshold", -tslPct))
+                trailStop = (peakPxMove - tslPct) if peakPxMove > 0 else -tslPct
+                stopThreshold = max(prevThreshold, trailStop)
+
+                cobState["peakPxMovePct"] = peakPxMove
+                cobState["tslThreshold"] = stopThreshold
+                cobState["tslPct"] = tslPct
+                saveCoverageState(stateKey, cobState)
+
+                logger.info(
+                    f"🛡️ [{accHeader}] COBERTURA INICIAL ACTIVA Pata {legSym} ({legDir}): "
+                    f"Precio Ent: {cobEntryPx:.5f} | Act: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | "
+                    f"Pico: {peakPxMove:+.2f}% | TSL NATR ({tslPct:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
+                )
+
+                # CAUSA 1: Disparo de Trailing Stop Loss o Stop Loss de Protección dinámico
+                if movePctFromEntry <= stopThreshold:
                     shouldCloseCobIni = True
-                    cobIniCloseReason = f"POR ALCANZAR LÍMITE DE PÉRDIDA DE -{stopLossPct:.2f}% RESPECTO A LA ENTRADA ({dropDesc} | PnL:  USD)"
+                    if stopThreshold > 0:
+                        cobIniCloseReason = (
+                            f"POR DISPARO DE TRAILING STOP LOSS NATR (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
+                            f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | Distancia TSL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
+                    else:
+                        cobIniCloseReason = (
+                            f"POR STOP DE PROTECCIÓN NATR ({stopThreshold:.2f}% respecto a entrada {cobEntryPx:.5f} | "
+                            f"Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | Distancia SL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
 
                 # CAUSA 2: Entrada inmediata en Modo Protección por Oleaje (sin esperar nuevo cuadro/triángulo)
                 elif isProtectionMode:
                     shouldCloseCobIni = True
-                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL:  USD)"
+                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL: ${cobPnl:+.2f})"
 
                 if shouldCloseCobIni:
                     logger.info(

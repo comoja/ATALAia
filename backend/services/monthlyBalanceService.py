@@ -250,6 +250,78 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
     })
     dbSession.commit()
 
+    # 3. Agrupamiento por Estrategia: Resumen consolidado y Detalle estructurado
+    from collections import OrderedDict
+    estrategiasDict = OrderedDict()
+
+    for tr in tradesList:
+        strat = str(tr.get("strategy") or "Sin Estrategia").strip()
+        if not strat:
+            strat = "Sin Estrategia"
+        if strat not in estrategiasDict:
+            estrategiasDict[strat] = {
+                "estrategia": strat,
+                "totalTrades": 0,
+                "tradesGanadores": 0,
+                "tradesPerdedores": 0,
+                "lotes": 0.0,
+                "pnlBruto": 0.0,
+                "comisiones": 0.0,
+                "trades": []
+            }
+        ed = estrategiasDict[strat]
+        ed["totalTrades"] += 1
+        pVal = float(tr.get("pnl") or 0.0)
+        cVal = float(tr.get("commission") or 0.0)
+        sVal = float(tr.get("size") or 0.0)
+        ed["pnlBruto"] += pVal
+        ed["comisiones"] += cVal
+        ed["lotes"] += sVal
+        if pVal > 0:
+            ed["tradesGanadores"] += 1
+        elif pVal < 0:
+            ed["tradesPerdedores"] += 1
+
+        trCopy = dict(tr)
+        if isinstance(trCopy.get("closeTime"), datetime):
+            trCopy["closeTime"] = trCopy["closeTime"].strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(trCopy.get("openTime"), datetime):
+            trCopy["openTime"] = trCopy["openTime"].strftime("%Y-%m-%d %H:%M:%S")
+        ed["trades"].append(trCopy)
+
+    resumenPorEstrategia = []
+    detallePorEstrategia = []
+
+    for strat, ed in estrategiasDict.items():
+        tt = ed["totalTrades"]
+        tg = ed["tradesGanadores"]
+        tp = ed["tradesPerdedores"]
+        wr = round((tg / tt * 100.0), 1) if tt > 0 else 0.0
+        pnlB = round(ed["pnlBruto"], 2)
+        comm = round(ed["comisiones"], 2)
+        pnlN = round(pnlB - comm, 2)
+        lots = round(ed["lotes"], 2)
+        contrib = round((pnlB / pnlRealizado * 100.0), 1) if pnlRealizado != 0 else 0.0
+
+        resDto = {
+            "estrategia": strat,
+            "totalTrades": tt,
+            "tradesGanadores": tg,
+            "tradesPerdedores": tp,
+            "winRate": wr,
+            "lotes": lots,
+            "pnlBruto": pnlB,
+            "comisiones": comm,
+            "pnlNeto": pnlN,
+            "contribucionPct": contrib
+        }
+        resumenPorEstrategia.append(resDto)
+        detallePorEstrategia.append({
+            "estrategia": strat,
+            "resumen": resDto,
+            "trades": ed["trades"]
+        })
+
     nombreMes = [
         "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -277,6 +349,8 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
             "tradesPerdedores": tradesPerdedores,
             "winRate": winRate
         },
+        "resumenPorEstrategia": resumenPorEstrategia,
+        "detallePorEstrategia": detallePorEstrategia,
         "trades": tradesList,
         "movimientosCapital": movimientosList
     }
@@ -510,15 +584,92 @@ def generarPdfEstadoCuenta(dbSession: Session, idCuenta: int, anio: int, mes: in
     story.append(kpiTable)
     story.append(Spacer(1, 14))
 
-    # 4. RESUMEN DE OPERACIONES
+    # 4. RESUMEN POR ESTRATEGIA (CONSOLIDADO)
     summaryHeader = ParagraphStyle('SecHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=13, textColor=colors.HexColor('#0F172A'))
-    story.append(Paragraph(f"<b>Bitácora de Operaciones Cerradas en el Periodo ({len(trades)} trades)</b>", summaryHeader))
+    story.append(Paragraph("<b>1. Resumen por Estrategia</b>", summaryHeader))
+    story.append(Spacer(1, 5))
+
+    resumenEstrategias = data.get("resumenPorEstrategia", [])
+    detalleEstrategias = data.get("detallePorEstrategia", [])
+
+    if not resumenEstrategias:
+        story.append(Paragraph("<i>No se registraron operaciones cerradas durante este periodo mensual.</i>", tdStyleLeft))
+        story.append(Spacer(1, 10))
+    else:
+        resumenColWidths = [
+            2.3 * inch,  # Estrategia
+            0.8 * inch,  # Trades
+            0.9 * inch,  # G / P
+            0.9 * inch,  # Win Rate
+            1.1 * inch,  # Lotes
+            1.6 * inch   # PnL (USD)
+        ]
+        resumenRows = [
+            [
+                Paragraph("<b>Estrategia</b>", thStyle),
+                Paragraph("<b>Trades</b>", thStyle),
+                Paragraph("<b>G / P</b>", thStyle),
+                Paragraph("<b>Win Rate</b>", thStyle),
+                Paragraph("<b>Lotes</b>", thStyle),
+                Paragraph("<b>PnL Neto (USD)</b>", thStyle),
+            ]
+        ]
+        for re in resumenEstrategias:
+            pnlVal = float(re.get("pnlNeto") or 0.0)
+            pnlStyleItem = tdStyleRight if pnlVal >= 0 else ParagraphStyle('PnlNegR', parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
+            pnlStr = f"+${pnlVal:,.2f}" if pnlVal >= 0 else f"-${abs(pnlVal):,.2f}"
+            resumenRows.append([
+                Paragraph(f"<b>{re.get('estrategia')}</b>", tdStyleLeft),
+                Paragraph(str(re.get("totalTrades")), tdStyleCenter),
+                Paragraph(f"{re.get('tradesGanadores')}G / {re.get('tradesPerdedores')}P", tdStyleCenter),
+                Paragraph(f"{re.get('winRate'):.1f}%", tdStyleCenter),
+                Paragraph(f"{re.get('lotes'):,.0f}", tdStyleRight),
+                Paragraph(f"<b>{pnlStr}</b>", pnlStyleItem),
+            ])
+
+        # Fila de Total Consolidado
+        totalPnlNeto = resumen["pnlNeto"]
+        totPnlStyle = tdStyleRight if totalPnlNeto >= 0 else ParagraphStyle('PnlNegTot', parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
+        totPnlStr = f"+${totalPnlNeto:,.2f}" if totalPnlNeto >= 0 else f"-${abs(totalPnlNeto):,.2f}"
+        totalLotes = sum(float(re.get("lotes") or 0.0) for re in resumenEstrategias)
+
+        resumenRows.append([
+            Paragraph("<b>TOTAL CONSOLIDADO</b>", tdStyleLeft),
+            Paragraph(f"<b>{resumen['totalTrades']}</b>", tdStyleCenter),
+            Paragraph(f"<b>{resumen['tradesGanadores']}G / {resumen['tradesPerdedores']}P</b>", tdStyleCenter),
+            Paragraph(f"<b>{resumen['winRate']:.1f}%</b>", tdStyleCenter),
+            Paragraph(f"<b>{totalLotes:,.0f}</b>", tdStyleRight),
+            Paragraph(f"<b>{totPnlStr}</b>", totPnlStyle),
+        ])
+
+        resumenTable = Table(resumenRows, colWidths=resumenColWidths)
+        rStyle = [
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+            ('ALIGN', (0,0), (-1,0), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('INNERGRID', (0,0), (-1,-1), 0.4, colors.HexColor('#E2E8F0')),
+            ('BOX', (0,0), (-1,-1), 0.8, colors.HexColor('#0F172A')),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#E2E8F0')),  # Fondo para fila Total
+        ]
+        for rowIdx in range(1, len(resumenRows) - 1):
+            if rowIdx % 2 == 0:
+                rStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.HexColor('#F8FAFC')))
+            else:
+                rStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.white))
+
+        resumenTable.setStyle(TableStyle(rStyle))
+        story.append(resumenTable)
+        story.append(Spacer(1, 14))
+
+    # 5. DETALLE DE OPERACIONES POR ESTRATEGIA
+    story.append(Paragraph(f"<b>2. Detalle de Operaciones por Estrategia ({len(trades)} trades en total)</b>", summaryHeader))
     story.append(Spacer(1, 6))
 
-    if not trades:
-        story.append(Paragraph("<i>No se registraron operaciones cerradas durante este periodo mensual.</i>", tdStyleLeft))
+    if not detalleEstrategias:
+        story.append(Paragraph("<i>No hay detalle de operaciones para este periodo.</i>", tdStyleLeft))
     else:
-        # Tabla detallada de trades
         colWidths = [
             0.6 * inch,  # #
             0.9 * inch,  # Fecha Cierre
@@ -532,62 +683,87 @@ def generarPdfEstadoCuenta(dbSession: Session, idCuenta: int, anio: int, mes: in
             0.7 * inch   # Ticket
         ]
 
-        tableRows = [
-            [
-                Paragraph("<b>#</b>", thStyle),
-                Paragraph("<b>Fecha Cierre</b>", thStyle),
-                Paragraph("<b>Setup / Ratio</b>", thStyle),
-                Paragraph("<b>Símbolo</b>", thStyle),
-                Paragraph("<b>Dir</b>", thStyle),
-                Paragraph("<b>Lotes</b>", thStyle),
-                Paragraph("<b>Entrada</b>", thStyle),
-                Paragraph("<b>Salida</b>", thStyle),
-                Paragraph("<b>PnL (USD)</b>", thStyle),
-                Paragraph("<b>Ticket</b>", thStyle),
+        stratHeaderStyle = ParagraphStyle(
+            'StratHeader', parent=styles['Normal'],
+            fontName='Helvetica-Bold', fontSize=8.5, leading=11,
+            textColor=colors.HexColor('#0F172A')
+        )
+
+        for det in detalleEstrategias:
+            stratName = det.get("estrategia")
+            stratResumen = det.get("resumen", {})
+            stratTrades = det.get("trades", [])
+            sPnl = float(stratResumen.get("pnlNeto") or 0.0)
+            sPnlStr = f"+${sPnl:,.2f}" if sPnl >= 0 else f"-${abs(sPnl):,.2f}"
+            sWr = float(stratResumen.get("winRate") or 0.0)
+
+            # Barra de encabezado por estrategia
+            stratBarText = f"<b>Estrategia: {stratName}</b> &nbsp;&nbsp;|&nbsp;&nbsp; <b>Trades:</b> {len(stratTrades)} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Win Rate:</b> {sWr:.1f}% &nbsp;&nbsp;|&nbsp;&nbsp; <b>PnL Neto:</b> {sPnlStr} USD"
+            stratBarTable = Table([[Paragraph(stratBarText, stratHeaderStyle)]], colWidths=[7.6 * inch])
+            stratBarTable.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#E2E8F0')),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#94A3B8')),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(stratBarTable)
+            story.append(Spacer(1, 3))
+
+            tableRows = [
+                [
+                    Paragraph("<b>#</b>", thStyle),
+                    Paragraph("<b>Fecha Cierre</b>", thStyle),
+                    Paragraph("<b>Setup / Ratio</b>", thStyle),
+                    Paragraph("<b>Símbolo</b>", thStyle),
+                    Paragraph("<b>Dir</b>", thStyle),
+                    Paragraph("<b>Lotes</b>", thStyle),
+                    Paragraph("<b>Entrada</b>", thStyle),
+                    Paragraph("<b>Salida</b>", thStyle),
+                    Paragraph("<b>PnL (USD)</b>", thStyle),
+                    Paragraph("<b>Ticket</b>", thStyle),
+                ]
             ]
-        ]
 
-        for i, tr in enumerate(trades, start=1):
-            cTime = tr.get("closeTime")
-            cTimeStr = cTime.strftime("%d/%m %H:%M") if isinstance(cTime, datetime) else str(cTime or "-")[:16]
-            pnlVal = float(tr.get("pnl") or 0.0)
-            pnlStyleItem = tdStyleRight if pnlVal >= 0 else ParagraphStyle('PnlNeg', parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
-            pnlStr = f"+${pnlVal:,.2f}" if pnlVal >= 0 else f"-${abs(pnlVal):,.2f}"
+            for tr in stratTrades:
+                cTime = tr.get("closeTime")
+                cTimeStr = cTime.strftime("%d/%m %H:%M") if isinstance(cTime, datetime) else str(cTime or "-")[:16]
+                pnlVal = float(tr.get("pnl") or 0.0)
+                pnlStyleItem = tdStyleRight if pnlVal >= 0 else ParagraphStyle('PnlNegItem', parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
+                pnlStr = f"+${pnlVal:,.2f}" if pnlVal >= 0 else f"-${abs(pnlVal):,.2f}"
 
-            tableRows.append([
-                Paragraph(str(tr.get("idTrade")), tdStyleCenter),
-                Paragraph(cTimeStr, tdStyleCenter),
-                Paragraph(str(tr.get("setup") or "RATIO"), tdStyleLeft),
-                Paragraph(str(tr.get("symbol") or ""), tdStyleCenter),
-                Paragraph(str(tr.get("direction") or "").upper()[:5], tdStyleCenter),
-                Paragraph(f"{float(tr.get('size') or 0.0):,.0f}", tdStyleRight),
-                Paragraph(f"{float(tr.get('entryPrice') or 0.0):.5f}", tdStyleRight),
-                Paragraph(f"{float(tr.get('exitPrice') or 0.0):.5f}", tdStyleRight),
-                Paragraph(f"<b>{pnlStr}</b>", pnlStyleItem),
-                Paragraph(str(tr.get("ticketId") or "-"), tdStyleCenter),
-            ])
+                tableRows.append([
+                    Paragraph(str(tr.get("idTrade")), tdStyleCenter),
+                    Paragraph(cTimeStr, tdStyleCenter),
+                    Paragraph(str(tr.get("setup") or "RATIO"), tdStyleLeft),
+                    Paragraph(str(tr.get("symbol") or ""), tdStyleCenter),
+                    Paragraph(str(tr.get("direction") or "").upper()[:5], tdStyleCenter),
+                    Paragraph(f"{float(tr.get('size') or 0.0):,.0f}", tdStyleRight),
+                    Paragraph(f"{float(tr.get('entryPrice') or 0.0):.5f}", tdStyleRight),
+                    Paragraph(f"{float(tr.get('exitPrice') or 0.0):.5f}", tdStyleRight),
+                    Paragraph(f"<b>{pnlStr}</b>", pnlStyleItem),
+                    Paragraph(str(tr.get("ticketId") or "-"), tdStyleCenter),
+                ])
 
-        tradesTable = Table(tableRows, colWidths=colWidths, repeatRows=1)
-        
-        tStyle = [
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
-            ('ALIGN', (0,0), (-1,0), 'CENTER'),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 3),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-            ('INNERGRID', (0,0), (-1,-1), 0.4, colors.HexColor('#E2E8F0')),
-            ('BOX', (0,0), (-1,-1), 0.8, colors.HexColor('#0F172A')),
-        ]
-        
-        # Alternancia de colores en filas (Zebra striping)
-        for rowIdx in range(1, len(tableRows)):
-            if rowIdx % 2 == 0:
-                tStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.HexColor('#F8FAFC')))
-            else:
-                tStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.white))
+            tradesTable = Table(tableRows, colWidths=colWidths, repeatRows=1)
+            tStyle = [
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E293B')),
+                ('ALIGN', (0,0), (-1,0), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('TOPPADDING', (0,0), (-1,-1), 2.5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+                ('INNERGRID', (0,0), (-1,-1), 0.3, colors.HexColor('#E2E8F0')),
+                ('BOX', (0,0), (-1,-1), 0.6, colors.HexColor('#1E293B')),
+            ]
+            for rowIdx in range(1, len(tableRows)):
+                if rowIdx % 2 == 0:
+                    tStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.HexColor('#F8FAFC')))
+                else:
+                    tStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.white))
 
-        tradesTable.setStyle(TableStyle(tStyle))
-        story.append(tradesTable)
+            tradesTable.setStyle(TableStyle(tStyle))
+            story.append(tradesTable)
+            story.append(Spacer(1, 10))
 
     # 5. PIE DE PÁGINA INSTITUCIONAL
     story.append(Spacer(1, 20))

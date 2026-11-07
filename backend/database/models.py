@@ -200,7 +200,7 @@ class UserCart(Base):
     EMARapida = Column(Integer, default=2)
     EMALenta = Column(Integer, default=20)
     carWindow = Column(Integer, default=20)
-    carMultiplier = Column(Float, default=1.5)
+    carMultiplier = Column(Float, default=1.0)
     operar = Column(Boolean, default=False)
     tipoCierre = Column(String(20), default="Tolerante")
     umbralDiferencia = Column(Float, default=0.2)

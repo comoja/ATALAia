@@ -264,7 +264,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                 import asyncio
     
                 tf_lower = str(temporalidad_val).lower().strip()
-                is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+                is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h"]
                 
                 hrs_per_candle = 1
                 if "4h" in tf_lower: hrs_per_candle = 4
@@ -1721,19 +1721,29 @@ async def get_ratio_correlation(
                     q_inv = q_inv.filter(UserRatio.idCuenta == idCuenta)
                 existing_r = q_inv.order_by(UserRatio.id.desc()).first()
             
+            is_recalib_in_ram = False
             if existing_r:
                 fixedCreatedAt = existing_r.createdAt
                 fixedDias = existing_r.periodo
-                if existing_r.numerador == pairA:
-                    fixedMinA = existing_r.fixedMinA
-                    fixedMaxA = existing_r.fixedMaxA
-                    fixedMinB = existing_r.fixedMinB
-                    fixedMaxB = existing_r.fixedMaxB
-                else:
-                    fixedMinA = existing_r.fixedMinB
-                    fixedMaxA = existing_r.fixedMaxB
-                    fixedMinB = existing_r.fixedMinA
-                    fixedMaxB = existing_r.fixedMaxA
+
+                if days is not None and fixedDias is not None and int(days) != int(fixedDias):
+                    is_recalib_in_ram = True
+                if tf and existing_r.Temporalidad and str(tf).strip().lower() != str(existing_r.Temporalidad).strip().lower():
+                    is_recalib_in_ram = True
+                if start_date and str(start_date).strip():
+                    is_recalib_in_ram = True
+
+                if not is_recalib_in_ram:
+                    if existing_r.numerador == pairA:
+                        fixedMinA = existing_r.fixedMinA
+                        fixedMaxA = existing_r.fixedMaxA
+                        fixedMinB = existing_r.fixedMinB
+                        fixedMaxB = existing_r.fixedMaxB
+                    else:
+                        fixedMinA = existing_r.fixedMinB
+                        fixedMaxA = existing_r.fixedMaxB
+                        fixedMinB = existing_r.fixedMinA
+                        fixedMaxB = existing_r.fixedMaxA
     except Exception as e_lim:
         logger.warning(f"Error consultando limites fijos: {e_lim}")
 
@@ -1742,7 +1752,7 @@ async def get_ratio_correlation(
 
         # Cargar historial de precios: si es intradía (1h, 4h, 15m), consultar 'candles'
         tf_lower = str(tf).lower().strip()
-        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+        is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h"]
 
         if is_intraday:
             # Determinar rango de fechas para velas intradía con buffer de warmup
@@ -1786,14 +1796,22 @@ async def get_ratio_correlation(
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
-                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
+                        WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
                     """
                     df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
                     if df_res.empty:
+                        sql_5m = """
+                            SELECT timestamp, close as closePrice
+                            FROM candles
+                            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                            ORDER BY timestamp ASC
+                        """
+                        df_res = pd.read_sql(sql_5m, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if df_res.empty:
                         return pd.DataFrame()
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
-                    df_res = df_res.drop_duplicates(subset=['timestamp'], keep='first').set_index('timestamp')
+                    df_res = df_res.set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
                     rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
                     rule = rule_map.get(tf_lower, "1h")
@@ -1927,6 +1945,33 @@ async def get_ratio_correlation(
 
         # Añadir metadata del ratio al response para el frontend
         if resultado.get("success"):
+            if fixedMinA is None or fixedMaxA is None or fixedMinB is None or fixedMaxB is None:
+                try:
+                    calib_periods = int(days) if days else (int(fixedDias) if fixedDias else 180)
+                    hrs_per_c = 1
+                    tf_l = str(tf).lower()
+                    if "4h" in tf_l: hrs_per_c = 4
+                    elif "15m" in tf_l: hrs_per_c = 0.25
+                    elif "30m" in tf_l: hrs_per_c = 0.5
+                    elif "5m" in tf_l: hrs_per_c = 0.0833
+                    elif "1d" in tf_l: hrs_per_c = 24
+                    
+                    dt_c_start = dt_start_slice
+                    if dt_c_start is not None:
+                        dt_c_end = dt_c_start + timedelta(hours=int(calib_periods * hrs_per_c))
+                    else:
+                        dt_c_end = datetime.now()
+                        dt_c_start = dt_c_end - timedelta(hours=int(calib_periods * hrs_per_c))
+                    
+                    mask = (df_a_daily.index >= dt_c_start) & (df_a_daily.index <= dt_c_end)
+                    sA = df_a_daily.loc[mask, 'close'] if mask.sum() > 0 else df_a_daily['close']
+                    sB = df_b_daily.loc[mask, 'close'] if mask.sum() > 0 else df_b_daily['close']
+                    if len(sA) > 0 and len(sB) > 0:
+                        fixedMinA, fixedMaxA = float(sA.min()), float(sA.max())
+                        fixedMinB, fixedMaxB = float(sB.min()), float(sB.max())
+                except Exception as ex_ram_calc:
+                    logger.warning(f"Error calculando limites estaticos en RAM: {ex_ram_calc}")
+
             resultado["pairA"] = pairA
             resultado["pairB"] = pairB
             resultado["ratioLabel"] = f"{pairA} / {pairB}"
@@ -2483,6 +2528,17 @@ def aplicarSugerenciasRiesgo(db: Session = Depends(get_db)):
 
 
 
+def downsample_equity_curve(curve: List[Dict[str, Any]], max_points: int = 350) -> List[Dict[str, Any]]:
+    """Reduce el peso de la curva de equidad muestreando uniformemente a max_points."""
+    if not curve or len(curve) <= max_points:
+        return curve
+    step = max(1, len(curve) // max_points)
+    downsampled = [curve[i] for i in range(0, len(curve), step)]
+    if downsampled[-1] != curve[-1]:
+        downsampled.append(curve[-1])
+    return downsampled
+
+
 @router.get("/cruces-ema/pair-analysis/{pairA:path}")
 async def get_cruces_ema_pair_analysis(
     pairA: str,
@@ -2531,7 +2587,7 @@ async def get_cruces_ema_pair_analysis(
         import pandas as pd
         candle_limit = 100000
         tf_lower = str(timeframe).lower().strip()
-        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+        is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h"]
         
         # Buscar límites fijos en BD si el ratio existe, para anclar gráficas y periodo
         fixedMinA, fixedMaxA, fixedMinB, fixedMaxB = None, None, None, None
@@ -2562,9 +2618,18 @@ async def get_cruces_ema_pair_analysis(
                 
                 effectiveTipoCierre = tipoCierre
                 effectiveUmbralDiferencia = umbralDiferencia
+                is_recalib_in_ram = False
                 if existing_r:
                     fixedCreatedAt = existing_r.createdAt
                     fixedDias = existing_r.periodo
+
+                    if calibDays is not None and existing_r.periodo is not None and int(calibDays) != int(existing_r.periodo):
+                        is_recalib_in_ram = True
+                    if timeframe and existing_r.Temporalidad and str(timeframe).strip().lower() != str(existing_r.Temporalidad).strip().lower():
+                        is_recalib_in_ram = True
+                    if calibStartDate and str(calibStartDate).strip():
+                        is_recalib_in_ram = True
+
                     if not effectiveTipoCierre and hasattr(existing_r, "tipoCierre") and existing_r.tipoCierre:
                         effectiveTipoCierre = str(existing_r.tipoCierre)
                     if effectiveUmbralDiferencia is None and hasattr(existing_r, "umbralDiferencia") and existing_r.umbralDiferencia is not None:
@@ -2572,16 +2637,17 @@ async def get_cruces_ema_pair_analysis(
                     if not tipoEntrada and hasattr(existing_r, "tipoEntrada") and existing_r.tipoEntrada:
                         tipoEntrada = str(existing_r.tipoEntrada)
                     
-                    if existing_r.numerador == pairA:
-                        if existing_r.fixedMinA is not None: fixedMinA = float(existing_r.fixedMinA)
-                        if existing_r.fixedMaxA is not None: fixedMaxA = float(existing_r.fixedMaxA)
-                        if existing_r.fixedMinB is not None: fixedMinB = float(existing_r.fixedMinB)
-                        if existing_r.fixedMaxB is not None: fixedMaxB = float(existing_r.fixedMaxB)
-                    else:
-                        if existing_r.fixedMinB is not None: fixedMinA = float(existing_r.fixedMinB)
-                        if existing_r.fixedMaxB is not None: fixedMaxA = float(existing_r.fixedMaxB)
-                        if existing_r.fixedMinA is not None: fixedMinB = float(existing_r.fixedMinA)
-                        if existing_r.fixedMaxA is not None: fixedMaxB = float(existing_r.fixedMaxA)
+                    if not is_recalib_in_ram:
+                        if existing_r.numerador == pairA:
+                            if existing_r.fixedMinA is not None: fixedMinA = float(existing_r.fixedMinA)
+                            if existing_r.fixedMaxA is not None: fixedMaxA = float(existing_r.fixedMaxA)
+                            if existing_r.fixedMinB is not None: fixedMinB = float(existing_r.fixedMinB)
+                            if existing_r.fixedMaxB is not None: fixedMaxB = float(existing_r.fixedMaxB)
+                        else:
+                            if existing_r.fixedMinB is not None: fixedMinA = float(existing_r.fixedMinB)
+                            if existing_r.fixedMaxB is not None: fixedMaxA = float(existing_r.fixedMaxB)
+                            if existing_r.fixedMinA is not None: fixedMinB = float(existing_r.fixedMinA)
+                            if existing_r.fixedMaxA is not None: fixedMaxB = float(existing_r.fixedMaxA)
         except Exception as e_lim:
             logger.warning(f"Error consultando limites fijos en pair_analysis: {e_lim}")
 
@@ -2665,14 +2731,22 @@ async def get_cruces_ema_pair_analysis(
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
-                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
+                        WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
                     """
                     df_res = pd.read_sql(sql, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
                     if df_res.empty:
+                        sql_5m = """
+                            SELECT timestamp, close as closePrice
+                            FROM candles
+                            WHERE symbol = %s AND timeframe = '5min' AND timestamp >= %s AND timestamp <= %s
+                            ORDER BY timestamp ASC
+                        """
+                        df_res = pd.read_sql(sql_5m, conn, params=(sym, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if df_res.empty:
                         return pd.DataFrame()
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
-                    df_res = df_res.drop_duplicates(subset=['timestamp'], keep='first').set_index('timestamp')
+                    df_res = df_res.set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
                     rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
                     rule = rule_map.get(tf_lower, "1h")
@@ -2800,11 +2874,16 @@ async def get_cruces_ema_pair_analysis(
 
         if fixedMinA is None or fixedMaxA is None or fixedMinB is None or fixedMaxB is None:
             # Determinar ventana del plazo establecido en Estrategia de Ratio
-            dt_calib_end = pd.to_datetime(calibEndDate).tz_localize(None) if calibEndDate else (
-                pd.to_datetime(fixedCreatedAt).tz_localize(None) if fixedCreatedAt is not None else dt_end
-            )
             calib_periods = int(calibDays) if calibDays else (int(fixedDias) if fixedDias else (days if days and days < 1000 else 180))
-            if calibStartDate:
+            
+            hrs_per_c = 1
+            if "4h" in tf_lower: hrs_per_c = 4
+            elif "15min" in tf_lower or "15m" in tf_lower: hrs_per_c = 0.25
+            elif "30min" in tf_lower or "30m" in tf_lower: hrs_per_c = 0.5
+            elif "5min" in tf_lower or "5m" in tf_lower: hrs_per_c = 0.0833
+            elif "1d" in tf_lower or "1day" in tf_lower: hrs_per_c = 24
+
+            if calibStartDate and str(calibStartDate).strip():
                 try:
                     dt_calib_start = pd.to_datetime(calibStartDate).tz_localize(None)
                 except Exception:
@@ -2812,19 +2891,13 @@ async def get_cruces_ema_pair_analysis(
             else:
                 dt_calib_start = None
 
-            if dt_calib_start is None:
-                if "1h" in tf_lower:
-                    dt_calib_start = dt_calib_end - timedelta(hours=calib_periods)
-                elif "4h" in tf_lower:
-                    dt_calib_start = dt_calib_end - timedelta(hours=calib_periods * 4)
-                elif "15min" in tf_lower or "15m" in tf_lower:
-                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 15)
-                elif "30min" in tf_lower or "30m" in tf_lower:
-                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 30)
-                elif "5min" in tf_lower or "5m" in tf_lower:
-                    dt_calib_start = dt_calib_end - timedelta(minutes=calib_periods * 5)
-                else:
-                    dt_calib_start = dt_calib_end - timedelta(days=calib_periods)
+            if dt_calib_start is not None:
+                dt_calib_end = dt_calib_start + timedelta(hours=int(calib_periods * hrs_per_c))
+            else:
+                dt_calib_end = pd.to_datetime(calibEndDate).tz_localize(None) if (calibEndDate and not is_recalib_in_ram) else (
+                    pd.to_datetime(fixedCreatedAt).tz_localize(None) if (fixedCreatedAt is not None and not is_recalib_in_ram) else dt_end
+                )
+                dt_calib_start = dt_calib_end - timedelta(hours=int(calib_periods * hrs_per_c))
 
             calib_start_reported = str(dt_calib_start)
             calib_end_reported = str(dt_calib_end)
@@ -2940,6 +3013,20 @@ async def get_cruces_ema_pair_analysis(
                 "priceA": round(float(pa), 5) if (pa is not None and not pd.isna(pa)) else None,
                 "priceB": round(float(pb), 5) if (pb is not None and not pd.isna(pb)) else None
             })
+
+        # Optimización masiva de rendimiento para RATIOS:
+        if len(history_backtest) > 1500:
+            history_backtest = history_backtest[-1500:]
+
+        if isinstance(trianglesOnlyBt, dict):
+            trianglesOnlyBt["signals"] = []
+            if "equityCurve" in trianglesOnlyBt:
+                trianglesOnlyBt["equityCurve"] = downsample_equity_curve(trianglesOnlyBt["equityCurve"], max_points=350)
+
+        if isinstance(combinedBt, dict):
+            combinedBt["signals"] = []
+            if "equityCurve" in combinedBt:
+                combinedBt["equityCurve"] = downsample_equity_curve(combinedBt["equityCurve"], max_points=350)
 
         return {
             "status": "success",
@@ -4511,7 +4598,7 @@ class UserCartCreate(BaseModel):
     EMARapida: Optional[int] = Field(2, description="Periodo RIDE / EMA Rápida")
     EMALenta: Optional[int] = Field(20, description="Ventana CAR / EMA Lenta")
     carWindow: Optional[int] = Field(20, description="Ventana de cálculo de ruido CAR")
-    carMultiplier: Optional[float] = Field(1.5, description="Multiplicador sigma del canal CAR")
+    carMultiplier: Optional[float] = Field(1.0, description="Multiplicador sigma del canal CAR")
     operar: Optional[bool] = Field(False, description="Indica si genera órdenes automáticas")
     tipoCierre: Optional[str] = Field("Tolerante", description="Régimen de salida")
     umbralDiferencia: Optional[float] = Field(0.20, description="Umbral de diferencia")
@@ -4585,7 +4672,7 @@ def findUserCart(
         "EMARapida": item.EMARapida if item.EMARapida is not None else 2,
         "EMALenta": item.EMALenta if item.EMALenta is not None else 20,
         "carWindow": item.carWindow if item.carWindow is not None else 20,
-        "carMultiplier": float(item.carMultiplier if item.carMultiplier is not None else 1.5),
+        "carMultiplier": float(item.carMultiplier if item.carMultiplier is not None else 1.0),
         "operar": bool(item.operar),
         "tipoCierre": item.tipoCierre or "Tolerante",
         "umbralDiferencia": float(item.umbralDiferencia or 0.2),
@@ -4643,7 +4730,7 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "EMARapida": r.EMARapida if r.EMARapida is not None else 2,
             "EMALenta": r.EMALenta if r.EMALenta is not None else 20,
             "carWindow": r.carWindow if r.carWindow is not None else 20,
-            "carMultiplier": float(r.carMultiplier if r.carMultiplier is not None else 1.5),
+            "carMultiplier": float(r.carMultiplier if r.carMultiplier is not None else 1.0),
             "operar": bool(r.operar),
             "tipoCierre": r.tipoCierre or "Tolerante",
             "umbralDiferencia": float(r.umbralDiferencia or 0.2),
@@ -4699,7 +4786,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
         ema_rapida = payload.EMARapida if payload.EMARapida is not None else 2
         ema_lenta = payload.EMALenta if payload.EMALenta is not None else 20
         car_win = payload.carWindow if payload.carWindow is not None else 20
-        car_mult = float(payload.carMultiplier) if payload.carMultiplier is not None else 1.5
+        car_mult = float(payload.carMultiplier) if payload.carMultiplier is not None else 1.0
         operar_val = bool(payload.operar) if payload.operar is not None else False
         tipo_cierre = str(payload.tipoCierre or "Tolerante").strip()
         umbral_dif = float(payload.umbralDiferencia) if payload.umbralDiferencia is not None else 0.2
@@ -5010,6 +5097,12 @@ async def manual_close_cart(
             WHERE idTrade = :idt
         """), {"epx": fillPx, "pnl": round(pnlVal, 2), "idt": idt})
 
+        db.execute(text("""
+            UPDATE cuenta
+            SET Capital = Capital + :pnl
+            WHERE idCuenta = :idc
+        """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
+
     db.execute(text("UPDATE userCART SET operar = :op WHERE idCuenta = :idc AND (symbol = :sym)"), {"op": targetOperar, "idc": idCuenta, "sym": symbol})
     db.commit()
     return {"status": "success", "message": f"Posiciones RIDER para {symbol} cerradas exitosamente"}
@@ -5022,7 +5115,7 @@ async def getCartAnalysis(
     days: int = 180,
     smaPeriod: int = 2,
     carWindow: int = 20,
-    carMultiplier: float = 1.5,
+    carMultiplier: float = 1.0,
     start_date: str = "",
     end_date: str = "",
     idCuenta: Optional[int] = None,
@@ -5035,12 +5128,12 @@ async def getCartAnalysis(
     junto con su Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ) y su BackTest de 4 meses.
     """
     try:
-        from backend.services.microCart import runCartBacktest, evaluateCartSignals
+        from backend.services.microCart import runCartBacktest, evaluateCartSignals, fetchCartPriceHistory
         import pymysql
 
         symbol = unquote(unquote(str(symbol or ""))).strip()
         tf_lower = str(timeframe or "1h").lower().strip()
-        is_intraday = tf_lower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m"]
+        is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h"]
 
         account_capital = float(initialCapital or 1000.0)
         allocation_pct = float(allocationPct or 1.0)
@@ -5074,28 +5167,8 @@ async def getCartAnalysis(
         dt_end = now_dt + timedelta(days=1)
 
         if is_intraday:
-            def query_cart_candles(sym_str: str):
-                conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
-                try:
-                    sql = """
-                        SELECT timestamp, close as closePrice
-                        FROM candles
-                        WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s AND timestamp <= %s
-                        ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
-                    """
-                    df_res = pd.read_sql(sql, conn, params=(sym_str, dt_bt_start.strftime("%Y-%m-%d %H:%M:%S"), dt_end.strftime("%Y-%m-%d %H:%M:%S")))
-                    if df_res.empty:
-                        return pd.DataFrame()
-                    df_res["timestamp"] = pd.to_datetime(df_res["timestamp"])
-                    df_res = df_res.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
-                    df_res["closePrice"] = pd.to_numeric(df_res["closePrice"], errors="coerce")
-                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
-                    rule = rule_map.get(tf_lower, "1h")
-                    return df_res.resample(rule).agg({"closePrice": "last"}).dropna()
-                finally:
-                    conn.close()
-
-            df_tf = await asyncio.to_thread(query_cart_candles, symbol)
+            # Obtener velas directas de MT5 Bridge a través de la función unificada de microCart
+            df_tf = await asyncio.to_thread(fetchCartPriceHistory, symbol, tf_lower, max(300, int(days or 180)))
             if df_tf.empty:
                 df_tf = await getStockPricesFromDb(symbol=symbol, limit=5000)
         else:
@@ -5109,10 +5182,6 @@ async def getCartAnalysis(
             else:
                 df_tf = df_raw.resample("D").agg({"closePrice": "last"}).dropna()
 
-        live_px = get_live_price_from_mt5(symbol)
-        if len(df_tf) > 1 and live_px is not None:
-            df_tf.iloc[-1, df_tf.columns.get_loc("closePrice")] = live_px
-
         # Backtest y cálculo completo de señales sobre ventana histórica completa (con calentamiento previo de EMA/CAR)
         btResult = runCartBacktest(
             df=df_tf,
@@ -5125,7 +5194,8 @@ async def getCartAnalysis(
             minLots=min_lots,
             margenPct=margen_pct,
             pipSize=pip_size,
-            minMarginIndicator=min_margin_ind
+            minMarginIndicator=min_margin_ind,
+            timeframe=timeframe
         )
 
         # Recorte para la gráfica principal de calibración CART a partir de la serie ya calentada
@@ -5141,6 +5211,22 @@ async def getCartAnalysis(
                 if (not s_str or str(h.get("datetime", "")) >= s_str)
                 and (not e_str or str(h.get("datetime", "")) <= e_str)
             ]
+
+        # Optimización masiva de rendimiento para RIDER:
+        # 1. Limitar la historia enviada a Chart.js en Backtest a max 1500 barras
+        if "history" in btResult and len(btResult["history"]) > 1500:
+            btResult["history"] = btResult["history"][-1500:]
+
+        # 2. Remover array masivo de signals no usado en la UI
+        btResult["signals"] = []
+
+        # 3. Downsampling de la curva de equidad a max 350 puntos
+        if "equityCurve" in btResult and isinstance(btResult["equityCurve"], list):
+            btResult["equityCurve"] = downsample_equity_curve(btResult["equityCurve"], max_points=350)
+
+        # 4. Limitar trades simulados de backtest a los últimos 300 para renderizado instantáneo en UI
+        if "trades" in btResult and len(btResult["trades"]) > 300:
+            btResult["trades"] = btResult["trades"][-300:]
 
         return {
             "status": "success",

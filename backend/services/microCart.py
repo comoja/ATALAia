@@ -20,7 +20,7 @@ import logging
 import pymysql
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 
 import numpy as np
@@ -34,6 +34,7 @@ if rootDir not in sys.path:
 
 from backend.database.models import SessionLocal
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
+from backend.services.microRatio import calculateSymbolNATR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +45,58 @@ logger = logging.getLogger("microCart")
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8002/webhook/tradingview")
 STRATEGY_NAME = "CART ATALAia"
-CART_STOP_LOSS_PCT = 0.25  # Cierre por pérdida del 0.25% respecto al precio de entrada
+CART_STOP_LOSS_FALLBACK_PCT = 0.15  # Fallback de corte de pérdida si no hay velas para NATR
+CART_NATR_MULTIPLIER = 1.5          # Multiplicador k unificado con RATIO para Trailing Stop Loss
+CART_STOP_LOSS_PCT = 0.15           # Compatibilidad hacia atrás
+
+_lastCartLogTime: Dict[Tuple[int, str], float] = {}
+_failedOrderCooldown: Dict[Tuple[int, str], float] = {}
+
+def shouldLogStatus(idCuenta: int, symbol: str, intervalSec: float = 30.0) -> bool:
+    key = (idCuenta, symbol)
+    now = time.time()
+    last = _lastCartLogTime.get(key, 0.0)
+    if now - last >= intervalSec:
+        _lastCartLogTime[key] = now
+        return True
+    return False
+
+def isOrderInCooldown(idCuenta: int, symbol: str) -> bool:
+    key = (idCuenta, symbol)
+    now = time.time()
+    until = _failedOrderCooldown.get(key, 0.0)
+    return now < until
+
+def setOrderCooldown(idCuenta: int, symbol: str, seconds: float = 120.0) -> None:
+    key = (idCuenta, symbol)
+    _failedOrderCooldown[key] = time.time() + seconds
+
+def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
+    """
+    Determina si el mercado para un símbolo está abierto actualmente:
+    - Criptomonedas (BTC, ETH, etc.): Abiertas 24/7.
+    - Forex / Metales: Cierran de Viernes 22:00 UTC (17:00 NY) a Domingo 21:15 UTC (17:15 NY).
+    """
+    sym = (symbol or "").upper().replace("/", "").replace("_", "")
+    if any(c in sym for c in ["BTC", "ETH", "SOL", "LTC", "XRP", "DOGE"]):
+        return True
+
+    now_utc = datetime.now(timezone.utc)
+    weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
+    hour = now_utc.hour
+    minute = now_utc.minute
+
+    # Sábado: Cerrado
+    if weekday == 5:
+        return False
+    # Viernes después de 22:00 UTC: Cerrado
+    if weekday == 4 and (hour > 22 or (hour == 22 and minute >= 0)):
+        return False
+    # Domingo antes de 21:15 UTC: Cerrado
+    if weekday == 6 and (hour < 21 or (hour == 21 and minute < 15)):
+        return False
+
+    return True
 
 
 def calcEmaSeries(values: List[Optional[float]], period: int) -> List[Optional[float]]:
@@ -118,40 +170,67 @@ def evaluateCartSignals(
     symbol: str,
     smaPeriod: int = 2,
     carWindow: int = 20,
-    carMultiplier: float = 1.5
+    carMultiplier: float = 1.0,
+    natrPct: Optional[float] = None,
+    timeframe: str = "1h",
+    dbSession = None
 ) -> Dict[str, Any]:
     """
     Evalúa las series de precios reales y el Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ)
     para un único par (sin normalización, sin media y sin promedio de la media).
-    Reglas CART:
+    Reglas CART / RIDER:
       - Compra (hasBuySignal): Precio sale por arriba del CAR (prevPx <= prevCarMax y px > carMax)
-      - Cierre Compra (hasBuyExit): Precio ingresa nuevamente al CAR (px <= carMax)
+      - Salida Compra (hasBuyExit): Por Trailing Stop Loss (-NATR% del pico) acotado al CAR superior (max(cMax, peak - NATR%)),
+        o reingreso al canal CAR.
       - Venta (hasSellSignal): Precio sale por debajo del CAR (prevPx >= prevCarMin y px < carMin)
-      - Cierre Venta (hasSellExit): Precio ingresa nuevamente al CAR (px >= carMin)
+      - Salida Venta (hasSellExit): Por Trailing Stop Loss (+NATR% del valle) acotado al CAR inferior (min(cMin, valley + NATR%)),
+        o reingreso al canal CAR.
+      - Trailing SL: Nunca invade el interior del canal CAR.
     """
     if df is None or df.empty:
         return {"signals": [], "latestSignal": {}, "history": []}
 
     colName = "closePrice" if "closePrice" in df.columns else df.columns[0]
     prices = [float(x) if not pd.isna(x) else None for x in df[colName].tolist()]
+    highs = [float(x) if not pd.isna(x) else None for x in df["highPrice"].tolist()] if "highPrice" in df.columns else prices
+    lows = [float(x) if not pd.isna(x) else None for x in df["lowPrice"].tolist()] if "lowPrice" in df.columns else prices
+    opens = [float(x) if not pd.isna(x) else None for x in df["openPrice"].tolist()] if "openPrice" in df.columns else prices
     dates = [
         idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx, "strftime") else str(idx)
         for idx in df.index
     ]
 
     ema20 = calcEmaSeries(prices, max(2, int(carWindow or 20)))
-    car = calcCarChannel(prices, ema20, int(carWindow or 20), float(carMultiplier or 1.5))
+    car = calcCarChannel(prices, ema20, int(carWindow or 20), float(carMultiplier or 1.0))
     carMax = car["max"]
     carMin = car["min"]
+
+    # Calcular o utilizar NATR dinámico del activo (Unificado con RATIO)
+    if natrPct is None:
+        if dbSession is not None and symbol:
+            try:
+                natrPct = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+            except Exception as e:
+                logger.warning(f"Error obteniendo NATR para {symbol} en evaluateCartSignals: {e}")
+                natrPct = CART_STOP_LOSS_FALLBACK_PCT
+        else:
+            natrPct = CART_STOP_LOSS_FALLBACK_PCT
+
+    stopLossRatio = float(natrPct) / 100.0
 
     signals: List[Dict[str, Any]] = []
     history: List[Dict[str, Any]] = []
     activeDir: Optional[str] = None
     activeEntryPx: Optional[float] = None
-    stopLossRatio = CART_STOP_LOSS_PCT / 100.0
+    peakPx: Optional[float] = None
+    valleyPx: Optional[float] = None
+    activeSl: Optional[float] = None
 
     for i in range(len(prices)):
         px = prices[i]
+        highVal = highs[i] if highs[i] is not None else px
+        lowVal = lows[i] if lows[i] is not None else px
+        openVal = opens[i] if opens[i] is not None else px
         e20 = ema20[i]
         cMax = carMax[i]
         cMin = carMin[i]
@@ -171,43 +250,85 @@ def evaluateCartSignals(
 
             if prevPx is not None and prevCMax is not None and prevCMin is not None:
                 # 1. Si hay una posición abierta:
-                #    Cierra cuando el precio ingresa nuevamente al CAR (COMPRA en cMax, VENTA en cMin)
+                #    Cierra por Trailing Stop Loss (±0.15% respecto al precio extremo alcanzado)
+                #    estrictamente MONOTÓNICO (nunca retrocede en contra de la posición),
+                #    delimitado para NO invadir el canal CAR, o cuando el precio ingresa nuevamente al CAR.
                 if activeDir == "COMPRA":
-                    hitCarReentry = (px <= cMax)
-                    if hitCarReentry:
+                    peakPx = max(peakPx if peakPx is not None else (activeEntryPx or px), highVal if highVal is not None else px)
+                    candidateSl = peakPx * (1.0 - stopLossRatio)
+                    activeSl = candidateSl if activeSl is None else max(activeSl, candidateSl)  # NUNCA DISMINUYE
+                    clampedSl = max(cMax, activeSl)
+                    hitExit = (lowVal is not None and lowVal <= clampedSl) or (px <= clampedSl)
+                    if hitExit:
                         hasBuyExit = True
-                        exitPxVal = cMax
-                        signalLabel = "BUY_EXIT"
+                        exitPxVal = clampedSl
+                        signalLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {clampedSl:.5f})" if clampedSl > cMax else "BUY_EXIT"
                         activeDir = None
                         activeEntryPx = None
+                        peakPx = None
+                        valleyPx = None
+                        activeSl = None
                 elif activeDir == "VENTA":
-                    hitCarReentry = (px >= cMin)
-                    if hitCarReentry:
+                    valleyPx = min(valleyPx if valleyPx is not None else (activeEntryPx or px), lowVal if lowVal is not None else px)
+                    candidateSl = valleyPx * (1.0 + stopLossRatio)
+                    activeSl = candidateSl if activeSl is None else min(activeSl, candidateSl)  # NUNCA AUMENTA
+                    clampedSl = min(cMin, activeSl)
+                    hitExit = (highVal is not None and highVal >= clampedSl) or (px >= clampedSl)
+                    if hitExit:
                         hasSellExit = True
-                        exitPxVal = cMin
-                        signalLabel = "SELL_EXIT"
+                        exitPxVal = clampedSl
+                        signalLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {clampedSl:.5f})" if clampedSl < cMin else "SELL_EXIT"
                         activeDir = None
                         activeEntryPx = None
+                        peakPx = None
+                        valleyPx = None
+                        activeSl = None
+
                 # 2. Si no hay posición abierta, verificar salida del canal desde dentro del CAR:
                 #    - COMPRA solo actúa en el límite superior (sale por arriba de cMax)
                 #    - VENTA solo actúa en el límite inferior (sale por debajo de cMin)
-                elif activeDir is None:
-                    if prevCMin <= prevPx <= prevCMax and px > cMax:
+                if activeDir is None:
+                    if prevCMin <= prevPx <= prevCMax and (px > cMax or (highVal is not None and highVal > cMax)):
                         hasBuySignal = True
                         signalLabel = "BUY_ENTRY"
                         activeDir = "COMPRA"
-                        activeEntryPx = px
-                    elif prevCMin <= prevPx <= prevCMax and px < cMin:
+                        activeEntryPx = cMax if (openVal is None or openVal <= cMax) else openVal
+                        peakPx = max(activeEntryPx, highVal if highVal is not None else px)
+                        valleyPx = None
+                        activeSl = peakPx * (1.0 - stopLossRatio)
+                        # Verificar si en la misma barra se disparó retroceso a Trailing SL / Reingreso
+                        clampedSl = max(cMax, activeSl)
+                        if lowVal is not None and lowVal <= clampedSl:
+                            hasBuyExit = True
+                            exitPxVal = clampedSl
+                            activeDir = None
+                            peakPx = None
+                            activeSl = None
+                    elif prevCMin <= prevPx <= prevCMax and (px < cMin or (lowVal is not None and lowVal < cMin)):
                         hasSellSignal = True
                         signalLabel = "SELL_ENTRY"
                         activeDir = "VENTA"
-                        activeEntryPx = px
+                        activeEntryPx = cMin if (openVal is None or openVal >= cMin) else openVal
+                        valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                        peakPx = None
+                        activeSl = valleyPx * (1.0 + stopLossRatio)
+                        # Verificar si en la misma barra se disparó rebote a Trailing SL / Reingreso
+                        clampedSl = min(cMin, activeSl)
+                        if highVal is not None and highVal >= clampedSl:
+                            hasSellExit = True
+                            exitPxVal = clampedSl
+                            activeDir = None
+                            valleyPx = None
+                            activeSl = None
 
         sigItem = {
             "datetime": dtStr,
             "symbol": symbol,
             "price": round(px, 5) if px is not None else None,
             "priceA": round(px, 5) if px is not None else None,
+            "highPrice": round(highVal, 5) if highVal is not None else None,
+            "lowPrice": round(lowVal, 5) if lowVal is not None else None,
+            "openPrice": round(openVal, 5) if openVal is not None else None,
             "ema20": round(e20, 5) if e20 is not None else None,
             "emaCar": round(e20, 5) if e20 is not None else None,
             "carMax": round(cMax, 5) if cMax is not None else None,
@@ -218,7 +339,9 @@ def evaluateCartSignals(
             "hasSellSignal": hasSellSignal,
             "hasBuyExit": hasBuyExit,
             "hasSellExit": hasSellExit,
-            "isInsideCar": bool(px is not None and cMax is not None and cMin is not None and cMin <= px <= cMax)
+            "isInsideCar": bool(px is not None and cMax is not None and cMin is not None and cMin <= px <= cMax),
+            "natrPct": round(float(natrPct), 3),
+            "slRatio": round(float(stopLossRatio), 5)
         }
         signals.append(sigItem)
         history.append(sigItem)
@@ -235,27 +358,49 @@ def runCartBacktest(
     symbol: str,
     smaPeriod: int = 2,
     carWindow: int = 20,
-    carMultiplier: float = 1.5,
+    carMultiplier: float = 1.0,
     initialCapital: float = 1000.0,
     allocationPct: float = 1.0,
     minLots: float = 1000.0,
     margenPct: float = 3.33,
     pipSize: float = 0.0001,
-    minMarginIndicator: float = 200.0
+    minMarginIndicator: float = 200.0,
+    timeframe: str = "1h",
+    dbSession = None,
+    natrPct: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta el BackTest de la estrategia CART sobre un solo par en precios reales:
-      - Si el precio sale por arriba del CAR (px > carMax) -> Abre COMPRA, y cierra cuando px <= carMax.
-      - Si el precio sale por debajo del CAR (px < carMin) -> Abre VENTA, y cierra cuando px >= carMin.
+      - Si el precio sale por arriba del CAR (px > carMax) -> Abre COMPRA, y cierra cuando px <= carMax o por Trailing SL.
+      - Si el precio sale por debajo del CAR (px < carMin) -> Abre VENTA, y cierra cuando px >= carMin o por Trailing SL.
+      - Trailing Stop Loss adaptativo por volatilidad (NATR unificado institucionalmente con RATIO).
       - Limita las entradas por el Indicador de Margen mínimo de operación (minMarginIndicator, por defecto 200%),
         igual que en RATIOS.
     """
+    if natrPct is None:
+        closeSession = False
+        s = dbSession
+        if s is None:
+            s = SessionLocal()
+            closeSession = True
+        try:
+            natrPct = calculateSymbolNATR(s, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+        except Exception as e:
+            logger.warning(f"Error obteniendo NATR para {symbol} en runCartBacktest: {e}")
+            natrPct = CART_STOP_LOSS_FALLBACK_PCT
+        finally:
+            if closeSession:
+                s.close()
+
     evalRes = evaluateCartSignals(
         df=df,
         symbol=symbol,
         smaPeriod=smaPeriod,
         carWindow=carWindow,
-        carMultiplier=carMultiplier
+        carMultiplier=carMultiplier,
+        natrPct=natrPct,
+        timeframe=timeframe,
+        dbSession=dbSession
     )
     signals = evalRes.get("signals", [])
     if not signals:
@@ -265,6 +410,8 @@ def runCartBacktest(
             "totalBars": 0,
             "totalDays": 0,
             "totalCycles": 0,
+            "natrPct": round(float(natrPct), 3),
+            "slRatio": round(float(natrPct) / 100.0, 5),
             "trades": [],
             "equityCurve": [],
             "metrics": {
@@ -304,6 +451,10 @@ def runCartBacktest(
     maxDrawdownPct = 0.0
     marginCappedCycles = 0
     totalStoppedEntries = 0
+    btPeakPx: Optional[float] = None
+    btValleyPx: Optional[float] = None
+    btActiveSl: Optional[float] = None
+    stopLossRatio = float(natrPct) / 100.0
 
     for sig in signals:
         px = sig["price"]
@@ -314,26 +465,59 @@ def runCartBacktest(
             continue
 
         # 1. Verificar cierre:
-        #    - Si el precio de entrada tiene una pérdida >= 0.5% (Stop Loss)
+        #    - Por Trailing Stop Loss (±0.15% respecto al precio extremo alcanzado)
+        #      estrictamente MONOTÓNICO (nunca retrocede), delimitado institucionalmente
+        #      para NO invadir el canal CAR
         #    - O cuando el precio ingresa nuevamente al CAR (COMPRA en cMax, VENTA en cMin)
         if openPositions:
+            # Incrementar la duración en velas de la posición activa
+            for p in openPositions:
+                p["durationBars"] = int(p.get("durationBars", 1)) + 1
+
             currentDir = openPositions[0]["direction"]
             entryPxRef = float(openPositions[0]["entryPrice"])
             shouldClose = False
             exitBoundaryPx = px
+            exitReasonLabel = ""
+
+            highVal = sig.get("highPrice") if sig.get("highPrice") is not None else px
+            lowVal = sig.get("lowPrice") if sig.get("lowPrice") is not None else px
+            openVal = sig.get("openPrice") if sig.get("openPrice") is not None else px
+
             if currentDir == "COMPRA":
-                hitCarReentry = (px <= cMax)
-                if hitCarReentry:
+                btPeakPx = max(btPeakPx if btPeakPx is not None else entryPxRef, highVal)
+                candidateSl = btPeakPx * (1.0 - stopLossRatio)
+                btActiveSl = candidateSl if btActiveSl is None else max(btActiveSl, candidateSl)  # NUNCA DISMINUYE
+                clampedSl = max(cMax, btActiveSl)
+                hitExit = (lowVal is not None and lowVal <= clampedSl) or (px <= clampedSl)
+                if hitExit:
                     shouldClose = True
-                    exitBoundaryPx = cMax
+                    # Ejecución al precio de stop o al open si abrió con gap por debajo
+                    exitBoundaryPx = openVal if (openVal is not None and openVal < clampedSl) else clampedSl
+                    if clampedSl > cMax:
+                        exitReasonLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {clampedSl:.5f})"
+                    else:
+                        exitReasonLabel = "Reingreso CAR Superior"
             elif currentDir == "VENTA":
-                hitCarReentry = (px >= cMin)
-                if hitCarReentry:
+                btValleyPx = min(btValleyPx if btValleyPx is not None else entryPxRef, lowVal)
+                candidateSl = btValleyPx * (1.0 + stopLossRatio)
+                btActiveSl = candidateSl if btActiveSl is None else min(btActiveSl, candidateSl)  # NUNCA AUMENTA
+                clampedSl = min(cMin, btActiveSl)
+                hitExit = (highVal is not None and highVal >= clampedSl) or (px >= clampedSl)
+                if hitExit:
                     shouldClose = True
-                    exitBoundaryPx = cMin
+                    # Ejecución al precio de stop o al open si abrió con gap por encima
+                    exitBoundaryPx = openVal if (openVal is not None and openVal > clampedSl) else clampedSl
+                    if clampedSl < cMin:
+                        exitReasonLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {clampedSl:.5f})"
+                    else:
+                        exitReasonLabel = "Reingreso CAR Inferior"
 
             if shouldClose:
-                exitReasonLabel = f"Reingreso CAR {'Superior' if currentDir == 'COMPRA' else 'Inferior'}"
+                cycleDurBars = openPositions[0].get("durationBars", 1)
+                btPeakPx = None
+                btValleyPx = None
+                btActiveSl = None
                 cycleCounter += 1
                 cyclePnl = 0.0
                 cycleMargin = 0.0
@@ -351,6 +535,7 @@ def runCartBacktest(
                     pos["exitPriceA"] = round(exitBoundaryPx, 5)
                     pos["exitPriceB"] = 0.0
                     pos["exitReason"] = exitReasonLabel
+                    pos["durationBars"] = cycleDurBars
                     pos["pnl"] = round(pnlVal, 2)
                     pos["pnlA"] = round(pnlVal, 2)
                     pos["pnlB"] = 0.0
@@ -392,7 +577,7 @@ def runCartBacktest(
                     "signalColor": "#10b981" if cyclePnl >= 0 else "#ef4444",
                     "entryDate": openPositions[0]["entryDate"],
                     "exitDate": dtStr,
-                    "durationBars": len(openPositions),
+                    "durationBars": cycleDurBars,
                     "entryPriceA": round(sum(p["entryPrice"] for p in openPositions) / len(openPositions), 5),
                     "entryPriceB": 0.0,
                     "exitPriceA": round(exitBoundaryPx, 5),
@@ -488,6 +673,13 @@ def runCartBacktest(
                 if (marginUsed <= availableEquity) and (projectedIndicator >= minMarginInd):
                     tradeCounter += 1
                     units = multA * minLotsVal
+                    if newDir == "COMPRA":
+                        btPeakPx = max(px, sig.get("highPrice") or px)
+                        btValleyPx = None
+                    else:
+                        btValleyPx = min(px, sig.get("lowPrice") or px)
+                        btPeakPx = None
+
                     openPositions.append({
                         "tradeNum": tradeCounter,
                         "isSubtotal": False,
@@ -638,6 +830,8 @@ def runCartBacktest(
         "marginCappedCycles": marginCappedCycles,
         "totalStoppedEntries": totalStoppedEntries,
         "minMarginIndicator": minMarginInd,
+        "natrPct": round(float(natrPct), 3),
+        "slRatio": round(float(stopLossRatio), 5),
         "history": evalRes.get("history", []),
         "trades": allTradesOutput,
         "equityCurve": equityCurve,
@@ -647,16 +841,53 @@ def runCartBacktest(
 
 def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.DataFrame:
     """
-    Obtiene el historial de precios del par desde candles (intradía) o stockprices (diario+).
+    Obtiene el historial de precios del par desde MT5 Bridge (FOREX.com) con fallback a candles/stockprices.
+    Utiliza el timestamp Unix real registrado por MT5 ajustado a la hora local para sincronización exacta al 100%.
     """
     tfLower = str(timeframe or "1h").lower().strip()
     isIntraday = tfLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
+    limit_bars = max(300, int(days or 180))
+
+    # 1. Prioridad: Velas directas y reales de MT5 Bridge (FOREX.com)
+    if isIntraday:
+        try:
+            sym_map = {
+                'XAU/USD': 'XAUUSD', 'BTC/USD': 'Bitcoin', 'EUR/MXN': 'EURMXN',
+                'XAG/USD': 'XAGUSD', 'EUR/USD': 'EURUSD', 'GBP/USD': 'GBPUSD',
+                'USD/JPY': 'USDJPY', 'USD/CHF': 'USDCHF', 'AUD/USD': 'AUDUSD'
+            }
+            mt5_sym = sym_map.get(symbol, symbol.replace('/', '').upper())
+            url_rates = 'http://127.0.0.1:8005/rates'
+            interval_param = '1min' if tfLower in ['1min', '1m'] else ('5min' if tfLower in ['5min', '5m'] else '1h')
+            req_data = json.dumps({'symbol': mt5_sym, 'interval': interval_param, 'output_size': limit_bars}).encode('utf-8')
+            req_rates = urllib.request.Request(url_rates, data=req_data, headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req_rates, timeout=2.5) as resp:
+                if resp.status == 200:
+                    rates = json.loads(resp.read().decode()).get('rates', [])
+                    if rates and len(rates) >= 20:
+                        df_mt5 = pd.DataFrame(rates)
+                        # MT5 broker server time is EET (UTC+2). Restar 7200 segundos alinea a UTC epoch exacto.
+                        # datetime.fromtimestamp formatea fielmente en la zona horaria local del sistema (CDMX UTC-6).
+                        df_mt5['timestamp'] = [datetime.fromtimestamp(int(r['time']) - 7200) for r in rates]
+                        df_mt5 = df_mt5.drop_duplicates(subset=['timestamp'], keep='last').set_index('timestamp')
+                        df_mt5['closePrice'] = pd.to_numeric(df_mt5['close'], errors='coerce')
+                        if 'high' in df_mt5.columns:
+                            df_mt5['highPrice'] = pd.to_numeric(df_mt5['high'], errors='coerce')
+                        if 'low' in df_mt5.columns:
+                            df_mt5['lowPrice'] = pd.to_numeric(df_mt5['low'], errors='coerce')
+                        if 'open' in df_mt5.columns:
+                            df_mt5['openPrice'] = pd.to_numeric(df_mt5['open'], errors='coerce')
+                        cols = [c for c in ['closePrice', 'highPrice', 'lowPrice', 'openPrice'] if c in df_mt5.columns]
+                        return df_mt5[cols].dropna()
+        except Exception as e_mt5:
+            logger.debug(f"MT5 rates no disponible para {symbol}: {e_mt5}")
+
     conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
     try:
         if isIntraday:
             dtStart = datetime.now() - timedelta(days=max(30, int(days // 12) + 15))
             sql = """
-                SELECT timestamp, close AS closePrice
+                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
                 FROM candles
                 WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s
                 ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
@@ -667,12 +898,25 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
             df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
+            if "highPrice" in df.columns:
+                df["highPrice"] = pd.to_numeric(df["highPrice"], errors="coerce")
+            if "lowPrice" in df.columns:
+                df["lowPrice"] = pd.to_numeric(df["lowPrice"], errors="coerce")
+            if "openPrice" in df.columns:
+                df["openPrice"] = pd.to_numeric(df["openPrice"], errors="coerce")
             ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
             rule = ruleMap.get(tfLower, "1h")
-            return df.resample(rule).agg({"closePrice": "last"}).dropna().tail(max(40, days))
+            aggDict = {"closePrice": "last"}
+            if "highPrice" in df.columns:
+                aggDict["highPrice"] = "max"
+            if "lowPrice" in df.columns:
+                aggDict["lowPrice"] = "min"
+            if "openPrice" in df.columns:
+                aggDict["openPrice"] = "first"
+            return df.resample(rule).agg(aggDict).dropna().tail(limit_bars)
         else:
             sql = """
-                SELECT priceDate AS timestamp, closePrice
+                SELECT priceDate AS timestamp, closePrice, closePrice AS highPrice, closePrice AS lowPrice, closePrice AS openPrice
                 FROM stockprices
                 WHERE symbol = %s
                 ORDER BY priceDate DESC
@@ -684,7 +928,10 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.sort_values("timestamp").set_index("timestamp")
             df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            return df.dropna().tail(max(40, days))
+            df["highPrice"] = pd.to_numeric(df["highPrice"], errors="coerce")
+            df["lowPrice"] = pd.to_numeric(df["lowPrice"], errors="coerce")
+            df["openPrice"] = pd.to_numeric(df["openPrice"], errors="coerce")
+            return df.dropna().tail(limit_bars)
     finally:
         conn.close()
 
@@ -752,7 +999,7 @@ def sendCartWebhookOrder(
                 "FOREX_USERNAME": encryptedAccountToken
             }
 
-            logger.info(f"🌐 [CART Webhook] Enviando {action.upper()} {symbol} ({size:,.0f} u) a FOREX.com para {loginUsuario} ({nombreBroker})...")
+            logger.info(f"🌐 [CART Webhook] Enviando {action.upper()} {symbol} ({size:g} u) a FOREX.com para {loginUsuario} ({nombreBroker})...")
             try:
                 resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
                 if resp.status_code == 200:
@@ -848,55 +1095,19 @@ def parseCandleDateTime(dtVal: Any) -> datetime:
 
 def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleDt: datetime, timeframe: str = "1h") -> bool:
     """
-    Verifica si ya existe un trade CART para la misma vela según la temporalidad:
-    - En horas/intradía (1h, 4h, 15m, etc.): coincidencia exacta de candleTime = :cdt.
-    - En semanas (1week, 1w): coincidencia por semana YEARWEEK(candleTime, 1).
-    - En meses (1month, 1m): coincidencia por año/mes.
-    - En días (1d): coincidencia por día DATE(candleTime) = DATE(:cdt).
+    Verifica si ya existe un trade CART con status = 'OPEN' para este par y cuenta,
+    garantizando que solo pueda haber como máximo 1 posición en curso (abierta).
+    En cuanto la posición se cierra, queda libre para abrir otra si hay señal.
     """
-    tf = str(timeframe).lower().strip()
-    if tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]:
-        sqlQuery = text("""
-            SELECT COUNT(*)
-            FROM trades
-            WHERE idCuenta = :idc
-              AND strategy = :strat
-              AND (symbol = :sym OR setup = :sym)
-              AND candleTime = :cdt
-              AND status = 'OPEN'
-        """)
-    elif tf in ["1week", "1w"]:
-        sqlQuery = text("""
-            SELECT COUNT(*)
-            FROM trades
-            WHERE idCuenta = :idc
-              AND strategy = :strat
-              AND (symbol = :sym OR setup = :sym)
-              AND YEARWEEK(candleTime, 1) = YEARWEEK(:cdt, 1)
-              AND status = 'OPEN'
-        """)
-    elif tf in ["1month", "1m"]:
-        sqlQuery = text("""
-            SELECT COUNT(*)
-            FROM trades
-            WHERE idCuenta = :idc
-              AND strategy = :strat
-              AND (symbol = :sym OR setup = :sym)
-              AND YEAR(candleTime) = YEAR(:cdt)
-              AND MONTH(candleTime) = MONTH(:cdt)
-              AND status = 'OPEN'
-        """)
-    else:
-        sqlQuery = text("""
-            SELECT COUNT(*)
-            FROM trades
-            WHERE idCuenta = :idc
-              AND strategy = :strat
-              AND (symbol = :sym OR setup = :sym)
-              AND DATE(candleTime) = DATE(:cdt)
-              AND status = 'OPEN'
-        """)
-    cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol, "cdt": candleDt}).scalar()
+    sqlQuery = text("""
+        SELECT COUNT(*)
+        FROM trades
+        WHERE idCuenta = :idc
+          AND strategy = :strat
+          AND (symbol = :sym OR setup = :sym)
+          AND status = 'OPEN'
+    """)
+    cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).scalar()
     return bool(cnt and cnt > 0)
 
 
@@ -912,7 +1123,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
     periodo = int(cartRecord.get("periodo") or 180)
     emaRapida = int(cartRecord.get("EMARapida") or 2)
     carWindow = int(cartRecord.get("carWindow") or 20)
-    carMultiplier = float(cartRecord.get("carMultiplier") or 1.5)
+    carMultiplier = float(cartRecord.get("carMultiplier") or 1.0)
     operar = bool(cartRecord.get("operar", False))
 
     df = fetchCartPriceHistory(symbol, timeframe, periodo)
@@ -920,12 +1131,18 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         logger.warning(f"⚠️ [CART] Historial insuficiente para {symbol} ({timeframe}).")
         return
 
+    # Cálculo dinámico de volatilidad NATR para Trailing Stop Loss
+    tslPct = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+
     evalRes = evaluateCartSignals(
         df=df,
         symbol=symbol,
         smaPeriod=emaRapida,
         carWindow=carWindow,
-        carMultiplier=carMultiplier
+        carMultiplier=carMultiplier,
+        natrPct=tslPct,
+        timeframe=timeframe,
+        dbSession=dbSession
     )
     latestSig = evalRes.get("latestSignal", {})
     if not latestSig:
@@ -938,7 +1155,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
     hasSell = latestSig.get("hasSellSignal", False)
 
     openTrades = dbSession.execute(text("""
-        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId, openTime
         FROM trades
         WHERE idCuenta = :idc
           AND strategy = :strat
@@ -947,27 +1164,75 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         ORDER BY idTrade ASC
     """), {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).mappings().fetchall()
 
-    logger.info(
-        f"📈 [CART] Cuenta #{idCuenta} | {symbol} ({timeframe}) | "
-        f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={hasBuy} | SellSig={hasSell} | OpenTrades={len(openTrades)}"
-    )
-
     if openTrades and px is not None and cMax is not None and cMin is not None:
         firstDir = str(openTrades[0]["direction"] or "LARGO").upper()
         isLong = "LARG" in firstDir or "BUY" in firstDir or "COMPRA" in firstDir
         avgEntryPx = sum(float(tr["entryPrice"] or px) for tr in openTrades) / len(openTrades)
+
+        # Trailing Stop Loss Dinámico por NATR (Normalized ATR unificado con RATIO):
+        # Sigue al precio a una distancia adaptada a la volatilidad real del símbolo.
+        # Si el precio avanza favorablemente, el SL avanza; si el precio retrocede, el SL jamás retrocede (estrictamente monótono).
+        stopLossRatio = tslPct / 100.0
+        runningExtreme = avgEntryPx
+        currentSl = avgEntryPx * (1.0 - stopLossRatio) if isLong else avgEntryPx * (1.0 + stopLossRatio)
+
+        earliestOpenTime = min((tr["openTime"] for tr in openTrades if tr["openTime"]), default=None)
+        if earliestOpenTime and not df.empty:
+            subDf = df.loc[df.index >= earliestOpenTime]
+            if not subDf.empty:
+                for _, row in subDf.iterrows():
+                    cHigh = float(row["highPrice"]) if ("highPrice" in row and pd.notna(row["highPrice"])) else (float(row["closePrice"]) if pd.notna(row.get("closePrice")) else None)
+                    cLow = float(row["lowPrice"]) if ("lowPrice" in row and pd.notna(row["lowPrice"])) else (float(row["closePrice"]) if pd.notna(row.get("closePrice")) else None)
+                    cClose = float(row["closePrice"]) if ("closePrice" in row and pd.notna(row["closePrice"])) else None
+
+                    if isLong:
+                        cCandlePeak = max(v for v in [cHigh, cClose] if v is not None) if (cHigh is not None or cClose is not None) else None
+                        if cCandlePeak is not None and cCandlePeak > runningExtreme:
+                            runningExtreme = cCandlePeak
+                        candidateSl = runningExtreme * (1.0 - stopLossRatio)
+                        currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
+                    else:
+                        cCandleValley = min(v for v in [cLow, cClose] if v is not None) if (cLow is not None or cClose is not None) else None
+                        if cCandleValley is not None and cCandleValley < runningExtreme:
+                            runningExtreme = cCandleValley
+                        candidateSl = runningExtreme * (1.0 + stopLossRatio)
+                        currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
+
+        # Evaluar contra el precio actual en tiempo real
         if isLong:
+            if px > runningExtreme:
+                runningExtreme = px
+            candidateSl = runningExtreme * (1.0 - stopLossRatio)
+            currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
+            hitTrailingSl = (px <= currentSl)
             hitCarReentry = (px <= cMax)
         else:
+            if px < runningExtreme:
+                runningExtreme = px
+            candidateSl = runningExtreme * (1.0 + stopLossRatio)
+            currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
+            hitTrailingSl = (px >= currentSl)
             hitCarReentry = (px >= cMin)
 
-        shouldClose = hitCarReentry
+        trailingSlPx = currentSl
+
+        shouldClose = hitCarReentry or hitTrailingSl
+
+        if shouldLogStatus(idCuenta, symbol, 30.0) or shouldClose:
+            logger.info(
+                f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
+                f"Px={px:.5f} | CAR=[{cMin:.5f}, {cMax:.5f}] | TrailingSL={trailingSlPx:.5f} (Extremo={runningExtreme:.5f} | NATR={tslPct:.2f}%) | "
+                f"hitCar={hitCarReentry} | hitSL={hitTrailingSl} | OpenTrades={len(openTrades)}"
+            )
 
         if shouldClose:
-            closeReasonComment = "Cierre CART por reingreso al CAR"
+            if hitCarReentry:
+                closeReasonComment = "Cierre CART por reingreso al CAR"
+            else:
+                closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
             logger.info(
-                f"🎯 [CART] Reingreso al CAR detectado para {symbol} en Cuenta #{idCuenta} "
-                f"(Px={px:.5f}, Límite={cMax if isLong else cMin:.5f}). Cerrando {len(openTrades)} trade(s)..."
+                f"🎯 [CART] {closeReasonComment} para {symbol} en Cuenta {idCuenta} "
+                f"(Px={px:.5f}, Límite CAR={cMax if isLong else cMin:.5f}, TrailingSL={trailingSlPx:.5f}, NATR={tslPct:.2f}%). Cerrando {len(openTrades)} trade(s)..."
             )
             cleanSym = symbol.replace("/", "").upper()
             rowSym = dbSession.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
@@ -1013,23 +1278,45 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                         closeTime = NOW()
                     WHERE idTrade = :idt
                 """), {"epx": exitFillPx, "pnl": round(pnlVal, 2), "idt": tr["idTrade"]})
+
+                dbSession.execute(text("""
+                    UPDATE cuenta
+                    SET Capital = Capital + :pnl
+                    WHERE idCuenta = :idc
+                """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
             dbSession.commit()
 
             if str(cartRecord.get("accionCierre") or "Continua").strip().lower() == "para":
                 dbSession.execute(text("UPDATE userCART SET operar = 0 WHERE id = :cid"), {"cid": cartRecord["id"]})
                 dbSession.commit()
             return
+    else:
+        isPriceBelowCar = bool(px is not None and cMin is not None and px < cMin)
+        isPriceAboveCar = bool(px is not None and cMax is not None and px > cMax)
+        effectiveBuy = hasBuy or (isPriceAboveCar and not isPriceBelowCar)
+        effectiveSell = hasSell or (isPriceBelowCar and not isPriceAboveCar)
 
-    isPriceBelowCar = bool(px is not None and cMin is not None and px < cMin)
-    isPriceAboveCar = bool(px is not None and cMax is not None and px > cMax)
-    effectiveBuy = hasBuy or (isPriceAboveCar and not isPriceBelowCar)
-    effectiveSell = hasSell or (isPriceBelowCar and not isPriceAboveCar)
+        if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
+            logger.info(
+                f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
+                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={hasBuy} | SellSig={hasSell} | OpenTrades={len(openTrades)}"
+            )
 
     if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
+        # 1. Comprobar si el mercado está abierto para este símbolo (evitar intentos fuera de sesión)
+        if not isMarketOpenForSymbol(symbol):
+            if shouldLogStatus(idCuenta, symbol, 60.0):
+                logger.info(f"⏸️ [CART] Mercado cerrado para {symbol} (fin de semana). No se envían órdenes de apertura.")
+            return
+
+        # 2. Comprobar si la orden está en periodo de cooldown tras un rechazo previo
+        if isOrderInCooldown(idCuenta, symbol):
+            return
+
         candleDt = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
         if checkCartTradeExistsForCandle(dbSession, idCuenta, symbol, candleDt, timeframe):
             logger.info(
-                f"🔒 [CART] [{symbol}] Ya existe un trade OPEN en la vela {candleDt} ({timeframe}) para Cuenta #{idCuenta}. Se omite re-entrada."
+                f"🔒 [CART] [{symbol}] Ya existe un trade OPEN para Cuenta #{idCuenta}. Se omite nueva apertura mientras esté en curso."
             )
             return
 
@@ -1094,7 +1381,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             comment=f"Entrada CART ({directionStr})"
         )
         if not whRes.get("success"):
-            logger.error(f"❌ [CART] No se pudo ejecutar orden en Webhook para Cuenta #{idCuenta} {symbol}: {whRes.get('error')}")
+            setOrderCooldown(idCuenta, symbol, 120.0)
+            logger.error(f"❌ [CART] No se pudo ejecutar orden en Webhook para Cuenta #{idCuenta} {symbol}: {whRes.get('error')}. Cooldown activado por 120s.")
             return
 
         ticketId = str(whRes.get("order_id") or "")
@@ -1162,9 +1450,10 @@ def runCycle(isHourlyTick: bool = True) -> None:
 
 def main() -> None:
     """
-    Bucle principal adaptativo del demonio microCart.py:
-    - Escanea cada 1 minuto para temporalidades intradía (1min, 5min, 15min, 1h, etc.).
-    - En el minuto :00 escanea además temporalidades diarias (1d) o mayores.
+    Bucle principal de alta velocidad para microCart.py:
+    - Escanea cada 5 segundos evaluando cotizaciones en vivo directas de MT5 Bridge.
+    - Reacciona de inmediato en el instante exacto en que el precio cruza el CAR o toca el Stop Loss.
+    - Sincroniza pares diarios (1d) en el minuto :00 de cada hora.
     """
     logger.info("==========================================================")
     logger.info("🚀 Iniciando Microservicio microCart.py (Estrategia CART)")
@@ -1173,20 +1462,23 @@ def main() -> None:
         runCycle(isHourlyTick=True)
         return
 
-    logger.info("🚀 [microCart] Demonio adaptativo iniciado: censo cada 1 min (intradía) y cada hora (1d).")
+    scanIntervalSec = int(os.getenv("CART_SCAN_INTERVAL", "5"))
+    logger.info(f"🚀 [microCart] Demonio de alta velocidad iniciado: sondeo cada {scanIntervalSec}s en vivo (MT5 Bridge).")
+    lastHourlySync = None
+
     while True:
         now = datetime.now()
-        isHourlyTick = (now.minute == 0)
+        currentHourKey = now.strftime("%Y-%m-%d %H:00")
+        isHourlyTick = (now.minute == 0 and lastHourlySync != currentHourKey)
+        if isHourlyTick:
+            lastHourlySync = currentHourKey
+
         try:
             runCycle(isHourlyTick=isHourlyTick)
         except Exception as e:
             logger.error(f"Error en ciclo principal de microCart: {e}", exc_info=True)
 
-        now = datetime.now()
-        secondsUntilNext1Min = (60 - now.second) + 2
-        nextMin = (now.minute + 1) % 60
-        logger.info(f"💤 [microCart] Próximo censo en {secondsUntilNext1Min}s (en el minuto :{nextMin:02d}).")
-        time.sleep(max(3, secondsUntilNext1Min))
+        time.sleep(scanIntervalSec)
 
 
 if __name__ == "__main__":
