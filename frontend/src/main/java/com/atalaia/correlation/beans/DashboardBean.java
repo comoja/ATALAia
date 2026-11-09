@@ -88,6 +88,7 @@ public class DashboardBean implements Serializable {
         private Integer idTrade;
         private String cuenta;
         private Integer idCuenta;
+        private String estrategia = "—";
         private String setup = "—";
         private String ticketId;
         private String par;
@@ -104,6 +105,8 @@ public class DashboardBean implements Serializable {
         public void setCuenta(String cuenta) { this.cuenta = cuenta; }
         public Integer getIdCuenta() { return idCuenta; }
         public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
+        public String getEstrategia() { return estrategia; }
+        public void setEstrategia(String estrategia) { this.estrategia = estrategia; }
         public String getSetup() { return setup; }
         public void setSetup(String setup) { this.setup = setup; }
         public String getTicketId() { return ticketId; }
@@ -152,11 +155,39 @@ public class DashboardBean implements Serializable {
         public String getFormattedMargen() {
             return String.format(java.util.Locale.US, "$%,.2f", margen != null ? margen : 0.0);
         }
+
+        public String getEstrategiaColorBg() {
+            if (estrategia == null) return "#f1f5f9";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#f3e8ff";
+            if (s.contains("RATIO")) return "#e0f2fe";
+            if (s.contains("COBERTURA")) return "#fef3c7";
+            return "#f1f5f9";
+        }
+
+        public String getEstrategiaColorText() {
+            if (estrategia == null) return "#475569";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#7e22ce";
+            if (s.contains("RATIO")) return "#0369a1";
+            if (s.contains("COBERTURA")) return "#b45309";
+            return "#475569";
+        }
+
+        public String getEstrategiaColorBorder() {
+            if (estrategia == null) return "#cbd5e1";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#d8b4fe";
+            if (s.contains("RATIO")) return "#bae6fd";
+            if (s.contains("COBERTURA")) return "#fde68a";
+            return "#cbd5e1";
+        }
     }
 
     public static class GlobalParGroupDto implements java.io.Serializable {
         private String id;
         private String par;
+        private String estrategia = "—";
         private String direccion;
         private Double cantidad = 0.0;
         private Double pnlNoRealizado = 0.0;
@@ -169,6 +200,8 @@ public class DashboardBean implements Serializable {
         public void setId(String id) { this.id = id; }
         public String getPar() { return par; }
         public void setPar(String par) { this.par = par; }
+        public String getEstrategia() { return estrategia; }
+        public void setEstrategia(String estrategia) { this.estrategia = estrategia; }
         public String getDireccion() { return direccion; }
         public void setDireccion(String direccion) { this.direccion = direccion; }
         public Double getCantidad() { return cantidad; }
@@ -212,6 +245,33 @@ public class DashboardBean implements Serializable {
         }
         public String getFormattedMargen() {
             return String.format(java.util.Locale.US, "$%,.2f", margen != null ? margen : 0.0);
+        }
+
+        public String getEstrategiaColorBg() {
+            if (estrategia == null) return "#f1f5f9";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#f3e8ff";
+            if (s.contains("RATIO")) return "#e0f2fe";
+            if (s.contains("COBERTURA")) return "#fef3c7";
+            return "#f1f5f9";
+        }
+
+        public String getEstrategiaColorText() {
+            if (estrategia == null) return "#475569";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#7e22ce";
+            if (s.contains("RATIO")) return "#0369a1";
+            if (s.contains("COBERTURA")) return "#b45309";
+            return "#475569";
+        }
+
+        public String getEstrategiaColorBorder() {
+            if (estrategia == null) return "#cbd5e1";
+            String s = estrategia.toUpperCase();
+            if (s.contains("CART") || s.contains("RIDER")) return "#d8b4fe";
+            if (s.contains("RATIO")) return "#bae6fd";
+            if (s.contains("COBERTURA")) return "#fde68a";
+            return "#cbd5e1";
         }
     }
 
@@ -2608,6 +2668,17 @@ public class DashboardBean implements Serializable {
         public Boolean getBorrado() { return borrado; }
         public Boolean isBorrado() { return borrado; }
         public void setBorrado(Boolean borrado) { this.borrado = borrado; }
+
+        private Boolean filtroHorario = true;
+        private String horaInicio = "08:00";
+        private String horaFin = "16:00";
+        public Boolean getFiltroHorario() { return filtroHorario != null ? filtroHorario : true; }
+        public Boolean isFiltroHorario() { return filtroHorario != null ? filtroHorario : true; }
+        public void setFiltroHorario(Boolean filtroHorario) { this.filtroHorario = filtroHorario; }
+        public String getHoraInicio() { return horaInicio != null && !horaInicio.trim().isEmpty() ? horaInicio : "08:00"; }
+        public void setHoraInicio(String horaInicio) { this.horaInicio = horaInicio; }
+        public String getHoraFin() { return horaFin != null && !horaFin.trim().isEmpty() ? horaFin : "16:00"; }
+        public void setHoraFin(String horaFin) { this.horaFin = horaFin; }
 
         @Override
         public boolean equals(Object o) {
@@ -6213,6 +6284,7 @@ public class DashboardBean implements Serializable {
                         GlobalParGroupDto group = new GlobalParGroupDto();
                         group.setId(g.path("id").asText(""));
                         group.setPar(g.path("par").asText(""));
+                        group.setEstrategia(g.path("estrategia").asText("—"));
                         group.setDireccion(g.path("direccion").asText(""));
                         group.setCantidad(g.path("cantidad").asDouble(0.0));
                         group.setPnlNoRealizado(g.path("pnlNoRealizado").asDouble(0.0));
@@ -6228,6 +6300,7 @@ public class DashboardBean implements Serializable {
                                 st.setIdTrade(tk.path("idTrade").asInt(0));
                                 st.setCuenta(tk.path("cuenta").asText(""));
                                 st.setIdCuenta(tk.path("idCuenta").asInt(0));
+                                st.setEstrategia(tk.path("estrategia").asText("—"));
                                 st.setSetup(tk.path("setup").asText("—"));
                                 st.setTicketId(tk.path("ticketId").asText("—"));
                                 st.setPar(tk.path("par").asText(""));
@@ -6460,6 +6533,15 @@ public class DashboardBean implements Serializable {
     private Double cartCarMultiplier = 1.0;
     private boolean cartOperar = false;
     private String cartAccionCierre = "Continua";
+    private boolean cartFiltroHorario = true;
+    private String cartHoraInicio = "08:00";
+    private String cartHoraFin = "16:00";
+    private String cartOptimalHoraInicio = "08:00";
+    private String cartOptimalHoraFin = "16:00";
+    private String cartOptimalHoursLabel = "08:00 - 16:00 CST (Sesión recomendada)";
+    private Double cartOptimalWinRate = null;
+    private Double cartOptimalReturnPct = null;
+    private List<String> availableHours = null;
     private java.util.Date cartStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
     private java.util.Date cartEndDate = new java.util.Date();
 
@@ -6482,8 +6564,8 @@ public class DashboardBean implements Serializable {
     private RealTradesSummaryDto cartRealTradesSummary = new RealTradesSummaryDto();
     private String cartRealTradesEquityCurveJson = "[]";
     private String cartRealTradesJson = "[]";
-    private java.util.Date cartRealTradesStartDate = null;
-    private java.util.Date cartRealTradesEndDate = null;
+    private java.util.Date cartRealTradesStartDate = new java.util.Date();
+    private java.util.Date cartRealTradesEndDate = new java.util.Date();
 
     private List<ActiveCycleSummaryDto> cartActiveCycles = new ArrayList<>();
     private ActiveCycleSummaryDto cartActiveCycleSummary = new ActiveCycleSummaryDto();
@@ -6561,6 +6643,49 @@ public class DashboardBean implements Serializable {
     public void setCartOperar(boolean cartOperar) { this.cartOperar = cartOperar; }
     public String getCartAccionCierre() { return cartAccionCierre; }
     public void setCartAccionCierre(String cartAccionCierre) { this.cartAccionCierre = cartAccionCierre; }
+
+    public boolean isCartFiltroHorario() { return cartFiltroHorario; }
+    public void setCartFiltroHorario(boolean cartFiltroHorario) { this.cartFiltroHorario = cartFiltroHorario; }
+    public String getCartHoraInicio() { return cartHoraInicio != null && !cartHoraInicio.trim().isEmpty() ? cartHoraInicio : "08:00"; }
+    public void setCartHoraInicio(String cartHoraInicio) { this.cartHoraInicio = cartHoraInicio; }
+    public String getCartHoraFin() { return cartHoraFin != null && !cartHoraFin.trim().isEmpty() ? cartHoraFin : "16:00"; }
+    public void setCartHoraFin(String cartHoraFin) { this.cartHoraFin = cartHoraFin; }
+    public String getCartOptimalHoraInicio() { return cartOptimalHoraInicio != null ? cartOptimalHoraInicio : "08:00"; }
+    public void setCartOptimalHoraInicio(String cartOptimalHoraInicio) { this.cartOptimalHoraInicio = cartOptimalHoraInicio; }
+    public String getCartOptimalHoraFin() { return cartOptimalHoraFin != null ? cartOptimalHoraFin : "16:00"; }
+    public void setCartOptimalHoraFin(String cartOptimalHoraFin) { this.cartOptimalHoraFin = cartOptimalHoraFin; }
+    public String getCartOptimalHoursLabel() { return cartOptimalHoursLabel != null ? cartOptimalHoursLabel : "08:00 - 16:00 CST"; }
+    public void setCartOptimalHoursLabel(String cartOptimalHoursLabel) { this.cartOptimalHoursLabel = cartOptimalHoursLabel; }
+    public Double getCartOptimalWinRate() { return cartOptimalWinRate; }
+    public void setCartOptimalWinRate(Double cartOptimalWinRate) { this.cartOptimalWinRate = cartOptimalWinRate; }
+    public Double getCartOptimalReturnPct() { return cartOptimalReturnPct; }
+    public void setCartOptimalReturnPct(Double cartOptimalReturnPct) { this.cartOptimalReturnPct = cartOptimalReturnPct; }
+
+    public void applyOptimalCartHours() {
+        if (this.cartOptimalHoraInicio != null && !this.cartOptimalHoraInicio.trim().isEmpty()) {
+            this.cartHoraInicio = this.cartOptimalHoraInicio;
+        }
+        if (this.cartOptimalHoraFin != null && !this.cartOptimalHoraFin.trim().isEmpty()) {
+            this.cartHoraFin = this.cartOptimalHoraFin;
+        }
+        this.cartFiltroHorario = true;
+        javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                        "Horario Recomendado Aplicado",
+                        "Se estableció el horario operativo " + this.cartHoraInicio + " a " + this.cartHoraFin + " CST."));
+    }
+
+    public List<String> getAvailableHours() {
+        if (this.availableHours == null) {
+            List<String> hrs = new ArrayList<>();
+            for (int h = 0; h < 24; h++) {
+                hrs.add(String.format(java.util.Locale.US, "%02d:00", h));
+                hrs.add(String.format(java.util.Locale.US, "%02d:30", h));
+            }
+            this.availableHours = hrs;
+        }
+        return this.availableHours;
+    }
     public java.util.Date getCartStartDate() { return cartStartDate; }
     public void setCartStartDate(java.util.Date cartStartDate) { this.cartStartDate = cartStartDate; }
     public java.util.Date getCartEndDate() { return cartEndDate; }
@@ -6759,6 +6884,9 @@ public class DashboardBean implements Serializable {
                         dto.setOperar(item.path("operar").asBoolean(false));
                         dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
                         dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
+                        dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
+                        dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
+                        dto.setHoraFin(item.path("horaFin").asText("16:00"));
                         dto.setCreatedAt(item.path("createdAt").asText(""));
                         list.add(dto);
                     }
@@ -6789,6 +6917,9 @@ public class DashboardBean implements Serializable {
         this.cartCarMultiplier = cartDto.getCarMultiplier() != null ? cartDto.getCarMultiplier() : 1.0;
         this.cartOperar = Boolean.TRUE.equals(cartDto.getOperar());
         this.cartAccionCierre = cartDto.getAccionCierre() != null ? cartDto.getAccionCierre() : "Continua";
+        this.cartFiltroHorario = cartDto.getFiltroHorario() != null ? cartDto.getFiltroHorario() : true;
+        this.cartHoraInicio = cartDto.getHoraInicio() != null ? cartDto.getHoraInicio() : "08:00";
+        this.cartHoraFin = cartDto.getHoraFin() != null ? cartDto.getHoraFin() : "16:00";
         this.cartExistsInDb = true;
         this.cartHasActiveTradesInDb = Boolean.TRUE.equals(cartDto.getHasOpenTrades());
         this.activeCartAccordionIndex = "1";
@@ -6836,11 +6967,17 @@ public class DashboardBean implements Serializable {
                     this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.0);
                     this.cartOperar = node.path("operar").asBoolean(false);
                     this.cartAccionCierre = node.path("accionCierre").asText("Continua");
+                    this.cartFiltroHorario = node.path("filtroHorario").asBoolean(true);
+                    this.cartHoraInicio = node.path("horaInicio").asText("08:00");
+                    this.cartHoraFin = node.path("horaFin").asText("16:00");
                     this.cartHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
                 } else {
                     this.cartExistsInDb = false;
                     this.currentCartId = null;
                     this.cartOperar = false;
+                    this.cartFiltroHorario = true;
+                    this.cartHoraInicio = "08:00";
+                    this.cartHoraFin = "16:00";
                     this.cartHasActiveTradesInDb = false;
                 }
             }
@@ -6953,6 +7090,23 @@ public class DashboardBean implements Serializable {
                     mDto.setTotalCycles(mNode.path("totalCycles").asInt(0));
                     this.cartBtMetrics = mDto;
                 }
+
+                if (root.has("optimalStartHour") && !root.get("optimalStartHour").isNull()) {
+                    this.cartOptimalHoraInicio = root.path("optimalStartHour").asText("08:00");
+                    this.cartOptimalHoraFin = root.path("optimalEndHour").asText("16:00");
+                    this.cartOptimalHoursLabel = root.path("optimalHoursLabel").asText("08:00 - 16:00 CST");
+                    if (root.has("optimalWinRate") && !root.get("optimalWinRate").isNull()) {
+                        this.cartOptimalWinRate = root.path("optimalWinRate").asDouble();
+                    }
+                    if (root.has("optimalReturnPct") && !root.get("optimalReturnPct").isNull()) {
+                        this.cartOptimalReturnPct = root.path("optimalReturnPct").asDouble();
+                    }
+                    if (!this.cartExistsInDb) {
+                        this.cartHoraInicio = this.cartOptimalHoraInicio;
+                        this.cartHoraFin = this.cartOptimalHoraFin;
+                        this.cartFiltroHorario = true;
+                    }
+                }
             }
             loadCartActiveCycles();
         } catch (Exception e) {
@@ -6981,6 +7135,9 @@ public class DashboardBean implements Serializable {
             payload.put("carMultiplier", this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.0);
             payload.put("operar", this.cartOperar);
             payload.put("accionCierre", this.cartAccionCierre != null ? this.cartAccionCierre : "Continua");
+            payload.put("filtroHorario", this.cartFiltroHorario);
+            payload.put("horaInicio", this.cartHoraInicio != null ? this.cartHoraInicio : "08:00");
+            payload.put("horaFin", this.cartHoraFin != null ? this.cartHoraFin : "16:00");
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
             restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/guardar", entity, String.class);
@@ -7137,6 +7294,12 @@ public class DashboardBean implements Serializable {
         try {
             if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) {
                 this.selectedCartPair = "EUR/USD";
+            }
+            if (this.cartRealTradesStartDate == null) {
+                this.cartRealTradesStartDate = new java.util.Date();
+            }
+            if (this.cartRealTradesEndDate == null) {
+                this.cartRealTradesEndDate = new java.util.Date();
             }
             String encSym = java.net.URLEncoder.encode(this.selectedCartPair, "UTF-8");
             String encStrat = java.net.URLEncoder.encode("CART ATALAia", "UTF-8");

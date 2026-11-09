@@ -20,7 +20,7 @@ import logging
 import pymysql
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 
 import numpy as np
@@ -97,6 +97,48 @@ def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
         return False
 
     return True
+
+
+def isWithinOperatingHours(horaInicio: str, horaFin: str, currentDt: Optional[datetime] = None) -> bool:
+    """
+    Verifica si la hora actual está dentro de la ventana operativa configurada [horaInicio, horaFin].
+    Soporta ventanas estándar (ej. 08:00 a 16:00) y que cruzan medianoche (ej. 22:00 a 04:00).
+    """
+    try:
+        nowTime = (currentDt or datetime.now()).time()
+        startParts = [int(p) for p in str(horaInicio or "08:00").split(":")]
+        endParts = [int(p) for p in str(horaFin or "16:00").split(":")]
+        startTime = dt_time(startParts[0], startParts[1])
+        endTime = dt_time(endParts[0], endParts[1])
+        if startTime <= endTime:
+            return startTime <= nowTime < endTime
+        else:
+            return nowTime >= startTime or nowTime < endTime
+    except Exception as e:
+        logger.warning(f"Error verificando horario operativo ({horaInicio} - {horaFin}): {e}")
+        return True
+
+
+def getTimeframeDurationSeconds(tf: str) -> int:
+    """
+    Retorna la duración en segundos de una vela según la temporalidad configurada.
+    """
+    tfL = str(tf or "1h").lower().strip()
+    if tfL in ["1min", "1m"]:
+        return 60
+    if tfL in ["5min", "5m"]:
+        return 300
+    if tfL in ["15min", "15m"]:
+        return 900
+    if tfL in ["30min", "30m"]:
+        return 1800
+    if tfL in ["1h"]:
+        return 3600
+    if tfL in ["4h"]:
+        return 14400
+    if tfL in ["1d", "1day", "d"]:
+        return 86400
+    return 3600
 
 
 def calcEmaSeries(values: List[Optional[float]], period: int) -> List[Optional[float]]:
@@ -205,7 +247,13 @@ def evaluateCartSignals(
     carMax = car["max"]
     carMin = car["min"]
 
-    # Calcular o utilizar NATR dinámico del activo (Unificado con RATIO)
+    # Cálculo de límites Min-Max para Precio Normalizado [0.0 - 1.0]
+    valid_prices = [p for p in prices if p is not None]
+    min_px_series = min(valid_prices) if valid_prices else 0.0
+    max_px_series = max(valid_prices) if valid_prices else 1.0
+    range_px_series = (max_px_series - min_px_series) if (max_px_series - min_px_series) > 0 else 1.0
+
+    # Calcular o utilizar NATR dinámico del activo (Unificado con RATIO) con pisos institucionales
     if natrPct is None:
         if dbSession is not None and symbol:
             try:
@@ -215,6 +263,16 @@ def evaluateCartSignals(
                 natrPct = CART_STOP_LOSS_FALLBACK_PCT
         else:
             natrPct = CART_STOP_LOSS_FALLBACK_PCT
+
+    symU = symbol.upper()
+    if "BTC" in symU or "ETH" in symU or "CRYPTO" in symU:
+        natrPct = max(0.50, float(natrPct or 0.50))
+    elif "XAU" in symU or "GOLD" in symU:
+        natrPct = max(0.35, float(natrPct or 0.35))
+    elif "XAG" in symU or "SILVER" in symU:
+        natrPct = max(0.40, float(natrPct or 0.40))
+    else:
+        natrPct = max(0.15, float(natrPct or 0.15))
 
     stopLossRatio = float(natrPct) / 100.0
 
@@ -243,89 +301,137 @@ def evaluateCartSignals(
         exitPxVal: Optional[float] = None
         signalLabel: Optional[str] = None
 
+        sigPriceSlope = 0.0
+        sigCandleSlope = 0.0
+
         if i > 0 and px is not None and cMax is not None and cMin is not None:
             prevPx = prices[i - 1]
             prevCMax = carMax[i - 1]
             prevCMin = carMin[i - 1]
 
             if prevPx is not None and prevCMax is not None and prevCMin is not None:
+                # Pendientes de la barra según la temporalidad
+                priceSlope = px - prevPx
+                candleSlope = (px - openVal) if openVal is not None else priceSlope
+                sigPriceSlope = priceSlope
+                sigCandleSlope = candleSlope
+
                 # 1. Si hay una posición abierta:
-                #    Cierra por Trailing Stop Loss (±0.15% respecto al precio extremo alcanzado)
-                #    estrictamente MONOTÓNICO (nunca retrocede en contra de la posición),
-                #    delimitado para NO invadir el canal CAR, o cuando el precio ingresa nuevamente al CAR.
+                #    A. Salida por Trailing Stop Loss Dinámico (NATR):
+                #       - COMPRA: Se activa si activeSl ya superó cMax (ganancias aseguradas)
+                #         y el mínimo de la barra o el precio actual toca activeSl.
+                #       - VENTA: Se activa si activeSl ya bajó de cMin (ganancias aseguradas)
+                #         y el máximo de la barra o el precio actual toca activeSl.
+                #    B. Salida por Reingreso al CAR:
+                #       - Evaluado ÚNICAMENTE al Cierre de Vela (Close / px).
+                #       - Las mechas intradiarias no sacan la posición si el cierre se mantiene por fuera.
                 if activeDir == "COMPRA":
                     peakPx = max(peakPx if peakPx is not None else (activeEntryPx or px), highVal if highVal is not None else px)
                     candidateSl = peakPx * (1.0 - stopLossRatio)
                     activeSl = candidateSl if activeSl is None else max(activeSl, candidateSl)  # NUNCA DISMINUYE
-                    clampedSl = max(cMax, activeSl)
-                    hitExit = (lowVal is not None and lowVal <= clampedSl) or (px <= clampedSl)
-                    if hitExit:
+
+                    # Salida por TSL: sólo si ya superó el precio de entrada y aseguró ganancias
+                    hasMeaningfulGain = bool(activeEntryPx and peakPx >= activeEntryPx * (1.0 + stopLossRatio))
+                    hitTrailingSl = bool(hasMeaningfulGain and activeSl > activeEntryPx and activeSl > cMax and ((lowVal is not None and lowVal <= activeSl) or (px <= activeSl)))
+                    hitCarReentry = bool(px <= cMax)
+
+                    if hitTrailingSl:
                         hasBuyExit = True
-                        exitPxVal = clampedSl
-                        signalLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {clampedSl:.5f})" if clampedSl > cMax else "BUY_EXIT"
+                        exitPxVal = activeSl
+                        signalLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {activeSl:.5f})"
                         activeDir = None
                         activeEntryPx = None
                         peakPx = None
                         valleyPx = None
                         activeSl = None
-                elif activeDir == "VENTA":
-                    valleyPx = min(valleyPx if valleyPx is not None else (activeEntryPx or px), lowVal if lowVal is not None else px)
-                    candidateSl = valleyPx * (1.0 + stopLossRatio)
-                    activeSl = candidateSl if activeSl is None else min(activeSl, candidateSl)  # NUNCA AUMENTA
-                    clampedSl = min(cMin, activeSl)
-                    hitExit = (highVal is not None and highVal >= clampedSl) or (px >= clampedSl)
-                    if hitExit:
-                        hasSellExit = True
-                        exitPxVal = clampedSl
-                        signalLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {clampedSl:.5f})" if clampedSl < cMin else "SELL_EXIT"
+                    elif hitCarReentry:
+                        hasBuyExit = True
+                        exitPxVal = cMax if (openVal is None or openVal > cMax) else px
+                        signalLabel = "BUY_EXIT"
                         activeDir = None
                         activeEntryPx = None
                         peakPx = None
                         valleyPx = None
                         activeSl = None
 
-                # 2. Si no hay posición abierta, verificar salida del canal desde dentro del CAR:
-                #    - COMPRA solo actúa en el límite superior (sale por arriba de cMax)
-                #    - VENTA solo actúa en el límite inferior (sale por debajo de cMin)
-                if activeDir is None:
-                    if prevCMin <= prevPx <= prevCMax and (px > cMax or (highVal is not None and highVal > cMax)):
-                        hasBuySignal = True
-                        signalLabel = "BUY_ENTRY"
-                        activeDir = "COMPRA"
-                        activeEntryPx = cMax if (openVal is None or openVal <= cMax) else openVal
-                        peakPx = max(activeEntryPx, highVal if highVal is not None else px)
-                        valleyPx = None
-                        activeSl = peakPx * (1.0 - stopLossRatio)
-                        # Verificar si en la misma barra se disparó retroceso a Trailing SL / Reingreso
-                        clampedSl = max(cMax, activeSl)
-                        if lowVal is not None and lowVal <= clampedSl:
-                            hasBuyExit = True
-                            exitPxVal = clampedSl
-                            activeDir = None
-                            peakPx = None
-                            activeSl = None
-                    elif prevCMin <= prevPx <= prevCMax and (px < cMin or (lowVal is not None and lowVal < cMin)):
-                        hasSellSignal = True
-                        signalLabel = "SELL_ENTRY"
-                        activeDir = "VENTA"
-                        activeEntryPx = cMin if (openVal is None or openVal >= cMin) else openVal
-                        valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                elif activeDir == "VENTA":
+                    valleyPx = min(valleyPx if valleyPx is not None else (activeEntryPx or px), lowVal if lowVal is not None else px)
+                    candidateSl = valleyPx * (1.0 + stopLossRatio)
+                    activeSl = candidateSl if activeSl is None else min(activeSl, candidateSl)  # NUNCA AUMENTA
+
+                    # Salida por TSL: sólo si ya cayó por debajo del precio de entrada y aseguró ganancias
+                    hasMeaningfulGain = bool(activeEntryPx and valleyPx <= activeEntryPx * (1.0 - stopLossRatio))
+                    hitTrailingSl = bool(hasMeaningfulGain and activeSl < activeEntryPx and activeSl < cMin and ((highVal is not None and highVal >= activeSl) or (px >= activeSl)))
+                    hitCarReentry = bool(px >= cMin)
+
+                    if hitTrailingSl:
+                        hasSellExit = True
+                        exitPxVal = activeSl
+                        signalLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {activeSl:.5f})"
+                        activeDir = None
+                        activeEntryPx = None
                         peakPx = None
-                        activeSl = valleyPx * (1.0 + stopLossRatio)
-                        # Verificar si en la misma barra se disparó rebote a Trailing SL / Reingreso
-                        clampedSl = min(cMin, activeSl)
-                        if highVal is not None and highVal >= clampedSl:
-                            hasSellExit = True
-                            exitPxVal = clampedSl
-                            activeDir = None
+                        valleyPx = None
+                        activeSl = None
+                    elif hitCarReentry:
+                        hasSellExit = True
+                        exitPxVal = cMin if (openVal is None or openVal < cMin) else px
+                        signalLabel = "SELL_EXIT"
+                        activeDir = None
+                        activeEntryPx = None
+                        peakPx = None
+                        valleyPx = None
+                        activeSl = None
+
+                # 2. Si no hay posición abierta, verificar ruptura del CAR con filtro de PENDIENTE consistente:
+                #    - COMPRA: Rompe límite superior (px > cMax) Y la pendiente del precio es positiva (priceSlope > 0 y candleSlope >= 0).
+                #    - VENTA: Rompe límite inferior (px < cMin) Y la pendiente del precio es negativa (priceSlope < 0 y candleSlope <= 0).
+                if activeDir is None:
+                    if prevCMin <= prevPx <= prevCMax and px > cMax:
+                        isSlopePositive = (priceSlope > 0) and (candleSlope >= 0)
+                        if isSlopePositive:
+                            hasBuySignal = True
+                            signalLabel = "BUY_ENTRY"
+                            activeDir = "COMPRA"
+                            activeEntryPx = px
+                            peakPx = max(activeEntryPx, highVal if highVal is not None else px)
                             valleyPx = None
-                            activeSl = None
+                            activeSl = peakPx * (1.0 - stopLossRatio)
+                            # Si en la misma barra se disparó TSL en territorio por encima de cMax
+                            if activeSl > cMax and lowVal is not None and lowVal <= activeSl:
+                                hasBuyExit = True
+                                exitPxVal = activeSl
+                                activeDir = None
+                                peakPx = None
+                                activeSl = None
+
+                    elif prevCMin <= prevPx <= prevCMax and px < cMin:
+                        isSlopeNegative = (priceSlope < 0) and (candleSlope <= 0)
+                        if isSlopeNegative:
+                            hasSellSignal = True
+                            signalLabel = "SELL_ENTRY"
+                            activeDir = "VENTA"
+                            activeEntryPx = px
+                            valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                            peakPx = None
+                            activeSl = valleyPx * (1.0 + stopLossRatio)
+                            # Si en la misma barra se disparó TSL en territorio por debajo de cMin
+                            if activeSl < cMin and highVal is not None and highVal >= activeSl:
+                                hasSellExit = True
+                                exitPxVal = activeSl
+                                activeDir = None
+                                valleyPx = None
+                                activeSl = None
 
         sigItem = {
             "datetime": dtStr,
             "symbol": symbol,
             "price": round(px, 5) if px is not None else None,
             "priceA": round(px, 5) if px is not None else None,
+            "priceSlope": round(sigPriceSlope, 6),
+            "candleSlope": round(sigCandleSlope, 6),
+            "normPrice": round((px - min_px_series) / range_px_series, 4) if px is not None else None,
+            "normalizedPrice": round((px - min_px_series) / range_px_series, 4) if px is not None else None,
             "highPrice": round(highVal, 5) if highVal is not None else None,
             "lowPrice": round(lowVal, 5) if lowVal is not None else None,
             "openPrice": round(openVal, 5) if openVal is not None else None,
@@ -488,30 +594,37 @@ def runCartBacktest(
                 btPeakPx = max(btPeakPx if btPeakPx is not None else entryPxRef, highVal)
                 candidateSl = btPeakPx * (1.0 - stopLossRatio)
                 btActiveSl = candidateSl if btActiveSl is None else max(btActiveSl, candidateSl)  # NUNCA DISMINUYE
-                clampedSl = max(cMax, btActiveSl)
-                hitExit = (lowVal is not None and lowVal <= clampedSl) or (px <= clampedSl)
-                if hitExit:
+
+                hasMeaningfulGain = bool(entryPxRef and btPeakPx >= entryPxRef * (1.0 + stopLossRatio))
+                hitTrailingSl = bool(hasMeaningfulGain and btActiveSl > entryPxRef and btActiveSl > cMax and ((lowVal is not None and lowVal <= btActiveSl) or (px <= btActiveSl)))
+                hitCarReentry = bool(px <= cMax)
+
+                if hitTrailingSl:
                     shouldClose = True
-                    # Ejecución al precio de stop o al open si abrió con gap por debajo
-                    exitBoundaryPx = openVal if (openVal is not None and openVal < clampedSl) else clampedSl
-                    if clampedSl > cMax:
-                        exitReasonLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {clampedSl:.5f})"
-                    else:
-                        exitReasonLabel = "Reingreso CAR Superior"
+                    exitBoundaryPx = openVal if (openVal is not None and openVal < btActiveSl) else btActiveSl
+                    exitReasonLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {btActiveSl:.5f})"
+                elif hitCarReentry:
+                    shouldClose = True
+                    exitBoundaryPx = openVal if (openVal is not None and openVal < cMax) else cMax
+                    exitReasonLabel = "Reingreso CAR Superior"
+
             elif currentDir == "VENTA":
                 btValleyPx = min(btValleyPx if btValleyPx is not None else entryPxRef, lowVal)
                 candidateSl = btValleyPx * (1.0 + stopLossRatio)
                 btActiveSl = candidateSl if btActiveSl is None else min(btActiveSl, candidateSl)  # NUNCA AUMENTA
-                clampedSl = min(cMin, btActiveSl)
-                hitExit = (highVal is not None and highVal >= clampedSl) or (px >= clampedSl)
-                if hitExit:
+
+                hasMeaningfulGain = bool(entryPxRef and btValleyPx <= entryPxRef * (1.0 - stopLossRatio))
+                hitTrailingSl = bool(hasMeaningfulGain and btActiveSl < entryPxRef and btActiveSl < cMin and ((highVal is not None and highVal >= btActiveSl) or (px >= btActiveSl)))
+                hitCarReentry = bool(px >= cMin)
+
+                if hitTrailingSl:
                     shouldClose = True
-                    # Ejecución al precio de stop o al open si abrió con gap por encima
-                    exitBoundaryPx = openVal if (openVal is not None and openVal > clampedSl) else clampedSl
-                    if clampedSl < cMin:
-                        exitReasonLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {clampedSl:.5f})"
-                    else:
-                        exitReasonLabel = "Reingreso CAR Inferior"
+                    exitBoundaryPx = openVal if (openVal is not None and openVal > btActiveSl) else btActiveSl
+                    exitReasonLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {btActiveSl:.5f})"
+                elif hitCarReentry:
+                    shouldClose = True
+                    exitBoundaryPx = openVal if (openVal is not None and openVal > cMin) else cMin
+                    exitReasonLabel = "Reingreso CAR Inferior"
 
             if shouldClose:
                 cycleDurBars = openPositions[0].get("durationBars", 1)
@@ -858,7 +971,16 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             }
             mt5_sym = sym_map.get(symbol, symbol.replace('/', '').upper())
             url_rates = 'http://127.0.0.1:8005/rates'
-            interval_param = '1min' if tfLower in ['1min', '1m'] else ('5min' if tfLower in ['5min', '5m'] else '1h')
+            tf_map = {
+                '1m': '1min', '1min': '1min',
+                '5m': '5min', '5min': '5min',
+                '15m': '15min', '15min': '15min',
+                '30m': '30min', '30min': '30min',
+                '1h': '1h',
+                '4h': '4h',
+                '1d': '1d', 'd': '1d'
+            }
+            interval_param = tf_map.get(tfLower, '1h')
             req_data = json.dumps({'symbol': mt5_sym, 'interval': interval_param, 'output_size': limit_bars}).encode('utf-8')
             req_rates = urllib.request.Request(url_rates, data=req_data, headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req_rates, timeout=2.5) as resp:
@@ -1095,11 +1217,11 @@ def parseCandleDateTime(dtVal: Any) -> datetime:
 
 def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleDt: datetime, timeframe: str = "1h") -> bool:
     """
-    Verifica si ya existe un trade CART con status = 'OPEN' para este par y cuenta,
-    garantizando que solo pueda haber como máximo 1 posición en curso (abierta).
-    En cuanto la posición se cierra, queda libre para abrir otra si hay señal.
+    Verifica si ya existe un trade CART (abierto o ya ejecutado) para este par, cuenta y vela actual,
+    garantizando que solo pueda haber como máximo 1 operación por vela de la temporalidad (evita sobreoperar/churning).
     """
-    sqlQuery = text("""
+    # 1. Comprobar si ya existe una posición abierta en curso
+    sqlOpen = text("""
         SELECT COUNT(*)
         FROM trades
         WHERE idCuenta = :idc
@@ -1107,8 +1229,30 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
           AND (symbol = :sym OR setup = :sym)
           AND status = 'OPEN'
     """)
-    cnt = dbSession.execute(sqlQuery, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).scalar()
-    return bool(cnt and cnt > 0)
+    cntOpen = dbSession.execute(sqlOpen, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).scalar()
+    if cntOpen and cntOpen > 0:
+        return True
+
+    # 2. Comprobar si ya se abrió una orden en esta misma vela de la temporalidad
+    if candleDt is not None:
+        sqlCandle = text("""
+            SELECT COUNT(*)
+            FROM trades
+            WHERE idCuenta = :idc
+              AND strategy = :strat
+              AND (symbol = :sym OR setup = :sym)
+              AND candleTime = :cdt
+        """)
+        cntCandle = dbSession.execute(sqlCandle, {
+            "idc": idCuenta,
+            "strat": STRATEGY_NAME,
+            "sym": symbol,
+            "cdt": candleDt
+        }).scalar()
+        if cntCandle and cntCandle > 0:
+            return True
+
+    return False
 
 
 def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
@@ -1131,8 +1275,17 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         logger.warning(f"⚠️ [CART] Historial insuficiente para {symbol} ({timeframe}).")
         return
 
-    # Cálculo dinámico de volatilidad NATR para Trailing Stop Loss
-    tslPct = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+    # Cálculo dinámico de volatilidad NATR para Trailing Stop Loss con pisos institucionales realistas
+    rawTsl = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+    symU = symbol.upper()
+    if "BTC" in symU or "ETH" in symU or "CRYPTO" in symU:
+        tslPct = max(0.50, float(rawTsl))
+    elif "XAU" in symU or "GOLD" in symU:
+        tslPct = max(0.35, float(rawTsl))
+    elif "XAG" in symU or "SILVER" in symU:
+        tslPct = max(0.40, float(rawTsl))
+    else:
+        tslPct = max(0.15, float(rawTsl))
 
     evalRes = evaluateCartSignals(
         df=df,
@@ -1198,38 +1351,90 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                         candidateSl = runningExtreme * (1.0 + stopLossRatio)
                         currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
 
-        # Evaluar contra el precio actual en tiempo real
+        # Evaluación de Salidas:
+        # Regla 1: Reingreso al CAR ÚNICAMENTE al Cierre de Vela de la misma temporalidad.
+        # Regla 2: Trailing Stop Loss activo en tiempo real (cada 5s) EXCLUSIVAMENTE para asegurar ganancias ya obtenidas.
+        tfDurationSec = getTimeframeDurationSeconds(timeframe)
+        nowDt = datetime.now()
+
+        lastBarTime = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
+        isLastBarClosed = (nowDt - lastBarTime).total_seconds() >= tfDurationSec
+
+        # Si la última barra en df aún está en formación, la última barra consolidada y cerrada es la penúltima
+        signalsList = evalRes.get("signals", [])
+        if isLastBarClosed:
+            closedSig = latestSig
+        else:
+            closedSig = signalsList[-2] if len(signalsList) >= 2 else latestSig
+
+        closedPx = closedSig.get("price")
+        closedCMax = closedSig.get("carMax")
+        closedCMin = closedSig.get("carMin")
+        closedDt = parseCandleDateTime(closedSig.get("datetime") or closedSig.get("date"))
+
+        # El reingreso al CAR solo aplica si la vela cerrada ocurrió después de o al momento de la apertura del trade
+        hitCarReentry = False
+        earliestOpenDt = parseCandleDateTime(earliestOpenTime) if earliestOpenTime else None
+
+        if earliestOpenDt and closedDt >= earliestOpenDt and closedPx is not None:
+            if isLong and closedCMax is not None:
+                hitCarReentry = bool(closedPx <= closedCMax)
+            elif not isLong and closedCMin is not None:
+                hitCarReentry = bool(closedPx >= closedCMin)
+
+        # Evaluar Trailing Stop Loss en Ganancias Aseguradas y Stop Catastrófico de Emergencia
+        hitTrailingSl = False
+        hitEmergencySl = False
+
         if isLong:
             if px > runningExtreme:
                 runningExtreme = px
             candidateSl = runningExtreme * (1.0 - stopLossRatio)
             currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
-            hitTrailingSl = (px <= currentSl)
-            hitCarReentry = (px <= cMax)
+
+            # TSL DE GANANCIAS: Solo se activa en tiempo real si el trade YA GENERÓ beneficios por encima de la entrada
+            # (runningExtreme avanzó por encima de avgEntryPx y currentSl ya superó el precio de entrada y cMax)
+            hasSecuredProfit = bool(runningExtreme >= avgEntryPx * (1.0 + stopLossRatio) and currentSl > avgEntryPx and currentSl > cMax)
+            if hasSecuredProfit and px <= currentSl:
+                hitTrailingSl = True
+
+            # Stop catastrófico de emergencia: pérdida del CAR opuesto o caída severa mayor al 2%
+            if px <= cMin or px <= avgEntryPx * 0.98:
+                hitEmergencySl = True
         else:
             if px < runningExtreme:
                 runningExtreme = px
             candidateSl = runningExtreme * (1.0 + stopLossRatio)
             currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
-            hitTrailingSl = (px >= currentSl)
-            hitCarReentry = (px >= cMin)
+
+            # TSL DE GANANCIAS: Solo se activa en tiempo real si el trade YA GENERÓ beneficios por debajo de la entrada
+            # (runningExtreme cayó por debajo de avgEntryPx y currentSl ya bajó del precio de entrada y cMin)
+            hasSecuredProfit = bool(runningExtreme <= avgEntryPx * (1.0 - stopLossRatio) and currentSl < avgEntryPx and currentSl < cMin)
+            if hasSecuredProfit and px >= currentSl:
+                hitTrailingSl = True
+
+            # Stop catastrófico de emergencia: pérdida del CAR opuesto o rebote severo mayor al 2%
+            if px >= cMax or px >= avgEntryPx * 1.02:
+                hitEmergencySl = True
 
         trailingSlPx = currentSl
 
-        shouldClose = hitCarReentry or hitTrailingSl
+        shouldClose = hitCarReentry or hitTrailingSl or hitEmergencySl
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or shouldClose:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
                 f"Px={px:.5f} | CAR=[{cMin:.5f}, {cMax:.5f}] | TrailingSL={trailingSlPx:.5f} (Extremo={runningExtreme:.5f} | NATR={tslPct:.2f}%) | "
-                f"hitCar={hitCarReentry} | hitSL={hitTrailingSl} | OpenTrades={len(openTrades)}"
+                f"hitCar={hitCarReentry} | hitSL={hitTrailingSl} | hitEmerg={hitEmergencySl} | OpenTrades={len(openTrades)}"
             )
 
         if shouldClose:
             if hitCarReentry:
-                closeReasonComment = "Cierre CART por reingreso al CAR"
-            else:
+                closeReasonComment = "Cierre CART por reingreso al CAR al cierre de vela"
+            elif hitTrailingSl:
                 closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
+            else:
+                closeReasonComment = "Cierre CART por Stop Catastrófico de Emergencia"
             logger.info(
                 f"🎯 [CART] {closeReasonComment} para {symbol} en Cuenta {idCuenta} "
                 f"(Px={px:.5f}, Límite CAR={cMax if isLong else cMin:.5f}, TrailingSL={trailingSlPx:.5f}, NATR={tslPct:.2f}%). Cerrando {len(openTrades)} trade(s)..."
@@ -1291,15 +1496,26 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                 dbSession.commit()
             return
     else:
-        isPriceBelowCar = bool(px is not None and cMin is not None and px < cMin)
-        isPriceAboveCar = bool(px is not None and cMax is not None and px > cMax)
-        effectiveBuy = hasBuy or (isPriceAboveCar and not isPriceBelowCar)
-        effectiveSell = hasSell or (isPriceBelowCar and not isPriceAboveCar)
+        signalsList = evalRes.get("signals", [])
+        prevSig = signalsList[-2] if len(signalsList) >= 2 else latestSig
+        prevPx = prevSig.get("price") if prevSig else px
+        openVal = latestSig.get("openPrice") if latestSig.get("openPrice") is not None else px
+
+        # Pendientes de la barra según la temporalidad
+        priceSlope = (px - prevPx) if (px is not None and prevPx is not None) else 0.0
+        candleSlope = (px - openVal) if (px is not None and openVal is not None) else 0.0
+
+        isSlopePositive = bool((priceSlope > 0) and (candleSlope >= 0))
+        isSlopeNegative = bool((priceSlope < 0) and (candleSlope <= 0))
+
+        # Regla 2: Para COMPRA la pendiente debe ser positiva; para VENTA la pendiente debe ser negativa
+        effectiveBuy = bool(hasBuy and isSlopePositive)
+        effectiveSell = bool(hasSell and isSlopeNegative)
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
-                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={hasBuy} | SellSig={hasSell} | OpenTrades={len(openTrades)}"
+                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={hasBuy} (SlopePos={isSlopePositive}) | SellSig={hasSell} (SlopeNeg={isSlopeNegative}) | OpenTrades={len(openTrades)}"
             )
 
     if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
@@ -1311,6 +1527,15 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         # 2. Comprobar si la orden está en periodo de cooldown tras un rechazo previo
         if isOrderInCooldown(idCuenta, symbol):
+            return
+
+        # 3. Comprobar filtro de horario operativo configurado (RIDER / microCart)
+        useHourFilter = bool(cartRecord.get("filtroHorario", True))
+        hInicio = str(cartRecord.get("horaInicio") or "08:00")
+        hFin = str(cartRecord.get("horaFin") or "16:00")
+        if useHourFilter and not isWithinOperatingHours(hInicio, hFin):
+            if shouldLogStatus(idCuenta, symbol, 60.0):
+                logger.info(f"⏳ [CART] [{symbol}] Fuera de horario operativo configurado ({hInicio} - {hFin} CST). Apertura omitida.")
             return
 
         candleDt = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
@@ -1423,7 +1648,10 @@ def runCycle(isHourlyTick: bool = True) -> None:
         rows = dbSession.execute(text("""
             SELECT id, idUsuario, idCuenta, symbol, Temporalidad, periodo,
                    EMARapida, EMALenta, carWindow, carMultiplier, operar,
-                   tipoCierre, umbralDiferencia, salirBreakeven, tipoEntrada, accionCierre
+                   tipoCierre, umbralDiferencia, salirBreakeven, tipoEntrada, accionCierre,
+                   COALESCE(filtroHorario, 1) as filtroHorario,
+                   COALESCE(horaInicio, '08:00') as horaInicio,
+                   COALESCE(horaFin, '16:00') as horaFin
             FROM userCART
             WHERE (borrado = 0 OR borrado IS NULL)
         """)).mappings().fetchall()

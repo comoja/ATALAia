@@ -211,6 +211,9 @@ class UserCart(Base):
     createdAt = Column(DateTime, default=datetime.utcnow)
     fixedMin = Column(Float, nullable=True)
     fixedMax = Column(Float, nullable=True)
+    filtroHorario = Column(Boolean, default=True)
+    horaInicio = Column(String(5), default="08:00")
+    horaFin = Column(String(5), default="16:00")
 
 class UsuarioCuenta(Base):
     """

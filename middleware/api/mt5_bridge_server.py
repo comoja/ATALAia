@@ -109,6 +109,31 @@ class MT5Handler(BaseHTTPRequestHandler):
             df = pd.DataFrame(rates)
             records = df.to_dict(orient="records")
             self._send_json({"rates": records, "count": len(records)})
+        elif self.path == "/tick":
+            if not init_mt5():
+                self._send_json({"error": "MT5 not initialized", "last_error": mt5.last_error() if mt5 else None}, 500)
+                return
+
+            symbol = params.get("symbol")
+            if not symbol:
+                self._send_json({"error": "Symbol is required"}, 400)
+                return
+
+            with mt5_lock:
+                mt5.symbol_select(symbol, True)
+                t = mt5.symbol_info_tick(symbol)
+
+            if t:
+                self._send_json({
+                    "symbol": symbol,
+                    "bid": float(t.bid),
+                    "ask": float(t.ask),
+                    "last": float(t.last),
+                    "spread": round(float(t.ask - t.bid), 6),
+                    "time": int(t.time)
+                })
+            else:
+                self._send_json({"error": f"No tick for {symbol}"}, 404)
         else:
             self._send_json({"error": "Unknown endpoint"}, 404)
 
