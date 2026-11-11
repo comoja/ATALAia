@@ -4,13 +4,15 @@ Supports both native Windows MT5 and Wine MT5 Bridge on Linux.
 """
 import os
 import sys
+import re
+import time
 import logging
 import asyncio
 import httpx
 import requests
 import pandas as pd
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from middleware.config.constants import TIMEZONE, mt5Login, mt5Password, mt5Server
 from middleware.database import dbManager, dbConnection
@@ -50,6 +52,86 @@ def _is_bridge_online() -> bool:
     except Exception:
         pass
     return False
+
+_cityindex_session = None
+
+async def _get_cityindex_session():
+    """Obtiene y almacena en caché la sesión autenticada con FOREX.com / CityIndex CIAPI."""
+    global _cityindex_session
+    if _cityindex_session and time.time() < _cityindex_session.get("expires_at", 0):
+        return _cityindex_session
+    try:
+        webhook_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../Webhook"))
+        if webhook_dir not in sys.path:
+            sys.path.append(webhook_dir)
+        from services.forex_client import ForexClient
+        accounts = ForexClient.getAllAuthorizedAccounts()
+        if not accounts:
+            logger.warning("[ForexAPI] No hay cuentas autorizadas para CityIndex.")
+            return None
+        acc = accounts[0]
+        fc = ForexClient(
+            username=acc['loginUsuario'],
+            password=acc['tokenAcceso'],
+            app_key=acc['Apikey'],
+            api_url=acc.get('Servidor') or 'https://ciapi.cityindex.com/TradingApi'
+        )
+        if await fc.authenticate():
+            _cityindex_session = {
+                "username": fc.username,
+                "token": fc.session_token,
+                "api_url": fc.api_url,
+                "expires_at": time.time() + 3600
+            }
+            logger.info(f"[ForexAPI] Sesión CIAPI CityIndex inicializada exitosamente para {fc.username}.")
+            return _cityindex_session
+    except Exception as e:
+        logger.warning(f"[ForexAPI] Error al autenticar sesión CityIndex: {e}")
+    return None
+
+async def _callCityIndexApi(id_forex: int, interval: str, output_size: int, tz_target) -> pd.DataFrame:
+    """Consulta velas directamente desde CityIndex CIAPI cuando el activo no está en MT5."""
+    session = await _get_cityindex_session()
+    if not session:
+        return pd.DataFrame()
+    ci_interval = "MINUTE"
+    span = 1
+    if interval == "5min":
+        ci_interval = "MINUTE"
+        span = 5
+    elif interval in ("1h", "60min"):
+        ci_interval = "HOUR"
+        span = 1
+    elif interval in ("1d", "1day", "D"):
+        ci_interval = "DAY"
+        span = 1
+
+    headers = {"UserName": session["username"], "Session": session["token"]}
+    url = f"{session['api_url']}/market/{id_forex}/barhistory?interval={ci_interval}&span={span}&priceBars={min(output_size, 4000)}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(url, headers=headers)
+            if res.status_code == 200:
+                bars = res.json().get("PriceBars", [])
+                records = []
+                for b in bars:
+                    m = re.search(r'\d+', b.get("BarDate", ""))
+                    if m:
+                        ms = int(m.group(0))
+                        dt = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).astimezone(tz_target)
+                        records.append({
+                            "datetime": dt,
+                            "open": float(b.get("Open", 0.0)),
+                            "high": float(b.get("High", 0.0)),
+                            "low": float(b.get("Low", 0.0)),
+                            "close": float(b.get("Close", 0.0)),
+                            "volume": float(b.get("Volume", 0.0))
+                        })
+                if records:
+                    return pd.DataFrame(records)
+    except Exception as e:
+        logger.warning(f"[ForexAPI] Error llamando CityIndex para MarketId {id_forex}: {e}")
+    return pd.DataFrame()
 
 async def _ensureMt5Initialized() -> bool:
     """
@@ -258,33 +340,43 @@ async def _callForexMt5Api(params: dict) -> pd.DataFrame | None:
                                 df = pd.DataFrame(rates_inv)
                                 is_inverted = True
 
+        from_cityindex = False
         if df.empty:
-            logger.warning(f"[ForexAPI] No se obtuvieron velas para {symbol} desde MT5.")
+            idForex = symbolData.get("idForex") if symbolData else None
+            if idForex:
+                logger.info(f"[ForexAPI] Símbolo {symbolRaw} sin datos en MT5. Consultando CityIndex / FOREX.com (idForex={idForex})...")
+                df = await _callCityIndexApi(idForex, interval, outputSize, tzCdmx)
+                if df is not None and not df.empty:
+                    from_cityindex = True
+
+        if df.empty:
+            logger.warning(f"[ForexAPI] No se obtuvieron velas para {symbol} desde MT5 ni CityIndex.")
             return None
 
-        # Convertir timestamps Unix UTC a timezone local
-        df['datetime'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert(tzCdmx)
-        
-        # Mapear columnas
-        if 'tick_volume' in df.columns:
-            df = df.rename(columns={'tick_volume': 'volume'})
-        elif 'volume' not in df.columns:
-            df['volume'] = 0
+        if not from_cityindex:
+            # Convertir timestamps Unix UTC a timezone local
+            df['datetime'] = pd.to_datetime(df['time'], unit='s', utc=True).dt.tz_convert(tzCdmx)
             
-        for col in ["open", "high", "low", "close"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+            # Mapear columnas
+            if 'tick_volume' in df.columns:
+                df = df.rename(columns={'tick_volume': 'volume'})
+            elif 'volume' not in df.columns:
+                df['volume'] = 0
+                
+            for col in ["open", "high", "low", "close"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
 
-        if is_inverted:
-            orig_open = df['open'].copy()
-            orig_high = df['high'].copy()
-            orig_low = df['low'].copy()
-            orig_close = df['close'].copy()
+            if is_inverted:
+                orig_open = df['open'].copy()
+                orig_high = df['high'].copy()
+                orig_low = df['low'].copy()
+                orig_close = df['close'].copy()
 
-            df['open'] = 1.0 / orig_open
-            df['close'] = 1.0 / orig_close
-            df['high'] = 1.0 / orig_low
-            df['low'] = 1.0 / orig_high
+                df['open'] = 1.0 / orig_open
+                df['close'] = 1.0 / orig_close
+                df['high'] = 1.0 / orig_low
+                df['low'] = 1.0 / orig_high
 
         df['symbol'] = symbolRaw
 

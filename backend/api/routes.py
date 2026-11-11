@@ -1283,7 +1283,8 @@ def getRatioHechos(idCuenta: int, setup: str = Query(...), db: Session = Depends
             "ticketId": str(r.ticketId or ""),
             "openTime": ot_str,
             "closeTime": ct_str,
-            "isWin": (calc_pnl >= 0)
+            "isWin": (calc_pnl >= 0),
+            "isCobertura": bool(r.strategy and "COBERTURA" in str(r.strategy).upper())
         })
 
     summary = {
@@ -1825,10 +1826,34 @@ async def get_ratio_correlation(
             else:
                 dt_end = datetime.now() + timedelta(days=1)
 
+            tf_map = {
+                "1min": "1min", "1m": "1min",
+                "5min": "5min", "5m": "5min",
+                "15min": "15min", "15m": "15min",
+                "30min": "30min", "30m": "30min",
+                "1h": "1h", "4h": "4h", "1d": "1d"
+            }
+            target_tf = tf_map.get(tf_lower, "1h")
+
             def query_candles_for_pair(sym: str):
                 import pymysql
                 conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
                 try:
+                    # 1. Búsqueda primaria: consultar directamente el TimeFrame requerido en candles
+                    sql_exact = """
+                        SELECT timestamp, close as closePrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
+                    """
+                    df_res = pd.read_sql(sql_exact, conn, params=(sym, target_tf, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if not df_res.empty and len(df_res) >= 15:
+                        df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
+                        df_res = df_res.set_index('timestamp')
+                        df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                        return df_res.dropna()
+
+                    # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
@@ -1849,7 +1874,7 @@ async def get_ratio_correlation(
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
                     df_res = df_res.set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
-                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
                     rule = rule_map.get(tf_lower, "1h")
                     return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
                 finally:
@@ -2760,10 +2785,34 @@ async def get_cruces_ema_pair_analysis(
                 dt_start = dt_end - timedelta(hours=hrs + 96)
                 dt_start_slice = dt_end - timedelta(hours=hrs)
 
+            tf_map = {
+                "1min": "1min", "1m": "1min",
+                "5min": "5min", "5m": "5min",
+                "15min": "15min", "15m": "15min",
+                "30min": "30min", "30m": "30min",
+                "1h": "1h", "4h": "4h", "1d": "1d"
+            }
+            target_tf = tf_map.get(tf_lower, "1h")
+
             def query_candles_for_pair(sym: str):
                 import pymysql
                 conn = pymysql.connect(host="127.0.0.1", user="root", password="M1x&J34ny", database="atalaia")
                 try:
+                    # 1. Búsqueda primaria: consultar directamente el TimeFrame requerido en candles
+                    sql_exact = """
+                        SELECT timestamp, close as closePrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+                        ORDER BY timestamp ASC
+                    """
+                    df_res = pd.read_sql(sql_exact, conn, params=(sym, target_tf, dt_start.strftime('%Y-%m-%d %H:%M:%S'), dt_end.strftime('%Y-%m-%d %H:%M:%S')))
+                    if not df_res.empty and len(df_res) >= 15:
+                        df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
+                        df_res = df_res.set_index('timestamp')
+                        df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                        return df_res.dropna()
+
+                    # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
                     sql = """
                         SELECT timestamp, close as closePrice
                         FROM candles
@@ -2784,7 +2833,7 @@ async def get_cruces_ema_pair_analysis(
                     df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
                     df_res = df_res.set_index('timestamp')
                     df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
-                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+                    rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
                     rule = rule_map.get(tf_lower, "1h")
                     return df_res.resample(rule).agg({'closePrice': 'last'}).dropna()
                 finally:
@@ -3645,12 +3694,14 @@ async def manual_close_coverage(
     idCuenta: int,
     setup: str,
     symbol: Optional[str] = None,
+    force_local: bool = Query(False, description="Si es True, fuerza el cierre contable en base de datos sin despachar orden al broker"),
     db: Session = Depends(get_db)
 ):
     """
     Cierra manualmente la(s) cobertura(s) activa(s) de un ratio a discreción del usuario.
     Permite cerrar la cobertura de una pata específica (symbol) o de ambas patas del ratio.
     NO cierra las operaciones principales del ratio ni desactiva user_ratios.operar.
+    Si force_local=True, se realiza el cierre contable localmente sin enviar la orden a FOREX.com.
     """
     from backend.services.microRatio import (
         fetchAccountData, fetchSymbolData, closeSingleCoverageTrade
@@ -3703,7 +3754,7 @@ async def manual_close_coverage(
             row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": sym.replace("/", "").upper()}).fetchone()
             live_px = float(row_c[0]) if row_c and row_c[0] else float(cob_trade.get("entryPrice", 1.0))
 
-        success = closeSingleCoverageTrade(
+        success, err_detail = closeSingleCoverageTrade(
             dbSession=db,
             idCuenta=idCuenta,
             setupName=setup,
@@ -3711,15 +3762,22 @@ async def manual_close_coverage(
             latestPrice=live_px,
             symData=sym_data,
             accountData=accountData,
-            closeReason="CIERRE MANUAL A DISCRECIÓN DEL USUARIO"
+            closeReason="CIERRE MANUAL A DISCRECIÓN DEL USUARIO" if not force_local else "CIERRE ADMINISTRATIVO MANUAL (FORZADO LOCAL)",
+            returnDetail=True,
+            force_local=force_local
         )
         if success:
             closed_count += 1
         else:
-            errors.append(f"Fallo al cerrar cobertura para {sym}")
+            err_lower = str(err_detail).lower()
+            if "mercado cerrado" in err_lower or "statusreason': 75" in err_lower or "statusreason': 10" in err_lower:
+                clean_err = f"El mercado de {sym} está actualmente CERRADO en FOREX.com (el horario regular para ETFs/Acciones finalizó a las 15:00 CST / 16:00 EST). Podrá cerrarse cuando el mercado reabra a las 8:30 CST."
+            else:
+                clean_err = f"Fallo al cerrar cobertura para {sym}: {err_detail}"
+            errors.append(clean_err)
 
     if closed_count == 0 and errors:
-        raise HTTPException(status_code=500, detail="; ".join(errors))
+        raise HTTPException(status_code=400, detail="; ".join(errors))
 
     return {
         "status": "ok",
@@ -3817,6 +3875,7 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
 
         current_cycle = 0
         last_directions = {}
+        active_cycle_trades = []
         max_prev_close = None
         min_dt = None
         max_dt = None
@@ -3902,19 +3961,43 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
 
             sym = r.symbol
             direction_str = str(r.direction or "").upper()
+            is_cobertura = bool(r.strategy and "COBERTURA" in str(r.strategy).upper())
+
+            # Comprobar si hay trades principales de este ciclo que aún sigan abiertos al momento de t_open
+            has_open_main_trades = False
+            if active_cycle_trades and t_open:
+                for t_act in active_cycle_trades:
+                    if t_act["closeTime"] is None or t_act["closeTime"] > t_open:
+                        has_open_main_trades = True
+                        break
+
             is_new_cycle = False
             if current_cycle == 0:
                 is_new_cycle = True
-            elif max_prev_close and t_open and t_open > max_prev_close:
-                is_new_cycle = True
-            elif sym in last_directions and last_directions[sym] != direction_str:
-                is_new_cycle = True
+            elif is_cobertura:
+                # Las coberturas NUNCA inician un ciclo nuevo, pertenecen al ciclo activo
+                is_new_cycle = False
+            else:
+                # Trade principal de ratio
+                if not has_open_main_trades:
+                    # Todos los trades anteriores ya cerraron antes de t_open
+                    is_new_cycle = True
+                elif sym in last_directions and last_directions[sym] != direction_str:
+                    # Cambio de dirección en el mismo símbolo dentro del ciclo
+                    is_new_cycle = True
 
             if is_new_cycle:
                 current_cycle += 1
-                last_directions = {sym: direction_str}
-            else:
+                last_directions = {}
+                active_cycle_trades = []
+
+            if not is_cobertura:
                 last_directions[sym] = direction_str
+                active_cycle_trades.append({
+                    "idTrade": r.idTrade,
+                    "closeTime": t_close,
+                    "openTime": t_open
+                })
 
             if t_close:
                 if max_prev_close is None or t_close > max_prev_close:
@@ -3941,7 +4024,8 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 "openTime": r.openTime.strftime("%Y-%m-%d %H:%M") if r.openTime else (r.candleTime.strftime("%Y-%m-%d %H:%M") if r.candleTime else ""),
                 "closeTime": r.closeTime.strftime("%Y-%m-%d %H:%M") if r.closeTime else "",
                 "isWin": (net_trade_pnl > 0),
-                "cycleNum": current_cycle
+                "cycleNum": current_cycle,
+                "isCobertura": is_cobertura
             }
             trades_list.append(t_dict)
 
@@ -4209,7 +4293,7 @@ def export_real_trades_movimientos_excel(
                 f"Ciclo #{t.get('cycleNum', 1)}",
                 t.get('ticketId') or f"#{t.get('idTrade')}",
                 t.get('symbol', ''),
-                t.get('direction', ''),
+                f"{t.get('direction', '')} (COBERTURA)" if t.get('isCobertura') else t.get('direction', ''),
                 "ACTIVA" if t.get('status') == "OPEN" else "CERRADA",
                 t.get('size', 0.0),
                 t.get('entryPrice') or "-",
@@ -4481,6 +4565,7 @@ def api_restart_system_service(service_id: str):
             "frontend": ("atalaia-5-atalaia", False),
             "microratio": ("microRatio", False),
             "microcart": ("microCart", False),
+            "microcart_optimizer": ("microCartOptimizer", False),
             "ngrok": ("ngrok", False)
         }
         if service_id not in unit_map:
@@ -4498,6 +4583,94 @@ def api_restart_system_service(service_id: str):
         }
     except Exception as e:
         logger.error(f"Error reiniciando servicio {service_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/system/actions/optimize-cart")
+def api_run_cart_optimizer():
+    """
+    Ejecuta manualmente el microservicio microCartOptimizer.py para actualizar
+    las sugerencias de RIDE (EMA) en userCART.
+    """
+    try:
+        import subprocess
+        python_bin = "/home/jcolinm/.venvs/Sistema/bin/python3"
+        script_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/microCartOptimizer.py"
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia"
+        res = subprocess.run([python_bin, script_path, "--run-now"], capture_output=True, text=True, timeout=120, env=env)
+        if res.returncode != 0:
+            logger.error(f"Error ejecutando microCartOptimizer: {res.stderr}")
+            raise HTTPException(status_code=500, detail=f"Fallo en optimizer: {res.stderr[:200]}")
+        return {
+            "status": "success",
+            "message": "Optimización Sabatina RIDER completada exitosamente.",
+            "output": res.stdout[-400:] if res.stdout else ""
+        }
+    except Exception as e:
+        logger.error(f"Error ejecutando optimizador manual: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/system/actions/clear-logs")
+def api_clear_system_logs():
+    """
+    Depura todas las bitácoras del sistema: dataSymbol, webhook, microRatio, microCart,
+    Sentinel, backend, frontend y archivos rotados antiguos.
+    Trunca de forma segura los archivos activos a 0 bytes y elimina históricos rotados.
+    """
+    try:
+        import glob
+        base_dir = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia"
+        log_dirs = [
+            os.path.join(base_dir, "logs"),
+            os.path.join(base_dir, "dataSymbol", "logs"),
+            os.path.join(base_dir, "Sentinel", "logs"),
+            base_dir
+        ]
+        
+        cleared_files = 0
+        freed_bytes = 0
+        
+        for d in log_dirs:
+            if not os.path.exists(d):
+                continue
+            
+            # 1. Truncar logs activos (*.log)
+            for f in glob.glob(os.path.join(d, "*.log")):
+                try:
+                    if os.path.isfile(f):
+                        sz = os.path.getsize(f)
+                        if sz > 0:
+                            freed_bytes += sz
+                            with open(f, "w", encoding="utf-8") as fh:
+                                fh.truncate(0)
+                            cleared_files += 1
+                except Exception as ef:
+                    logger.warning(f"No se pudo truncar {f}: {ef}")
+                    
+            # 2. Eliminar logs rotados antiguos (*.log.*, *.log.202*)
+            for f in glob.glob(os.path.join(d, "*.log.*")):
+                try:
+                    if os.path.isfile(f):
+                        sz = os.path.getsize(f)
+                        freed_bytes += sz
+                        os.remove(f)
+                        cleared_files += 1
+                except Exception as ef:
+                    logger.warning(f"No se pudo eliminar {f}: {ef}")
+
+        freed_mb = freed_bytes / (1024 * 1024)
+        msg = f"Depuración completada: {cleared_files} archivos procesados, {freed_mb:.1f} MB liberados."
+        logger.info(f"🧹 [System Maintenance] {msg}")
+        return {
+            "status": "success",
+            "message": msg,
+            "cleared_files": cleared_files,
+            "freed_mb": round(freed_mb, 2)
+        }
+    except Exception as e:
+        logger.error(f"Error en depuración de logs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4634,6 +4807,7 @@ class UserCartCreate(BaseModel):
     EMARapida: Optional[int] = Field(2, description="Periodo RIDE / EMA Rápida")
     EMALenta: Optional[int] = Field(20, description="Ventana CAR / EMA Lenta")
     carWindow: Optional[int] = Field(20, description="Ventana de cálculo de ruido CAR")
+    emaSugerida: Optional[int] = Field(None, description="Ventana EMA sugerida por el optimizador sabatino")
     carMultiplier: Optional[float] = Field(1.0, description="Multiplicador sigma del canal CAR")
     operar: Optional[bool] = Field(False, description="Indica si genera órdenes automáticas")
     tipoCierre: Optional[str] = Field("Tolerante", description="Régimen de salida")
@@ -4711,6 +4885,7 @@ def findUserCart(
         "EMARapida": item.EMARapida if item.EMARapida is not None else 2,
         "EMALenta": item.EMALenta if item.EMALenta is not None else 20,
         "carWindow": item.carWindow if item.carWindow is not None else 20,
+        "emaSugerida": item.emaSugerida if hasattr(item, "emaSugerida") and item.emaSugerida is not None else (item.carWindow if item.carWindow is not None else 20),
         "carMultiplier": float(item.carMultiplier if item.carMultiplier is not None else 1.0),
         "operar": bool(item.operar),
         "tipoCierre": item.tipoCierre or "Tolerante",
@@ -4772,6 +4947,7 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "EMARapida": r.EMARapida if r.EMARapida is not None else 2,
             "EMALenta": r.EMALenta if r.EMALenta is not None else 20,
             "carWindow": r.carWindow if r.carWindow is not None else 20,
+            "emaSugerida": r.emaSugerida if hasattr(r, "emaSugerida") and r.emaSugerida is not None else (r.carWindow if r.carWindow is not None else 20),
             "carMultiplier": float(r.carMultiplier if r.carMultiplier is not None else 1.0),
             "operar": bool(r.operar),
             "tipoCierre": r.tipoCierre or "Tolerante",
@@ -4841,6 +5017,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
         filtro_horario = bool(payload.filtroHorario) if payload.filtroHorario is not None else True
         hora_inicio = str(payload.horaInicio or "08:00")
         hora_fin = str(payload.horaFin or "16:00")
+        ema_sugerida = int(payload.emaSugerida) if payload.emaSugerida is not None else None
 
         if existing:
             existing.Temporalidad = temporalidad_val
@@ -4848,6 +5025,8 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
             existing.EMARapida = ema_rapida
             existing.EMALenta = ema_lenta
             existing.carWindow = car_win
+            if ema_sugerida is not None:
+                existing.emaSugerida = ema_sugerida
             existing.carMultiplier = car_mult
             existing.operar = operar_val
             existing.tipoCierre = tipo_cierre
@@ -4872,6 +5051,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
                 EMARapida=ema_rapida,
                 EMALenta=ema_lenta,
                 carWindow=car_win,
+                emaSugerida=ema_sugerida if ema_sugerida is not None else car_win,
                 carMultiplier=car_mult,
                 operar=operar_val,
                 tipoCierre=tipo_cierre,

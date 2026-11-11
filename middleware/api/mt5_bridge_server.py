@@ -64,6 +64,35 @@ class MT5Handler(BaseHTTPRequestHandler):
                 return
             acc = mt5.account_info()._asdict() if mt5.account_info() else None
             self._send_json({"account": acc})
+        elif self.path.startswith("/symbols"):
+            if not init_mt5():
+                self._send_json({"error": "MT5 not initialized"}, 500)
+                return
+            q = ""
+            if "?" in self.path:
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                q = parsed.get("q", [""])[0].upper()
+            all_s = mt5.symbols_get(group="*")
+            if not all_s:
+                all_s = mt5.symbols_get()
+            res = []
+            if all_s:
+                for s in all_s:
+                    d = s._asdict()
+                    name = str(d.get("name", "")).upper()
+                    desc = str(d.get("description", "")).upper()
+                    path = str(d.get("path", "")).upper()
+                    if not q or (q in name or q in desc or q in path):
+                        res.append({
+                            "name": d.get("name"),
+                            "description": d.get("description"),
+                            "path": d.get("path"),
+                            "digits": d.get("digits"),
+                            "point": d.get("point"),
+                            "trade_mode": d.get("trade_mode")
+                        })
+            self._send_json({"total": len(all_s) if all_s else 0, "count": len(res), "symbols": res if q else res[:100]})
         else:
             self._send_json({"error": "Not found"}, 404)
 

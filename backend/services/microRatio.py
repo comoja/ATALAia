@@ -24,7 +24,7 @@ import asyncio
 import argparse
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 import pandas as pd
 import numpy as np
@@ -205,26 +205,60 @@ def fetchAccountData(dbSession, idCuenta: int) -> Dict[str, Any]:
 
 def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365, timeframe: str = "1d") -> pd.DataFrame:
     """
-    Carga el historial de precios: si es intradía (1h, 4h, etc.), consulta 'candles' (1min o 5min).
-    Si es diario (1d, 1w), consulta 'stockprices'.
+    Carga el historial de precios con estrategia óptima de dos capas:
+    1. Búsqueda primaria: Consulta directamente el TimeFrame requerido en 'candles' (ej. 1h, 15min, 5min, 1min, 1d).
+    2. Fallback por histórico previo: Si no existe el TM o la solicitud va más atrás del 1 de octubre,
+       toma las velas disponibles en timeframes menores (1min/5min) o 'stockprices' y las convierte al TM requerido.
     """
     pLower = str(timeframe).lower().strip()
+    tfMap = {
+        "1min": "1min", "1m": "1min",
+        "5min": "5min", "5m": "5min",
+        "15min": "15min", "15m": "15min",
+        "30min": "30min", "30m": "30min",
+        "1h": "1h", "1H": "1h",
+        "4h": "4h", "4H": "4h",
+        "1d": "1d", "1D": "1d", "day": "1d", "daily": "1d"
+    }
+    targetTf = tfMap.get(pLower, "1h")
+    cutoff = datetime.now() - timedelta(days=daysLimit)
+
+    # 1. Búsqueda primaria: consultar directamente el timeframe exacto si existe en 'candles'
+    if targetTf in ["1min", "5min", "15min", "1h", "4h", "1d"]:
+        sqlExact = text("""
+            SELECT timestamp as priceDate, close as closePrice
+            FROM candles
+            WHERE symbol = :sym AND timeframe = :tf AND timestamp >= :cutoff
+            ORDER BY timestamp ASC
+        """)
+        rows = dbSession.execute(sqlExact, {"sym": symbol, "tf": targetTf, "cutoff": cutoff}).fetchall()
+        if rows and len(rows) >= 15:
+            df = pd.DataFrame(rows, columns=["priceDate", "closePrice"])
+            df["priceDate"] = pd.to_datetime(df["priceDate"])
+            df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
+            firstDt = df["priceDate"].iloc[0]
+            # Si el inicio cubre el cutoff solicitado o alcanza el límite del histórico (oct 1)
+            if firstDt <= cutoff + timedelta(days=3) or firstDt <= datetime(2026, 10, 2):
+                return df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+
+    # 2. Fallback: Buscar en timeframes menores disponibles (1min, 5min) y resamplear en memoria al TM requerido
     isIntraday = pLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
     if isIntraday:
-        cutoff = datetime.now() - timedelta(days=daysLimit)
-        sqlQuery = text("""
+        sqlFallback = text("""
             SELECT timestamp as priceDate, close as closePrice
             FROM candles
             WHERE symbol = :sym AND timeframe IN ('1min', '5min') AND timestamp >= :cutoff
             ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
         """)
-        rows = dbSession.execute(sqlQuery, {"sym": symbol, "cutoff": cutoff}).fetchall()
+        rows = dbSession.execute(sqlFallback, {"sym": symbol, "cutoff": cutoff}).fetchall()
         if rows:
             df = pd.DataFrame(rows, columns=["priceDate", "closePrice"])
             df["priceDate"] = pd.to_datetime(df["priceDate"])
             df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            return df.dropna().drop_duplicates(subset=["priceDate"], keep="first").sort_values("priceDate").set_index("priceDate")
+            dfClean = df.dropna().drop_duplicates(subset=["priceDate"], keep="first").sort_values("priceDate").set_index("priceDate")
+            return resamplePriceData(dfClean, targetTf)
 
+    # 3. Fallback a stockprices para histórico diario antiguo
     sqlQuery = text("""
         SELECT priceDate, closePrice
         FROM stockprices
@@ -238,8 +272,10 @@ def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365, timeframe: s
     df = pd.DataFrame(rows, columns=["priceDate", "closePrice"])
     df["priceDate"] = pd.to_datetime(df["priceDate"])
     df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-    df = df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
-    return df
+    dfClean = df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+    if targetTf in ["1d", "daily"]:
+        return dfClean
+    return resamplePriceData(dfClean, targetTf)
 
 
 def resamplePriceData(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
@@ -302,7 +338,42 @@ def calculateSymbolNATR(
             return val
 
     try:
-        # Priorizar velas vivas de 1min (timeframe activo del sistema)
+        # 1. Búsqueda primaria: consultar el timeframe exacto solicitado si existe en candles
+        tf = str(timeframe).lower().strip() if timeframe else "1h"
+        tfStd = "1h" if "1h" in tf else ("15min" if "15m" in tf else ("5min" if "5m" in tf else ("1d" if "1d" in tf else "1min")))
+        sqlExact = text("""
+            SELECT high, low, close, timestamp 
+            FROM candles 
+            WHERE symbol = :sym AND timeframe = :tf 
+            ORDER BY timestamp DESC LIMIT :lim
+        """)
+        rows = dbSession.execute(sqlExact, {"sym": symbol, "tf": tfStd, "lim": max(period + 20, 100)}).fetchall()
+
+        # Si tenemos suficientes velas en el timeframe exacto, calcular NATR directamente sin resamplear
+        if rows and len(rows) >= period:
+            df = pd.DataFrame(rows, columns=["high", "low", "close", "timestamp"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.sort_values("timestamp").set_index("timestamp")
+            df["high"] = pd.to_numeric(df["high"], errors="coerce")
+            df["low"] = pd.to_numeric(df["low"], errors="coerce")
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            df = df.dropna()
+            if len(df) >= period:
+                prevClose = df["close"].shift(1)
+                tr1 = df["high"] - df["low"]
+                tr2 = (df["high"] - prevClose).abs()
+                tr3 = (df["low"] - prevClose).abs()
+                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                atr = tr.ewm(alpha=1.0 / period, adjust=False).mean()
+                latestClose = float(df["close"].iloc[-1])
+                latestAtr = float(atr.iloc[-1])
+                if latestClose > 0 and latestAtr > 0:
+                    natr = (latestAtr / latestClose) * 100.0
+                    tslPct = float(np.clip(kMultiplier * natr, minPct, maxPct))
+                    _NATR_CACHE[cacheKey] = (tslPct, nowTs)
+                    return tslPct
+
+        # 2. Fallback: buscar en 1min o 5min y resamplear en memoria al timeframe requerido
         sql = text("""
             SELECT high, low, close, timestamp 
             FROM candles 
@@ -1826,11 +1897,14 @@ def closeSingleCoverageTrade(
     latestPrice: float,
     symData: Dict[str, Any],
     accountData: Dict[str, Any],
-    closeReason: str = "POR REGLA DE COBERTURA"
-) -> bool:
+    closeReason: str = "POR REGLA DE COBERTURA",
+    returnDetail: bool = False,
+    force_local: bool = False
+) -> Union[bool, Tuple[bool, str]]:
     """
     Liquida y cierra una sola posición de cobertura en el bróker y en la base de datos.
     Reintegra el margen y registra el PnL obtenido.
+    Si force_local=True, no envía la orden al bróker y realiza el cierre contable localmente.
     """
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
     sym = coverageTrade["symbol"]
@@ -1842,7 +1916,7 @@ def closeSingleCoverageTrade(
     pipSize = symData.get("pip", 0.0001)
 
     stratName = str(coverageTrade.get("strategy") or "COBERTURA").strip()
-    if tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
+    if not force_local and tId and str(tId).strip() not in ["", "None", "0", "CLOSED"]:
         closeOrder = [{
             "strategy": stratName,
             "setup": setupName,
@@ -1859,6 +1933,8 @@ def closeSingleCoverageTrade(
         if failedResults:
             err = failedResults[0].get("error", "Rechazado")
             logger.error(f"❌ [ABORTAR CIERRE COBERTURA] El bróker rechazó el cierre de cobertura {sym} en Cuenta #{idCuenta}: {err}")
+            if returnDetail:
+                return False, err
             return False
         if execResults and execResults[0].get("fill_price"):
             fp = float(execResults[0]["fill_price"])
@@ -1928,6 +2004,8 @@ def closeSingleCoverageTrade(
     )
     dispatchRatioTelegramAlert(idCuenta, msg)
     logger.info(f"✅ [{setupName}] Cobertura cerrada con éxito para {sym}: PnL {pnl:+.2f} USD ({returnPct:+.2f}%).")
+    if returnDetail:
+        return True, "OK"
     return True
 
 

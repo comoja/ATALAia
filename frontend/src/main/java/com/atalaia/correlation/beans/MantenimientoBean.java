@@ -177,6 +177,33 @@ public class MantenimientoBean implements Serializable {
         }
     }
 
+    public void runCartOptimizer() {
+        try {
+            String url = backendApiUrl + "/system/actions/optimize-cart";
+            getRestTemplate().postForObject(url, null, String.class);
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_INFO, "Optimización RIDER", "Calibración manual completada exitosamente. Sugerencias RIDE actualizadas."));
+            refreshAll();
+        } catch (Exception e) {
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error de Optimización", "Fallo al ejecutar la optimización: " + e.getMessage()));
+        }
+    }
+
+    public void clearAllLogs() {
+        try {
+            String url = backendApiUrl + "/system/actions/clear-logs";
+            String resp = getRestTemplate().postForObject(url, null, String.class);
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_INFO, "Depuración de Logs", "Todas las bitácoras del sistema fueron depuradas exitosamente."));
+            clearTerminal();
+            refreshAll();
+        } catch (Exception e) {
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error en Depuración", "Fallo al depurar bitácoras: " + e.getMessage()));
+        }
+    }
+
     private void fallbackLocalServiceCheck() {
         List<ServiceStatusDto> list = new ArrayList<>();
         int actCount = 0;

@@ -1215,6 +1215,17 @@ public class DashboardBean implements Serializable {
         private boolean isSubtotal = false;
         private boolean subtotal = false;
         private int tradeCount = 0;
+        private boolean isCobertura = false;
+
+        public boolean isCobertura() {
+            return isCobertura || (strategy != null && strategy.toUpperCase().contains("COBERTURA"));
+        }
+        public boolean getIsCobertura() {
+            return isCobertura();
+        }
+        public void setIsCobertura(boolean isCobertura) {
+            this.isCobertura = isCobertura;
+        }
 
         public boolean isSubtotal() { return subtotal || isSubtotal; }
         public boolean getIsSubtotal() { return subtotal || isSubtotal; }
@@ -1583,7 +1594,7 @@ public class DashboardBean implements Serializable {
 
     public Double getTotalActiveCapital() {
         double cuentaCap = (getSelectedAccountCapital() != null) ? getSelectedAccountCapital() : 0.0;
-        return cuentaCap;
+        return cuentaCap + getTotalActiveMargin();
     }
 
     public Double getTotalActiveEquity() {
@@ -1596,6 +1607,72 @@ public class DashboardBean implements Serializable {
             return (getTotalActiveEquity() / margin) * 100.0;
         }
         return 0.0;
+    }
+
+    // --- Sumatorias específicas de la Sección 3 para RIDER (CART) ---
+    public Double getCartTotalActiveMargin() {
+        double sum = 0.0;
+        if (cartActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : cartActiveCycles) {
+                sum += c.getTotalMargin();
+            }
+        }
+        return sum;
+    }
+
+    public Double getCartTotalActivePnl() {
+        double sum = 0.0;
+        if (cartActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : cartActiveCycles) {
+                sum += c.getTotalPnl();
+            }
+        }
+        return sum;
+    }
+
+    public Double getCartTotalActiveCapital() {
+        double cuentaCap = (getSelectedAccountCapital() != null) ? getSelectedAccountCapital() : 0.0;
+        return cuentaCap + getCartTotalActiveMargin();
+    }
+
+    public Double getCartTotalActiveEquity() {
+        return getCartTotalActiveCapital() + getCartTotalActivePnl();
+    }
+
+    public Double getCartMarginIndicator() {
+        double margin = getCartTotalActiveMargin();
+        if (margin > 0) {
+            return (getCartTotalActiveEquity() / margin) * 100.0;
+        }
+        return 0.0;
+    }
+
+    public String getFormattedCartTotalActiveCapital() {
+        return String.format(java.util.Locale.US, "%,.2f", getCartTotalActiveCapital());
+    }
+
+    public String getFormattedCartTotalActiveMargin() {
+        return String.format(java.util.Locale.US, "%,.2f", getCartTotalActiveMargin());
+    }
+
+    public String getFormattedCartTotalActivePnl() {
+        return String.format(java.util.Locale.US, "%,.2f", Math.abs(getCartTotalActivePnl()));
+    }
+
+    public String getCartTotalActivePnlSign() {
+        return (getCartTotalActivePnl() >= 0) ? "+" : "-";
+    }
+
+    public String getCartTotalActivePnlColor() {
+        return (getCartTotalActivePnl() >= 0) ? "#15803d" : "#b91c1c";
+    }
+
+    public String getFormattedCartTotalActiveEquity() {
+        return String.format(java.util.Locale.US, "%,.2f", getCartTotalActiveEquity());
+    }
+
+    public String getFormattedCartMarginIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f", getCartMarginIndicator());
     }
 
     public String getFormattedTotalActiveCapital() {
@@ -2598,6 +2675,7 @@ public class DashboardBean implements Serializable {
         private Integer periodo;
         private Integer emaRapida;
         private Integer emaLenta;
+        private Integer emaSugerida = 20;
         private Double carMultiplier = 1.0;
         private Boolean operar;
         private String createdAt;
@@ -2658,6 +2736,8 @@ public class DashboardBean implements Serializable {
         public void setEmaRapida(Integer emaRapida) { this.emaRapida = emaRapida; }
         public Integer getEmaLenta() { return emaLenta; }
         public void setEmaLenta(Integer emaLenta) { this.emaLenta = emaLenta; }
+        public Integer getEmaSugerida() { return emaSugerida != null ? emaSugerida : (emaLenta != null ? emaLenta : 20); }
+        public void setEmaSugerida(Integer emaSugerida) { this.emaSugerida = emaSugerida; }
         public Double getCarMultiplier() { return carMultiplier != null ? carMultiplier : 1.0; }
         public void setCarMultiplier(Double carMultiplier) { this.carMultiplier = carMultiplier; }
         public Boolean getOperar() { return operar; }
@@ -3482,6 +3562,7 @@ public class DashboardBean implements Serializable {
                         if (tn.has("closeTime")) item.setCloseTime(tn.get("closeTime").asText());
                         if (tn.has("isWin")) item.setWin(tn.get("isWin").asBoolean());
                         if (tn.has("cycleNum")) item.setCycleNum(tn.get("cycleNum").asInt());
+                        if (tn.has("isCobertura")) item.setIsCobertura(tn.get("isCobertura").asBoolean());
                         rawList.add(item);
                     }
                 }
@@ -5943,6 +6024,27 @@ public class DashboardBean implements Serializable {
                 );
                 org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
             }
+        } catch (org.springframework.web.client.HttpStatusCodeException ex) {
+            String errorMsg = "Rechazo del bróker al procesar orden de cobertura.";
+            try {
+                com.fasterxml.jackson.databind.JsonNode errNode = new com.fasterxml.jackson.databind.ObjectMapper().readTree(ex.getResponseBodyAsString());
+                if (errNode.has("detail")) {
+                    errorMsg = errNode.get("detail").asText();
+                } else if (errNode.has("message")) {
+                    errorMsg = errNode.get("message").asText();
+                }
+            } catch (Exception parseEx) {
+                errorMsg = ex.getResponseBodyAsString();
+            }
+            log.warn("⚠️ Rechazo al cerrar cobertura: {}", errorMsg);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                new javax.faces.application.FacesMessage(
+                    javax.faces.application.FacesMessage.SEVERITY_WARN,
+                    "Cierre de Cobertura Rechazado",
+                    errorMsg
+                )
+            );
+            org.primefaces.PrimeFaces.current().ajax().update("aetherForm:growl");
         } catch (Exception e) {
             log.error("❌ Excepción en closeCoveragePosition: ", e);
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
@@ -6158,6 +6260,7 @@ public class DashboardBean implements Serializable {
                         item.setOpenTime(tn.path("openTime").asText(""));
                         item.setCloseTime(tn.path("closeTime").asText(""));
                         item.setWin(tn.path("isWin").asBoolean(true));
+                        if (tn.has("isCobertura")) item.setIsCobertura(tn.path("isCobertura").asBoolean(false));
                         ratioHechosListAll.add(item);
                     }
                 }
@@ -6530,6 +6633,7 @@ public class DashboardBean implements Serializable {
     private Integer cartDaysBack = 180;
     private Integer cartSmaPeriod = 2;
     private Integer cartCarWindow = 20;
+    private Integer cartEmaSugerida = 20;
     private Double cartCarMultiplier = 1.0;
     private boolean cartOperar = false;
     private String cartAccionCierre = "Continua";
@@ -6637,6 +6741,8 @@ public class DashboardBean implements Serializable {
     public void setCartSmaPeriod(Integer cartSmaPeriod) { this.cartSmaPeriod = cartSmaPeriod; }
     public Integer getCartCarWindow() { return cartCarWindow; }
     public void setCartCarWindow(Integer cartCarWindow) { this.cartCarWindow = cartCarWindow; }
+    public Integer getCartEmaSugerida() { return cartEmaSugerida != null ? cartEmaSugerida : 20; }
+    public void setCartEmaSugerida(Integer cartEmaSugerida) { this.cartEmaSugerida = cartEmaSugerida; }
     public Double getCartCarMultiplier() { return cartCarMultiplier; }
     public void setCartCarMultiplier(Double cartCarMultiplier) { this.cartCarMultiplier = cartCarMultiplier; }
     public boolean isCartOperar() { return cartOperar; }
@@ -6876,6 +6982,7 @@ public class DashboardBean implements Serializable {
                         dto.setPeriodo(item.path("periodo").asInt(180));
                         dto.setEmaRapida(item.path("EMARapida").asInt(2));
                         dto.setEmaLenta(item.path("carWindow").asInt(20));
+                        dto.setEmaSugerida(item.path("emaSugerida").asInt(dto.getEmaLenta()));
                         if (item.has("carMultiplier") && !item.get("carMultiplier").isNull()) {
                             dto.setCarMultiplier(item.path("carMultiplier").asDouble(1.0));
                         } else {
@@ -6914,6 +7021,7 @@ public class DashboardBean implements Serializable {
         this.cartDaysBack = cartDto.getPeriodo() != null ? cartDto.getPeriodo() : 180;
         this.cartSmaPeriod = cartDto.getEmaRapida() != null ? cartDto.getEmaRapida() : 2;
         this.cartCarWindow = cartDto.getEmaLenta() != null ? cartDto.getEmaLenta() : 20;
+        this.cartEmaSugerida = cartDto.getEmaSugerida() != null ? cartDto.getEmaSugerida() : 20;
         this.cartCarMultiplier = cartDto.getCarMultiplier() != null ? cartDto.getCarMultiplier() : 1.0;
         this.cartOperar = Boolean.TRUE.equals(cartDto.getOperar());
         this.cartAccionCierre = cartDto.getAccionCierre() != null ? cartDto.getAccionCierre() : "Continua";
@@ -6964,6 +7072,7 @@ public class DashboardBean implements Serializable {
                     this.cartDaysBack = node.path("periodo").asInt(180);
                     this.cartSmaPeriod = node.path("EMARapida").asInt(2);
                     this.cartCarWindow = node.path("carWindow").asInt(20);
+                    this.cartEmaSugerida = node.path("emaSugerida").asInt(this.cartCarWindow != null ? this.cartCarWindow : 20);
                     this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.0);
                     this.cartOperar = node.path("operar").asBoolean(false);
                     this.cartAccionCierre = node.path("accionCierre").asText("Continua");
@@ -6974,6 +7083,7 @@ public class DashboardBean implements Serializable {
                 } else {
                     this.cartExistsInDb = false;
                     this.currentCartId = null;
+                    this.cartEmaSugerida = 20;
                     this.cartOperar = false;
                     this.cartFiltroHorario = true;
                     this.cartHoraInicio = "08:00";

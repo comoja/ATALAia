@@ -71,32 +71,111 @@ def setOrderCooldown(idCuenta: int, symbol: str, seconds: float = 120.0) -> None
     key = (idCuenta, symbol)
     _failedOrderCooldown[key] = time.time() + seconds
 
-def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
+def isCryptoSymbol(symbol: Optional[str] = None) -> bool:
     """
-    Determina si el mercado para un símbolo está abierto actualmente:
-    - Criptomonedas (BTC, ETH, etc.): Abiertas 24/7.
-    - Forex / Metales: Cierran de Viernes 22:00 UTC (17:00 NY) a Domingo 21:15 UTC (17:15 NY).
+    Determina si un símbolo corresponde al mercado de Criptomonedas (operación continua 24/7).
     """
     sym = (symbol or "").upper().replace("/", "").replace("_", "")
-    if any(c in sym for c in ["BTC", "ETH", "SOL", "LTC", "XRP", "DOGE"]):
-        return True
+    return any(c in sym for c in ["BTC", "ETH", "ETHEREUM", "SOL", "LTC", "XRP", "DOGE"])
 
-    now_utc = datetime.now(timezone.utc)
+
+def isWeekendClosingWindow(currentDt: Optional[datetime] = None) -> bool:
+    """
+    Determina si estamos en la ventana de cierre de fin de semana para activos tradicionales:
+    Inicia los Viernes a las 21:30 UTC (15:30 CDMX / 16:30 NY - 30 min antes del cierre de las 22:00 UTC)
+    y se mantiene hasta el Domingo a las 21:00 UTC (17:00 NY / 15:00 CDMX invierno) cuando el mercado reabre.
+    """
+    now_utc = currentDt.astimezone(timezone.utc) if currentDt and currentDt.tzinfo else (currentDt or datetime.now(timezone.utc))
     weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
     hour = now_utc.hour
     minute = now_utc.minute
 
-    # Sábado: Cerrado
+    # Viernes después de 21:30 UTC (30 min antes del cierre de las 22:00 UTC)
+    if weekday == 4 and (hour > 21 or (hour == 21 and minute >= 30)):
+        return True
+    # Sábado completo
     if weekday == 5:
-        return False
-    # Viernes después de 22:00 UTC: Cerrado
-    if weekday == 4 and (hour > 22 or (hour == 22 and minute >= 0)):
-        return False
-    # Domingo antes de 21:15 UTC: Cerrado
-    if weekday == 6 and (hour < 21 or (hour == 21 and minute < 15)):
-        return False
+        return True
+    # Domingo antes de 21:00 UTC (17:00 NY)
+    if weekday == 6 and hour < 21:
+        return True
 
-    return True
+    return False
+
+
+def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
+    """
+    Determina si el mercado para un símbolo está abierto actualmente:
+    - Criptomonedas (BTC, ETH, etc.): Abiertas 24/7 sin cierre de fin de semana.
+    - Forex / Metales / Índices: Cierran desde Viernes 21:30 UTC (pre-cierre preventivo) hasta Domingo 21:00 UTC.
+    """
+    if isCryptoSymbol(symbol):
+        return True
+    return not isWeekendClosingWindow()
+
+
+def isDividendShortRestricted(dbSession, symbol: str, currentDt: Optional[datetime] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Verifica si el símbolo está en periodo de dividendos (Verano o Invierno).
+    Regla: Si los campos no son nulos ni vacíos en la tabla symbols:
+    - Se cierra la posición CORTA 1 día antes del inicio de dividendos.
+    - Se bloquea la entrada de nuevas posiciones CORTAS durante todo el periodo [ini - 1 día, fin].
+    Retorna (isRestricted, reasonOrWindowStr).
+    """
+    try:
+        cleanSym = (symbol or "").replace("/", "").strip().upper()
+        row = dbSession.execute(
+            text("SELECT iniDivVerano, finDivVerano, iniDivInvierno, finDivInvierno FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"),
+            {"s": cleanSym}
+        ).fetchone()
+        if not row:
+            return False, None
+
+        m = row._mapping
+        today = (currentDt or datetime.now()).date()
+        year = today.year
+
+        periods = [
+            ("Verano", m.get("iniDivVerano"), m.get("finDivVerano")),
+            ("Invierno", m.get("iniDivInvierno"), m.get("finDivInvierno")),
+        ]
+
+        def parseMonthDay(valStr: Optional[str]) -> Optional[Tuple[int, int]]:
+            if not valStr or not str(valStr).strip():
+                return None
+            s = str(valStr).strip().replace("/", "-")
+            parts = s.split("-")
+            if len(parts) >= 3:
+                return int(parts[1]), int(parts[2])
+            elif len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+            return None
+
+        for name, iniRaw, finRaw in periods:
+            if not iniRaw or not finRaw:
+                continue
+            pIni = parseMonthDay(iniRaw)
+            pFin = parseMonthDay(finRaw)
+            if not pIni or not pFin:
+                continue
+
+            for y in [year - 1, year, year + 1]:
+                try:
+                    dIni = datetime(y, pIni[0], pIni[1]).date()
+                    yFin = y if (pFin[0] > pIni[0] or (pFin[0] == pIni[0] and pFin[1] >= pIni[1])) else (y + 1)
+                    dFin = datetime(yFin, pFin[0], pFin[1]).date()
+                    restrictedStart = dIni - timedelta(days=1)
+                    restrictedEnd = dFin
+                    if restrictedStart <= today <= restrictedEnd:
+                        detail = f"{name} ({dIni.strftime('%Y-%m-%d')} a {dFin.strftime('%Y-%m-%d')})"
+                        return True, detail
+                except Exception as exP:
+                    pass
+
+        return False, None
+    except Exception as e:
+        logger.warning(f"Error comprobando restricción de dividendos para {symbol}: {e}")
+        return False, None
 
 
 def isWithinOperatingHours(horaInicio: str, horaFin: str, currentDt: Optional[datetime] = None) -> bool:
@@ -383,45 +462,49 @@ def evaluateCartSignals(
                         valleyPx = None
                         activeSl = None
 
-                # 2. Si no hay posición abierta, verificar ruptura del CAR con filtro de PENDIENTE consistente:
-                #    - COMPRA: Rompe límite superior (px > cMax) Y la pendiente del precio es positiva (priceSlope > 0 y candleSlope >= 0).
-                #    - VENTA: Rompe límite inferior (px < cMin) Y la pendiente del precio es negativa (priceSlope < 0 y candleSlope <= 0).
+                # 2. Si no hay posición abierta, verificar condiciones institucionales de entrada:
+                #    - Condición 1: Que el precio cruce saliendo desde el interior del CAR hacia afuera con pendiente adecuada.
+                #    - Condición 2: Si ya salió previamente y no se cachó la ruptura:
+                #         * No hay posición activa (activeDir is None)
+                #         * La pendiente es adecuada para la entrada correspondiente (positiva para compras, negativa para ventas)
+                #         * El precio está fuera del canal (px > cMax para compras, px < cMin para ventas)
                 if activeDir is None:
-                    if prevCMin <= prevPx <= prevCMax and px > cMax:
-                        isSlopePositive = (priceSlope > 0) and (candleSlope >= 0)
-                        if isSlopePositive:
-                            hasBuySignal = True
-                            signalLabel = "BUY_ENTRY"
-                            activeDir = "COMPRA"
-                            activeEntryPx = px
-                            peakPx = max(activeEntryPx, highVal if highVal is not None else px)
-                            valleyPx = None
-                            activeSl = peakPx * (1.0 - stopLossRatio)
-                            # Si en la misma barra se disparó TSL en territorio por encima de cMax
-                            if activeSl > cMax and lowVal is not None and lowVal <= activeSl:
-                                hasBuyExit = True
-                                exitPxVal = activeSl
-                                activeDir = None
-                                peakPx = None
-                                activeSl = None
+                    isSlopePositive = (priceSlope > 0) and (candleSlope >= 0)
+                    isSlopeNegative = (priceSlope < 0) and (candleSlope <= 0)
 
-                    elif prevCMin <= prevPx <= prevCMax and px < cMin:
-                        isSlopeNegative = (priceSlope < 0) and (candleSlope <= 0)
-                        if isSlopeNegative:
-                            hasSellSignal = True
-                            signalLabel = "SELL_ENTRY"
-                            activeDir = "VENTA"
-                            activeEntryPx = px
-                            valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                    # COMPRA: Cruce saliendo del CAR o ya fuera del canal (px > cMax) con pendiente positiva
+                    if px > cMax and isSlopePositive:
+                        hasBuySignal = True
+                        signalLabel = "BUY_ENTRY"
+                        activeDir = "COMPRA"
+                        activeEntryPx = px
+                        peakPx = max(activeEntryPx, highVal if highVal is not None else px)
+                        valleyPx = None
+                        activeSl = peakPx * (1.0 - stopLossRatio)
+                        # Si en la misma barra se disparó TSL en territorio por encima de cMax
+                        if activeSl > cMax and lowVal is not None and lowVal <= activeSl:
+                            hasBuyExit = True
+                            exitPxVal = activeSl
+                            activeDir = None
                             peakPx = None
-                            activeSl = valleyPx * (1.0 + stopLossRatio)
-                            # Si en la misma barra se disparó TSL en territorio por debajo de cMin
-                            if activeSl < cMin and highVal is not None and highVal >= activeSl:
-                                hasSellExit = True
-                                exitPxVal = activeSl
-                                activeDir = None
-                                valleyPx = None
-                                activeSl = None
+                            activeSl = None
+
+                    # VENTA: Cruce saliendo del CAR o ya fuera del canal (px < cMin) con pendiente negativa
+                    elif px < cMin and isSlopeNegative:
+                        hasSellSignal = True
+                        signalLabel = "SELL_ENTRY"
+                        activeDir = "VENTA"
+                        activeEntryPx = px
+                        valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                        peakPx = None
+                        activeSl = valleyPx * (1.0 + stopLossRatio)
+                        # Si en la misma barra se disparó TSL en territorio por debajo de cMin
+                        if activeSl < cMin and highVal is not None and highVal >= activeSl:
+                            hasSellExit = True
+                            exitPxVal = activeSl
+                            activeDir = None
+                            valleyPx = None
+                            activeSl = None
 
         sigItem = {
             "datetime": dtStr,
@@ -1008,6 +1091,32 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
     try:
         if isIntraday:
             dtStart = datetime.now() - timedelta(days=max(30, int(days // 12) + 15))
+            tfMap = {
+                "1min": "1min", "1m": "1min",
+                "5min": "5min", "5m": "5min",
+                "15min": "15min", "15m": "15min",
+                "30min": "30min", "30m": "30min",
+                "1h": "1h", "4h": "4h", "1d": "1d"
+            }
+            targetTf = tfMap.get(tfLower, "1h")
+
+            # 1. Búsqueda primaria: consultar el timeframe exacto solicitado si ya existe en candles
+            sqlExact = """
+                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
+                FROM candles
+                WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
+                ORDER BY timestamp ASC
+            """
+            dfExact = pd.read_sql(sqlExact, conn, params=(symbol, targetTf, dtStart.strftime("%Y-%m-%d %H:%M:%S")))
+            if not dfExact.empty and len(dfExact) >= 20:
+                dfExact["timestamp"] = pd.to_datetime(dfExact["timestamp"])
+                dfExact = dfExact.drop_duplicates(subset=["timestamp"], keep="last").set_index("timestamp")
+                for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+                    if c in dfExact.columns:
+                        dfExact[c] = pd.to_numeric(dfExact[c], errors="coerce")
+                return dfExact.dropna().tail(limit_bars)
+
+            # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
             sql = """
                 SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
                 FROM candles
@@ -1019,14 +1128,10 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                 return pd.DataFrame()
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
-            df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            if "highPrice" in df.columns:
-                df["highPrice"] = pd.to_numeric(df["highPrice"], errors="coerce")
-            if "lowPrice" in df.columns:
-                df["lowPrice"] = pd.to_numeric(df["lowPrice"], errors="coerce")
-            if "openPrice" in df.columns:
-                df["openPrice"] = pd.to_numeric(df["openPrice"], errors="coerce")
-            ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min"}
+            for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
             rule = ruleMap.get(tfLower, "1h")
             aggDict = {"closePrice": "last"}
             if "highPrice" in df.columns:
@@ -1352,37 +1457,26 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                         currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
 
         # Evaluación de Salidas:
-        # Regla 1: Reingreso al CAR ÚNICAMENTE al Cierre de Vela de la misma temporalidad.
-        # Regla 2: Trailing Stop Loss activo en tiempo real (cada 5s) EXCLUSIVAMENTE para asegurar ganancias ya obtenidas.
-        tfDurationSec = getTimeframeDurationSeconds(timeframe)
-        nowDt = datetime.now()
+        # Regla 1: Reingreso al CAR en tiempo real (si el precio reingresa al interior del canal CAR).
+        # Regla 2: Piso de Breakeven en nivel de entrada (en caso extremo, cerrar mínimo al precio de entrada).
+        # Regla 3: Trailing Stop Loss activo en tiempo real adaptado por NATR.
+        # Regla 4: Stop Catastrófico de Emergencia.
 
-        lastBarTime = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
-        isLastBarClosed = (nowDt - lastBarTime).total_seconds() >= tfDurationSec
-
-        # Si la última barra en df aún está en formación, la última barra consolidada y cerrada es la penúltima
-        signalsList = evalRes.get("signals", [])
-        if isLastBarClosed:
-            closedSig = latestSig
-        else:
-            closedSig = signalsList[-2] if len(signalsList) >= 2 else latestSig
-
-        closedPx = closedSig.get("price")
-        closedCMax = closedSig.get("carMax")
-        closedCMin = closedSig.get("carMin")
-        closedDt = parseCandleDateTime(closedSig.get("datetime") or closedSig.get("date"))
-
-        # El reingreso al CAR solo aplica si la vela cerrada ocurrió después de o al momento de la apertura del trade
+        # 1. Reingreso al CAR en tiempo real
         hitCarReentry = False
-        earliestOpenDt = parseCandleDateTime(earliestOpenTime) if earliestOpenTime else None
+        if isLong and cMax is not None:
+            hitCarReentry = bool(px <= cMax)
+        elif not isLong and cMin is not None:
+            hitCarReentry = bool(px >= cMin)
 
-        if earliestOpenDt and closedDt >= earliestOpenDt and closedPx is not None:
-            if isLong and closedCMax is not None:
-                hitCarReentry = bool(closedPx <= closedCMax)
-            elif not isLong and closedCMin is not None:
-                hitCarReentry = bool(closedPx >= closedCMin)
+        # 2. Piso de Breakeven en nivel de entrada (no permitir pérdidas por debajo de entrada)
+        hitBreakevenExit = False
+        if isLong:
+            hitBreakevenExit = bool(px <= avgEntryPx)
+        else:
+            hitBreakevenExit = bool(px >= avgEntryPx)
 
-        # Evaluar Trailing Stop Loss en Ganancias Aseguradas y Stop Catastrófico de Emergencia
+        # 3. Trailing Stop Loss Dinámico y Stop Catastrófico de Emergencia
         hitTrailingSl = False
         hitEmergencySl = False
 
@@ -1392,10 +1486,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             candidateSl = runningExtreme * (1.0 - stopLossRatio)
             currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
 
-            # TSL DE GANANCIAS: Solo se activa en tiempo real si el trade YA GENERÓ beneficios por encima de la entrada
-            # (runningExtreme avanzó por encima de avgEntryPx y currentSl ya superó el precio de entrada y cMax)
-            hasSecuredProfit = bool(runningExtreme >= avgEntryPx * (1.0 + stopLossRatio) and currentSl > avgEntryPx and currentSl > cMax)
-            if hasSecuredProfit and px <= currentSl:
+            # Piso de seguridad: si el precio superó la entrada, el stop nunca retrocede por debajo de entrada
+            if runningExtreme > avgEntryPx:
+                currentSl = max(currentSl, avgEntryPx)
+
+            if px <= currentSl:
                 hitTrailingSl = True
 
             # Stop catastrófico de emergencia: pérdida del CAR opuesto o caída severa mayor al 2%
@@ -1407,10 +1502,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             candidateSl = runningExtreme * (1.0 + stopLossRatio)
             currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
 
-            # TSL DE GANANCIAS: Solo se activa en tiempo real si el trade YA GENERÓ beneficios por debajo de la entrada
-            # (runningExtreme cayó por debajo de avgEntryPx y currentSl ya bajó del precio de entrada y cMin)
-            hasSecuredProfit = bool(runningExtreme <= avgEntryPx * (1.0 - stopLossRatio) and currentSl < avgEntryPx and currentSl < cMin)
-            if hasSecuredProfit and px >= currentSl:
+            # Piso de seguridad: si el precio cayó bajo la entrada, el stop nunca sube por encima de entrada
+            if runningExtreme < avgEntryPx:
+                currentSl = min(currentSl, avgEntryPx)
+
+            if px >= currentSl:
                 hitTrailingSl = True
 
             # Stop catastrófico de emergencia: pérdida del CAR opuesto o rebote severo mayor al 2%
@@ -1419,18 +1515,38 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         trailingSlPx = currentSl
 
-        shouldClose = hitCarReentry or hitTrailingSl or hitEmergencySl
+        # 5. Cierre preventivo de Fin de Semana (30 min antes del cierre para símbolos tradicionales, excepto Cripto)
+        hitWeekendClose = False
+        if not isCryptoSymbol(symbol):
+            hitWeekendClose = isWeekendClosingWindow()
+
+        # 6. Cierre preventivo por Periodo de Dividendos (1 día previo y durante todo el periodo para posiciones CORTAS)
+        hitDividendClose = False
+        dividendReason = None
+        if not isLong:
+            isDivRestr, divDetail = isDividendShortRestricted(dbSession, symbol)
+            if isDivRestr:
+                hitDividendClose = True
+                dividendReason = divDetail
+
+        shouldClose = hitCarReentry or hitBreakevenExit or hitTrailingSl or hitEmergencySl or hitWeekendClose or hitDividendClose
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or shouldClose:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
                 f"Px={px:.5f} | CAR=[{cMin:.5f}, {cMax:.5f}] | TrailingSL={trailingSlPx:.5f} (Extremo={runningExtreme:.5f} | NATR={tslPct:.2f}%) | "
-                f"hitCar={hitCarReentry} | hitSL={hitTrailingSl} | hitEmerg={hitEmergencySl} | OpenTrades={len(openTrades)}"
+                f"hitCar={hitCarReentry} | hitBE={hitBreakevenExit} | hitSL={hitTrailingSl} | hitWeekend={hitWeekendClose} | hitDiv={hitDividendClose} | OpenTrades={len(openTrades)}"
             )
 
         if shouldClose:
-            if hitCarReentry:
-                closeReasonComment = "Cierre CART por reingreso al CAR al cierre de vela"
+            if hitDividendClose:
+                closeReasonComment = f"Cierre preventivo RIDER por periodo de dividendos ({dividendReason}) para {symbol}"
+            elif hitWeekendClose:
+                closeReasonComment = f"Cierre preventivo RIDER por fin de semana (30min antes del cierre de mercado para {symbol})"
+            elif hitCarReentry:
+                closeReasonComment = f"Cierre CART por reingreso al CAR (Px={px:.5f} vs Límite={cMax if isLong else cMin:.5f})"
+            elif hitBreakevenExit:
+                closeReasonComment = f"Cierre CART por piso de Breakeven en Entrada @ {avgEntryPx:.5f}"
             elif hitTrailingSl:
                 closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
             else:
@@ -1508,14 +1624,22 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         isSlopePositive = bool((priceSlope > 0) and (candleSlope >= 0))
         isSlopeNegative = bool((priceSlope < 0) and (candleSlope <= 0))
 
-        # Regla 2: Para COMPRA la pendiente debe ser positiva; para VENTA la pendiente debe ser negativa
-        effectiveBuy = bool(hasBuy and isSlopePositive)
-        effectiveSell = bool(hasSell and isSlopeNegative)
+        # Condiciones de entrada institucional:
+        # 1. Ruptura saliendo del interior del CAR hacia afuera con pendiente adecuada.
+        # 2. Si ya salió y no se cachó la ruptura previa:
+        #    - No hay posición activa en BD (len(openTrades) == 0)
+        #    - El precio actual está fuera del canal (px > cMax para compras, px < cMin para ventas)
+        #    - La pendiente actual es adecuada (isSlopePositive para compras, isSlopeNegative para ventas)
+        isOutsideBuy = bool(px is not None and cMax is not None and px > cMax)
+        isOutsideSell = bool(px is not None and cMin is not None and px < cMin)
+
+        effectiveBuy = bool((hasBuy or isOutsideBuy) and isSlopePositive)
+        effectiveSell = bool((hasSell or isOutsideSell) and isSlopeNegative)
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
-                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={hasBuy} (SlopePos={isSlopePositive}) | SellSig={hasSell} (SlopeNeg={isSlopeNegative}) | OpenTrades={len(openTrades)}"
+                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={effectiveBuy} (SlopePos={isSlopePositive}, Out={isOutsideBuy}) | SellSig={effectiveSell} (SlopeNeg={isSlopeNegative}, Out={isOutsideSell}) | OpenTrades={len(openTrades)}"
             )
 
     if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
@@ -1525,11 +1649,22 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                 logger.info(f"⏸️ [CART] Mercado cerrado para {symbol} (fin de semana). No se envían órdenes de apertura.")
             return
 
-        # 2. Comprobar si la orden está en periodo de cooldown tras un rechazo previo
+        # 2. Comprobar restricción de dividendos para órdenes en CORTO/VENTA (1 día previo y durante todo el periodo)
+        if effectiveSell:
+            isDivRestr, divDetail = isDividendShortRestricted(dbSession, symbol)
+            if isDivRestr:
+                if shouldLogStatus(idCuenta, symbol, 60.0):
+                    logger.info(f"🚫 [CART] [{symbol}] Bloqueada apertura de posición en CORTO: símbolo en periodo de dividendos ({divDetail}).")
+                effectiveSell = False
+
+        if not (effectiveBuy or effectiveSell):
+            return
+
+        # 3. Comprobar si la orden está en periodo de cooldown tras un rechazo previo
         if isOrderInCooldown(idCuenta, symbol):
             return
 
-        # 3. Comprobar filtro de horario operativo configurado (RIDER / microCart)
+        # 4. Comprobar filtro de horario operativo configurado (RIDER / microCart)
         useHourFilter = bool(cartRecord.get("filtroHorario", True))
         hInicio = str(cartRecord.get("horaInicio") or "08:00")
         hFin = str(cartRecord.get("horaFin") or "16:00")

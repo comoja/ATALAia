@@ -116,6 +116,16 @@ class SystemMonitorService:
             "description": "Daemon de la estrategia CART (Canal Adaptativo de Ruido por Tendencia) sobre un solo par."
         },
         {
+            "id": "microcart_optimizer",
+            "name": "microCart Optimizer",
+            "unit": "microCartOptimizer",
+            "is_system": False,
+            "port": None,
+            "category": "Optimización Cuantitativa",
+            "icon": "pi pi-sliders-v",
+            "description": "Optimizador sabatino de la ventana RIDE (Canal Adaptativo de Ruido) para pares userCART."
+        },
+        {
             "id": "ngrok",
             "name": "Ngrok Tunnel (WebHook)",
             "unit": "ngrok",
@@ -227,8 +237,8 @@ class SystemMonitorService:
                 # Para subcomponentes de la suite (FastAPI, MT5, Frontend)
                 if svc_id in ["backend", "mt5bridge", "frontend"]:
                     is_active = is_listening or unit_info["active"]
-                elif svc_id in ["microratio", "microcart"] and not is_active:
-                    proc_match = "microRatio.py" if svc_id == "microratio" else "microCart.py"
+                elif svc_id in ["microratio", "microcart", "microcart_optimizer"] and not is_active:
+                    proc_match = "microRatio.py" if svc_id == "microratio" else ("microCartOptimizer.py" if svc_id == "microcart_optimizer" else "microCart.py")
                     proc_info = cls.check_process(proc_match)
                     if proc_info["active"]:
                         is_active = True
