@@ -1851,6 +1851,18 @@ async def get_ratio_correlation(
                         df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
                         df_res = df_res.set_index('timestamp')
                         df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                        if target_tf != '1min':
+                            last_dt = df_res.index[-1]
+                            sql_rec = "SELECT timestamp, close as closePrice FROM candles WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s ORDER BY timestamp ASC"
+                            df_rec = pd.read_sql(sql_rec, conn, params=(sym, last_dt.strftime('%Y-%m-%d %H:%M:%S')))
+                            if not df_rec.empty and len(df_rec) > 1:
+                                df_rec['timestamp'] = pd.to_datetime(df_rec['timestamp'])
+                                df_rec = df_rec.set_index('timestamp')
+                                df_rec['closePrice'] = pd.to_numeric(df_rec['closePrice'], errors='coerce')
+                                df_rec_res = df_rec.resample(target_tf).agg({'closePrice': 'last'}).dropna()
+                                if not df_rec_res.empty:
+                                    df_res = pd.concat([df_res, df_rec_res])
+                                    df_res = df_res[~df_res.index.duplicated(keep='last')].sort_index()
                         return df_res.dropna()
 
                     # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
@@ -2810,6 +2822,18 @@ async def get_cruces_ema_pair_analysis(
                         df_res['timestamp'] = pd.to_datetime(df_res['timestamp'])
                         df_res = df_res.set_index('timestamp')
                         df_res['closePrice'] = pd.to_numeric(df_res['closePrice'], errors='coerce')
+                        if target_tf != '1min':
+                            last_dt = df_res.index[-1]
+                            sql_rec = "SELECT timestamp, close as closePrice FROM candles WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s ORDER BY timestamp ASC"
+                            df_rec = pd.read_sql(sql_rec, conn, params=(sym, last_dt.strftime('%Y-%m-%d %H:%M:%S')))
+                            if not df_rec.empty and len(df_rec) > 1:
+                                df_rec['timestamp'] = pd.to_datetime(df_rec['timestamp'])
+                                df_rec = df_rec.set_index('timestamp')
+                                df_rec['closePrice'] = pd.to_numeric(df_rec['closePrice'], errors='coerce')
+                                df_rec_res = df_rec.resample(target_tf).agg({'closePrice': 'last'}).dropna()
+                                if not df_rec_res.empty:
+                                    df_res = pd.concat([df_res, df_rec_res])
+                                    df_res = df_res[~df_res.index.duplicated(keep='last')].sort_index()
                         return df_res.dropna()
 
                     # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria

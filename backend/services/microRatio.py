@@ -239,7 +239,26 @@ def fetchPriceHistory(dbSession, symbol: str, daysLimit: int = 365, timeframe: s
             firstDt = df["priceDate"].iloc[0]
             # Si el inicio cubre el cutoff solicitado o alcanza el límite del histórico (oct 1)
             if firstDt <= cutoff + timedelta(days=3) or firstDt <= datetime(2026, 10, 2):
-                return df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+                dfClean = df.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+                if targetTf != "1min" and not dfClean.empty:
+                    lastDt = dfClean.index[-1]
+                    sqlRecent1m = text("""
+                        SELECT timestamp as priceDate, close as closePrice
+                        FROM candles
+                        WHERE symbol = :sym AND timeframe = '1min' AND timestamp >= :lastDt
+                        ORDER BY timestamp ASC
+                    """)
+                    rRecent = dbSession.execute(sqlRecent1m, {"sym": symbol, "lastDt": lastDt}).fetchall()
+                    if rRecent and len(rRecent) > 1:
+                        dfRec = pd.DataFrame(rRecent, columns=["priceDate", "closePrice"])
+                        dfRec["priceDate"] = pd.to_datetime(dfRec["priceDate"])
+                        dfRec["closePrice"] = pd.to_numeric(dfRec["closePrice"], errors="coerce")
+                        dfRecClean = dfRec.dropna().drop_duplicates(subset=["priceDate"]).sort_values("priceDate").set_index("priceDate")
+                        dfRecResampled = resamplePriceData(dfRecClean, targetTf)
+                        if not dfRecResampled.empty:
+                            dfClean = pd.concat([dfClean, dfRecResampled])
+                            dfClean = dfClean[~dfClean.index.duplicated(keep="last")].sort_index()
+                return dfClean
 
     # 2. Fallback: Buscar en timeframes menores disponibles (1min, 5min) y resamplear en memoria al TM requerido
     isIntraday = pLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]

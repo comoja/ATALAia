@@ -1114,6 +1114,37 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                 for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
                     if c in dfExact.columns:
                         dfExact[c] = pd.to_numeric(dfExact[c], errors="coerce")
+
+                # Si el timeframe no es 1min, complementar con las velas recientes de 1min hasta el momento actual
+                if targetTf != "1min" and not dfExact.empty:
+                    lastDt = dfExact.index[-1]
+                    sqlRecent1m = """
+                        SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
+                        FROM candles
+                        WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s
+                        ORDER BY timestamp ASC
+                    """
+                    dfRecent = pd.read_sql(sqlRecent1m, conn, params=(symbol, lastDt.strftime("%Y-%m-%d %H:%M:%S")))
+                    if not dfRecent.empty and len(dfRecent) > 1:
+                        dfRecent["timestamp"] = pd.to_datetime(dfRecent["timestamp"])
+                        dfRecent = dfRecent.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
+                        for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+                            if c in dfRecent.columns:
+                                dfRecent[c] = pd.to_numeric(dfRecent[c], errors="coerce")
+                        ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
+                        rule = ruleMap.get(tfLower, "1h")
+                        aggDict = {"closePrice": "last"}
+                        if "highPrice" in dfRecent.columns:
+                            aggDict["highPrice"] = "max"
+                        if "lowPrice" in dfRecent.columns:
+                            aggDict["lowPrice"] = "min"
+                        if "openPrice" in dfRecent.columns:
+                            aggDict["openPrice"] = "first"
+                        dfRecentResampled = dfRecent.resample(rule).agg(aggDict).dropna()
+                        if not dfRecentResampled.empty:
+                            dfExact = pd.concat([dfExact, dfRecentResampled])
+                            dfExact = dfExact[~dfExact.index.duplicated(keep="last")].sort_index()
+
                 return dfExact.dropna().tail(limit_bars)
 
             # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
