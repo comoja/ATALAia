@@ -294,7 +294,8 @@ def evaluateCartSignals(
     carMultiplier: float = 1.0,
     natrPct: Optional[float] = None,
     timeframe: str = "1h",
-    dbSession = None
+    dbSession = None,
+    usarTSL: bool = True
 ) -> Dict[str, Any]:
     """
     Evalúa las series de precios reales y el Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ)
@@ -409,9 +410,9 @@ def evaluateCartSignals(
                     candidateSl = peakPx * (1.0 - stopLossRatio)
                     activeSl = candidateSl if activeSl is None else max(activeSl, candidateSl)  # NUNCA DISMINUYE
 
-                    # Salida por TSL: sólo si ya superó el precio de entrada y aseguró ganancias
+                    # Salida por TSL: sólo si ya superó el precio de entrada y aseguró ganancias (si usarTSL está habilitado)
                     hasMeaningfulGain = bool(activeEntryPx and peakPx >= activeEntryPx * (1.0 + stopLossRatio))
-                    hitTrailingSl = bool(hasMeaningfulGain and activeSl > activeEntryPx and activeSl > cMax and ((lowVal is not None and lowVal <= activeSl) or (px <= activeSl)))
+                    hitTrailingSl = bool(usarTSL and hasMeaningfulGain and activeSl > activeEntryPx and activeSl > cMax and ((lowVal is not None and lowVal <= activeSl) or (px <= activeSl)))
                     hitCarReentry = bool(px <= cMax)
 
                     if hitTrailingSl:
@@ -438,9 +439,9 @@ def evaluateCartSignals(
                     candidateSl = valleyPx * (1.0 + stopLossRatio)
                     activeSl = candidateSl if activeSl is None else min(activeSl, candidateSl)  # NUNCA AUMENTA
 
-                    # Salida por TSL: sólo si ya cayó por debajo del precio de entrada y aseguró ganancias
+                    # Salida por TSL: sólo si ya cayó por debajo del precio de entrada y aseguró ganancias (si usarTSL está habilitado)
                     hasMeaningfulGain = bool(activeEntryPx and valleyPx <= activeEntryPx * (1.0 - stopLossRatio))
-                    hitTrailingSl = bool(hasMeaningfulGain and activeSl < activeEntryPx and activeSl < cMin and ((highVal is not None and highVal >= activeSl) or (px >= activeSl)))
+                    hitTrailingSl = bool(usarTSL and hasMeaningfulGain and activeSl < activeEntryPx and activeSl < cMin and ((highVal is not None and highVal >= activeSl) or (px >= activeSl)))
                     hitCarReentry = bool(px >= cMin)
 
                     if hitTrailingSl:
@@ -481,8 +482,8 @@ def evaluateCartSignals(
                         peakPx = max(activeEntryPx, highVal if highVal is not None else px)
                         valleyPx = None
                         activeSl = peakPx * (1.0 - stopLossRatio)
-                        # Si en la misma barra se disparó TSL en territorio por encima de cMax
-                        if activeSl > cMax and lowVal is not None and lowVal <= activeSl:
+                        # Si en la misma barra se disparó TSL en territorio por encima de cMax (si usarTSL está activo)
+                        if usarTSL and activeSl > cMax and lowVal is not None and lowVal <= activeSl:
                             hasBuyExit = True
                             exitPxVal = activeSl
                             activeDir = None
@@ -498,8 +499,8 @@ def evaluateCartSignals(
                         valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
                         peakPx = None
                         activeSl = valleyPx * (1.0 + stopLossRatio)
-                        # Si en la misma barra se disparó TSL en territorio por debajo de cMin
-                        if activeSl < cMin and highVal is not None and highVal >= activeSl:
+                        # Si en la misma barra se disparó TSL en territorio por debajo de cMin (si usarTSL está activo)
+                        if usarTSL and activeSl < cMin and highVal is not None and highVal >= activeSl:
                             hasSellExit = True
                             exitPxVal = activeSl
                             activeDir = None
@@ -556,7 +557,8 @@ def runCartBacktest(
     minMarginIndicator: float = 200.0,
     timeframe: str = "1h",
     dbSession = None,
-    natrPct: Optional[float] = None
+    natrPct: Optional[float] = None,
+    usarTSL: bool = True
 ) -> Dict[str, Any]:
     """
     Ejecuta el BackTest de la estrategia CART sobre un solo par en precios reales:
@@ -589,7 +591,8 @@ def runCartBacktest(
         carMultiplier=carMultiplier,
         natrPct=natrPct,
         timeframe=timeframe,
-        dbSession=dbSession
+        dbSession=dbSession,
+        usarTSL=usarTSL
     )
     signals = evalRes.get("signals", [])
     if not signals:
@@ -1041,7 +1044,7 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
     Utiliza el timestamp Unix real registrado por MT5 ajustado a la hora local para sincronización exacta al 100%.
     """
     tfLower = str(timeframe or "1h").lower().strip()
-    isIntraday = tfLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
+    isIntraday = tfLower in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m", "1d", "d"]
     limit_bars = max(300, int(days or 180))
 
     # 1. Prioridad: Velas directas y reales de MT5 Bridge (FOREX.com)
@@ -1351,12 +1354,14 @@ def parseCandleDateTime(dtVal: Any) -> datetime:
     return datetime.now()
 
 
-def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleDt: datetime, timeframe: str = "1h") -> bool:
+def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleDt: datetime = None, timeframe: str = "1h") -> bool:
     """
-    Verifica si ya existe un trade CART (abierto o ya ejecutado) para este par, cuenta y vela actual,
-    garantizando que solo pueda haber como máximo 1 operación por vela de la temporalidad (evita sobreoperar/churning).
+    Verifica si ya existe un trade CART (RIDER) abierto para este par y cuenta,
+    garantizando que solo pueda haber como máximo 1 posición abierta a la vez.
+    Permite re-entradas en cualquier temporalidad (1min, 5min, 15min, 1h, 1d) SI Y SOLO SI
+    no hay posición abierta en curso.
     """
-    # 1. Comprobar si ya existe una posición abierta en curso
+    # Comprobar si ya existe una posición abierta en curso
     sqlOpen = text("""
         SELECT COUNT(*)
         FROM trades
@@ -1368,25 +1373,6 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
     cntOpen = dbSession.execute(sqlOpen, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).scalar()
     if cntOpen and cntOpen > 0:
         return True
-
-    # 2. Comprobar si ya se abrió una orden en esta misma vela de la temporalidad
-    if candleDt is not None:
-        sqlCandle = text("""
-            SELECT COUNT(*)
-            FROM trades
-            WHERE idCuenta = :idc
-              AND strategy = :strat
-              AND (symbol = :sym OR setup = :sym)
-              AND candleTime = :cdt
-        """)
-        cntCandle = dbSession.execute(sqlCandle, {
-            "idc": idCuenta,
-            "strat": STRATEGY_NAME,
-            "sym": symbol,
-            "cdt": candleDt
-        }).scalar()
-        if cntCandle and cntCandle > 0:
-            return True
 
     return False
 
@@ -1405,6 +1391,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
     carWindow = int(cartRecord.get("carWindow") or 20)
     carMultiplier = float(cartRecord.get("carMultiplier") or 1.0)
     operar = bool(cartRecord.get("operar", False))
+    usarTSL = bool(cartRecord.get("usarTSL", True))
 
     df = fetchCartPriceHistory(symbol, timeframe, periodo)
     if df.empty or len(df) < carWindow + 2:
@@ -1431,7 +1418,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         carMultiplier=carMultiplier,
         natrPct=tslPct,
         timeframe=timeframe,
-        dbSession=dbSession
+        dbSession=dbSession,
+        usarTSL=usarTSL
     )
     latestSig = evalRes.get("latestSignal", {})
     if not latestSig:
@@ -1500,12 +1488,13 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         elif not isLong and cMin is not None:
             hitCarReentry = bool(px >= cMin)
 
-        # 2. Piso de Breakeven en nivel de entrada (no permitir pérdidas por debajo de entrada)
+        # 2. Piso de Breakeven en nivel de entrada (si salirBreakeven y usarTSL están activos)
         hitBreakevenExit = False
-        if isLong:
-            hitBreakevenExit = bool(px <= avgEntryPx)
-        else:
-            hitBreakevenExit = bool(px >= avgEntryPx)
+        if bool(cartRecord.get("salirBreakeven", False)) and usarTSL:
+            if isLong:
+                hitBreakevenExit = bool(px <= avgEntryPx)
+            else:
+                hitBreakevenExit = bool(px >= avgEntryPx)
 
         # 3. Trailing Stop Loss Dinámico y Stop Catastrófico de Emergencia
         hitTrailingSl = False
@@ -1521,11 +1510,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             if runningExtreme > avgEntryPx:
                 currentSl = max(currentSl, avgEntryPx)
 
-            if px <= currentSl:
+            if usarTSL and px <= currentSl:
                 hitTrailingSl = True
 
-            # Stop catastrófico de emergencia: pérdida del CAR opuesto o caída severa mayor al 2%
-            if px <= cMin or px <= avgEntryPx * 0.98:
+            # Stop catastrófico de emergencia: pérdida del CAR opuesto (o caída severa del 2% si usarTSL está activo)
+            if px <= cMin or (usarTSL and px <= avgEntryPx * 0.98):
                 hitEmergencySl = True
         else:
             if px < runningExtreme:
@@ -1537,11 +1526,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             if runningExtreme < avgEntryPx:
                 currentSl = min(currentSl, avgEntryPx)
 
-            if px >= currentSl:
+            if usarTSL and px >= currentSl:
                 hitTrailingSl = True
 
-            # Stop catastrófico de emergencia: pérdida del CAR opuesto o rebote severo mayor al 2%
-            if px >= cMax or px >= avgEntryPx * 1.02:
+            # Stop catastrófico de emergencia: pérdida del CAR opuesto (o rebote severo del 2% si usarTSL está activo)
+            if px >= cMax or (usarTSL and px >= avgEntryPx * 1.02):
                 hitEmergencySl = True
 
         trailingSlPx = currentSl
@@ -1565,7 +1554,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         if shouldLogStatus(idCuenta, symbol, 30.0) or shouldClose:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
-                f"Px={px:.5f} | CAR=[{cMin:.5f}, {cMax:.5f}] | TrailingSL={trailingSlPx:.5f} (Extremo={runningExtreme:.5f} | NATR={tslPct:.2f}%) | "
+                f"Px={px:.5f} | CAR=[{cMin:.5f}, {cMax:.5f}] | TrailingSL={trailingSlPx:.5f} (Extremo={runningExtreme:.5f} | NATR={tslPct:.2f}% | usarTSL={usarTSL}) | "
                 f"hitCar={hitCarReentry} | hitBE={hitBreakevenExit} | hitSL={hitTrailingSl} | hitWeekend={hitWeekendClose} | hitDiv={hitDividendClose} | OpenTrades={len(openTrades)}"
             )
 
@@ -1817,7 +1806,8 @@ def runCycle(isHourlyTick: bool = True) -> None:
                    tipoCierre, umbralDiferencia, salirBreakeven, tipoEntrada, accionCierre,
                    COALESCE(filtroHorario, 1) as filtroHorario,
                    COALESCE(horaInicio, '08:00') as horaInicio,
-                   COALESCE(horaFin, '16:00') as horaFin
+                   COALESCE(horaFin, '16:00') as horaFin,
+                   COALESCE(usarTSL, 1) as usarTSL
             FROM userCART
             WHERE (borrado = 0 OR borrado IS NULL)
         """)).mappings().fetchall()
@@ -1830,7 +1820,13 @@ def runCycle(isHourlyTick: bool = True) -> None:
             tf = str(rec.get("Temporalidad") or "1h").lower().strip()
             isIntraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
             if not isIntraday and not isHourlyTick:
-                continue
+                # Si no es intradía ni tick horario, verificar si tiene trade OPEN para monitorear reingreso al CAR en vivo
+                cntOpen = dbSession.execute(text("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE idCuenta = :idc AND strategy = :strat AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
+                """), {"idc": rec["idCuenta"], "strat": STRATEGY_NAME, "sym": rec["symbol"]}).scalar()
+                if not cntOpen or cntOpen == 0:
+                    continue
 
             try:
                 evaluateSingleCart(dbSession, dict(rec))

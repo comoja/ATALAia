@@ -215,6 +215,7 @@ class UserCart(Base):
     filtroHorario = Column(Boolean, default=True)
     horaInicio = Column(String(5), default="08:00")
     horaFin = Column(String(5), default="16:00")
+    usarTSL = Column(Boolean, default=True)
 
 class UsuarioCuenta(Base):
     """

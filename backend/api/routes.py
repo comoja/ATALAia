@@ -4596,10 +4596,12 @@ def api_restart_system_service(service_id: str):
             raise HTTPException(status_code=400, detail=f"Servicio no reiniciable o desconocido: {service_id}")
             
         unit, is_system = unit_map[service_id]
+        env = os.environ.copy()
         if not is_system:
-            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=5)
+            env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=5, env=env)
         cmd = ["sudo", "systemctl", "restart", unit] if is_system else ["systemctl", "--user", "restart", unit]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
         return {
             "status": "success" if res.returncode == 0 else "error",
             "message": f"Servicio {service_id} ({unit}) reiniciado.",
@@ -4842,6 +4844,7 @@ class UserCartCreate(BaseModel):
     filtroHorario: Optional[bool] = Field(True, description="Filtro de horario operativo")
     horaInicio: Optional[str] = Field("08:00", description="Hora inicio (ej. 08:00)")
     horaFin: Optional[str] = Field("16:00", description="Hora fin (ej. 16:00)")
+    usarTSL: Optional[bool] = Field(True, description="Indica si se usa Trailing Stop Loss")
     startDate: Optional[str] = Field(None, description="Fecha de inicio opcional")
 
 
@@ -4920,6 +4923,7 @@ def findUserCart(
         "filtroHorario": bool(item.filtroHorario) if hasattr(item, "filtroHorario") and item.filtroHorario is not None else True,
         "horaInicio": str(item.horaInicio or "08:00") if hasattr(item, "horaInicio") and item.horaInicio else "08:00",
         "horaFin": str(item.horaFin or "16:00") if hasattr(item, "horaFin") and item.horaFin else "16:00",
+        "usarTSL": bool(item.usarTSL) if hasattr(item, "usarTSL") and item.usarTSL is not None else True,
         "createdAt": item.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -4982,6 +4986,7 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "filtroHorario": bool(r.filtroHorario) if hasattr(r, "filtroHorario") and r.filtroHorario is not None else True,
             "horaInicio": str(r.horaInicio or "08:00") if hasattr(r, "horaInicio") and r.horaInicio else "08:00",
             "horaFin": str(r.horaFin or "16:00") if hasattr(r, "horaFin") and r.horaFin else "16:00",
+            "usarTSL": bool(r.usarTSL) if hasattr(r, "usarTSL") and r.usarTSL is not None else True,
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -5041,6 +5046,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
         filtro_horario = bool(payload.filtroHorario) if payload.filtroHorario is not None else True
         hora_inicio = str(payload.horaInicio or "08:00")
         hora_fin = str(payload.horaFin or "16:00")
+        usar_tsl = bool(payload.usarTSL) if payload.usarTSL is not None else True
         ema_sugerida = int(payload.emaSugerida) if payload.emaSugerida is not None else None
 
         if existing:
@@ -5061,6 +5067,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
             existing.filtroHorario = filtro_horario
             existing.horaInicio = hora_inicio
             existing.horaFin = hora_fin
+            existing.usarTSL = usar_tsl
             existing.borrado = False
             db.commit()
             db.refresh(existing)
@@ -5086,6 +5093,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
                 filtroHorario=filtro_horario,
                 horaInicio=hora_inicio,
                 horaFin=hora_fin,
+                usarTSL=usar_tsl,
                 borrado=False,
                 createdAt=datetime.now().replace(microsecond=0)
             )
@@ -5495,6 +5503,7 @@ async def getCartAnalysis(
     idCuenta: Optional[int] = None,
     initialCapital: float = 1000.0,
     allocationPct: float = 1.0,
+    usarTSL: bool = True,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
@@ -5507,7 +5516,7 @@ async def getCartAnalysis(
 
         symbol = unquote(unquote(str(symbol or ""))).strip()
         tf_lower = str(timeframe or "1h").lower().strip()
-        is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h"]
+        is_intraday = tf_lower in ["1min", "1m", "5min", "5m", "15min", "15m", "30min", "30m", "1h", "4h", "1d", "d"]
 
         account_capital = float(initialCapital or 1000.0)
         allocation_pct = float(allocationPct or 1.0)
@@ -5569,7 +5578,8 @@ async def getCartAnalysis(
             margenPct=margen_pct,
             pipSize=pip_size,
             minMarginIndicator=min_margin_ind,
-            timeframe=timeframe
+            timeframe=timeframe,
+            usarTSL=usarTSL
         )
 
         # Recorte para la gráfica principal de calibración CART a partir de la serie ya calentada

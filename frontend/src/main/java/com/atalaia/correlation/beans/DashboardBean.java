@@ -2760,6 +2760,14 @@ public class DashboardBean implements Serializable {
         public String getHoraFin() { return horaFin != null && !horaFin.trim().isEmpty() ? horaFin : "16:00"; }
         public void setHoraFin(String horaFin) { this.horaFin = horaFin; }
 
+        private Boolean usarTSL = true;
+        public Boolean getUsarTSL() { return usarTSL != null ? usarTSL : true; }
+        public Boolean isUsarTSL() { return usarTSL != null ? usarTSL : true; }
+        public void setUsarTSL(Boolean usarTSL) { this.usarTSL = usarTSL; }
+        public Boolean getUsarTsl() { return getUsarTSL(); }
+        public Boolean isUsarTsl() { return isUsarTSL(); }
+        public void setUsarTsl(Boolean usarTsl) { setUsarTSL(usarTsl); }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -6640,6 +6648,7 @@ public class DashboardBean implements Serializable {
     private boolean cartFiltroHorario = true;
     private String cartHoraInicio = "08:00";
     private String cartHoraFin = "16:00";
+    private boolean cartUsarTSL = true;
     private String cartOptimalHoraInicio = "08:00";
     private String cartOptimalHoraFin = "16:00";
     private String cartOptimalHoursLabel = "08:00 - 16:00 CST (Sesión recomendada)";
@@ -6756,6 +6765,12 @@ public class DashboardBean implements Serializable {
     public void setCartHoraInicio(String cartHoraInicio) { this.cartHoraInicio = cartHoraInicio; }
     public String getCartHoraFin() { return cartHoraFin != null && !cartHoraFin.trim().isEmpty() ? cartHoraFin : "16:00"; }
     public void setCartHoraFin(String cartHoraFin) { this.cartHoraFin = cartHoraFin; }
+    public boolean isCartUsarTSL() { return cartUsarTSL; }
+    public boolean getCartUsarTSL() { return cartUsarTSL; }
+    public void setCartUsarTSL(boolean cartUsarTSL) { this.cartUsarTSL = cartUsarTSL; }
+    public boolean isCartUsarTsl() { return cartUsarTSL; }
+    public boolean getCartUsarTsl() { return cartUsarTSL; }
+    public void setCartUsarTsl(boolean cartUsarTsl) { this.cartUsarTSL = cartUsarTsl; }
     public String getCartOptimalHoraInicio() { return cartOptimalHoraInicio != null ? cartOptimalHoraInicio : "08:00"; }
     public void setCartOptimalHoraInicio(String cartOptimalHoraInicio) { this.cartOptimalHoraInicio = cartOptimalHoraInicio; }
     public String getCartOptimalHoraFin() { return cartOptimalHoraFin != null ? cartOptimalHoraFin : "16:00"; }
@@ -6994,6 +7009,7 @@ public class DashboardBean implements Serializable {
                         dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
                         dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
                         dto.setHoraFin(item.path("horaFin").asText("16:00"));
+                        dto.setUsarTSL(item.path("usarTSL").asBoolean(true));
                         dto.setCreatedAt(item.path("createdAt").asText(""));
                         list.add(dto);
                     }
@@ -7028,6 +7044,7 @@ public class DashboardBean implements Serializable {
         this.cartFiltroHorario = cartDto.getFiltroHorario() != null ? cartDto.getFiltroHorario() : true;
         this.cartHoraInicio = cartDto.getHoraInicio() != null ? cartDto.getHoraInicio() : "08:00";
         this.cartHoraFin = cartDto.getHoraFin() != null ? cartDto.getHoraFin() : "16:00";
+        this.cartUsarTSL = cartDto.getUsarTSL() != null ? cartDto.getUsarTSL() : true;
         this.cartExistsInDb = true;
         this.cartHasActiveTradesInDb = Boolean.TRUE.equals(cartDto.getHasOpenTrades());
         this.activeCartAccordionIndex = "1";
@@ -7079,6 +7096,7 @@ public class DashboardBean implements Serializable {
                     this.cartFiltroHorario = node.path("filtroHorario").asBoolean(true);
                     this.cartHoraInicio = node.path("horaInicio").asText("08:00");
                     this.cartHoraFin = node.path("horaFin").asText("16:00");
+                    this.cartUsarTSL = node.path("usarTSL").asBoolean(true);
                     this.cartHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
                 } else {
                     this.cartExistsInDb = false;
@@ -7088,6 +7106,7 @@ public class DashboardBean implements Serializable {
                     this.cartFiltroHorario = true;
                     this.cartHoraInicio = "08:00";
                     this.cartHoraFin = "16:00";
+                    this.cartUsarTSL = true;
                     this.cartHasActiveTradesInDb = false;
                 }
             }
@@ -7105,7 +7124,7 @@ public class DashboardBean implements Serializable {
             }
             String encSym = java.net.URLEncoder.encode(this.selectedCartPair, "UTF-8");
             String url = String.format(java.util.Locale.US,
-                    "%s/api/v1/cart/analysis/%s?timeframe=%s&days=%d&smaPeriod=%d&carWindow=%d&carMultiplier=%.2f%s",
+                    "%s/api/v1/cart/analysis/%s?timeframe=%s&days=%d&smaPeriod=%d&carWindow=%d&carMultiplier=%.2f&usarTSL=%b%s",
                     backendUrl,
                     encSym,
                     this.cartTimeframe != null ? this.cartTimeframe : "1min",
@@ -7113,6 +7132,7 @@ public class DashboardBean implements Serializable {
                     this.cartSmaPeriod != null ? this.cartSmaPeriod : 2,
                     this.cartCarWindow != null ? this.cartCarWindow : 20,
                     this.cartCarMultiplier != null ? this.cartCarMultiplier : 1.0,
+                    this.cartUsarTSL,
                     this.selectedAccountId != null ? ("&idCuenta=" + this.selectedAccountId) : ""
             );
             RestTemplate restTemplate = new RestTemplate();
@@ -7248,6 +7268,7 @@ public class DashboardBean implements Serializable {
             payload.put("filtroHorario", this.cartFiltroHorario);
             payload.put("horaInicio", this.cartHoraInicio != null ? this.cartHoraInicio : "08:00");
             payload.put("horaFin", this.cartHoraFin != null ? this.cartHoraFin : "16:00");
+            payload.put("usarTSL", this.cartUsarTSL);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
             restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/guardar", entity, String.class);
