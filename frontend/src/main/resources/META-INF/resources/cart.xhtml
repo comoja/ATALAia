@@ -1547,6 +1547,18 @@
                 var currentTslUp = null;
                 var currentTslDown = null;
 
+                var rawMinVol = Infinity;
+                var rawMaxVol = -Infinity;
+                for (var vIdx = 0; vIdx < rawData.length; vIdx++) {
+                    var vVal = Number(rawData[vIdx].volume || 0);
+                    if (vVal > 0) {
+                        if (vVal < rawMinVol) rawMinVol = vVal;
+                        if (vVal > rawMaxVol) rawMaxVol = vVal;
+                    }
+                }
+                if (rawMinVol === Infinity) { rawMinVol = 0; rawMaxVol = 1; }
+                if (rawMaxVol <= rawMinVol) { rawMaxVol = rawMinVol + 1; }
+
                 for (var i = 0; i < rawData.length; i++) {
                     var d = rawData[i];
                     var ts = parseCartDateMs(d.datetime);
@@ -1562,7 +1574,11 @@
                     var cMax = (d.carMax !== undefined && d.carMax !== null) ? Number(d.carMax) : null;
                     var cMin = (d.carMin !== undefined && d.carMin !== null) ? Number(d.carMin) : null;
 
-                    priceSeries.push({ x: ts, y: p });
+                    var volVal = Number(d.volume || 0);
+                    var volRatio = Math.max(0.0, Math.min(1.0, (volVal - rawMinVol) / (rawMaxVol - rawMinVol)));
+                    var volColor = getCartVolumeColor(volRatio);
+
+                    priceSeries.push({ x: ts, y: p, volume: volVal, volRatio: volRatio, volColor: volColor });
                     emaSeries.push({ x: ts, y: ema });
                     carMaxSeries.push({ x: ts, y: cMax });
                     carMinSeries.push({ x: ts, y: cMin });
@@ -2100,7 +2116,7 @@
                                 eventType: 'CIERRE'
                             };
                             exitPoints.push(metaExit);
-                            exitPointBorders.push(trExitVolColor);
+                            exitPointBorders.push(isBuy ? '#16a34a' : '#dc2626');
 
                             if (entryTs && chartEntryPx !== null) {
                                 tradeConnectors.push({
@@ -2428,6 +2444,13 @@
                                 label: pairName + ' (Precio Real)',
                                 data: priceSeries,
                                 borderColor: '#0284c7',
+                                segment: {
+                                    borderColor: function (ctx) {
+                                        var idx = (ctx.p1DataIndex !== undefined) ? ctx.p1DataIndex : ctx.p0DataIndex;
+                                        var pt = priceSeries[idx];
+                                        return (pt && pt.volColor) ? pt.volColor : '#0284c7';
+                                    }
+                                },
                                 backgroundColor: 'transparent',
                                 borderWidth: 2.2,
                                 pointRadius: 0,
@@ -2475,15 +2498,9 @@
                                 showLine: false,
                                 pointStyle: 'triangle',
                                 pointRotation: 0,
-                                pointRadius: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return (r.volumeRatio !== undefined) ? (7.0 + r.volumeRatio * 4.0) : 7.5;
-                                },
+                                pointRadius: 7.5,
                                 pointHoverRadius: 11,
-                                pointBackgroundColor: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return r.volumeColor || '#16a34a';
-                                },
+                                pointBackgroundColor: '#16a34a',
                                 pointBorderColor: '#ffffff',
                                 pointBorderWidth: 1.8,
                                 order: 1
@@ -2494,15 +2511,9 @@
                                 showLine: false,
                                 pointStyle: 'triangle',
                                 pointRotation: 180,
-                                pointRadius: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return (r.volumeRatio !== undefined) ? (7.0 + r.volumeRatio * 4.0) : 7.5;
-                                },
+                                pointRadius: 7.5,
                                 pointHoverRadius: 11,
-                                pointBackgroundColor: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return r.volumeColor || '#dc2626';
-                                },
+                                pointBackgroundColor: '#dc2626',
                                 pointBorderColor: '#ffffff',
                                 pointBorderWidth: 1.8,
                                 order: 2
@@ -2512,15 +2523,11 @@
                                 data: exitPoints,
                                 showLine: false,
                                 pointStyle: 'rectRot',
-                                pointRadius: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return (r.volumeRatio !== undefined) ? (6.0 + r.volumeRatio * 3.5) : 6.5;
-                                },
+                                pointRadius: 6.5,
                                 pointHoverRadius: 10.5,
                                 pointBackgroundColor: '#0f172a',
                                 pointBorderColor: function (ctx) {
-                                    var r = ctx.raw || {};
-                                    return r.volumeColor || '#ffffff';
+                                    return exitPointBorders[ctx.dataIndex] || '#ffffff';
                                 },
                                 pointBorderWidth: 2,
                                 order: 3
@@ -2645,7 +2652,8 @@
                                             }
                                             return cLine1;
                                         }
-                                        return context.dataset.label + ': ' + (raw.y !== undefined && raw.y !== null ? Number(raw.y).toFixed(dec) : '-');
+                                        var ptVol = (raw.volume !== undefined && raw.volume !== null && raw.volume > 0) ? (' | Vol: ' + raw.volume) : '';
+                                        return context.dataset.label + ': ' + (raw.y !== undefined && raw.y !== null ? Number(raw.y).toFixed(dec) : '-') + ptVol;
                                     }
                                 }
                             },
