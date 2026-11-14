@@ -338,18 +338,21 @@ def evaluateCartSignals(
     natrPct: Optional[float] = None,
     timeframe: str = "1h",
     dbSession = None,
-    usarTSL: bool = True
+    usarTSL: bool = True,
+    minRvol: float = 1.0
 ) -> Dict[str, Any]:
     """
     Evalúa las series de precios reales y el Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ)
     para un único par (sin normalización, sin media y sin promedio de la media).
     Reglas CART / RIDER:
-      - Compra (hasBuySignal): Precio sale por arriba del CAR (prevPx <= prevCarMax y px > carMax)
+      - Compra (hasBuySignal): Precio sale por arriba del CAR (px > carMax con pendiente positiva)
+        Y confirmación institucional de volumen relativo (RVOL >= minRvol, adaptativo a carWindow).
       - Salida Compra (hasBuyExit): Por Trailing Stop Loss (-NATR% del pico) acotado al CAR superior (max(cMax, peak - NATR%)),
-        o reingreso al canal CAR.
-      - Venta (hasSellSignal): Precio sale por debajo del CAR (prevPx >= prevCarMin y px < carMin)
+        BreakEven adaptativo (+1.0x NATR), o reingreso al canal CAR.
+      - Venta (hasSellSignal): Precio sale por debajo del CAR (px < carMin con pendiente negativa)
+        Y confirmación institucional de volumen relativo (RVOL >= minRvol, adaptativo a carWindow).
       - Salida Venta (hasSellExit): Por Trailing Stop Loss (+NATR% del valle) acotado al CAR inferior (min(cMin, valley + NATR%)),
-        o reingreso al canal CAR.
+        BreakEven adaptativo (+1.0x NATR), o reingreso al canal CAR.
       - Trailing SL: Nunca invade el interior del canal CAR.
     """
     if df is None or df.empty:
@@ -401,6 +404,9 @@ def evaluateCartSignals(
 
     stopLossRatio = float(natrPct) / 100.0
 
+    # Media móvil adaptativa de volumen basada en la ventana de ruido de la emisora (carWindow)
+    volWindow = max(5, int(carWindow or 20))
+
     signals: List[Dict[str, Any]] = []
     history: List[Dict[str, Any]] = []
     activeDir: Optional[str] = None
@@ -418,6 +424,20 @@ def evaluateCartSignals(
         cMax = carMax[i]
         cMin = carMin[i]
         dtStr = dates[i]
+        volVal = volumes[i] if i < len(volumes) else 0.0
+
+        # Cálculo de promedio de volumen en la ventana adaptativa previa
+        if i >= 1:
+            startIdx = max(0, i - volWindow)
+            prevVols = volumes[startIdx:i]
+            volAvg = (sum(prevVols) / len(prevVols)) if prevVols else 0.0
+        else:
+            volAvg = 0.0
+
+        # RVOL: Volumen relativo a la media adaptativa de la emisora
+        # Si no hay volumen histórico o es 0 (salvaguarda), rvolVal = 1.0 para no bloquear
+        rvolVal = (volVal / volAvg) if volAvg > 0.0 else 1.0
+        hasValidVolume = bool(minRvol is None or minRvol <= 0 or rvolVal >= minRvol)
 
         hasBuySignal = False
         hasSellSignal = False
@@ -455,7 +475,13 @@ def evaluateCartSignals(
                     candidateSl = peakPx * (1.0 - stopLossRatio)
                     activeSl = candidateSl if activeSl is None else max(activeSl, candidateSl)  # NUNCA DISMINUYE
 
-                    # Salida por TSL: sólo si ya superó el precio de entrada y aseguró ganancias (si usarTSL está habilitado)
+                    # BreakEven Adaptativo por NATR:
+                    # En cuanto el precio avanza favorablemente >= 1.0 * NATR, el SL se asegura inmediatamente en Entrada + 0.10 * NATR
+                    if activeEntryPx and peakPx >= activeEntryPx * (1.0 + stopLossRatio):
+                        beFloorPx = activeEntryPx * (1.0 + 0.10 * stopLossRatio)
+                        activeSl = max(activeSl, beFloorPx)
+
+                    # Salida por TSL / BreakEven: sólo si ya superó el precio de entrada y aseguró ganancias (si usarTSL está habilitado)
                     hasMeaningfulGain = bool(activeEntryPx and peakPx >= activeEntryPx * (1.0 + stopLossRatio))
                     hitTrailingSl = bool(usarTSL and hasMeaningfulGain and activeSl > activeEntryPx and activeSl > cMax and ((lowVal is not None and lowVal <= activeSl) or (px <= activeSl)))
                     hitCarReentry = bool(px <= cMax)
@@ -463,7 +489,8 @@ def evaluateCartSignals(
                     if hitTrailingSl:
                         hasBuyExit = True
                         exitPxVal = activeSl
-                        signalLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {activeSl:.5f})"
+                        isBe = bool(activeEntryPx and activeSl <= activeEntryPx * (1.0 + 0.15 * stopLossRatio))
+                        signalLabel = f"BreakEven (+{natrPct:.2f}% @ {activeSl:.5f})" if isBe else f"Trailing Stop Loss (-{natrPct:.2f}% @ {activeSl:.5f})"
                         activeDir = None
                         activeEntryPx = None
                         peakPx = None
@@ -484,7 +511,13 @@ def evaluateCartSignals(
                     candidateSl = valleyPx * (1.0 + stopLossRatio)
                     activeSl = candidateSl if activeSl is None else min(activeSl, candidateSl)  # NUNCA AUMENTA
 
-                    # Salida por TSL: sólo si ya cayó por debajo del precio de entrada y aseguró ganancias (si usarTSL está habilitado)
+                    # BreakEven Adaptativo por NATR:
+                    # En cuanto el precio cae favorablemente <= -1.0 * NATR, el SL se asegura inmediatamente en Entrada - 0.10 * NATR
+                    if activeEntryPx and valleyPx <= activeEntryPx * (1.0 - stopLossRatio):
+                        beCeilPx = activeEntryPx * (1.0 - 0.10 * stopLossRatio)
+                        activeSl = min(activeSl, beCeilPx)
+
+                    # Salida por TSL / BreakEven: sólo si ya cayó por debajo del precio de entrada y aseguró ganancias (si usarTSL está habilitado)
                     hasMeaningfulGain = bool(activeEntryPx and valleyPx <= activeEntryPx * (1.0 - stopLossRatio))
                     hitTrailingSl = bool(usarTSL and hasMeaningfulGain and activeSl < activeEntryPx and activeSl < cMin and ((highVal is not None and highVal >= activeSl) or (px >= activeSl)))
                     hitCarReentry = bool(px >= cMin)
@@ -492,7 +525,8 @@ def evaluateCartSignals(
                     if hitTrailingSl:
                         hasSellExit = True
                         exitPxVal = activeSl
-                        signalLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {activeSl:.5f})"
+                        isBe = bool(activeEntryPx and activeSl >= activeEntryPx * (1.0 - 0.15 * stopLossRatio))
+                        signalLabel = f"BreakEven (+{natrPct:.2f}% @ {activeSl:.5f})" if isBe else f"Trailing Stop Loss (+{natrPct:.2f}% @ {activeSl:.5f})"
                         activeDir = None
                         activeEntryPx = None
                         peakPx = None
@@ -518,8 +552,8 @@ def evaluateCartSignals(
                     isSlopePositive = (priceSlope > 0) and (candleSlope >= 0)
                     isSlopeNegative = (priceSlope < 0) and (candleSlope <= 0)
 
-                    # COMPRA: Cruce saliendo del CAR o ya fuera del canal (px > cMax) con pendiente positiva
-                    if px > cMax and isSlopePositive:
+                    # COMPRA: Cruce saliendo del CAR o ya fuera del canal (px > cMax) con pendiente positiva y confirmación de volumen (RVOL >= minRvol)
+                    if px > cMax and isSlopePositive and hasValidVolume:
                         hasBuySignal = True
                         signalLabel = "BUY_ENTRY"
                         activeDir = "COMPRA"
@@ -535,8 +569,8 @@ def evaluateCartSignals(
                             peakPx = None
                             activeSl = None
 
-                    # VENTA: Cruce saliendo del CAR o ya fuera del canal (px < cMin) con pendiente negativa
-                    elif px < cMin and isSlopeNegative:
+                    # VENTA: Cruce saliendo del CAR o ya fuera del canal (px < cMin) con pendiente negativa y confirmación de volumen (RVOL >= minRvol)
+                    elif px < cMin and isSlopeNegative and hasValidVolume:
                         hasSellSignal = True
                         signalLabel = "SELL_ENTRY"
                         activeDir = "VENTA"
@@ -552,14 +586,14 @@ def evaluateCartSignals(
                             valleyPx = None
                             activeSl = None
 
-        volVal = volumes[i] if i < len(volumes) else 0.0
-
         sigItem = {
             "datetime": dtStr,
             "symbol": symbol,
             "price": round(px, 5) if px is not None else None,
             "priceA": round(px, 5) if px is not None else None,
             "volume": round(volVal, 2),
+            "volAvg": round(volAvg, 2),
+            "rvol": round(rvolVal, 2),
             "priceSlope": round(sigPriceSlope, 6),
             "candleSlope": round(sigCandleSlope, 6),
             "normPrice": round((px - min_px_series) / range_px_series, 4) if px is not None else None,
@@ -606,7 +640,8 @@ def runCartBacktest(
     timeframe: str = "1h",
     dbSession = None,
     natrPct: Optional[float] = None,
-    usarTSL: bool = True
+    usarTSL: bool = True,
+    minRvol: float = 1.0
 ) -> Dict[str, Any]:
     """
     Ejecuta el BackTest de la estrategia CART sobre un solo par en precios reales:
@@ -641,7 +676,8 @@ def runCartBacktest(
         natrPct=natrPct,
         timeframe=timeframe,
         dbSession=dbSession,
-        usarTSL=usarTSL
+        usarTSL=usarTSL,
+        minRvol=minRvol
     )
     signals = evalRes.get("signals", [])
     if not signals:
@@ -730,6 +766,11 @@ def runCartBacktest(
                 candidateSl = btPeakPx * (1.0 - stopLossRatio)
                 btActiveSl = candidateSl if btActiveSl is None else max(btActiveSl, candidateSl)  # NUNCA DISMINUYE
 
+                # BreakEven Adaptativo por NATR:
+                if entryPxRef and btPeakPx >= entryPxRef * (1.0 + stopLossRatio):
+                    beFloorPx = entryPxRef * (1.0 + 0.10 * stopLossRatio)
+                    btActiveSl = max(btActiveSl, beFloorPx)
+
                 hasMeaningfulGain = bool(entryPxRef and btPeakPx >= entryPxRef * (1.0 + stopLossRatio))
                 hitTrailingSl = bool(hasMeaningfulGain and btActiveSl > entryPxRef and btActiveSl > cMax and ((lowVal is not None and lowVal <= btActiveSl) or (px <= btActiveSl)))
                 hitCarReentry = bool(px <= cMax)
@@ -737,7 +778,8 @@ def runCartBacktest(
                 if hitTrailingSl:
                     shouldClose = True
                     exitBoundaryPx = openVal if (openVal is not None and openVal < btActiveSl) else btActiveSl
-                    exitReasonLabel = f"Trailing Stop Loss (-{natrPct:.2f}% @ {btActiveSl:.5f})"
+                    isBe = bool(entryPxRef and btActiveSl <= entryPxRef * (1.0 + 0.15 * stopLossRatio))
+                    exitReasonLabel = f"BreakEven (+{natrPct:.2f}% @ {btActiveSl:.5f})" if isBe else f"Trailing Stop Loss (-{natrPct:.2f}% @ {btActiveSl:.5f})"
                 elif hitCarReentry:
                     shouldClose = True
                     exitBoundaryPx = openVal if (openVal is not None and openVal < cMax) else cMax
@@ -748,6 +790,11 @@ def runCartBacktest(
                 candidateSl = btValleyPx * (1.0 + stopLossRatio)
                 btActiveSl = candidateSl if btActiveSl is None else min(btActiveSl, candidateSl)  # NUNCA AUMENTA
 
+                # BreakEven Adaptativo por NATR:
+                if entryPxRef and btValleyPx <= entryPxRef * (1.0 - stopLossRatio):
+                    beCeilPx = entryPxRef * (1.0 - 0.10 * stopLossRatio)
+                    btActiveSl = min(btActiveSl, beCeilPx)
+
                 hasMeaningfulGain = bool(entryPxRef and btValleyPx <= entryPxRef * (1.0 - stopLossRatio))
                 hitTrailingSl = bool(hasMeaningfulGain and btActiveSl < entryPxRef and btActiveSl < cMin and ((highVal is not None and highVal >= btActiveSl) or (px >= btActiveSl)))
                 hitCarReentry = bool(px >= cMin)
@@ -755,7 +802,8 @@ def runCartBacktest(
                 if hitTrailingSl:
                     shouldClose = True
                     exitBoundaryPx = openVal if (openVal is not None and openVal > btActiveSl) else btActiveSl
-                    exitReasonLabel = f"Trailing Stop Loss (+{natrPct:.2f}% @ {btActiveSl:.5f})"
+                    isBe = bool(entryPxRef and btActiveSl >= entryPxRef * (1.0 - 0.15 * stopLossRatio))
+                    exitReasonLabel = f"BreakEven (+{natrPct:.2f}% @ {btActiveSl:.5f})" if isBe else f"Trailing Stop Loss (+{natrPct:.2f}% @ {btActiveSl:.5f})"
                 elif hitCarReentry:
                     shouldClose = True
                     exitBoundaryPx = openVal if (openVal is not None and openVal > cMin) else cMin
@@ -946,6 +994,8 @@ def runCartBacktest(
                         "entryPriceB": 0.0,
                         "exitPriceA": round(px, 5),
                         "exitPriceB": 0.0,
+                        "entryVolume": sig.get("volume", 0.0),
+                        "entryRvol": sig.get("rvol", 1.0),
                         "allocatedCapital": marginUsed,
                         "marginA": marginUsed,
                         "marginB": 0.0,
@@ -1100,9 +1150,10 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
     if isIntraday:
         try:
             sym_map = {
-                'XAU/USD': 'XAUUSD', 'BTC/USD': 'Bitcoin', 'EUR/MXN': 'EURMXN',
-                'XAG/USD': 'XAGUSD', 'EUR/USD': 'EURUSD', 'GBP/USD': 'GBPUSD',
-                'USD/JPY': 'USDJPY', 'USD/CHF': 'USDCHF', 'AUD/USD': 'AUDUSD'
+                'XAU/USD': 'XAUUSD', 'BTC/USD': 'Bitcoin', 'BTC': 'Bitcoin', 'Bitcoin': 'Bitcoin',
+                'ETH/USD': 'Ethereum', 'ETH': 'Ethereum', 'Ethereum': 'Ethereum',
+                'EUR/MXN': 'EURMXN', 'XAG/USD': 'XAGUSD', 'EUR/USD': 'EURUSD',
+                'GBP/USD': 'GBPUSD', 'USD/JPY': 'USDJPY', 'USD/CHF': 'USDCHF', 'AUD/USD': 'AUDUSD'
             }
             mt5_sym = sym_map.get(symbol, symbol.replace('/', '').upper())
             url_rates = 'http://127.0.0.1:8005/rates'
@@ -1527,12 +1578,22 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                             runningExtreme = cCandlePeak
                         candidateSl = runningExtreme * (1.0 - stopLossRatio)
                         currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
+
+                        # BreakEven Adaptativo por NATR (Opción 1):
+                        if runningExtreme >= avgEntryPx * (1.0 + stopLossRatio):
+                            beFloorPx = avgEntryPx * (1.0 + 0.10 * stopLossRatio)
+                            currentSl = max(currentSl, beFloorPx)
                     else:
                         cCandleValley = min(v for v in [cLow, cClose] if v is not None) if (cLow is not None or cClose is not None) else None
                         if cCandleValley is not None and cCandleValley < runningExtreme:
                             runningExtreme = cCandleValley
                         candidateSl = runningExtreme * (1.0 + stopLossRatio)
                         currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
+
+                        # BreakEven Adaptativo por NATR (Opción 1):
+                        if runningExtreme <= avgEntryPx * (1.0 - stopLossRatio):
+                            beCeilPx = avgEntryPx * (1.0 - 0.10 * stopLossRatio)
+                            currentSl = min(currentSl, beCeilPx)
 
         # Evaluación de Salidas:
         # Regla 1: Reingreso al CAR en tiempo real (si el precio reingresa al interior del canal CAR).
@@ -1565,9 +1626,10 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             candidateSl = runningExtreme * (1.0 - stopLossRatio)
             currentSl = max(currentSl, candidateSl)  # NUNCA DISMINUYE
 
-            # Piso de seguridad: si el precio superó la entrada, el stop nunca retrocede por debajo de entrada
-            if runningExtreme > avgEntryPx:
-                currentSl = max(currentSl, avgEntryPx)
+            # BreakEven Adaptativo por NATR (Opción 1):
+            if runningExtreme >= avgEntryPx * (1.0 + stopLossRatio):
+                beFloorPx = avgEntryPx * (1.0 + 0.10 * stopLossRatio)
+                currentSl = max(currentSl, beFloorPx)
 
             if usarTSL and px <= currentSl:
                 hitTrailingSl = True
@@ -1581,9 +1643,10 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             candidateSl = runningExtreme * (1.0 + stopLossRatio)
             currentSl = min(currentSl, candidateSl)  # NUNCA AUMENTA
 
-            # Piso de seguridad: si el precio cayó bajo la entrada, el stop nunca sube por encima de entrada
-            if runningExtreme < avgEntryPx:
-                currentSl = min(currentSl, avgEntryPx)
+            # BreakEven Adaptativo por NATR (Opción 1):
+            if runningExtreme <= avgEntryPx * (1.0 - stopLossRatio):
+                beCeilPx = avgEntryPx * (1.0 - 0.10 * stopLossRatio)
+                currentSl = min(currentSl, beCeilPx)
 
             if usarTSL and px >= currentSl:
                 hitTrailingSl = True
@@ -1628,7 +1691,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             elif hitBreakevenExit:
                 closeReasonComment = f"Cierre CART por piso de Breakeven en Entrada @ {avgEntryPx:.5f}"
             elif hitTrailingSl:
-                closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
+                isBeTriggered = bool(trailingSlPx >= avgEntryPx) if isLong else bool(trailingSlPx <= avgEntryPx)
+                if isBeTriggered:
+                    closeReasonComment = f"Cierre CART por BreakEven Adaptativo NATR ({'+' if isLong else '-'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
+                else:
+                    closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
             else:
                 closeReasonComment = "Cierre CART por Stop Catastrófico de Emergencia"
             logger.info(
@@ -1691,6 +1758,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                 """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
                 dbSession.commit()  # Confirmar de inmediato cada trade para evitar row locks prolongados
 
+            # Cooldown protector tras el cierre de posición para evitar sobreoperar y reentradas espurias en la misma barra
+            setOrderCooldown(idCuenta, symbol, 180.0)
 
             if str(cartRecord.get("accionCierre") or "Continua").strip().lower() == "para":
                 dbSession.execute(text("UPDATE userCART SET operar = 0 WHERE id = :cid"), {"cid": cartRecord["id"]})
@@ -1715,16 +1784,21 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         #    - No hay posición activa en BD (len(openTrades) == 0)
         #    - El precio actual está fuera del canal (px > cMax para compras, px < cMin para ventas)
         #    - La pendiente actual es adecuada (isSlopePositive para compras, isSlopeNegative para ventas)
+        currentRvol = latestSig.get("rvol", 1.0)
+        hasValidVolume = bool(currentRvol is None or currentRvol >= 1.0)
+
         isOutsideBuy = bool(px is not None and cMax is not None and px > cMax)
         isOutsideSell = bool(px is not None and cMin is not None and px < cMin)
 
-        effectiveBuy = bool((hasBuy or isOutsideBuy) and isSlopePositive)
-        effectiveSell = bool((hasSell or isOutsideSell) and isSlopeNegative)
+        effectiveBuy = bool((hasBuy or isOutsideBuy) and isSlopePositive and hasValidVolume)
+        effectiveSell = bool((hasSell or isOutsideSell) and isSlopeNegative and hasValidVolume)
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
-                f"Px={px} | CAR=[{cMin}, {cMax}] | BuySig={effectiveBuy} (SlopePos={isSlopePositive}, Out={isOutsideBuy}) | SellSig={effectiveSell} (SlopeNeg={isSlopeNegative}, Out={isOutsideSell}) | OpenTrades={len(openTrades)}"
+                f"Px={px} | CAR=[{cMin}, {cMax}] | RVOL={currentRvol:.2f} (Min=1.0) | "
+                f"BuySig={effectiveBuy} (SlopePos={isSlopePositive}, Out={isOutsideBuy}) | "
+                f"SellSig={effectiveSell} (SlopeNeg={isSlopeNegative}, Out={isOutsideSell}) | OpenTrades={len(openTrades)}"
             )
 
     if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
@@ -1820,7 +1894,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         logger.info(
             f"🚀 [CART] Entrada {directionStr} por ruptura de CAR en {symbol} "
-            f"(Px={px}, Units={units:g}, Margen=${marginUsed:,.2f}, Ind.Margen={projectedIndicator:.1f}% >= {minMarginRequired:.0f}%) para Cuenta #{idCuenta}"
+            f"(Px={px}, Units={units:g}, RVOL={currentRvol:.2f} >= 1.0, Margen=${marginUsed:,.2f}, Ind.Margen={projectedIndicator:.1f}% >= {minMarginRequired:.0f}%) para Cuenta #{idCuenta}"
         )
         whRes = sendCartWebhookOrder(
             dbSession=dbSession,
@@ -1829,7 +1903,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             action=actionStr,
             size=units,
             price=px,
-            comment=f"Entrada CART ({directionStr})"
+            comment=f"Entrada CART ({directionStr} RVOL={currentRvol:.2f})"
         )
         if not whRes.get("success"):
             setOrderCooldown(idCuenta, symbol, 120.0)
