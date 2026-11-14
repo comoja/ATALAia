@@ -322,6 +322,68 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
             "trades": ed["trades"]
         })
 
+    # 4. Agrupamiento por Símbolo: Resumen consolidado por par operado
+    symbolsDict = OrderedDict()
+    for tr in tradesList:
+        sym = str(tr.get("symbol") or "Sin Símbolo").strip()
+        if not sym:
+            sym = "Sin Símbolo"
+        if sym not in symbolsDict:
+            symbolsDict[sym] = {
+                "symbol": sym,
+                "totalTrades": 0,
+                "tradesGanadores": 0,
+                "tradesPerdedores": 0,
+                "lotes": 0.0,
+                "pnlBruto": 0.0,
+                "comisiones": 0.0,
+            }
+        sd = symbolsDict[sym]
+        sd["totalTrades"] += 1
+        pVal = float(tr.get("pnl") or 0.0)
+        cVal = float(tr.get("commission") or 0.0)
+        sVal = float(tr.get("size") or 0.0)
+        sd["pnlBruto"] += pVal
+        sd["comisiones"] += cVal
+        sd["lotes"] += sVal
+        if pVal > 0:
+            sd["tradesGanadores"] += 1
+        elif pVal < 0:
+            sd["tradesPerdedores"] += 1
+
+    resumenPorSymbol = []
+    # Ordenar por PnL neto descendente
+    sortedSymbols = sorted(
+        symbolsDict.values(),
+        key=lambda x: (x["pnlBruto"] - x["comisiones"]),
+        reverse=True
+    )
+
+    for sd in sortedSymbols:
+        tt = sd["totalTrades"]
+        tg = sd["tradesGanadores"]
+        tp = sd["tradesPerdedores"]
+        wr = round((tg / tt * 100.0), 1) if tt > 0 else 0.0
+        pnlB = round(sd["pnlBruto"], 2)
+        comm = round(sd["comisiones"], 2)
+        pnlN = round(pnlB - comm, 2)
+        lots = round(sd["lotes"], 2)
+        contrib = round((pnlB / pnlRealizado * 100.0), 1) if pnlRealizado != 0 else 0.0
+
+        resDto = {
+            "symbol": sd["symbol"],
+            "totalTrades": tt,
+            "tradesGanadores": tg,
+            "tradesPerdedores": tp,
+            "winRate": wr,
+            "lotes": lots,
+            "pnlBruto": pnlB,
+            "comisiones": comm,
+            "pnlNeto": pnlN,
+            "contribucionPct": contrib
+        }
+        resumenPorSymbol.append(resDto)
+
     nombreMes = [
         "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -351,6 +413,7 @@ def calcularYActualizarEstadoCuenta(dbSession: Session, idCuenta: int, anio: int
         },
         "resumenPorEstrategia": resumenPorEstrategia,
         "detallePorEstrategia": detallePorEstrategia,
+        "resumenPorSymbol": resumenPorSymbol,
         "trades": tradesList,
         "movimientosCapital": movimientosList
     }
@@ -663,8 +726,81 @@ def generarPdfEstadoCuenta(dbSession: Session, idCuenta: int, anio: int, mes: in
         story.append(resumenTable)
         story.append(Spacer(1, 14))
 
+    # 4.1 RESUMEN POR SÍMBOLO / PAR (CONSOLIDADO)
+    resumenSymbols = data.get("resumenPorSymbol", [])
+    if resumenSymbols:
+        story.append(Paragraph("<b>2. Resumen por Símbolo / Par</b>", summaryHeader))
+        story.append(Spacer(1, 5))
+
+        symColWidths = [
+            2.3 * inch,  # Símbolo
+            0.8 * inch,  # Trades
+            0.9 * inch,  # G / P
+            0.9 * inch,  # Win Rate
+            1.1 * inch,  # Lotes
+            1.6 * inch   # PnL (USD)
+        ]
+        symRows = [
+            [
+                Paragraph("<b>Símbolo</b>", thStyle),
+                Paragraph("<b>Trades</b>", thStyle),
+                Paragraph("<b>G / P</b>", thStyle),
+                Paragraph("<b>Win Rate</b>", thStyle),
+                Paragraph("<b>Lotes</b>", thStyle),
+                Paragraph("<b>PnL Neto (USD)</b>", thStyle),
+            ]
+        ]
+        for rs in resumenSymbols:
+            pnlVal = float(rs.get("pnlNeto") or 0.0)
+            pnlStyleItem = tdStyleRight if pnlVal >= 0 else ParagraphStyle('PnlNegR_sym_' + rs.get("symbol", "").replace("/", "_"), parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
+            pnlStr = f"+${pnlVal:,.2f}" if pnlVal >= 0 else f"-${abs(pnlVal):,.2f}"
+            symRows.append([
+                Paragraph(f"<b>{rs.get('symbol')}</b>", tdStyleLeft),
+                Paragraph(str(rs.get("totalTrades")), tdStyleCenter),
+                Paragraph(f"{rs.get('tradesGanadores')}G / {rs.get('tradesPerdedores')}P", tdStyleCenter),
+                Paragraph(f"{rs.get('winRate'):.1f}%", tdStyleCenter),
+                Paragraph(f"{rs.get('lotes'):,.0f}", tdStyleRight),
+                Paragraph(f"<b>{pnlStr}</b>", pnlStyleItem),
+            ])
+
+        # Fila Total Consolidado
+        totalPnlNeto = resumen["pnlNeto"]
+        totPnlStyle = tdStyleRight if totalPnlNeto >= 0 else ParagraphStyle('PnlNegTot_sym', parent=tdStyleRight, textColor=colors.HexColor('#DC2626'))
+        totPnlStr = f"+${totalPnlNeto:,.2f}" if totalPnlNeto >= 0 else f"-${abs(totalPnlNeto):,.2f}"
+        totalLotesSym = sum(float(rs.get("lotes") or 0.0) for rs in resumenSymbols)
+
+        symRows.append([
+            Paragraph("<b>TOTAL CONSOLIDADO</b>", tdStyleLeft),
+            Paragraph(f"<b>{resumen['totalTrades']}</b>", tdStyleCenter),
+            Paragraph(f"<b>{resumen['tradesGanadores']}G / {resumen['tradesPerdedores']}P</b>", tdStyleCenter),
+            Paragraph(f"<b>{resumen['winRate']:.1f}%</b>", tdStyleCenter),
+            Paragraph(f"<b>{totalLotesSym:,.0f}</b>", tdStyleRight),
+            Paragraph(f"<b>{totPnlStr}</b>", totPnlStyle),
+        ])
+
+        symTable = Table(symRows, colWidths=symColWidths)
+        sStyle = [
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+            ('ALIGN', (0,0), (-1,0), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('INNERGRID', (0,0), (-1,-1), 0.4, colors.HexColor('#E2E8F0')),
+            ('BOX', (0,0), (-1,-1), 0.8, colors.HexColor('#0F172A')),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#E2E8F0')),
+        ]
+        for rowIdx in range(1, len(symRows) - 1):
+            if rowIdx % 2 == 0:
+                sStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.HexColor('#F8FAFC')))
+            else:
+                sStyle.append(('BACKGROUND', (0, rowIdx), (-1, rowIdx), colors.white))
+
+        symTable.setStyle(TableStyle(sStyle))
+        story.append(symTable)
+        story.append(Spacer(1, 14))
+
     # 5. DETALLE DE OPERACIONES POR ESTRATEGIA
-    story.append(Paragraph(f"<b>2. Detalle de Operaciones por Estrategia ({len(trades)} trades en total)</b>", summaryHeader))
+    story.append(Paragraph(f"<b>3. Detalle de Operaciones por Estrategia ({len(trades)} trades en total)</b>", summaryHeader))
     story.append(Spacer(1, 6))
 
     if not detalleEstrategias:

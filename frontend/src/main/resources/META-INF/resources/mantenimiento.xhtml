@@ -1,0 +1,583 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="http://xmlns.jcp.org/jsf/html"
+                xmlns:f="http://xmlns.jcp.org/jsf/core"
+                xmlns:p="http://primefaces.org/ui"
+                xmlns:ui="http://xmlns.jcp.org/jsf/facelets"
+                template="/templates/layout.xhtml">
+
+<f:metadata>
+    <f:viewAction action="#{mantenimientoBean.init}" />
+</f:metadata>
+
+<ui:define name="title">ATALAia - Mantenimiento de Sistema</ui:define>
+
+<ui:define name="head">
+    <style>
+        .maint-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .maint-header-left h2 {
+            margin: 0;
+            color: var(--color-primary, #FF6B35);
+            font-size: 2.0rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        .maint-header-left p {
+            margin: 4px 0 0 0;
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            font-weight: 500;
+        }
+
+        /* Barra de Estadísticas y KPIs */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .stat-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-soft);
+            border-radius: 16px;
+            padding: 14px 18px;
+            box-shadow: var(--neu-shadow-flat);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: all 0.25s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--neu-shadow-hover);
+        }
+        .stat-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            background: var(--bg-surface-active);
+            box-shadow: var(--neu-shadow-inset);
+            flex-shrink: 0;
+        }
+        .stat-content {
+            display: flex;
+            flex-direction: column;
+        }
+        .stat-label {
+            font-size: 0.92rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1.1;
+        }
+
+        /* Cuadrícula de Servicios */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+            gap: 16px;
+            margin-bottom: 25px;
+        }
+        .service-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-soft);
+            border-radius: 16px;
+            padding: 16px 18px;
+            box-shadow: var(--neu-shadow-flat);
+            text-align: left;
+            position: relative;
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 145px;
+        }
+        .service-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--neu-shadow-hover);
+            border-color: rgba(255, 107, 53, 0.4);
+        }
+        .service-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .service-icon-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .service-icon {
+            font-size: 1.35rem;
+            color: var(--color-primary, #FF6B35);
+        }
+        .service-category-badge {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 3px 8px;
+            border-radius: 8px;
+            background: var(--bg-surface-active);
+            color: var(--text-muted);
+            border: 1px solid var(--border-soft);
+        }
+        .service-status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .status-active {
+            background-color: #10B981;
+            color: #10B981;
+            box-shadow: 0 0 10px #10B981;
+        }
+        .status-inactive {
+            background-color: #EF4444;
+            color: #EF4444;
+            box-shadow: 0 0 10px #EF4444;
+        }
+        .service-name {
+            font-size: 1.25rem;
+            font-weight: 750;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+            line-height: 1.2;
+        }
+        .service-desc {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .service-card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid var(--border-soft);
+            padding-top: 10px;
+            margin-top: auto;
+            font-size: 0.9rem;
+        }
+        .service-port-badge {
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            background: rgba(0,0,0,0.08);
+            padding: 3px 7px;
+            border-radius: 6px;
+        }
+        .service-status-text {
+            font-weight: 700;
+            font-size: 0.88rem;
+            letter-spacing: 0.4px;
+        }
+        .text-active {
+            color: #10B981;
+        }
+        .text-inactive {
+            color: #EF4444;
+        }
+
+        /* Sección Terminal y Operaciones */
+        .maint-bottom-grid {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 1100px) {
+            .maint-bottom-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Estilo Terminal Hacker / Cyber Neumórfico */
+        .terminal-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .terminal-live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #10B981;
+            background: rgba(16, 185, 129, 0.12);
+            padding: 3px 9px;
+            border-radius: 12px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .terminal-live-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background-color: #10B981;
+            box-shadow: 0 0 6px #10B981;
+            animation: pulse-dot 1.8s infinite;
+        }
+        @keyframes pulse-dot {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
+        }
+
+        .maint-console {
+            background: #0D1117 !important;
+            border: 1px solid #30363D !important;
+            border-radius: 14px !important;
+            padding: 16px 18px !important;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6) !important;
+            height: 340px;
+            overflow-y: auto;
+            color: #E6EDF3 !important;
+            font-family: 'Consolas', 'Fira Code', 'Courier New', monospace !important;
+            font-size: 1.05rem !important;
+            line-height: 1.55 !important;
+        }
+        .console-line {
+            display: flex;
+            gap: 10px;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            word-break: break-word;
+        }
+        .console-time {
+            color: #8B949E;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .console-tag {
+            font-weight: 700;
+            flex-shrink: 0;
+            padding: 0 4px;
+            border-radius: 4px;
+            font-size: 0.95rem;
+        }
+        .tag-datasymbol { color: #58A6FF; background: rgba(56, 139, 253, 0.15); }
+        .tag-sentinel { color: #BC8CFF; background: rgba(188, 140, 255, 0.15); }
+        .tag-microratio { color: #F0883E; background: rgba(240, 136, 62, 0.15); }
+        .tag-backend-fastapi { color: #7EE787; background: rgba(126, 231, 135, 0.15); }
+        .tag-mt5-bridge { color: #79C0FF; background: rgba(121, 192, 255, 0.15); }
+        .tag-connectionpool { color: #FFA657; background: rgba(255, 166, 87, 0.15); }
+        .tag-webhook { color: #D2A8FF; background: rgba(210, 168, 255, 0.15); }
+        .tag-sys { color: #39D353; background: rgba(57, 211, 83, 0.15); }
+        .console-text {
+            color: #C9D1D9;
+            flex: 1;
+        }
+
+        .action-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-soft);
+        }
+        .action-row:last-child {
+            border-bottom: none;
+        }
+    </style>
+</ui:define>
+
+<ui:define name="content">
+    <!-- Poller de actualización en tiempo real -->
+    <h:form id="pollForm">
+        <p:poll id="systemPoll" 
+                interval="#{mantenimientoBean.pollInterval}" 
+                listener="#{mantenimientoBean.pollUpdate}" 
+                update=":statsForm :servicesGridForm :terminalForm:terminalConsole :headerActionsForm" 
+                enabled="#{mantenimientoBean.autoRefresh}" />
+    </h:form>
+
+    <!-- ENCABEZADO -->
+    <div class="maint-header">
+        <div class="maint-header-left">
+            <h2>Mantenimiento de Sistema</h2>
+            <p>Monitoreo institucional de servicios en tiempo real, conectividad MT5 y procesos activos</p>
+        </div>
+
+        <h:form id="headerActionsForm" style="display: flex; gap: 10px; align-items: center;">
+            <p:commandButton value="#{mantenimientoBean.autoRefresh ? 'En Vivo (4s)' : 'Pausado'}"
+                             icon="#{mantenimientoBean.autoRefresh ? 'pi pi-play' : 'pi pi-pause'}"
+                             action="#{mantenimientoBean.toggleAutoRefresh}"
+                             update="@this :pollForm"
+                             styleClass="#{mantenimientoBean.autoRefresh ? 'aether-btn-primary' : 'aether-btn-secondary'}"
+                             style="font-size: 0.95rem !important;"
+                             title="Activar/Pausar sondeo en tiempo real" />
+
+            <p:commandButton value="Actualizar"
+                             icon="pi pi-refresh"
+                             action="#{mantenimientoBean.refreshAll}"
+                             update=":statsForm :servicesGridForm :terminalForm"
+                             styleClass="aether-btn-primary"
+                             style="font-size: 0.95rem !important;" />
+        </h:form>
+    </div>
+
+    <!-- TARJETAS DE ESTADÍSTICAS / KPIS -->
+    <h:form id="statsForm">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="color: var(--color-primary, #FF6B35);">
+                    <i class="pi pi-server"></i>
+                </div>
+                <div class="stat-content">
+                    <span class="stat-label">Total Servicios</span>
+                    <span class="stat-value">#{mantenimientoBean.summary.total}</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #10B981;">
+                    <i class="pi pi-check-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <span class="stat-label">Servicios Activos</span>
+                    <span class="stat-value" style="color: #10B981;">#{mantenimientoBean.summary.active}</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #{mantenimientoBean.summary.inactive > 0 ? '#EF4444' : '#6B7280'};">
+                    <i class="pi pi-times-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <span class="stat-label">Inactivos</span>
+                    <span class="stat-value" style="color: #{mantenimientoBean.summary.inactive > 0 ? '#EF4444' : 'var(--text-primary)'};">
+                        #{mantenimientoBean.summary.inactive}
+                    </span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #38BDF8;">
+                    <i class="pi pi-wifi"></i>
+                </div>
+                <div class="stat-content">
+                    <span class="stat-label">Puertos en Escucha</span>
+                    <span class="stat-value" style="color: #38BDF8;">#{mantenimientoBean.summary.listening}</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #A855F7;">
+                    <i class="pi pi-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <span class="stat-label">Último Censo</span>
+                    <span class="stat-value" style="font-size: 1.35rem;">#{mantenimientoBean.lastUpdatedStr}</span>
+                </div>
+            </div>
+        </div>
+    </h:form>
+
+    <!-- CUADRÍCULA NEUMÓRFICA DE SERVICIOS -->
+    <h:form id="servicesGridForm">
+        <div class="services-grid">
+            <ui:repeat value="#{mantenimientoBean.services}" var="svc">
+                <div class="service-card">
+                    <div>
+                        <div class="service-card-header">
+                            <div class="service-icon-wrap">
+                                <i class="#{svc.icon} service-icon"></i>
+                                <span class="service-category-badge">#{svc.category}</span>
+                            </div>
+                            <span class="service-status-dot #{svc.statusCss}" title="#{svc.status}"></span>
+                        </div>
+                        <div class="service-name">#{svc.name}</div>
+                        <div class="service-desc">#{svc.description}</div>
+                    </div>
+
+                    <div class="service-card-footer">
+                        <span class="service-port-badge">
+                            <h:outputText value="#{svc.port ne 'N/A' ? 'Puerto ' : ''}#{svc.port}" />
+                        </span>
+                        <span class="service-status-text #{svc.active ? 'text-active' : 'text-inactive'}">
+                            <i class="#{svc.active ? 'pi pi-check' : 'pi pi-exclamation-triangle'}" style="margin-right: 4px;"></i>
+                            #{svc.status}
+                        </span>
+                    </div>
+                </div>
+            </ui:repeat>
+        </div>
+    </h:form>
+
+    <!-- FILA INFERIOR: CONSOLA TERMINAL EN VIVO Y ACCIONES -->
+    <div class="maint-bottom-grid">
+        <!-- CONSOLA DEL SISTEMA EN VIVO -->
+        <p:panel styleClass="aether-panel">
+            <f:facet name="header">
+                <div class="terminal-panel-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="pi pi-terminal" style="color: var(--color-primary); font-size: 1.2rem;"></i>
+                        <span style="font-weight: 700; font-size: 1.2rem;">Consola del Sistema (ATALAia Terminal)</span>
+                        <div class="terminal-live-badge">
+                            <span class="terminal-live-dot"></span>
+                            <span>PROCESOS EN VIVO</span>
+                        </div>
+                    </div>
+                </div>
+            </f:facet>
+
+            <h:form id="terminalForm">
+                <!-- Barra de Filtros y Controles de la Terminal -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.95rem; font-weight: 600; color: var(--text-muted);">Filtrar Proceso:</span>
+                        <p:selectOneMenu value="#{mantenimientoBean.selectedServiceFilter}" style="min-width: 180px;">
+                            <f:selectItem itemLabel="Todos los Servicios" itemValue="all" />
+                            <f:selectItem itemLabel="dataSymbol (Velas MT5)" itemValue="datasymbol" />
+                            <f:selectItem itemLabel="Sentinel (Trading Bots)" itemValue="sentinel" />
+                            <f:selectItem itemLabel="microRatio (Ratios &amp; PnL)" itemValue="microratio" />
+                            <f:selectItem itemLabel="microCart (CART &amp; CAR)" itemValue="microcart" />
+                            <f:selectItem itemLabel="Backend FastAPI Core" itemValue="backend" />
+                            <f:selectItem itemLabel="MT5 Wine Bridge" itemValue="mt5bridge" />
+                            <f:selectItem itemLabel="ConnectionPool API" itemValue="connectionpool" />
+                            <f:selectItem itemLabel="WebHook Server" itemValue="webhook" />
+                            <p:ajax listener="#{mantenimientoBean.onFilterChange}" update="terminalConsole" />
+                        </p:selectOneMenu>
+                    </div>
+
+                    <div style="display: flex; gap: 8px;">
+                        <p:commandButton icon="pi pi-trash" 
+                                         action="#{mantenimientoBean.clearTerminal}"
+                                         update="terminalConsole"
+                                         styleClass="aether-btn-secondary"
+                                         title="Limpiar Pantalla" />
+                        <p:commandButton icon="pi pi-sync" 
+                                         action="#{mantenimientoBean.refreshTerminal}"
+                                         update="terminalConsole"
+                                         styleClass="aether-btn-secondary"
+                                         title="Refrescar Terminal" />
+                    </div>
+                </div>
+
+                <!-- Ventana de Consola -->
+                <p:outputPanel id="terminalConsole" styleClass="maint-console">
+                    <ui:repeat value="#{mantenimientoBean.terminalLogs}" var="line">
+                        <div class="console-line">
+                            <span class="console-time">[#{line.time}]</span>
+                            <span class="console-tag tag-#{line.tag.toLowerCase()}">#{line.tag}</span>
+                            <span class="console-text">#{line.message}</span>
+                        </div>
+                    </ui:repeat>
+                    <h:panelGroup rendered="#{empty mantenimientoBean.terminalLogs}">
+                        <div style="color: #8B949E; text-align: center; padding-top: 50px;">
+                            No hay registros disponibles para el filtro seleccionado.
+                        </div>
+                    </h:panelGroup>
+                </p:outputPanel>
+            </h:form>
+        </p:panel>
+
+        <!-- ACCIONES DE MANTENIMIENTO -->
+        <p:panel header="Acciones de Administración" styleClass="aether-panel">
+            <h:form id="actionsForm">
+                <p:messages id="messages" showDetail="true" closable="true" />
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Sincronizar Velas MT5</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Fuerza ronda de actualización en dataSymbol</div>
+                        </div>
+                        <p:commandButton value="Sincronizar" 
+                                         icon="pi pi-cloud-download"
+                                         action="#{mantenimientoBean.restartService('datasymbol')}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Reiniciar Daemon microRatio</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Reinicia el censo de ratios y posiciones</div>
+                        </div>
+                        <p:commandButton value="Reiniciar" 
+                                         icon="pi pi-refresh"
+                                         action="#{mantenimientoBean.restartService('microratio')}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Reiniciar Daemon microCart</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Reinicia el censo de CART y posiciones</div>
+                        </div>
+                        <p:commandButton value="Reiniciar" 
+                                         icon="pi pi-refresh"
+                                         action="#{mantenimientoBean.restartService('microcart')}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Optimización Sabatina RIDER</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Ejecuta la calibración cuantitativa manual en microCartOptimizer.py</div>
+                        </div>
+                        <p:commandButton value="Optimizar" 
+                                         icon="pi pi-sliders-h"
+                                         action="#{mantenimientoBean.runCartOptimizer()}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Respaldo MySQL</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Genera snapshot completo de la base de datos</div>
+                        </div>
+                        <p:commandButton value="Respaldar" 
+                                         icon="pi pi-database"
+                                         styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Depuración de Logs</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Limpia y trunca todas las bitácoras del sistema (dataSymbol, webhook, microRatio, microCart, Sentinel, etc.)</div>
+                        </div>
+                        <p:commandButton value="Limpiar" 
+                                         icon="pi pi-trash"
+                                         action="#{mantenimientoBean.clearAllLogs()}"
+                                         update="@form :terminalForm"
+                                         styleClass="aether-btn-primary" 
+                                         style="background: #FBE6E3 !important; color: #8E3A31 !important; border-color: #F8B0A5 !important;" />
+                    </div>
+                </div>
+            </h:form>
+        </p:panel>
+    </div>
+</ui:define>
+</ui:composition>

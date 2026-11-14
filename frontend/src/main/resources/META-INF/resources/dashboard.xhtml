@@ -1,0 +1,2263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://xmlns.jcp.org/jsf/html"
+    xmlns:f="http://xmlns.jcp.org/jsf/core" xmlns:p="http://primefaces.org/ui"
+    xmlns:ui="http://xmlns.jcp.org/jsf/facelets" template="/templates/layout.xhtml">
+
+    <f:metadata>
+        <f:viewAction action="#{dashboardBean.init}" onPostback="false" />
+    </f:metadata>
+
+    <ui:define name="title">ATALA.ia - Panel de Control</ui:define>
+
+    <ui:define name="head">
+        <style>
+            /* Icono vectorial de Balanza (Balance Scale) para el botón de Balance General */
+            .pi-balance-scale {
+                display: inline-block !important;
+                width: 17px !important;
+                height: 17px !important;
+                background-color: currentColor !important;
+                -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z'/%3E%3Cpath d='m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z'/%3E%3Cpath d='M7 21h10'/%3E%3Cpath d='M12 3v18'/%3E%3Cpath d='M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2'/%3E%3C/svg%3E") no-repeat center / contain !important;
+                mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z'/%3E%3Cpath d='m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z'/%3E%3Cpath d='M7 21h10'/%3E%3Cpath d='M12 3v18'/%3E%3Cpath d='M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2'/%3E%3C/svg%3E") no-repeat center / contain !important;
+                vertical-align: middle !important;
+                margin: 0 !important;
+            }
+
+            .pi-balance-scale:before {
+                content: "" !important;
+                display: none !important;
+            }
+
+            .btn-balance-icon-only .ui-button-text {
+                display: none !important;
+                padding: 0 !important;
+            }
+
+            .btn-balance-icon-only .ui-button-icon-left {
+                position: static !important;
+                margin: 0 !important;
+            }
+
+            /* Layout principal: contiene todo en el viewport sin scroll de página */
+            html,
+            body {
+                height: 100vh;
+                overflow: hidden;
+            }
+
+            /* Contenedor del Formulario para ocupar el 100% de la altura */
+            #aetherForm {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                min-height: 0;
+                box-sizing: border-box;
+            }
+
+            /* Ajuste de contenedor principal para evitar scrollbar de la página completa */
+            .app-content {
+                height: calc(100vh - 70px) !important;
+                box-sizing: border-box;
+                overflow: hidden !important;
+                padding: 0 !important;
+                /* Changed to 0 so tabs fill the screen */
+            }
+
+            .ui-tabs {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+            }
+
+            .ui-tabs .ui-tabs-panels {
+                flex: 1;
+                padding: 16px 20px !important;
+                overflow: hidden;
+            }
+
+            .ui-tabs .ui-tabs-panel {
+                height: 100%;
+                padding: 0 !important;
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto !important;
+            }
+
+            .dashboard-grid {
+                display: grid;
+                grid-template-columns: 460px 1fr;
+                gap: 16px;
+                padding: 0px 0px;
+                flex: 1;
+                overflow: hidden;
+                min-height: 0;
+                height: 100%;
+            }
+
+            /* Columna izquierda y acordeón ocupando el 100% del alto y ancho disponible */
+            .dashboard-grid>.aether-panel {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                min-height: 0;
+                margin-bottom: 0px !important;
+                width: 100%;
+            }
+
+            .dashboard-grid>.aether-panel>.ui-panel-content {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                min-height: 0;
+                padding: 6px !important;
+                height: 100%;
+            }
+
+            .aether-accordion {
+                display: flex !important;
+                flex-direction: column !important;
+                flex: 1 !important;
+                height: 100% !important;
+                min-height: 0 !important;
+                width: 100% !important;
+            }
+
+            .aether-accordion .ui-accordion-header {
+                flex-shrink: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                padding: 5px 10px !important;
+                min-height: 38px !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-accordion .ui-accordion-header .ui-accordion-toggle-icon {
+                flex-shrink: 0 !important;
+                margin-right: 6px !important;
+            }
+
+            /* Títulos del acordeón y valor del combo IDÉNTICOS a 1.25rem para igualar '2. Calibración del Ratio' */
+            .aether-accordion .ui-accordion-header,
+            .aether-accordion .ui-accordion-header a,
+            .aether-accordion .ui-accordion-header .ui-accordion-header-text,
+            .aether-tab-title-text,
+            .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-label {
+                font-size: 1.25rem !important;
+                font-weight: 700 !important;
+                color: #1e293b !important;
+                letter-spacing: -0.2px !important;
+            }
+
+            .aether-tab-title-container {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                width: 100% !important;
+                min-width: 0 !important;
+                gap: 6px !important;
+            }
+
+            .aether-cuenta-header-box {
+                cursor: default !important;
+            }
+
+            /* Reducción únicamente del OBJETO (marco compacto y sin padding excedente, conservando el font en 1.05rem) */
+            .aether-cuenta-header-box .aether-cuenta-selector {
+                width: 185px !important;
+                min-width: 155px !important;
+                max-width: 230px !important;
+                height: 28px !important;
+                line-height: 28px !important;
+                border: 1px solid #cbd5e1 !important;
+                border-radius: 6px !important;
+                background-color: #ffffff !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                box-sizing: border-box !important;
+                padding: 0 !important;
+            }
+
+            .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-label {
+                height: 28px !important;
+                line-height: 28px !important;
+                padding: 0 24px 0 8px !important;
+                margin: 0 !important;
+                font-size: 1.15rem !important;
+                font-weight: 700 !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-trigger {
+                width: 22px !important;
+                height: 28px !important;
+                top: 0 !important;
+                right: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                background: transparent !important;
+                border: none !important;
+            }
+
+            .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-trigger .ui-icon {
+                margin: 0 !important;
+                font-size: 1.25rem !important;
+            }
+
+            .aether-accordion .ui-accordion-content {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+                padding: 10px 10px !important;
+                height: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Estilos de alta legibilidad para el selector de Denominador con retornos */
+            .denom-select-panel {
+                min-width: 330px !important;
+            }
+
+            .denom-row-container {
+                display: flex !important;
+                justify-content: space-between !important;
+                align-items: center !important;
+                width: 100% !important;
+                gap: 12px !important;
+                box-sizing: border-box !important;
+                padding: 1px 0 !important;
+            }
+
+            .denom-pair-label {
+                color: #1e293b;
+                font-weight: 700;
+                white-space: nowrap;
+                transition: color 0.12s ease;
+            }
+
+            .denom-return-val {
+                font-size: 0.84rem;
+                white-space: nowrap;
+                margin-left: auto;
+                font-weight: 800;
+                transition: color 0.12s ease, text-shadow 0.12s ease;
+            }
+
+            /* Colores en estado normal (cuando no esta seleccionado ni en hover) */
+            .denom-return-val.positive {
+                color: #16a34a;
+            }
+
+            .denom-return-val.negative {
+                color: #dc2626 !important;
+                font-weight: 800;
+            }
+
+            .denom-return-val.neutral {
+                color: #64748b;
+            }
+
+            /* CUANDO EL SELECTOR (VERDE) ESTA ENCIMA DEL RENGLON:
+               1) El nombre del par pasa a blanco puro (#ffffff) para maximo contraste.
+               2) El texto verde del valor pasa a un VERDE MUY CLARO (MINT #bbf7d0)
+                  para que destaque perfectamente sobre el selector verde esmeralda. */
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item:hover .denom-pair-label,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-hover .denom-pair-label,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-highlight .denom-pair-label,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr:hover .denom-pair-label,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-hover .denom-pair-label,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-highlight .denom-pair-label,
+            .denom-select-panel .ui-selectonemenu-item:hover .denom-pair-label,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-hover .denom-pair-label,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-highlight .denom-pair-label {
+                color: #ffffff !important;
+            }
+
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item:hover .denom-return-val.positive,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-hover .denom-return-val.positive,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-highlight .denom-return-val.positive,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr:hover .denom-return-val.positive,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-hover .denom-return-val.positive,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-highlight .denom-return-val.positive,
+            .denom-select-panel .ui-selectonemenu-item:hover .denom-return-val.positive,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-hover .denom-return-val.positive,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-highlight .denom-return-val.positive {
+                color: #bbf7d0 !important;
+                /* Verde muy claro (mint brillante) */
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+            }
+
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item:hover .denom-return-val.negative,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-hover .denom-return-val.negative,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-highlight .denom-return-val.negative,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr:hover .denom-return-val.negative,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-hover .denom-return-val.negative,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-highlight .denom-return-val.negative,
+            .denom-select-panel .ui-selectonemenu-item:hover .denom-return-val.negative,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-hover .denom-return-val.negative,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-highlight .denom-return-val.negative {
+                color: #fecaca !important;
+                /* Rojo claro / pastel */
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+            }
+
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item:hover .denom-return-val.neutral,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-hover .denom-return-val.neutral,
+            .ui-selectonemenu-panel .ui-selectonemenu-items .ui-selectonemenu-item.ui-state-highlight .denom-return-val.neutral,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr:hover .denom-return-val.neutral,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-hover .denom-return-val.neutral,
+            .ui-selectonemenu-panel .ui-selectonemenu-table tr.ui-state-highlight .denom-return-val.neutral,
+            .denom-select-panel .ui-selectonemenu-item:hover .denom-return-val.neutral,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-hover .denom-return-val.neutral,
+            .denom-select-panel .ui-selectonemenu-item.ui-state-highlight .denom-return-val.neutral {
+                color: #f8fafc !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) !important;
+            }
+
+
+            /* Garantizar que los selectores de ratio no generen scrollbar horizontal */
+            .aether-accordion .ui-selectonemenu {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-accordion .ui-selectonemenu .ui-selectonemenu-label {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                box-sizing: border-box !important;
+                padding-right: 20px !important;
+            }
+
+            /* Columna derecha: flex column para que el gráfico tome el espacio restante */
+            .dashboard-grid>div {
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                height: 100%;
+            }
+
+            /* Reducción de altura en barras de pestañas internas (sin tocar font) */
+            .compact-inner-tabs.ui-tabs .ui-tabs-nav {
+                padding: 2px 4px !important;
+                margin-bottom: 8px !important;
+                border-radius: 12px !important;
+            }
+
+            .compact-inner-tabs.ui-tabs .ui-tabs-nav li.ui-tabs-header a {
+                padding: 4px 16px !important;
+            }
+
+            .control-row {
+                margin-bottom: 12px;
+            }
+
+            .control-label {
+                display: flex;
+                justify-content: space-between;
+                font-size: 0.78em;
+                color: var(--text-muted);
+                margin-bottom: 4px;
+                font-weight: 600;
+            }
+
+            .control-label span.value {
+                color: var(--text-green);
+                font-weight: 700;
+            }
+
+            .kpis-grid {
+                display: grid;
+                grid-template-columns: repeat(5, 1fr);
+                gap: 12px;
+                margin-bottom: 14px;
+                flex-shrink: 0;
+            }
+
+            .dashboard-chart-column {
+                display: flex;
+                flex-direction: column;
+                min-height: 520px;
+                height: 100%;
+                width: 100%;
+            }
+
+            #chart-container {
+                background: var(--bg-surface);
+                border: 1px solid var(--border-soft);
+                border-radius: 16px;
+                padding: 14px;
+                box-shadow: var(--neu-shadow-flat);
+                flex: 1;
+                /* ocupa todo el espacio vertical restante */
+                min-height: 480px;
+                overflow: hidden;
+                position: relative;
+                /* Requerido para responsividad interactiva de Chart.js */
+            }
+
+            #chart {
+                width: 100% !important;
+                height: 100% !important;
+            }
+
+            /* ==========================================================================
+           MEDIA QUERIES - DISEÑO COMPLETAMENTE RESPONSIVO
+           ========================================================================== */
+            @media (max-width: 1200px) {
+                .dashboard-grid {
+                    grid-template-columns: 380px 1fr;
+                    gap: 12px;
+                }
+
+                .kpis-grid {
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 10px;
+                }
+            }
+
+            /* ── Adaptaciones Responsive para Escritorio vs Celular ── */
+            @media (min-width: 769px) {
+
+                /* Ocultar pestaña móvil de gráfica y botones de salto en escritorio */
+                .ui-tabs .ui-tabs-nav li.mobile-chart-tab-header {
+                    display: none !important;
+                }
+
+                .mobile-chart-shortcut,
+                .mobile-chart-nav-bar {
+                    display: none !important;
+                }
+            }
+
+            @media (max-width: 1024px) {
+
+                html,
+                body {
+                    overflow: auto !important;
+                    height: auto !important;
+                }
+
+                .kpis-grid {
+                    grid-template-columns: repeat(3, 1fr) !important;
+                    gap: 10px;
+                }
+            }
+
+            @media (max-width: 768px) {
+
+                /* Mostrar pestaña exclusiva de gráfica en celular */
+                .ui-tabs .ui-tabs-nav li.mobile-chart-tab-header {
+                    display: inline-block !important;
+                }
+
+                .mobile-chart-shortcut {
+                    display: block !important;
+                }
+
+                .mobile-chart-nav-bar {
+                    display: flex !important;
+                }
+
+                /* En celular la cuadrícula contiene solo el panel de calibración */
+                .dashboard-grid {
+                    grid-template-columns: 1fr !important;
+                    gap: 12px !important;
+                    overflow: visible !important;
+                    height: auto !important;
+                }
+
+                .dashboard-grid>.aether-panel {
+                    height: auto !important;
+                    overflow: visible !important;
+                }
+
+                .kpis-grid {
+                    grid-template-columns: repeat(2, 1fr) !important;
+                    gap: 8px !important;
+                }
+
+                .pairs-trading-header-box {
+                    flex-direction: column !important;
+                    align-items: stretch !important;
+                    text-align: center;
+                    padding: 10px 12px !important;
+                    gap: 8px !important;
+                }
+
+                #chartHeaderAccountInfo {
+                    flex-direction: column !important;
+                    gap: 6px !important;
+                    width: 100% !important;
+                }
+
+                #chart-container {
+                    min-height: 400px !important;
+                    height: 440px !important;
+                    width: 100% !important;
+                }
+
+                .mobile-chart-mount-point {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    width: 100%;
+                    min-height: 520px;
+                    overflow-y: auto;
+                }
+
+                .dashboard-chart-column {
+                    width: 100% !important;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+            }
+
+            @media (max-width: 480px) {
+                .kpis-grid {
+                    grid-template-columns: 1fr !important;
+                }
+            }
+
+            /* Divisor visual del ratio entre los dos selectores de par */
+            .ratio-divider {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                margin: 8px 0;
+                font-size: 0.78em;
+                color: var(--text-muted);
+                font-weight: 700;
+                letter-spacing: 1px;
+            }
+
+            .ratio-divider::before,
+            .ratio-divider::after {
+                content: '';
+                flex: 1;
+                height: 1px;
+                background: var(--border-soft);
+            }
+
+            .ratio-formula-badge {
+                background: var(--bg-raised);
+                border: 1px solid var(--border-soft);
+                border-radius: 20px;
+                padding: 4px 12px;
+                color: var(--text-green);
+                font-size: 0.8em;
+                font-weight: 700;
+            }
+
+            .kpi-synthetic {
+                border-left: 3px solid var(--text-cyan);
+            }
+
+            /* Estilos de la señal de arbitraje */
+            .signal-box {
+                margin: 0 0 12px 0 !important;
+                padding: 10px 20px !important;
+            }
+
+            .signal-label {
+                font-size: 1.1em;
+                color: #F1F5F9;
+                font-weight: bold;
+                margin-bottom: 5px;
+            }
+
+            .signal-value {
+                font-size: 1.3em;
+                font-weight: bold;
+            }
+
+            .signal-short {
+                background: #3b1c1c !important;
+                border-color: #ff4d4d !important;
+            }
+
+            .signal-short .signal-value {
+                color: #ff8080;
+            }
+
+            .signal-long {
+                background: #1c3b24 !important;
+                border-color: #4dff88 !important;
+            }
+
+            .signal-long .signal-value {
+                color: #80ffaa;
+            }
+
+            .signal-neutral {
+                background: var(--bg-surface) !important;
+                border-color: var(--border-soft) !important;
+            }
+
+            /* Contenedor del selector de usuario premium con icono interno */
+            .aether-user-selector-container {
+                position: relative;
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            .aether-user-selector-container .ui-selectonemenu {
+                padding-left: 36px !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-user-selector-container .ui-selectonemenu .ui-selectonemenu-label {
+                padding-left: 0px !important;
+            }
+
+            .aether-user-selector-container .input-icon {
+                position: absolute;
+                left: 14px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #94A3B8;
+                font-size: 1.2em;
+                z-index: 10;
+                pointer-events: none;
+                transition: color 0.3s;
+            }
+
+            .aether-user-selector-container:focus-within .input-icon {
+                color: #FF6B35;
+            }
+
+            /* Estilos compactos para RIDE (recuadro de máx 3 caracteres sin desbordamiento) */
+            .aether-ema-row {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 12px;
+                align-items: flex-start;
+            }
+
+            .aether-ema-col {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .aether-ema-col .ui-inputnumber {
+                width: 70px !important;
+                display: inline-block !important;
+            }
+
+            .aether-ema-col .ui-inputnumber input {
+                width: 70px !important;
+                height: 30px !important;
+                padding: 2px 6px !important;
+                font-size: 1.3rem !important;
+                text-align: center !important;
+                box-sizing: border-box !important;
+                border-radius: 6px !important;
+            }
+
+            /* Estilos compactos para Temporalidad y Días */
+            .aether-tf-days-row {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 12px;
+                align-items: flex-start;
+            }
+
+            .aether-tf-col {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .aether-tf-col .ui-selectonemenu {
+                width: 135px !important;
+                height: 30px !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-days-col {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .aether-days-col .ui-inputnumber {
+                width: 70px !important;
+                display: inline-block !important;
+            }
+
+            .aether-days-col .ui-inputnumber input {
+                width: 70px !important;
+                height: 30px !important;
+                padding: 2px 6px !important;
+                font-size: 1.3rem !important;
+                text-align: center !important;
+                box-sizing: border-box !important;
+                border-radius: 6px !important;
+            }
+
+            /* Estilos ajustados para Fechas (Fecha Inicio / Fecha Fin) sin empalmes */
+            .aether-date-row {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 14px;
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            .aether-date-col {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .aether-date-col .ui-calendar,
+            .aether-date-col .ui-datepicker {
+                width: 100% !important;
+                display: flex !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-date-col .ui-inputfield {
+                flex: 1 !important;
+                min-width: 0 !important;
+                width: 100% !important;
+                height: 30px !important;
+                box-sizing: border-box !important;
+                padding: 3px 8px !important;
+                font-size: 1.25rem !important;
+                border-radius: 6px 0 0 6px !important;
+            }
+
+            .aether-date-col .ui-datepicker-trigger {
+                flex: 0 0 auto !important;
+                height: 30px !important;
+                border-radius: 0 6px 6px 0 !important;
+                padding: 2px 6px !important;
+            }
+
+            /* Barra de Subtotales destacada con gris más oscuro institucional */
+            .aether-subtotal-row {
+                background-color: #8da2b8 !important;
+                border-top: 2px solid #334155 !important;
+                border-bottom: 2px solid #334155 !important;
+            }
+
+            .aether-subtotal-row td {
+                background-color: #8da2b8 !important;
+                color: #000000 !important;
+                font-weight: 800 !important;
+                padding-top: 6px !important;
+                padding-bottom: 6px !important;
+            }
+
+            .aether-subtotal-row:hover td {
+                background-color: #7b90a6 !important;
+            }
+
+            /* Filas no operadas por regla de indicador de margen menor a 200 */
+            .aether-skipped-row {
+                background-color: #fff8f8 !important;
+                border-bottom: 1px dashed #fecaca !important;
+            }
+
+            .aether-skipped-row td {
+                background-color: #fff8f8 !important;
+                color: #64748b !important;
+            }
+
+            .aether-skipped-row:hover td {
+                background-color: #fee2e2 !important;
+            }
+
+            #signalTradesTable thead th,
+            #realTradesTable thead th {
+                font-size: 0.92rem !important;
+                font-weight: 800 !important;
+                padding: 5px 6px !important;
+                color: #334155 !important;
+            }
+
+
+            /* --- COMPACTACIÓN DE OBJETOS EN SECCIÓN 2 (CALIBRACIÓN DEL RATIO) --- */
+            #tabCalibration .ui-selectonemenu.aether-input {
+                height: 28px !important;
+                line-height: 26px !important;
+            }
+
+            #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label {
+                padding-top: 2px !important;
+                padding-bottom: 2px !important;
+                line-height: 24px !important;
+            }
+
+            #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-trigger {
+                width: 22px !important;
+                height: 26px !important;
+            }
+
+            #tabCalibration .ui-inputnumber {
+                width: 100% !important;
+                display: block !important;
+                box-sizing: border-box !important;
+            }
+
+            #tabCalibration .ui-inputnumber input,
+            #tabCalibration .aether-input {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 28px !important;
+                padding: 2px 4px !important;
+                box-sizing: border-box !important;
+            }
+
+            #tabCalibration .aether-tf-days-row {
+                gap: 8px !important;
+                margin-bottom: 6px !important;
+            }
+
+            #tabCalibration .aether-tf-col .ui-selectonemenu {
+                width: 135px !important;
+                height: 28px !important;
+                line-height: 26px !important;
+            }
+
+            #tabCalibration .aether-days-col .ui-inputnumber input {
+                height: 28px !important;
+                padding: 2px 6px !important;
+            }
+
+            #tabCalibration .aether-date-row {
+                gap: 6px !important;
+                margin-bottom: 6px !important;
+            }
+
+            #tabCalibration .aether-date-col .ui-inputfield {
+                height: 28px !important;
+                padding: 2px 6px !important;
+            }
+
+            #tabCalibration .aether-date-col .ui-datepicker-trigger {
+                height: 28px !important;
+                padding: 2px 6px !important;
+            }
+
+            #tabCalibration .aether-btn-primary,
+            #tabCalibration .aether-btn-secondary,
+            #tabCalibration .ui-button {
+                min-height: 36px !important;
+                height: 36px !important;
+                padding: 6px 14px !important;
+            }
+
+            #tabCalibration .ui-button .ui-button-text {
+                padding: 0 4px !important;
+                line-height: normal !important;
+            }
+
+            #signalTradesTable .ui-datatable-data td,
+            #realTradesTable .ui-datatable-data td {
+                padding: 2px 4px !important;
+                line-height: 1.20 !important;
+            }
+
+            #signalTradesTable thead th,
+            #realTradesTable thead th {
+                padding: 4px 4px !important;
+                font-size: 0.94rem !important;
+                line-height: 1.20 !important;
+            }
+
+
+            .aether-hechos-table,
+            .aether-hechos-table th,
+            .aether-hechos-table td,
+            .aether-hechos-table span,
+            .aether-hechos-table div,
+            .aether-hechos-table * {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+
+            /* ===================================================================
+               ESTÁNDAR GLOBAL PARA TODAS LAS VENTANAS MODALES / DIALOGS
+               Sombra exterior oscura realista con iluminación desde esquina superior izquierda
+               =================================================================== */
+            .ui-dialog,
+            .ui-dialog.aether-dialog,
+            .aether-dialog,
+            .aether-ratio-hechos-dialog {
+                border: 1px solid #475569 !important;
+                border-radius: 12px !important;
+                box-shadow: 18px 24px 45px -5px rgba(15, 23, 42, 0.55), 8px 12px 20px -3px rgba(15, 23, 42, 0.35) !important;
+                outline: none !important;
+            }
+
+            .ui-dialog .ui-dialog-content,
+            .ui-dialog.aether-dialog .ui-dialog-content,
+            .aether-dialog .ui-dialog-content,
+            .aether-ratio-hechos-dialog .ui-dialog-content {
+                border-bottom-left-radius: 12px !important;
+                border-bottom-right-radius: 12px !important;
+            }
+
+            /* Alinear la X de cierre a la misma altura que el título que está a la izquierda */
+            .ui-dialog .ui-dialog-titlebar,
+            .ui-dialog.aether-dialog .ui-dialog-titlebar,
+            .aether-dialog .ui-dialog-titlebar,
+            .aether-ratio-hechos-dialog .ui-dialog-titlebar {
+                position: relative !important;
+                padding: 14px 18px !important;
+                border-top-left-radius: 12px !important;
+                border-top-right-radius: 12px !important;
+            }
+
+            .ui-dialog .ui-dialog-titlebar-close,
+            .ui-dialog.aether-dialog .ui-dialog-titlebar-close,
+            .aether-dialog .ui-dialog-titlebar-close,
+            .aether-ratio-hechos-dialog .ui-dialog-titlebar-close {
+                position: absolute !important;
+                top: 14px !important;
+                right: 14px !important;
+                margin: 0 !important;
+                width: 28px !important;
+                height: 28px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 6px !important;
+            }
+
+            /* Mantener renglones compactos al aumentar el font en ambas tablas de Balance Global */
+            #tblGlobalTotales.ui-datatable tbody td {
+                padding: 4px 6px !important;
+                line-height: 1.2 !important;
+                vertical-align: middle !important;
+            }
+
+            #tblGlobalTotales.ui-datatable thead th {
+                padding: 7px 6px !important;
+                font-size: 1.08rem !important;
+                font-weight: 800 !important;
+                line-height: 1.2 !important;
+                background-color: #1e293b !important;
+                background: #1e293b !important;
+                color: #ffffff !important;
+                border: 1px solid #334155 !important;
+                border-bottom: 2px solid #0f172a !important;
+                cursor: pointer;
+            }
+
+            #tblGlobalTotales.ui-datatable thead th *,
+            #tblGlobalTotales.ui-datatable thead th span,
+            #tblGlobalTotales.ui-datatable thead th .ui-column-title {
+                color: #ffffff !important;
+                font-size: 1.08rem !important;
+                font-weight: 800 !important;
+            }
+
+            #tblSubTickets.ui-datatable tbody td {
+                padding: 3px 5px !important;
+                line-height: 1.2 !important;
+                vertical-align: middle !important;
+            }
+
+            #tblSubTickets.ui-datatable thead th {
+                padding: 6px 6px !important;
+                font-size: 1.00rem !important;
+                font-weight: 800 !important;
+                line-height: 1.2 !important;
+                background-color: #1e293b !important;
+                background: #1e293b !important;
+                color: #ffffff !important;
+                border: 1px solid #334155 !important;
+                border-bottom: 2px solid #0f172a !important;
+                cursor: pointer;
+            }
+
+            #tblSubTickets.ui-datatable thead th *,
+            #tblSubTickets.ui-datatable thead th span,
+            #tblSubTickets.ui-datatable thead th .ui-column-title {
+                color: #ffffff !important;
+                font-size: 1.00rem !important;
+                font-weight: 800 !important;
+            }
+
+            /* Cabecera principal fija y compacta en tono oscuro con texto blanco */
+            .aether-hechos-table .ui-datatable-scrollable-header th,
+            .aether-hechos-table .ui-datatable-header {
+                font-size: 1.06rem !important;
+                font-weight: 800 !important;
+                text-transform: uppercase !important;
+                padding: 6px 3px !important;
+                white-space: nowrap !important;
+                background-color: #1e293b !important;
+                background: #1e293b !important;
+                color: #ffffff !important;
+                border: 1px solid #334155 !important;
+                border-bottom: 2px solid #0f172a !important;
+            }
+
+            .aether-hechos-table .ui-datatable-scrollable-header th *,
+            .aether-hechos-table .ui-datatable-scrollable-header th span,
+            .aether-hechos-table .ui-datatable-scrollable-header th .ui-column-title {
+                color: #ffffff !important;
+                font-size: 1.06rem !important;
+                font-weight: 800 !important;
+            }
+
+            /* Eliminar cabecera clonada dentro del body para evitar el doble título al hacer scroll hasta arriba */
+            .aether-hechos-table .ui-datatable-scrollable-theadclone,
+            .aether-hechos-table .ui-datatable-scrollable-theadclone th {
+                height: 0px !important;
+                padding: 0px !important;
+                margin: 0px !important;
+                border: none !important;
+                line-height: 0 !important;
+                font-size: 0 !important;
+                visibility: hidden !important;
+                overflow: hidden !important;
+                background: transparent !important;
+            }
+
+            /* Celdas normales: font aumentado a 1.02rem, espaciado reducido (2px 1px) y texto normal (NO negrita) */
+            .aether-hechos-table .ui-datatable-data td {
+                font-size: 1.02rem !important;
+                font-weight: normal !important;
+                padding: 2px 1px !important;
+                line-height: 1.25 !important;
+                white-space: nowrap !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr:not(.aether-hechos-subtotal-row) td,
+            .aether-hechos-table .ui-datatable-data tr:not(.aether-hechos-subtotal-row) span {
+                font-weight: normal !important;
+            }
+
+            /* Renglones pares un poco más oscuros (#dbe4ee) e impares en blanco puro (#ffffff) */
+            .aether-hechos-table .ui-datatable-data tr.ui-datatable-odd:not(.aether-hechos-subtotal-row),
+            .aether-hechos-table .ui-datatable-data tr:nth-child(odd):not(.aether-hechos-subtotal-row) {
+                background-color: #ffffff !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr.ui-datatable-odd:not(.aether-hechos-subtotal-row) td,
+            .aether-hechos-table .ui-datatable-data tr:nth-child(odd):not(.aether-hechos-subtotal-row) td {
+                background-color: #ffffff !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr.ui-datatable-even:not(.aether-hechos-subtotal-row),
+            .aether-hechos-table .ui-datatable-data tr:nth-child(even):not(.aether-hechos-subtotal-row) {
+                background-color: #dbe4ee !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr.ui-datatable-even:not(.aether-hechos-subtotal-row) td,
+            .aether-hechos-table .ui-datatable-data tr:nth-child(even):not(.aether-hechos-subtotal-row) td {
+                background-color: #dbe4ee !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr:not(.aether-hechos-subtotal-row):hover,
+            .aether-hechos-table .ui-datatable-data tr:not(.aether-hechos-subtotal-row):hover td {
+                background-color: #cbd5e1 !important;
+            }
+
+            /* Filas de Subtotales: SOLO los subtotales van en negritas (800) y font mayor (1.06rem) sin crecer el renglón */
+            .aether-hechos-table tr.aether-hechos-subtotal-a,
+            .aether-hechos-table tr.aether-hechos-subtotal-a td {
+                background-color: #93c5fd !important;
+                border-top: 1px solid #60a5fa !important;
+                border-bottom: 1px solid #60a5fa !important;
+                font-weight: 800 !important;
+                font-size: 1.06rem !important;
+                line-height: 1.15 !important;
+            }
+
+            .aether-hechos-table tr.aether-hechos-subtotal-b,
+            .aether-hechos-table tr.aether-hechos-subtotal-b td {
+                background-color: #fdba74 !important;
+                border-top: 1px solid #fb923c !important;
+                border-bottom: 1px solid #fb923c !important;
+                font-weight: 800 !important;
+                font-size: 1.06rem !important;
+                line-height: 1.15 !important;
+            }
+
+            .aether-hechos-table tr.aether-hechos-total-row,
+            .aether-hechos-table tr.aether-hechos-total-row td {
+                background-color: #cbd5e1 !important;
+                border-top: 2px solid #64748b !important;
+                border-bottom: 2px solid #64748b !important;
+                font-weight: 900 !important;
+                font-size: 1.06rem !important;
+                line-height: 1.15 !important;
+            }
+
+            .aether-hechos-table tr.aether-hechos-subtotal-a:hover td {
+                background-color: #60a5fa !important;
+            }
+
+            .aether-hechos-table tr.aether-hechos-subtotal-b:hover td {
+                background-color: #fb923c !important;
+            }
+
+            .aether-hechos-table tr.aether-hechos-total-row:hover td {
+                background-color: #94a3b8 !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr:nth-child(odd) {
+                background-color: #ffffff !important;
+            }
+
+            .aether-hechos-table .ui-datatable-data tr:nth-child(even) {
+                background-color: #f8fafc !important;
+            }
+
+            /* Estilo hoja contable: Alternancia de renglones pares e impares sin cambiar tamaño de letra */
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(odd),
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(odd),
+            #signalTradesTable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row),
+            #realTradesTable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row) {
+                background-color: #ffffff !important;
+            }
+
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(odd) td,
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(odd) td,
+            #signalTradesTable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row) td,
+            #realTradesTable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row) td {
+                background-color: #ffffff !important;
+            }
+
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(even),
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(even),
+            #signalTradesTable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row),
+            #realTradesTable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row) {
+                background-color: #f1f6fa !important;
+            }
+
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(even) td,
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):nth-child(even) td,
+            #signalTradesTable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row) td,
+            #realTradesTable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row) td {
+                background-color: #f1f6fa !important;
+            }
+
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):hover,
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):hover,
+            #signalTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):hover td,
+            #realTradesTable .ui-datatable-data tr:not(.aether-subtotal-row):hover td {
+                background-color: #e2eaf2 !important;
+            }
+
+            /* Tabla de Ratios del Usuario con acomodo automático y barras compactas */
+            #userRatiosTable.ui-datatable {
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            #userRatiosTable .ui-datatable-table,
+            #userRatiosTable table {
+                width: 100% !important;
+                border-collapse: separate !important;
+                border-spacing: 0 2px !important;
+                box-sizing: border-box !important;
+            }
+
+            #userRatiosTable .ui-datatable-scrollable-body {
+                width: 100% !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                box-sizing: border-box !important;
+            }
+
+            #userRatiosTable .ui-datatable-scrollable-header-box {
+                padding-right: 0px !important;
+                box-sizing: border-box !important;
+            }
+
+            #userRatiosTable thead th {
+                padding: 3px 1px !important;
+                font-size: 0.85rem !important;
+                font-weight: 800 !important;
+                border-radius: 4px !important;
+                line-height: 1.1 !important;
+                text-align: center !important;
+            }
+
+            #userRatiosTable thead th:first-child {
+                text-align: left !important;
+                padding-left: 6px !important;
+                font-size: 0.85rem !important;
+            }
+
+            #userRatiosTable .ui-datatable-data tr {
+                margin-bottom: 0px !important;
+                border-radius: 6px !important;
+                box-shadow: 0 1px 2px rgba(18, 32, 34, 0.05) !important;
+                height: 25px !important;
+            }
+
+            #userRatiosTable .ui-datatable-data tr:hover {
+                transform: none !important;
+            }
+
+            #userRatiosTable .ui-datatable-data td {
+                padding: 2px 1px !important;
+                line-height: 1.15 !important;
+                border-radius: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            #userRatiosTable .ui-datatable-data td:first-child {
+                border-top-left-radius: 6px !important;
+                border-bottom-left-radius: 6px !important;
+                padding-left: 6px !important;
+            }
+
+            #userRatiosTable .ui-datatable-data td:last-child {
+                border-top-right-radius: 6px !important;
+                border-bottom-right-radius: 6px !important;
+                padding-right: 2px !important;
+                text-align: center !important;
+            }
+
+            #userRatiosTable .ui-button {
+                width: 20px !important;
+                height: 20px !important;
+                min-width: 20px !important;
+                padding: 0 !important;
+                line-height: 20px !important;
+            }
+
+            #userRatiosTable .ui-button .ui-icon {
+                margin: 0 !important;
+                font-size: 1.20rem !important;
+            }
+
+            #userRatiosTable .ui-button {
+                width: 24px !important;
+                height: 24px !important;
+                min-width: 24px !important;
+            }
+            }
+        </style>
+    </ui:define>
+
+    <ui:define name="content">
+        <h:form id="aetherForm">
+
+            <p:growl id="growl" showDetail="true" globalOnly="false" />
+            <h:inputHidden id="activeStrategyHidden" value="#{dashboardBean.activeStrategy}" />
+
+
+            <!-- BARRA SUPERIOR DE AGRUPACIÓN POR ESTRATEGIA (NIVEL 1: RATIOS | CART | FUTURAS ESTRATEGIAS) -->
+            <div id="strategySelectorBar"
+                 style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; margin-bottom: 6px; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span style="font-size: 0.85rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; border-right: 1px solid #cbd5e1;">
+                        <i class="pi pi-compass" style="color: #0284c7; font-size: 1.05rem;"></i> Estrategia Activa:
+                    </span>
+
+                    <!-- Botón 0: CONCILIACIÓN DE POSICIÓN (Hasta la izquierda a nivel de estrategias) -->
+                    <p:commandLink id="btnStratConciliacion"
+                                   action="#{dashboardBean.selectStrategy('CONCILIACION')}"
+                                   actionListener="#{conciliacionBean.consultar}"
+                                   process="@this"
+                                   update=":aetherForm"
+                                   oncomplete="switchStrategyView('CONCILIACION');"
+                                   title="Conciliación de Posición: Auditoría en vivo de órdenes y posiciones entre ATALAia y FOREX.com (Solo Consulta)"
+                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(99, 102, 241, 0.35); border: 1px solid #6366f1;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        <i class="pi pi-check-circle" style="font-size: 1.05rem;"></i>
+                        <span>CONCILIACIÓN</span>
+                    </p:commandLink>
+
+                    <!-- Botón Estrategia 1: RATIOS -->
+                    <p:commandLink id="btnStratRatios"
+                                   action="#{dashboardBean.selectStrategy('RATIOS')}"
+                                   process="@this"
+                                   update=":aetherForm"
+                                   oncomplete="switchStrategyView('RATIOS');"
+                                   title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
+                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.35); border: 1px solid #0284c7;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        <i class="pi pi-percentage" style="font-size: 1.05rem;"></i>
+                        <span>RATIOS</span>
+                    </p:commandLink>
+
+                    <!-- Botón Estrategia 2: RIDER (Rastreador de Impulso por Desviación, Expansión y Reingreso) -->
+                    <p:commandLink id="btnStratCart"
+                                   action="#{dashboardBean.selectStrategy('CART')}"
+                                   process="@this"
+                                   update=":aetherForm"
+                                   oncomplete="switchStrategyView('CART');"
+                                   title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
+                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(13, 148, 136, 0.35); border: 1px solid #0d9488;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        <i class="pi pi-chart-line" style="font-size: 1.05rem;"></i>
+                        <span>RIDER</span>
+                    </p:commandLink>
+                </div>
+
+                <!-- Indicador de Cuenta Compartida y Microservicio Activo -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 8px; font-size: 0.82rem; font-weight: 800;">
+                        <i class="pi pi-server" style="margin-right: 4px; color: #{dashboardBean.activeStrategy eq 'CONCILIACION' ? '#6366f1' : (dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : '#0284c7')};"></i>
+                        Motor: <b>#{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'Auditoría Transaccional (Solo Consulta)' : (dashboardBean.activeStrategy eq 'CART' ? 'microCart.py (1 Par · Precios Reales · CAR)' : 'microRatio.py (2 Pares Normalizados)')}</b>
+                    </span>
+                </div>
+            </div>
+
+            <!-- VISTA 0: CONCILIACIÓN DE POSICIÓN (ATALAia vs FOREX.com) -->
+            <ui:include src="/conciliacion.xhtml" />
+
+            <!-- ESTRATEGIA 1: RATIOS (Ratio, BackTest, Hechos) -->
+            <ui:include src="/ratios.xhtml" />
+
+            <!-- ESTRATEGIA 2: CART - Canal Adaptativo de Ruido por Tendencia (CART, BackTest, Hechos) -->
+            <ui:include src="/cart.xhtml" />
+
+        </h:form>
+
+        <h:form id="nuevaCuentaForm">
+            <p:dialog header="Dar de Alta Nueva Cuenta" widgetVar="nuevaCuentaDlg" id="nuevaCuentaDlg" modal="true"
+                responsive="true" width="460" showEffect="fade" hideEffect="fade" styleClass="aether-dialog"
+                style="font-family: inherit;">
+                <div style="padding: 10px 6px 6px 6px;">
+                    <!-- Nombre de la cuenta -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ncNombre" value="Nombre de la Cuenta"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputText id="ncNombre" value="#{dashboardBean.nuevaCuentaNombre}"
+                            placeholder="Ej. CUENTA-FOREX-01" styleClass="aether-input"
+                            style="width: 100%; box-sizing: border-box; font-size: 1.05rem;" required="true" />
+                    </div>
+
+                    <!-- Correo de la cuenta -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ncCorreo" value="Correo Electrónico"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputText id="ncCorreo" value="#{dashboardBean.nuevaCuentaCorreo}"
+                            placeholder="ejemplo@correo.com" styleClass="aether-input"
+                            style="width: 100%; box-sizing: border-box; font-size: 1.05rem;" />
+                    </div>
+
+                    <!-- Capital y Ganancia -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+                        <div>
+                            <p:outputLabel for="ncCapital" value="Capital Inicial (USD)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ncCapital" value="#{dashboardBean.nuevaCuentaCapital}" decimalPlaces="2"
+                                minValue="0.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ncGanancia" value="Ganancia Esperada (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ncGanancia" value="#{dashboardBean.nuevaCuentaGanancia}"
+                                decimalPlaces="2" minValue="0.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                    </div>
+
+                    <!-- Riesgo x Operación y Comisión -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+                        <div>
+                            <p:outputLabel for="ncRiesgo" value="Riesgo x Operación (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ncRiesgo" value="#{dashboardBean.nuevaCuentaRiesgo}" decimalPlaces="2"
+                                minValue="0.01" maxValue="100.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ncComision" value="Comisión (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ncComision" value="#{dashboardBean.nuevaCuentaComision}"
+                                decimalPlaces="2" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input"
+                                style="width: 100%;" />
+                        </div>
+                    </div>
+
+                    <!-- Indicador de Margen Mínimo -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ncIndicadorMargen" value="Indicador de Margen Mínimo (%)"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputNumber id="ncIndicadorMargen" value="#{dashboardBean.nuevaCuentaIndicadorMargen}"
+                            decimalPlaces="1" minValue="1.0" inputStyleClass="aether-input" symbol=" %"
+                            symbolPosition="s" style="width: 100%;" />
+                    </div>
+
+                    <!-- Estado y Concentradora -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px;">
+                        <div>
+                            <span
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 6px;">Estado</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <p:selectBooleanCheckbox id="ncActivo" value="#{dashboardBean.nuevaCuentaActivo}" />
+                                <p:outputLabel for="ncActivo" value="Cuenta Activa"
+                                    style="font-weight: 700; font-size: 0.95rem; color: #475569;" />
+                            </div>
+                        </div>
+                        <div>
+                            <span
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 6px;">Tipo</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <p:selectBooleanCheckbox id="ncConcentradora"
+                                    value="#{dashboardBean.nuevaCuentaConcentradora}"
+                                    disabled="#{dashboardBean.concentradoraDisabledForNew}" />
+                                <p:outputLabel for="ncConcentradora" value="Concentradora"
+                                    style="font-weight: 700; font-size: 0.95rem; color: #475569;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Botones de Acción -->
+                    <div
+                        style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                        <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                            onclick="PF('nuevaCuentaDlg').hide();"
+                            style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                        <p:commandButton value="Guardar Cuenta" action="#{dashboardBean.guardarNuevaCuenta}"
+                            process="@form" update=":aetherForm :aetherForm:growl" styleClass="aether-btn-primary"
+                            icon="pi pi-check"
+                            style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 6px 16px;" />
+                    </div>
+                </div>
+            </p:dialog>
+
+            <!-- SUBVENTANA MODAL FLOTANTE / INDEPENDIENTE: GRÁFICA DE PRECIOS NORMALIZADOS -->
+            <p:dialog id="dlgGraficaNormalizada" widgetVar="dlgGraficaNormalizada" modal="true" responsive="true"
+                width="92%" minWidth="850" maxWidth="1400" header="📈 Subventana: Gráfica de Precios Normalizados"
+                closable="true" closeOnEscape="true" resizable="true" styleClass="aether-dialog"
+                style="font-family: inherit;">
+                <ui:include src="/templates/graficaNormalizadaComponent.xhtml">
+                    <ui:param name="chartId" value="dialogNormalizedChart" />
+                    <ui:param name="dataInputId" value="signalBtHistoryJsonData" />
+                    <ui:param name="tradesInputId" value="signalBtTradesJsonData" />
+                    <ui:param name="title" value="Subventana: Precios Normalizados" />
+                    <ui:param name="subtitle"
+                        value="#{dashboardBean.selectedPair} / #{dashboardBean.selectedPair2} | Periodo Backtest Institucional (4 Meses)" />
+                    <ui:param name="chartHeight" value="580px" />
+                    <ui:param name="showCardHeader" value="true" />
+                    <ui:param name="showControls" value="true" />
+                    <ui:param name="showDates" value="true" />
+                    <ui:param name="isDialog" value="true" />
+                </ui:include>
+            </p:dialog>
+        </h:form>
+        <h:form id="editarCuentaForm">
+            <p:dialog header="Editar Valores de la Cuenta" widgetVar="editarCuentaDlg" id="editarCuentaDlg" modal="true"
+                responsive="true" width="460" showEffect="fade" hideEffect="fade" styleClass="aether-dialog"
+                style="font-family: inherit;">
+                <div style="padding: 10px 6px 6px 6px;">
+                    <!-- Nombre de la cuenta -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ecNombre" value="Nombre de la Cuenta"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputText id="ecNombre" value="#{dashboardBean.editarCuentaNombre}"
+                            placeholder="Ej. CUENTA-FOREX-01" styleClass="aether-input"
+                            style="width: 100%; box-sizing: border-box; font-size: 1.05rem;" required="true" />
+                    </div>
+
+                    <!-- Correo de la cuenta -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ecCorreo" value="Correo Electrónico"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputText id="ecCorreo" value="#{dashboardBean.editarCuentaCorreo}"
+                            placeholder="ejemplo@correo.com" styleClass="aether-input"
+                            style="width: 100%; box-sizing: border-box; font-size: 1.05rem;" />
+                    </div>
+
+                    <!-- Capital y Ganancia -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+                        <div>
+                            <p:outputLabel for="ecCapital" value="Capital (USD)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ecCapital" value="#{dashboardBean.editarCuentaCapital}" decimalPlaces="2"
+                                minValue="0.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ecGanancia" value="Ganancia Esperada (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ecGanancia" value="#{dashboardBean.editarCuentaGanancia}"
+                                decimalPlaces="2" minValue="0.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                    </div>
+
+                    <!-- Riesgo x Operación y Comisión -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+                        <div>
+                            <p:outputLabel for="ecRiesgo" value="Riesgo x Operación (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ecRiesgo" value="#{dashboardBean.editarCuentaRiesgo}" decimalPlaces="2"
+                                minValue="0.01" maxValue="100.0" inputStyleClass="aether-input" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ecComision" value="Comisión (%)"
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                            <p:inputNumber id="ecComision" value="#{dashboardBean.editarCuentaComision}"
+                                decimalPlaces="2" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input"
+                                style="width: 100%;" />
+                        </div>
+                    </div>
+
+                    <!-- Indicador de Margen Mínimo (Edición) -->
+                    <div style="margin-bottom: 14px;">
+                        <p:outputLabel for="ecIndicadorMargen" value="Indicador de Margen Mínimo (%)"
+                            style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;" />
+                        <p:inputNumber id="ecIndicadorMargen" value="#{dashboardBean.editarCuentaIndicadorMargen}"
+                            decimalPlaces="1" minValue="1.0" inputStyleClass="aether-input" symbol=" %"
+                            symbolPosition="s" style="width: 100%;" />
+                    </div>
+
+                    <!-- Estado y Concentradora -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px;">
+                        <div>
+                            <span
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 6px;">Estado</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <p:selectBooleanCheckbox id="ecActivo" value="#{dashboardBean.editarCuentaActivo}" />
+                                <p:outputLabel for="ecActivo" value="Cuenta Activa"
+                                    style="font-weight: 700; font-size: 0.95rem; color: #475569;" />
+                            </div>
+                        </div>
+                        <div>
+                            <span
+                                style="display: block; font-weight: 800; font-size: 0.95rem; color: #1e293b; margin-bottom: 6px;">Tipo</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <p:selectBooleanCheckbox id="ecConcentradora"
+                                    value="#{dashboardBean.editarCuentaConcentradora}"
+                                    disabled="#{dashboardBean.concentradoraDisabledForEdit}" />
+                                <p:outputLabel for="ecConcentradora" value="Concentradora"
+                                    style="font-weight: 700; font-size: 0.95rem; color: #475569;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Botones de Acción -->
+                    <div
+                        style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                        <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                            onclick="PF('editarCuentaDlg').hide();"
+                            style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                        <p:commandButton value="Guardar Cambios" action="#{dashboardBean.guardarEditarCuenta}"
+                            process="@form" update=":aetherForm :aetherForm:growl" styleClass="aether-btn-primary"
+                            icon="pi pi-check"
+                            style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 6px 16px;" />
+                    </div>
+                </div>
+            </p:dialog>
+        </h:form>
+        <h:form id="disableAllRatiosForm">
+            <p:dialog header="Confirmar Deshabilitación de Ratios" widgetVar="disableAllRatiosDlg"
+                id="disableAllRatiosDlg" modal="true" responsive="true" width="560" showEffect="fade" hideEffect="fade"
+                styleClass="aether-dialog">
+                <div style="display: flex; align-items: flex-start; gap: 15px; margin-bottom: 20px; padding: 10px;">
+                    <i class="pi pi-power-off" style="font-size: 2.3rem; color: #ef4444; margin-top: 2px;"></i>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <span style="font-size: 1.05rem; color: #1e293b; line-height: 1.5; font-weight: 600;">
+                            ¿Deseas deshabilitar la generación automática de órdenes para <b
+                                style="color: #0f172a; font-weight: 900;">TODOS los ratios de las cuentas del
+                                usuario</b>?
+                        </span>
+                        <span
+                            style="font-size: 0.95rem; color: #64748b; line-height: 1.4; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <i class="pi pi-info-circle" style="color: #0284c7; margin-right: 4px;"></i>
+                            <b>Nota:</b> Las posiciones abiertas <b>NO se cerrarán</b> y permanecerán en mercado hasta
+                            su cierre normal por cruce o divergencia.
+                        </span>
+                    </div>
+                </div>
+                <div
+                    style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                        onclick="PF('disableAllRatiosDlg').hide();"
+                        style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                    <p:commandButton id="btnConfirmDisableAllRatios" value="Sí, Deshabilitar Ratios"
+                        action="#{dashboardBean.disableAllUserRatios}" process="@this"
+                        update=":aetherForm :aetherForm:growl" oncomplete="PF('disableAllRatiosDlg').hide();"
+                        styleClass="ui-button-danger"
+                        style="background-color: #ef4444; border-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;"
+                        title="Deshabilita la opción de generar órdenes automáticas en todos los ratios de las cuentas del usuario" />
+                </div>
+            </p:dialog>
+        </h:form>
+
+        <h:form id="closeRatioForm">
+            <p:dialog header="Confirmar Cierre / Rebalanceo" widgetVar="closeRatioDlg" id="closeRatioDlg" modal="true"
+                responsive="true" width="550" showEffect="fade" hideEffect="fade" styleClass="aether-dialog">
+                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 10px;">
+                    <i class="pi pi-exclamation-triangle" style="font-size: 2.5rem; color: #f59e0b;"></i>
+                    <span style="font-size: 1.1rem; color: #334155; line-height: 1.5;">
+                        ¿Deseas cerrar las posiciones de <b
+                            style="color: #0f172a; font-weight: 900;">#{dashboardBean.ratioToClose}</b> al precio actual
+                        de mercado?
+                    </span>
+                </div>
+                <div
+                    style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <!-- 1. Cancelar -->
+                    <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                        onclick="PF('closeRatioDlg').hide();"
+                        style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+
+                    <!-- 2. Sí, Seguro Cerrar Posición (operar = 0) -->
+                    <p:commandButton value="Sí, Seguro Cerrar Posición"
+                        action="#{dashboardBean.closeRatioPositionByRemote}" process="@this"
+                        update=":aetherForm:mainTabView:leftAccordion :aetherForm:growl"
+                        oncomplete="PF('closeRatioDlg').hide();" styleClass="ui-button-danger"
+                        style="background-color: #ef4444; border-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;"
+                        title="Cierra las posiciones en Forex y desactiva el ratio (operar = 0)" />
+
+                    <!-- 3. Rebalanceo (operar = 1) -->
+                    <p:commandButton value="Rebalanceo" action="#{dashboardBean.rebalanceRatioPositionByRemote}"
+                        process="@this" update=":aetherForm:mainTabView:leftAccordion :aetherForm:growl"
+                        oncomplete="PF('closeRatioDlg').hide();" styleClass="aether-btn-primary"
+                        style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;"
+                        title="Cierra las posiciones en Forex y mantiene activo el ratio (operar = 1) para volver a entrar balanceado" />
+                </div>
+            </p:dialog>
+        </h:form>
+
+        <h:form id="ratioHechosForm">
+            <p:dialog id="ratioHechosDlg" widgetVar="ratioHechosDlg" modal="true" responsive="true" width="890"
+                minWidth="780" maxWidth="980" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
+                resizable="true" styleClass="aether-dialog aether-ratio-hechos-dialog">
+                <f:facet name="header">
+                    <div
+                        style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 25px; box-sizing: border-box;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <i class="pi pi-list" style="font-size: 1.35rem; color: #0284c7;"></i>
+                            <div>
+                                <div
+                                    style="font-size: 1.22rem; font-weight: 900; color: #0f172a; letter-spacing: 0.5px;">
+                                    HECHOS DEL RATIO: <span
+                                        style="color: #0284c7;">#{dashboardBean.ratioHechosSetup}</span>
+                                </div>
+                                <div style="font-size: 0.84rem; color: #64748b; font-weight: 600;">
+                                    Cuenta: <b style="color: #334155;">#{dashboardBean.selectedAccountName}</b> |
+                                    Ordenado por Par y Fecha
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </f:facet>
+
+                <!-- BANNER DE RESUMEN EJECUTIVO: PNL NO REALIZADO Y TOTALES POR PAR -->
+                <div
+                    style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; display: grid; grid-template-columns: 1.25fr 1fr 1.2fr 1.2fr 1.2fr; gap: 6px; align-items: stretch; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                    <!-- PNL NO REALIZADO (Suma estricta de la columna de PnL) -->
+                    <div
+                        style="display: flex; flex-direction: column; justify-content: center; text-align: left; padding: 2px 6px;">
+                        <div
+                            style="font-size: 0.70rem; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;">
+                            PNL NO REALIZADO</div>
+                        <div
+                            style="font-size: 1.30rem; font-weight: 900; color: #{dashboardBean.ratioHechosPnlColor}; line-height: 1.2;">
+                            #{dashboardBean.formattedRatioHechosTotalPnl}
+                        </div>
+                        <div style="font-size: 0.70rem; color: #64748b; font-weight: 600; margin-top: 2px;">
+                            Suma posiciones abiertas
+                        </div>
+                    </div>
+
+                    <!-- Margen Total Activo -->
+                    <div
+                        style="display: flex; flex-direction: column; justify-content: center; text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 2px 6px;">
+                        <div
+                            style="font-size: 0.70rem; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;">
+                            MARGEN ACTIVO</div>
+                        <div style="font-size: 1.15rem; font-weight: 800; color: #0f172a; line-height: 1.2;">
+                            #{dashboardBean.formattedRatioHechosTotalMargin}
+                        </div>
+                        <div style="font-size: 0.70rem; color: #64748b; font-weight: 600; margin-top: 2px;">
+                            En garantía broker
+                        </div>
+                    </div>
+
+                    <!-- VOL. PATA 1 (Sombreado en Azul de la gráfica, Texto en Rojo/Verde según Venta/Compra) -->
+                    <div
+                        style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; justify-content: center; text-align: center;">
+                        <div
+                            style="font-size: 0.70rem; color: #0369a1; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2px;">
+                            VOL. #{dashboardBean.ratioHechosPairA}
+                        </div>
+                        <div
+                            style="font-size: 1.20rem; font-weight: 900; color: #{dashboardBean.ratioHechosDirColorA}; line-height: 1.15; margin: 1px 0;">
+                            #{dashboardBean.formattedRatioHechosSizeA}
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.70rem; font-weight: 800; color: #0369a1; border-top: 1px dashed #bae6fd; padding-top: 2px; margin-top: 2px;">
+                            <span>#{dashboardBean.ratioHechosDirLabelA}</span>
+                            <span
+                                style="color: #{dashboardBean.ratioHechosPnlColorA};">#{dashboardBean.formattedRatioHechosPnlA}</span>
+                        </div>
+                    </div>
+
+                    <!-- VOL. PATA 2 (Sombreado en Naranja de la gráfica, Texto en Rojo/Verde según Venta/Compra) -->
+                    <div
+                        style="background: #ffedd5; border: 1px solid #fed7aa; border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; justify-content: center; text-align: center;">
+                        <div
+                            style="font-size: 0.70rem; color: #c2410c; font-weight: 800; text-transform: uppercase; letter-spacing: 0.2px;">
+                            VOL. #{dashboardBean.ratioHechosPairB}
+                        </div>
+                        <div
+                            style="font-size: 1.20rem; font-weight: 900; color: #{dashboardBean.ratioHechosDirColorB}; line-height: 1.15; margin: 1px 0;">
+                            #{dashboardBean.formattedRatioHechosSizeB}
+                        </div>
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.70rem; font-weight: 800; color: #c2410c; border-top: 1px dashed #fed7aa; padding-top: 2px; margin-top: 2px;">
+                            <span>#{dashboardBean.ratioHechosDirLabelB}</span>
+                            <span
+                                style="color: #{dashboardBean.ratioHechosPnlColorB};">#{dashboardBean.formattedRatioHechosPnlB}</span>
+                        </div>
+                    </div>
+
+                    <!-- Rango de Fechas -->
+                    <div
+                        style="display: flex; flex-direction: column; justify-content: center; text-align: right; padding: 2px 6px;">
+                        <div
+                            style="font-size: 0.70rem; color: #64748b; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px;">
+                            Rango Aperturas</div>
+                        <div
+                            style="font-size: 0.78rem; font-weight: 700; color: #475569; line-height: 1.35; margin-top: 2px;">
+                            <div>#{dashboardBean.ratioHechosFirstEntry}</div>
+                            <div>a #{dashboardBean.ratioHechosLastEntry}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BARRA DE SUBTÍTULO ELEGANTE -->
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 0 2px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span
+                            style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                        <span
+                            style="font-size: 0.84rem; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.3px;">Posiciones
+                            Abiertas en Curso</span>
+                    </div>
+
+                    <div style="font-size: 0.80rem; color: #64748b; font-weight: 600;">
+                        Mostrando #{dashboardBean.ratioHechosOpenCount} operaciones activas
+                    </div>
+                </div>
+                <h:panelGroup id="filterButtonsPanel" layout="block" style="display: none;" />
+
+                <!-- TABLA DE HECHOS (DATATABLE) CON SUBTOTALES DENTRO DE LA TABLA Y ESPACIADO COMPACTO -->
+                <p:dataTable id="ratioHechosTable" var="t" value="#{dashboardBean.ratioHechosList}"
+                    emptyMessage="No se encontraron hechos registrados para este ratio." scrollable="true"
+                    scrollHeight="360px"
+                    rowStyleClass="#{t.isSubtotal ? (t.strategy eq 'SUBTOTAL_A' ? 'aether-hechos-subtotal-a aether-hechos-subtotal-row' : (t.strategy eq 'SUBTOTAL_B' ? 'aether-hechos-subtotal-b aether-hechos-subtotal-row' : 'aether-hechos-total-row aether-hechos-subtotal-row')) : ''}"
+                    styleClass="aether-hechos-table"
+                    style="border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
+
+                    <p:column headerText="Ticket ID" style="width: 76px; text-align: center; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #0f172a; font-size: 1.0rem;">#{t.ticketId}</span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="font-weight: 800; font-size: 1.05rem; color: #0f172a; letter-spacing: 0.3px;">
+                                #{t.ticketId}
+                            </span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Par" style="width: 72px; text-align: center; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span
+                                style="padding: 1px 4px; border-radius: 4px; font-size: 0.88rem; #{t.symbol eq dashboardBean.ratioHechosPairA ? 'background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd;' : 'background: #ffedd5; color: #ea580c; border: 1px solid #fed7aa;'}">
+                                #{t.symbol}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <!-- Vacío en subtotal según requerimiento -->
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Dirección" style="width: 62px; text-align: center; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span
+                                style="font-size: 0.84rem; padding: 1px 4px; border-radius: 4px; text-transform: uppercase; #{t.buy ? 'background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;'}">
+                                #{t.direction}
+                            </span>
+                            <h:panelGroup rendered="#{t.isCobertura}">
+                                <div style="margin-top: 2px;">
+                                    <span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 1px 3px; border-radius: 3px; text-transform: lowercase;">
+                                        cobertura
+                                    </span>
+                                </div>
+                            </h:panelGroup>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <!-- Vacío en subtotal según requerimiento -->
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Fecha Apertura"
+                        style="width: 114px; text-align: center; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #334155; font-size: 0.96rem;">
+                                #{t.openTime}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                #{t.openTime}
+                            </span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Cantidad" style="width: 66px; text-align: right; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #0f172a; font-size: 1.02rem;">
+                                #{t.formattedSize}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="font-weight: 800; font-size: 1.06rem; color: #0f172a;">
+                                #{t.formattedSize}
+                            </span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Px. Entrada" style="width: 72px; text-align: right; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #475569; font-size: 0.96rem;">
+                                #{t.formattedEntryPrice}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="color: #64748b;">—</span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Px. Actual" style="width: 76px; text-align: right; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #0284c7; font-size: 0.96rem;" title="Precio actual de mercado">
+                                #{t.formattedCurrentPrice}
+                            </span>
+                            <span style="font-size: 0.65rem; color: #0284c7; margin-left: 1px;">(Act)</span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="color: #64748b;">—</span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="Margen" style="width: 72px; text-align: right; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="color: #334155; font-size: 1.02rem;">
+                                #{t.formattedMarginWithDollar}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="font-weight: 800; font-size: 1.06rem; color: #0f172a;">
+                                #{t.formattedMarginWithDollar}
+                            </span>
+                        </h:panelGroup>
+                    </p:column>
+
+                    <p:column headerText="PnL" style="width: 76px; text-align: right; white-space: nowrap;">
+                        <h:panelGroup rendered="#{!t.isSubtotal}">
+                            <span style="font-size: 1.04rem; color: #{t.pnlColor};">
+                                #{t.formattedPnlWithDollar}
+                            </span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{t.isSubtotal}">
+                            <span style="font-weight: 800; font-size: 1.06rem; color: #{t.pnlColor};">
+                                #{t.formattedPnlWithDollar}
+                            </span>
+                        </h:panelGroup>
+                    </p:column>
+                </p:dataTable>
+            </p:dialog>
+        </h:form>
+
+        <!-- ======================================================= -->
+        <!-- MODAL: BALANCE GENERAL GLOBAL DE CUENTAS               -->
+        <!-- ======================================================= -->
+        <h:form id="balanceGlobalForm">
+            <p:dialog id="balanceGlobalDlg" widgetVar="balanceGlobalDlg" modal="true" responsive="true" width="94%"
+                minWidth="880" maxWidth="1350" header="⚖️ Balance General Global de Cuentas" closable="true"
+                closeOnEscape="true" resizable="false" styleClass="aether-dialog" style="font-family: inherit;">
+
+                <p:outputPanel id="balanceGlobalContent" layout="block">
+
+                    <!-- ENCABEZADO DE MÉTRICAS GLOBALES (5 TARJETAS REORDENADAS) -->
+                    <div
+                        style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; margin-top: 4px;">
+                        <!-- 1. Balance -->
+                        <div
+                            style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <div
+                                style="font-size: 0.73rem; font-weight: 800; color: #475569; letter-spacing: 0.04em; text-transform: uppercase;">
+                                BALANCE</div>
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-top: 3px;">
+                                #{dashboardBean.globalBalanceSummary.formattedBalance}
+                            </div>
+                            <div style="font-size: 0.70rem; color: #64748b; margin-top: 2px;">Capital cuentas</div>
+                        </div>
+
+                        <!-- 2. Margen ($) -->
+                        <div
+                            style="background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <div
+                                style="font-size: 0.73rem; font-weight: 800; color: #c2410c; letter-spacing: 0.04em; text-transform: uppercase;">
+                                MARGEN ($)</div>
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #9a3412; margin-top: 3px;">
+                                #{dashboardBean.globalBalanceSummary.formattedMargen}
+                            </div>
+                            <div style="font-size: 0.70rem; color: #ea580c; margin-top: 2px;">Garantía retenida</div>
+                        </div>
+
+                        <!-- 3. PNL -->
+                        <div
+                            style="background: #{dashboardBean.globalBalanceSummary.pnl >= 0 ? '#f0fdf4' : '#fef2f2'}; border: 1.5px solid #{dashboardBean.globalBalanceSummary.pnl >= 0 ? '#bbf7d0' : '#fecaca'}; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <div
+                                style="font-size: 0.73rem; font-weight: 800; color: #{dashboardBean.globalBalanceSummary.pnlColor}; letter-spacing: 0.04em; text-transform: uppercase;">
+                                PNL NO REALIZADO</div>
+                            <div
+                                style="font-size: 1.25rem; font-weight: 800; color: #{dashboardBean.globalBalanceSummary.pnlColor}; margin-top: 3px;">
+                                #{dashboardBean.globalBalanceSummary.formattedPnl}
+                            </div>
+                            <div
+                                style="font-size: 0.70rem; color: #{dashboardBean.globalBalanceSummary.pnlColor}; margin-top: 2px;">
+                                Flotante abierto</div>
+                        </div>
+
+                        <!-- 4. % Margen -->
+                        <div
+                            style="background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <div
+                                style="font-size: 0.73rem; font-weight: 800; color: #1d4ed8; letter-spacing: 0.04em; text-transform: uppercase;">
+                                % MARGEN</div>
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #1e40af; margin-top: 3px;">
+                                #{dashboardBean.globalBalanceSummary.formattedPorcentajeMargen}
+                            </div>
+                            <div style="font-size: 0.70rem; color: #2563eb; margin-top: 2px;">Nivel de margen</div>
+                        </div>
+
+                        <!-- 5. Disponible para operar -->
+                        <div
+                            style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                            <div
+                                style="font-size: 0.73rem; font-weight: 800; color: #15803d; letter-spacing: 0.04em; text-transform: uppercase;">
+                                DISPONIBLE OPERAR</div>
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #166534; margin-top: 3px;">
+                                #{dashboardBean.globalBalanceSummary.formattedDisponible}
+                            </div>
+                            <div style="font-size: 0.70rem; color: #15803d; margin-top: 2px;">Fondos libres</div>
+                        </div>
+                    </div>
+
+                    <!-- BARRA DE INFORMACIÓN Y RECARGA -->
+                    <div
+                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="font-size: 0.88rem; color: #475569; display: flex; align-items: center; gap: 6px;">
+                            <i class="pi pi-info-circle" style="color: #0284c7;"></i>
+                            <span>Haz clic en la flecha <i class="pi pi-chevron-right" style="font-size: 1.15rem;"></i>
+                                de cualquier par para ver el <b>desglose detallado por TicketID</b>.</span>
+                        </div>
+                        <p:commandButton id="btnRefreshGlobalQuotes" icon="pi pi-refresh"
+                            value="Actualizar Cotizaciones" action="#{dashboardBean.loadBalanceGeneralGlobal}"
+                            process="@this" update="balanceGlobalContent" styleClass="ui-button-outlined ui-button-sm"
+                            style="font-size: 0.8rem; font-weight: 700;" />
+                    </div>
+
+                    <!-- TABLA PRINCIPAL: TOTALES POR PAR -->
+                    <p:dataTable id="tblGlobalTotales" value="#{dashboardBean.globalTotalesPorPar}" var="p"
+                        rowKey="#{p.id}" styleClass="aether-datatable" scrollable="true" scrollHeight="440px"
+                        size="small" emptyMessage="No hay posiciones abiertas en las cuentas administradas.">
+
+                        <!-- TOGGLER DE EXPANSIÓN -->
+                        <p:column style="width: 36px; text-align: center;">
+                            <p:rowToggler />
+                        </p:column>
+
+                        <p:column headerText="PAR" sortBy="#{p.par}" style="width: 105px; text-align: center;">
+                            <span style="font-weight: 800; font-size: 0.98rem; color: #0f172a;">
+                                #{p.par}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Estrategia" sortBy="#{p.estrategia}" style="width: 135px; text-align: center;">
+                            <span class="badge"
+                                style="font-size: 0.82rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; display: inline-block; background: #{p.estrategiaColorBg}; color: #{p.estrategiaColorText}; border: 1px solid #{p.estrategiaColorBorder};">
+                                #{p.estrategia}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Dirección" sortBy="#{p.direccion}"
+                            style="width: 95px; text-align: center;">
+                            <span class="badge #{p.compra ? 'badge-buy' : 'badge-sell'}"
+                                style="font-size: 0.88rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;">
+                                #{p.direccion}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Cantidad" sortBy="#{p.cantidad}" style="width: 105px; text-align: right;">
+                            <span style="font-weight: 700; color: #0f172a; font-size: 0.98rem;">
+                                #{p.formattedCantidad}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="PNL no realizado" sortBy="#{p.pnlNoRealizado}"
+                            style="width: 125px; text-align: right;">
+                            <span style="font-weight: 800; font-size: 1.00rem; color: #{p.pnlColor};">
+                                #{p.formattedPnlNoRealizado}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Px apertura" sortBy="#{p.pxApertura}"
+                            style="width: 110px; text-align: right;">
+                            <span style="color: #475569; font-size: 0.94rem; font-weight: 600;"
+                                title="Precio promedio ponderado de apertura">
+                                #{p.formattedPxApertura}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Px actual" sortBy="#{p.pxActual}"
+                            style="width: 110px; text-align: right;">
+                            <span style="color: #0284c7; font-size: 0.94rem; font-weight: 700;"
+                                title="Precio real al momento de la consulta">
+                                #{p.formattedPxActual}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Margen" sortBy="#{p.margen}" style="width: 110px; text-align: right;">
+                            <span style="font-weight: 700; color: #0f172a; font-size: 0.98rem;">
+                                #{p.formattedMargen}
+                            </span>
+                        </p:column>
+
+                        <!-- SUBTABLA DETALLADA POR TICKETID -->
+                        <p:rowExpansion>
+                            <div
+                                style="padding: 10px 14px; background: #f8fafc; border-radius: 8px; border: 1.5px solid #cbd5e1; margin: 6px 0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.03);">
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                    <div
+                                        style="font-weight: 800; color: #1e293b; font-size: 0.88rem; display: flex; align-items: center; gap: 6px;">
+                                        <i class="pi pi-list" style="color: #0284c7;"></i>
+                                        <span>Detalle de tickets para <b>#{p.par}</b> (#{p.direccion})</span>
+                                    </div>
+                                    <span style="font-size: 0.78rem; color: #64748b; font-weight: 600;">
+                                        #{p.tickets.size()} posición(es) individual(es)
+                                    </span>
+                                </div>
+
+                                <p:dataTable id="tblSubTickets" value="#{p.tickets}" var="st" size="small"
+                                    styleClass="aether-datatable"
+                                    style="font-size: 0.90rem; background: white; border-radius: 6px; overflow: hidden; border: 1px solid #e2e8f0;">
+
+                                    <p:column headerText="Cuenta" sortBy="#{st.cuenta}"
+                                        style="text-align: left; font-weight: 700; width: 105px; font-size: 0.90rem;">
+                                        <span
+                                            style="color: #0f172a; font-size: 0.90rem; font-weight: 700;">#{st.cuenta}</span>
+                                    </p:column>
+
+                                    <p:column headerText="Estrategia" sortBy="#{st.estrategia}"
+                                        style="text-align: center; width: 125px; font-size: 0.90rem;">
+                                        <span class="badge"
+                                            style="font-size: 0.80rem; padding: 1px 7px; border-radius: 4px; font-weight: 700; display: inline-block; background: #{st.estrategiaColorBg}; color: #{st.estrategiaColorText}; border: 1px solid #{st.estrategiaColorBorder};">
+                                            #{st.estrategia}
+                                        </span>
+                                    </p:column>
+
+                                    <p:column headerText="Setup" sortBy="#{st.setup}"
+                                        style="text-align: center; width: 140px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-weight: 700; color: #334155; background: #f1f5f9; padding: 1px 7px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 0.90rem; display: inline-block;">
+                                            #{st.setup}
+                                        </span>
+                                    </p:column>
+
+                                    <p:column headerText="Ticket ID" sortBy="#{st.ticketId}"
+                                        style="text-align: center; width: 110px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-family: monospace; font-weight: 700; color: #0284c7; background: #e0f2fe; padding: 1px 5px; border-radius: 4px; font-size: 0.90rem;">
+                                            #{st.ticketId}
+                                        </span>
+                                    </p:column>
+
+                                    <p:column headerText="PAR" sortBy="#{st.par}"
+                                        style="text-align: center; font-weight: 700; width: 90px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; font-weight: 700; color: #0f172a;">#{st.par}</span>
+                                    </p:column>
+
+                                    <p:column headerText="Dirección" sortBy="#{st.direccion}"
+                                        style="text-align: center; width: 85px; font-size: 0.90rem;">
+                                        <span class="badge #{st.compra ? 'badge-buy' : 'badge-sell'}"
+                                            style="font-size: 0.88rem; padding: 1px 7px; font-weight: 700;">
+                                            #{st.direccion}
+                                        </span>
+                                    </p:column>
+
+                                    <p:column headerText="Cantidad" sortBy="#{st.cantidad}"
+                                        style="text-align: right; width: 95px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; font-weight: 600; color: #0f172a;">#{st.formattedCantidad}</span>
+                                    </p:column>
+
+                                    <p:column headerText="PNL no realizado" sortBy="#{st.pnlNoRealizado}"
+                                        style="text-align: right; width: 115px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; font-weight: 800; color: #{st.pnlColor}; display: inline-block;">
+                                            #{st.formattedPnlNoRealizado}
+                                        </span>
+                                    </p:column>
+
+                                    <p:column headerText="Px apertura" sortBy="#{st.pxApertura}"
+                                        style="text-align: right; width: 100px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; color: #475569; font-weight: 600;">#{st.formattedPxApertura}</span>
+                                    </p:column>
+
+                                    <p:column headerText="Px actual" sortBy="#{st.pxActual}"
+                                        style="text-align: right; width: 100px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; color: #0284c7; font-weight: 700;">#{st.formattedPxActual}</span>
+                                    </p:column>
+
+                                    <p:column headerText="Margen" sortBy="#{st.margen}"
+                                        style="text-align: right; width: 95px; font-size: 0.90rem;">
+                                        <span
+                                            style="font-size: 0.90rem; font-weight: 700; color: #0f172a;">#{st.formattedMargen}</span>
+                                    </p:column>
+                                </p:dataTable>
+                            </div>
+                        </p:rowExpansion>
+
+                    </p:dataTable>
+                </p:outputPanel>
+            </p:dialog>
+        </h:form>
+
+
+        <!-- SCRIPT DE ORDENAMIENTO EN CLIENTE DE ALTO RENDIMIENTO PARA TABLAS Y SUBTABLAS -->
+        <script type="text/javascript">
+            //<![CDATA[
+            (function () {
+                function parseCellValue(text) {
+                    if (!text) return "";
+                    var trimmed = text.trim();
+                    // Limpiar formato de moneda, comas, signos de pesos y espacios
+                    var numStr = trimmed.replace(/[$€,\s]/g, '');
+                    // Verificar si es un número entero o decimal (con signo + o -)
+                    if (/^[+-]?\d+(\.\d+)?$/.test(numStr)) {
+                        return parseFloat(numStr);
+                    }
+                    return trimmed.toLowerCase();
+                }
+
+                function sortDataTable(th) {
+                    var table = th.closest('table');
+                    if (!table) return;
+
+                    // Determinar índice de la columna clickeada
+                    var row = th.parentElement;
+                    var colIndex = -1;
+                    for (var i = 0; i < row.children.length; i++) {
+                        if (row.children[i] === th) {
+                            colIndex = i;
+                            break;
+                        }
+                    }
+                    if (colIndex === -1) return;
+
+                    // Localizar el tbody de datos (puede ser el de la misma tabla o en tabla scrollable hermana)
+                    var tbody = null;
+                    if (table.querySelector('tbody')) {
+                        tbody = table.querySelector('tbody');
+                    } else {
+                        // Caso PrimeFaces scrollable: cabecera está en .ui-datatable-scrollable-header y cuerpo en .ui-datatable-scrollable-body
+                        var dtContainer = th.closest('.ui-datatable');
+                        if (dtContainer) {
+                            tbody = dtContainer.querySelector('.ui-datatable-scrollable-body tbody, .ui-datatable-data');
+                        }
+                    }
+                    if (!tbody) return;
+
+                    // Determinar dirección actual y nueva
+                    var currentDir = th.getAttribute('data-sort-order') || 'none';
+                    var newDir = (currentDir === 'asc') ? 'desc' : 'asc';
+
+                    // Actualizar estado e iconos en todas las columnas hermanas
+                    var siblingThs = row.querySelectorAll('th');
+                    for (var j = 0; j < siblingThs.length; j++) {
+                        var sTh = siblingThs[j];
+                        sTh.removeAttribute('data-sort-order');
+                        sTh.classList.remove('ui-state-active');
+                        var icon = sTh.querySelector('.ui-sortable-column-icon, .ui-icon');
+                        if (icon) {
+                            icon.className = 'ui-sortable-column-icon ui-icon pi pi-sort-alt';
+                            icon.style.color = '#cbd5e1';
+                        }
+                    }
+
+                    th.setAttribute('data-sort-order', newDir);
+                    th.classList.add('ui-state-active');
+                    var activeIcon = th.querySelector('.ui-sortable-column-icon, .ui-icon');
+                    if (activeIcon) {
+                        activeIcon.className = 'ui-sortable-column-icon ui-icon pi ' +
+                            (newDir === 'asc' ? 'pi-sort-amount-up-alt' : 'pi-sort-amount-down');
+                        activeIcon.style.color = '#38bdf8';
+                    }
+
+                    // Obtener filas de datos (excluir mensajes de tabla vacía o subtotales especiales)
+                    var trList = [];
+                    for (var k = 0; k < tbody.children.length; k++) {
+                        var tr = tbody.children[k];
+                        if (!tr.classList.contains('ui-datatable-empty-message') &&
+                            !tr.classList.contains('aether-hechos-total-row') &&
+                            !tr.classList.contains('aether-subtotal-row')) {
+                            trList.push(tr);
+                        }
+                    }
+                    if (trList.length <= 1) return;
+
+                    // Ordenar filas
+                    trList.sort(function (trA, trB) {
+                        var cellA = trA.children[colIndex];
+                        var cellB = trB.children[colIndex];
+                        var valA = cellA ? parseCellValue(cellA.textContent) : "";
+                        var valB = cellB ? parseCellValue(cellB.textContent) : "";
+
+                        if (typeof valA === 'number' && typeof valB === 'number') {
+                            return (newDir === 'asc') ? (valA - valB) : (valB - valA);
+                        }
+                        var sA = String(valA);
+                        var sB = String(valB);
+                        return (newDir === 'asc') ? sA.localeCompare(sB) : sB.localeCompare(sA);
+                    });
+
+                    // Re-insertar filas en el orden correcto y sincronizar clases de renglón zebra
+                    trList.forEach(function (trElem, idx) {
+                        tbody.appendChild(trElem);
+                        trElem.classList.remove('ui-datatable-even', 'ui-datatable-odd');
+                        if (idx % 2 === 0) {
+                            trElem.classList.add('ui-datatable-odd');
+                        } else {
+                            trElem.classList.add('ui-datatable-even');
+                        }
+                    });
+                }
+
+                // Delegación de eventos en fase de captura (Capture Phase)
+                document.addEventListener('click', function (evt) {
+                    var th = evt.target.closest('th.ui-sortable-column, th[role="columnheader"]');
+                    if (!th) return;
+
+                    // Verificar si tiene icono de ordenamiento o atributo sortBy
+                    var hasSortIcon = th.querySelector('.ui-sortable-column-icon, .ui-icon') !== null;
+                    var isInsideTable = th.closest('#tblSubTickets, [id$=":tblSubTickets"], #tblGlobalTotales, .aether-datatable');
+
+                    if (hasSortIcon && isInsideTable) {
+                        // Detener inmediatamente para que el AJAX defectuoso de PrimeFaces en subtablas no rompa el orden
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        evt.stopImmediatePropagation();
+                        sortDataTable(th);
+                    }
+                }, true);
+            })();
+            //]]>
+        </script>
+
+    </ui:define>
+</ui:composition>

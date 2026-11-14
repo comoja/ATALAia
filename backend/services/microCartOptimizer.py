@@ -227,10 +227,12 @@ def runOptimizationCycle() -> None:
                 carMultiplier=cm
             )
 
-            # Replicar la sugerencia a todas las cuentas y usuarios que operen esta combinación
+            # Actualización AUTOMÁTICA de RIDE: Aplica la ventana óptima directamente a carWindow, EMALenta y emaSugerida
             sqlUpd = text("""
                 UPDATE userCART
-                SET emaSugerida = :ema
+                SET carWindow = :ema,
+                    EMALenta = :ema,
+                    emaSugerida = :ema
                 WHERE symbol = :sym
                   AND Temporalidad = :tf
                   AND (borrado = 0 OR borrado IS NULL)
@@ -239,7 +241,7 @@ def runOptimizationCycle() -> None:
             dbSession.commit()
             affected = res.rowcount
             updatesCount += affected
-            logger.info(f"✅ Sugerencia RIDE {sugEma} aplicada a {affected} registro(s) de userCART para {sym} ({tf}).")
+            logger.info(f"✅ RIDE Óptimo {sugEma} aplicado AUTOMÁTICAMENTE a {affected} registro(s) de userCART para {sym} ({tf}).")
 
     elapsed = time.time() - startTs
     logger.info("==========================================================================")

@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="http://xmlns.jcp.org/jsf/html"
+      xmlns:f="http://xmlns.jcp.org/jsf/core"
+      xmlns:p="http://primefaces.org/ui"
+      xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
+
+<ui:composition>
+    <style>
+        #strategyConciliacionWrapper {
+            scrollbar-width: thin;
+            scrollbar-color: #6366f1 #f1f5f9;
+        }
+        #strategyConciliacionWrapper::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        #strategyConciliacionWrapper::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 6px;
+        }
+        #strategyConciliacionWrapper::-webkit-scrollbar-thumb {
+            background: #a5b4fc;
+            border-radius: 6px;
+        }
+        #strategyConciliacionWrapper::-webkit-scrollbar-thumb:hover {
+            background: #6366f1;
+        }
+        .aether-panel .ui-panel-titlebar,
+        .aether-subpanel .ui-panel-titlebar {
+            padding: 4px 10px !important;
+        }
+        .conciliacion-table.ui-datatable th {
+            font-size: 1.10rem !important;
+            font-weight: 800 !important;
+            padding: 9px 12px !important;
+            background: #f8fafc !important;
+            color: #1e293b !important;
+            border-color: #e2e8f0 !important;
+        }
+        .conciliacion-table.ui-datatable td {
+            font-size: 1.12rem !important;
+            padding: 9px 12px !important;
+            border-color: #e2e8f0 !important;
+        }
+    </style>
+
+    <div id="strategyConciliacionWrapper"
+         style="display: #{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'flex' : 'none'}; flex-direction: column; gap: 8px; width: 100%; flex: 1; min-height: 0; height: 100%; overflow-y: auto !important; overflow-x: hidden; box-sizing: border-box; padding: 2px 10px 40px 2px;">
+
+        <!-- 1. ENCABEZADO Y BARRA DE CONTROL COMPACTA -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 6px 14px; box-shadow: var(--neu-shadow-flat); flex-wrap: wrap; gap: 8px; flex-shrink: 0;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);">
+                    <i class="pi pi-check-circle" style="font-size: 1.25rem; color: #ffffff;"></i>
+                </div>
+                <div>
+                    <h2 style="margin: 0; font-size: 1.22rem; font-weight: 900; color: var(--text-primary); letter-spacing: -0.2px;">
+                        Conciliación de Posición: ATALAia vs FOREX.com
+                    </h2>
+                    <p style="margin: 1px 0 0 0; font-size: 0.84rem; color: var(--text-muted); font-weight: 700;">
+                        Auditoría Transaccional en Vivo (Estrictamente de Solo Consulta)
+                    </p>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                
+                <!-- SELECTOR DE USUARIO (SOLO PERFIL ADMINISTRADOR) -->
+                <h:panelGroup rendered="#{securityBean.admin}"
+                              style="display: flex; align-items: center; gap: 6px; background: var(--bg-surface-active); border: 1px solid var(--border-soft); padding: 3px 8px; border-radius: 7px;">
+                    <i class="pi pi-user" style="font-size: 1.05rem; color: #6366f1;"></i>
+                    <span style="font-size: 0.95rem; font-weight: 800; color: var(--text-primary);">Usuario:</span>
+                    <p:selectOneMenu id="concilUsuarioSelector" value="#{conciliacionBean.filtroUsuarioId}"
+                                     styleClass="aether-input" style="min-width: 195px; font-size: 0.92rem; height: 28px; line-height: 28px;">
+                        <f:selectItem itemLabel="🌐 Todos los Usuarios (Consolidado)" itemValue="#{null}" />
+                        <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
+                                       itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                        <p:ajax process="@this" listener="#{conciliacionBean.onFiltroUsuarioChange}" update=":aetherForm:conciliacionContent" />
+                    </p:selectOneMenu>
+                </h:panelGroup>
+
+                <!-- USUARIO REGULAR (NO ADMINISTRADOR) -->
+                <h:panelGroup rendered="#{not securityBean.admin}"
+                              style="display: flex; align-items: center; gap: 6px; background: var(--bg-surface-active); border: 1px solid var(--border-soft); padding: 4px 10px; border-radius: 7px;">
+                    <i class="pi pi-user" style="font-size: 1.05rem; color: #0284c7;"></i>
+                    <span style="font-size: 0.95rem; font-weight: 800; color: var(--text-primary);">
+                        Usuario: <b>#{securityBean.nombreCompleto}</b>
+                    </span>
+                </h:panelGroup>
+
+                <!-- Indicador de Timestamp -->
+                <span style="font-size: 0.90rem; color: var(--text-muted); background: var(--bg-surface-active); border: 1px solid var(--border-soft); padding: 4px 10px; border-radius: 7px; font-weight: 800;">
+                    <i class="pi pi-clock" style="margin-right: 4px; color: #6366f1;"></i>
+                    Actualizado: <b>#{conciliacionBean.ultimaActualizacion}</b>
+                </span>
+
+                <!-- Botón Refrescar Auditoría en Vivo -->
+                <p:commandButton icon="pi pi-refresh"
+                                 value="Auditar Ahora"
+                                 action="#{conciliacionBean.consultar}"
+                                 process="@this"
+                                 update=":aetherForm:conciliacionContent"
+                                 styleClass="aether-btn-primary"
+                                 style="font-size: 0.90rem !important; font-weight: 800 !important; padding: 4px 14px !important; border-radius: 7px !important; height: 30px !important;" />
+            </div>
+        </div>
+
+        <h:panelGroup id="conciliacionContent" layout="block" style="display: flex; flex-direction: column; gap: 8px;">
+
+            <!-- 2. RESUMEN GLOBAL DE CUENTAS: MENOR ALTURA (SLIM) Y FUENTES GRANDES -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; flex-shrink: 0;">
+                
+                <!-- Estado General -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #{not conciliacionBean.kpiGlobal.tieneDiscrepancias ? '#10b981' : '#f59e0b'}; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 0.95rem; font-weight: 900; color: var(--text-primary); text-transform: uppercase;">AUDITORÍA</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">#{conciliacionBean.kpiGlobal.totalCuentas} cuentas</div>
+                    </div>
+                    <div style="font-size: 1.15rem; font-weight: 900; color: #{not conciliacionBean.kpiGlobal.tieneDiscrepancias ? '#10b981' : '#f59e0b'};">
+                        #{not conciliacionBean.kpiGlobal.tieneDiscrepancias ? '✅ CONCILIADO' : '⚠️ DISCREPANCIAS'}
+                    </div>
+                </div>
+
+                <!-- Posiciones ATALAia -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #0284c7; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #0284c7; text-transform: uppercase;">ATALAia</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Abiertas BD</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #0284c7; line-height: 1;">#{conciliacionBean.kpiGlobal.totalAtalaia}</div>
+                </div>
+
+                <!-- Posiciones FOREX.com -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #0d9488; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #0d9488; text-transform: uppercase;">FOREX.com</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">En broker</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #0d9488; line-height: 1;">#{conciliacionBean.kpiGlobal.totalForex}</div>
+                </div>
+
+                <!-- Conciliadas MATCH -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #10b981; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #10b981; text-transform: uppercase;">MATCH</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Conciliadas</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #10b981; line-height: 1;">#{conciliacionBean.kpiGlobal.totalConciliadas}</div>
+                </div>
+
+                <!-- Huérfanas ATALAia -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #{conciliacionBean.kpiGlobal.totalHuerfanasAtalaia > 0 ? '#ef4444' : '#94a3b8'}; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalHuerfanasAtalaia > 0 ? '#ef4444' : 'var(--text-muted)'}; text-transform: uppercase;">Solo ATALAia</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Sin broker</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalHuerfanasAtalaia > 0 ? '#ef4444' : 'var(--text-primary)'}; line-height: 1;">#{conciliacionBean.kpiGlobal.totalHuerfanasAtalaia}</div>
+                </div>
+
+                <!-- Huérfanas FOREX.com -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #{conciliacionBean.kpiGlobal.totalHuerfanasForex > 0 ? '#f59e0b' : '#94a3b8'}; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalHuerfanasForex > 0 ? '#f59e0b' : 'var(--text-muted)'}; text-transform: uppercase;">Solo FOREX</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Sin BD</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalHuerfanasForex > 0 ? '#f59e0b' : 'var(--text-primary)'}; line-height: 1;">#{conciliacionBean.kpiGlobal.totalHuerfanasForex}</div>
+                </div>
+
+                <!-- Diferencias de Parámetros -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 7px; padding: 4px 12px; box-shadow: var(--neu-shadow-flat); border-left: 5px solid #{conciliacionBean.kpiGlobal.totalDiferencias > 0 ? '#e11d48' : '#94a3b8'}; display: flex; align-items: center; justify-content: space-between; min-height: 42px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalDiferencias > 0 ? '#e11d48' : 'var(--text-muted)'}; text-transform: uppercase;">Diferencias</div>
+                        <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Lotes/lado</div>
+                    </div>
+                    <div style="font-size: 1.80rem; font-weight: 900; color: #{conciliacionBean.kpiGlobal.totalDiferencias > 0 ? '#e11d48' : 'var(--text-primary)'}; line-height: 1;">#{conciliacionBean.kpiGlobal.totalDiferencias}</div>
+                </div>
+            </div>
+
+            <!-- 3. DESGLOSE JERÁRQUICO SEGURO (ui:repeat + p:panel toggleable) -->
+            <ui:repeat value="#{conciliacionBean.usuarios}" var="usr">
+                <p:panel toggleable="true" styleClass="aether-panel" style="margin-bottom: 8px; border-radius: 10px;">
+                    <f:facet name="header">
+                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 8px; padding: 3px 0;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.05rem;">
+                                    #{usr.nombre.substring(0, 1)}
+                                </div>
+                                <span style="font-weight: 900; font-size: 1.25rem; color: var(--text-primary);">
+                                    Usuario: #{usr.nombre} <span style="font-size: 0.95rem; font-weight: 700; color: var(--text-muted);">(#{usr.email})</span>
+                                </span>
+                            </div>
+
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; background: #e0f2fe; color: #0369a1; border-radius: 8px;">
+                                    ATALAia: #{usr.kpis.totalAtalaia}
+                                </span>
+                                <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; background: #ccfbf1; color: #0f766e; border-radius: 8px;">
+                                    FOREX: #{usr.kpis.totalForex}
+                                </span>
+                                <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; background: #dcfce7; color: #15803d; border-radius: 8px;">
+                                    Match: #{usr.kpis.totalConciliadas}
+                                </span>
+                                <h:panelGroup rendered="#{usr.kpis.totalHuerfanasAtalaia > 0}">
+                                    <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; background: #fee2e2; color: #b91c1c; border-radius: 8px;">
+                                        Solo ATALAia: #{usr.kpis.totalHuerfanasAtalaia}
+                                    </span>
+                                </h:panelGroup>
+                                <h:panelGroup rendered="#{usr.kpis.totalHuerfanasForex > 0}">
+                                    <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; background: #fef3c7; color: #b45309; border-radius: 8px;">
+                                        Solo FOREX: #{usr.kpis.totalHuerfanasForex}
+                                    </span>
+                                </h:panelGroup>
+
+                                <span class="#{usr.kpis.tieneDiscrepancias ? 'badge-corto' : 'badge-largo'}" style="font-size: 1.05rem; padding: 4px 12px; font-weight: 900;">
+                                    #{usr.kpis.tieneDiscrepancias ? '⚠️ CON DISCREPANCIAS' : '✅ 100% CONCILIADO'}
+                                </span>
+                            </div>
+                        </div>
+                    </f:facet>
+
+                    <!-- NIVEL 2: CUENTAS DEL USUARIO -->
+                    <div style="display: flex; flex-direction: column; gap: 8px; padding: 4px 0;">
+                        <ui:repeat value="#{usr.cuentas}" var="cta">
+                            <p:panel toggleable="true" styleClass="aether-subpanel" style="border-radius: 8px; border: 1px solid var(--border-soft);">
+                                <f:facet name="header">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 8px; padding: 3px 0;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="pi pi-wallet" style="color: #6366f1; font-size: 1.25rem;"></i>
+                                            <span style="font-weight: 900; font-size: 1.20rem; color: var(--text-primary);">
+                                                Cuenta ##{cta.idCuenta} · #{cta.nombreCuenta}
+                                            </span>
+                                            <span style="font-size: 1.02rem; color: var(--text-muted); font-family: monospace; font-weight: 800;">
+                                                (Login: #{cta.brokerLogin})
+                                            </span>
+                                        </div>
+
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <span style="font-size: 1.10rem; font-weight: 900; color: #0284c7;">ATALAia: #{cta.kpis.totalAtalaia}</span>
+                                            <span style="color: var(--border-soft); font-weight: 900;">|</span>
+                                            <span style="font-size: 1.10rem; font-weight: 900; color: #0d9488;">FOREX: #{cta.kpis.totalForex}</span>
+                                            <span style="color: var(--border-soft); font-weight: 900;">|</span>
+                                            <span style="font-size: 1.10rem; font-weight: 900; color: #10b981;">Match: #{cta.kpis.totalConciliadas}</span>
+
+                                            <h:panelGroup rendered="#{cta.kpis.totalHuerfanasAtalaia > 0}">
+                                                <span style="font-size: 1.05rem; font-weight: 900; color: #ef4444; margin-left: 6px;">
+                                                    [Solo ATALAia: #{cta.kpis.totalHuerfanasAtalaia}]
+                                                </span>
+                                            </h:panelGroup>
+
+                                            <h:panelGroup rendered="#{cta.kpis.totalHuerfanasForex > 0}">
+                                                <span style="font-size: 1.05rem; font-weight: 900; color: #f59e0b; margin-left: 6px;">
+                                                    [Solo FOREX: #{cta.kpis.totalHuerfanasForex}]
+                                                </span>
+                                            </h:panelGroup>
+
+                                            <span class="#{cta.kpis.tieneDiscrepancias ? 'badge-corto' : 'badge-largo'}" style="font-size: 1.00rem; padding: 4px 10px; font-weight: 900; margin-left: 6px;">
+                                                #{cta.kpis.tieneDiscrepancias ? '⚠️ DISCREPANCIAS' : '✅ CONCILIADO'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </f:facet>
+
+                                <!-- CASO CUENTA PLANA (SIN POSICIONES): Siempre visible para veracidad total -->
+                                <h:panelGroup rendered="#{empty cta.estrategias}">
+                                    <div style="background: var(--bg-surface-active); border: 1px dashed var(--border-soft); border-radius: 7px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; margin: 4px 0; gap: 8px; flex-wrap: wrap;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <i class="pi pi-check-circle" style="color: #10b981; font-size: 1.30rem;"></i>
+                                            <span style="font-size: 1.10rem; font-weight: 800; color: var(--text-primary);">
+                                                Cuenta 100% Plana: Sin posiciones abiertas ni en ATALAia ni en FOREX.com.
+                                            </span>
+                                        </div>
+                                        <span class="badge-largo" style="font-size: 1.00rem; font-weight: 900; padding: 4px 12px;">
+                                            ✅ AUDITORÍA LIMPIA (0 POSICIONES)
+                                        </span>
+                                    </div>
+                                </h:panelGroup>
+
+                                <!-- NIVEL 3: ESTRATEGIAS DENTRO DE LA CUENTA -->
+                                <div style="display: flex; flex-direction: column; gap: 8px; padding: 2px;">
+                                    <ui:repeat value="#{cta.estrategias}" var="strat">
+                                        <div style="background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px 12px; box-shadow: var(--neu-shadow-flat);">
+                                            
+                                            <!-- Encabezado de Estrategia Compacto -->
+                                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-soft); padding-bottom: 6px; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <i class="pi pi-compass" style="color: #{strat.estrategia.contains('CART') ? '#0d9488' : (strat.estrategia.contains('RATIO') ? '#0284c7' : '#f59e0b')}; font-size: 1.25rem;"></i>
+                                                    <span style="font-size: 1.15rem; font-weight: 900; color: var(--text-primary);">
+                                                        Estrategia: <b>#{strat.estrategia}</b>
+                                                    </span>
+                                                </div>
+
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <span class="chip" style="font-size: 1.05rem; font-weight: 900; padding: 4px 12px; border-radius: 8px;">
+                                                        ATALAia: #{strat.kpis.totalAtalaia} · FOREX: #{strat.kpis.totalForex} · Match: #{strat.kpis.totalConciliadas}
+                                                    </span>
+                                                    <h:panelGroup rendered="#{strat.kpis.tieneDiscrepancias}">
+                                                        <span class="badge-corto" style="font-size: 1.00rem; font-weight: 900; padding: 4px 10px;">
+                                                            ⚠️ Discrepancias
+                                                        </span>
+                                                    </h:panelGroup>
+                                                </div>
+                                            </div>
+
+                                            <!-- NIVEL 4 Y 5: SÍMBOLOS Y SUS POSICIONES -->
+                                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                                <ui:repeat value="#{strat.simbolos}" var="sym">
+                                                    <div style="background: var(--bg-surface-active); border: 1px solid var(--border-soft); border-radius: 8px; padding: 6px 12px;">
+                                                        
+                                                        <!-- Barra de Título del Símbolo Compacta -->
+                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 8px;">
+                                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                                <span class="chip chip-active" style="font-size: 1.12rem; font-weight: 900; padding: 4px 14px; display: inline-flex; align-items: center; gap: 6px; border-radius: 8px;">
+                                                                    <i class="pi pi-chart-line" style="color: #38bdf8; font-size: 1.15rem;"></i>
+                                                                    <h:outputText value="#{sym.symbol}" />
+                                                                </span>
+                                                                <span style="font-size: 1.00rem; font-weight: 800; color: var(--text-muted);">
+                                                                    (#{sym.posiciones.size()} posición(es))
+                                                                </span>
+                                                            </div>
+
+                                                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                                                <span style="font-size: 1.05rem; font-weight: 900; color: var(--text-muted);">
+                                                                    Match: <b style="color: #10b981;">#{sym.kpis.totalConciliadas}</b>
+                                                                </span>
+                                                                <h:panelGroup rendered="#{sym.kpis.totalHuerfanasAtalaia > 0}">
+                                                                    <span style="font-size: 1.05rem; font-weight: 900; color: #ef4444;">
+                                                                        · Solo ATALAia: <b>#{sym.kpis.totalHuerfanasAtalaia}</b>
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                                <h:panelGroup rendered="#{sym.kpis.totalHuerfanasForex > 0}">
+                                                                    <span style="font-size: 1.05rem; font-weight: 900; color: #f59e0b;">
+                                                                        · Solo FOREX: <b>#{sym.kpis.totalHuerfanasForex}</b>
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- NIVEL 5: TABLA DETALLADA POR ID DE TRANSACCIÓN (FONTS GRANDES Y LEGIBLES) -->
+                                                        <p:dataTable value="#{sym.posiciones}" var="pos"
+                                                                     styleClass="conciliacion-table ui-datatable"
+                                                                     style="margin-top: 2px;"
+                                                                     emptyMessage="No hay posiciones para este símbolo.">
+                                                            
+                                                            <!-- ID Transacción / Ticket Broker -->
+                                                            <p:column headerText="Ticket Broker (ID Transacción)" style="width: 200px; text-align: center;">
+                                                                <span style="font-family: monospace; font-size: 1.25rem; font-weight: 900; color: #4f46e5; letter-spacing: 0.5px;">
+                                                                    ##{pos.ticketId}
+                                                                </span>
+                                                            </p:column>
+
+                                                            <!-- # Trade ATALAia -->
+                                                            <p:column headerText="# Trade ATALAia" style="width: 130px; text-align: center;">
+                                                                <h:outputText value="##{pos.idTrade}" rendered="#{pos.idTrade ne null}" style="font-size: 1.15rem; font-weight: 900; color: var(--text-primary);" />
+                                                                <span style="color: var(--text-muted); font-size: 1.15rem; font-style: italic;" rendered="#{pos.idTrade eq null}">-</span>
+                                                            </p:column>
+
+                                                            <!-- Estado de Conciliación -->
+                                                            <p:column headerText="Estado Conciliación" style="width: 175px; text-align: center;">
+                                                                <h:panelGroup rendered="#{pos.status eq 'MATCH'}">
+                                                                    <span class="badge-largo" style="font-size: 1.02rem; font-weight: 900; padding: 5px 12px;">
+                                                                        <i class="pi pi-check" style="font-size: 0.95rem; margin-right: 4px;"></i> MATCH
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                                <h:panelGroup rendered="#{pos.status eq 'HUERFANO_ATALAIA'}">
+                                                                    <span class="badge-corto" style="font-size: 1.02rem; font-weight: 900; padding: 5px 12px; background: #fee2e2; color: #b91c1c; border-color: #fca5a5;">
+                                                                        <i class="pi pi-times-circle" style="font-size: 0.95rem; margin-right: 4px;"></i> SOLO ATALAIA
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                                <h:panelGroup rendered="#{pos.status eq 'HUERFANO_FOREX'}">
+                                                                    <span style="font-size: 1.02rem; font-weight: 900; padding: 5px 12px; border-radius: 6px; background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; display: inline-flex; align-items: center;">
+                                                                        <i class="pi pi-exclamation-triangle" style="font-size: 0.95rem; margin-right: 4px;"></i> SOLO FOREX
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                                <h:panelGroup rendered="#{pos.status eq 'DIFERENCIA'}">
+                                                                    <span style="font-size: 1.02rem; font-weight: 900; padding: 5px 12px; border-radius: 6px; background: #ffe4e6; color: #be123c; border: 1px solid #fda4af; display: inline-flex; align-items: center;">
+                                                                        <i class="pi pi-exclamation-circle" style="font-size: 0.95rem; margin-right: 4px;"></i> DIFERENCIA
+                                                                    </span>
+                                                                </h:panelGroup>
+                                                            </p:column>
+
+                                                            <!-- Dirección: ATALAia vs FOREX -->
+                                                            <p:column headerText="Dirección (ATALAia / FOREX)" style="width: 175px; text-align: center;">
+                                                                <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                                                    <span class="#{pos.direccionAtalaia eq 'BUY' or pos.direccionAtalaia eq 'LARGO' ? 'badge-largo' : (pos.direccionAtalaia eq 'SELL' or pos.direccionAtalaia eq 'CORTO' ? 'badge-corto' : '')}" style="font-size: 1.02rem; font-weight: 900; padding: 4px 10px;">
+                                                                        #{pos.direccionAtalaia ne null ? pos.direccionAtalaia : '-'}
+                                                                    </span>
+                                                                    <span style="color: var(--text-muted); font-weight: 800; font-size: 1.10rem;">/</span>
+                                                                    <span class="#{pos.direccionForex eq 'BUY' ? 'badge-largo' : (pos.direccionForex eq 'SELL' ? 'badge-corto' : '')}" style="font-size: 1.02rem; font-weight: 900; padding: 4px 10px;">
+                                                                        #{pos.direccionForex ne null ? pos.direccionForex : '-'}
+                                                                    </span>
+                                                                </div>
+                                                            </p:column>
+
+                                                            <!-- Lotes: ATALAia vs FOREX -->
+                                                            <p:column headerText="Volumen Lotes (ATALAia / FOREX)" style="width: 195px; text-align: right;">
+                                                                <span style="font-size: 1.18rem; font-weight: 900; color: #{pos.lotesAtalaia > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">
+                                                                    <h:outputText value="#{pos.lotesAtalaia}">
+                                                                        <f:convertNumber maxFractionDigits="2" />
+                                                                    </h:outputText>
+                                                                </span>
+                                                                <span style="color: var(--text-muted); font-size: 1.15rem; margin: 0 4px; font-weight: 800;">/</span>
+                                                                <span style="font-size: 1.22rem; font-weight: 900; color: #{pos.lotesForex > 0 ? '#4f46e5' : 'var(--text-muted)'};">
+                                                                    <h:outputText value="#{pos.lotesForex}">
+                                                                        <f:convertNumber maxFractionDigits="2" />
+                                                                    </h:outputText>
+                                                                </span>
+                                                            </p:column>
+
+                                                            <!-- Precio Entrada -->
+                                                            <p:column headerText="Precio Entrada (ATALAia / FOREX)" style="width: 205px; text-align: right;">
+                                                                <span style="font-family: monospace; font-size: 1.12rem; font-weight: 800; color: var(--text-primary);">
+                                                                    #{pos.precioAtalaia > 0 ? pos.precioAtalaia : '-'} / #{pos.precioForex > 0 ? pos.precioForex : '-'}
+                                                                </span>
+                                                            </p:column>
+
+                                                            <!-- Diagnóstico y Ubicación de la Discrepancia -->
+                                                            <p:column headerText="Diagnóstico de Discrepancia">
+                                                                <span style="font-size: 1.08rem; font-weight: 800; line-height: 1.35; color: #{pos.status eq 'MATCH' ? '#10b981' : (pos.status eq 'HUERFANO_ATALAIA' ? '#ef4444' : (pos.status eq 'HUERFANO_FOREX' ? '#b45309' : '#e11d48'))};">
+                                                                    #{pos.detalleDiferencia}
+                                                                </span>
+                                                            </p:column>
+
+                                                        </p:dataTable>
+                                                    </div>
+                                                </ui:repeat>
+                                            </div>
+                                        </div>
+                                    </ui:repeat>
+                                </div>
+                            </p:panel>
+                        </ui:repeat>
+                    </div>
+                </p:panel>
+            </ui:repeat>
+
+        </h:panelGroup>
+
+    </div>
+</ui:composition>
+</html>

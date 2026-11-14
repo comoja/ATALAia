@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="http://xmlns.jcp.org/jsf/html"
+      xmlns:f="http://xmlns.jcp.org/jsf/core"
+      xmlns:p="http://primefaces.org/ui">
+
+<h:head>
+    <!-- Icono institucional y pestaña del navegador (Favicon con Fondo Transparente) -->
+    <link rel="icon" type="image/png" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    <link rel="shortcut icon" type="image/x-icon" href="#{request.contextPath}/favicon.ico" />
+    <link rel="apple-touch-icon" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    <title>ATALAia - Correlation Engine</title>
+</h:head>
+<h:body>
+    <div style="padding: 20px;">
+        <h:form id="mainForm">
+            <p:panel header="Pair Correlation Dashboard">
+                <h:outputText value="Bienvenido al motor de correlación de ATALAia." />
+                
+                <p:divider />
+                
+                <h:panelGrid columns="3" cellpadding="5">
+                    <p:outputLabel for="pairSelect" value="Seleccionar Par: "/>
+                    <p:selectOneMenu id="pairSelect" value="#{dashboardBean.selectedPair}">
+                        <f:selectItem itemLabel="Seleccione" itemValue="" />
+                        <f:selectItem itemLabel="EURUSD/GBPUSD" itemValue="EURGBPUSD" />
+                    </p:selectOneMenu>
+                    
+                    <p:commandButton value="Analizar" action="#{dashboardBean.analyzePair}" 
+                                     update="messages resultPanel" icon="pi pi-search"/>
+                </h:panelGrid>
+                
+                <p:messages id="messages" showDetail="true" closable="true">
+                    <p:autoUpdate/>
+                </p:messages>
+
+            </p:panel>
+            
+            <p:spacer height="20" />
+            
+            <p:panel id="resultPanel" header="Resultados del Análisis" visible="#{not empty dashboardBean.analysisResult}">
+                <h:outputText value="#{dashboardBean.analysisResult}" />
+            </p:panel>
+            
+        </h:form>
+    </div>
+</h:body>
+</html>

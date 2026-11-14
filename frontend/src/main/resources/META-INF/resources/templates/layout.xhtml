@@ -1,0 +1,1348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="http://xmlns.jcp.org/jsf/html"
+      xmlns:f="http://xmlns.jcp.org/jsf/core"
+      xmlns:p="http://primefaces.org/ui"
+      xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
+<h:head>
+    <title><ui:insert name="title">ATALAia Institutional</ui:insert></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
+    <!-- Icono institucional y pestaña del navegador (Favicon con Fondo Transparente) -->
+    <link rel="icon" type="image/png" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    <link rel="shortcut icon" type="image/x-icon" href="#{request.contextPath}/favicon.ico" />
+    <link rel="apple-touch-icon" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    <!-- Chart.js, Adapters y Plugins para Gráficos Neón Interactivos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <link id="atalaiaThemeLink" rel="stylesheet" type="text/css" href="#{request.contextPath}/resources/css/neumorphic-pure.css" />
+    <script type="text/javascript">
+        // Carga inmediata del tema para evitar parpadeos
+        (function() {
+            var saved = localStorage.getItem("atalaiaTheme") || "neomorphism";
+            var ctx = "#{request.contextPath}";
+            var link = document.getElementById("atalaiaThemeLink");
+            if (link) {
+                link.href = ctx + "/resources/css/" + (saved === "emotional" ? "aetherial-ui.css" : "neumorphic-pure.css");
+            }
+        })();
+    </script>
+    <style>
+        /* Reset y Layout principal */
+        html, body {
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--bg-page);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Encabezado Superior (Header) */
+        .app-header {
+            height: 70px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-soft);
+            box-shadow: 0 4px 12px rgba(44, 53, 57, 0.03);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 100;
+            flex-shrink: 0;
+            position: relative; /* Necesario para centrar el badge con position: absolute */
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header-logo {
+            height: 40px;
+            object-fit: contain;
+        }
+
+        .header-title h1 {
+            margin: 0;
+            color: var(--color-primary);
+            font-size: 1.8rem;
+            letter-spacing: -0.5px;
+            font-weight: 800;
+            text-shadow: 0 0 10px rgba(223, 168, 119, 0.4);
+        }
+
+        .header-title p {
+            margin: 2px 0 0 0;
+            color: var(--text-muted);
+            font-size: 1.0rem;
+            letter-spacing: 0.8px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 14px;
+            background: var(--bg-surface-active);
+            border: 1px solid var(--border-soft);
+            border-radius: 12px;
+            box-shadow: var(--neu-shadow-inset);
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--color-primary-gradient);
+            color: var(--text-white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.3rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: var(--orange-glow);
+        }
+
+        .user-info {
+            text-align: left;
+        }
+
+        .user-name {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--text-primary);
+        }
+
+        .user-role {
+            font-size: 0.9rem;
+            color: var(--color-primary);
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .btn-logout {
+            background: var(--bg-surface) !important;
+            border: 1px solid var(--border-soft) !important;
+            color: #EF4444 !important;
+            font-size: 1.3rem !important;
+            padding: 10px !important;
+            border-radius: 12px !important;
+            box-shadow: var(--neu-shadow-flat) !important;
+            cursor: pointer;
+            transition: all 0.2s ease !important;
+        }
+
+        .btn-logout:hover {
+            background: #2E1C1C !important;
+            border-color: #EF4444 !important;
+            color: #FCA5A5 !important;
+            box-shadow: var(--neu-shadow-hover) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        .btn-logout:active {
+            box-shadow: var(--neu-shadow-inset) !important;
+            transform: translateY(1px) !important;
+        }
+
+        /* Cuerpo principal */
+        .app-body {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        /* Barra Lateral (Sidebar) */
+        .app-sidebar {
+            width: 250px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border-soft);
+            padding: 20px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            box-shadow: 4px 0 12px rgba(0, 0, 0, 0.2);
+            /* Transición ultra-fluida para deslizamiento lateral */
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s ease;
+        }
+
+        .app-sidebar.collapsed {
+            width: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            border-right-color: transparent !important;
+            overflow: hidden !important;
+        }
+
+        /* Logo como toggle del sidebar */
+        .logo-toggle-btn {
+            cursor: pointer;
+            border-radius: 50%;
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.25s ease;
+            flex-shrink: 0;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .logo-toggle-btn:hover {
+            transform: scale(1.10);
+            box-shadow: 0 0 22px rgba(255, 107, 53, 0.65);
+        }
+        .logo-toggle-btn:active {
+            transform: scale(0.95);
+        }
+
+        .sidebar-header {
+            font-size: 1.0rem;
+            color: var(--text-muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding-left: 10px;
+            margin-bottom: 8px;
+        }
+
+        .menu-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Items del menú neumórfico */
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            text-decoration: none;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            font-weight: 600;
+            font-size: 1.25rem;
+            transition: all 0.2s ease;
+        }
+
+        .menu-item:hover {
+            background: var(--bg-surface-active);
+            border-color: var(--border-soft);
+            color: var(--color-primary);
+            transform: translateX(4px);
+        }
+
+        .menu-item.active {
+            background: var(--color-primary-gradient);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: var(--text-white);
+            box-shadow: var(--orange-glow), var(--neu-shadow-flat);
+            font-weight: 700;
+        }
+
+        .menu-icon {
+            font-size: 1.4rem;
+        }
+
+        /* Contenido principal */
+        .app-content {
+            flex: 1;
+            padding: 10px 24px;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        /* === Módulo Activo: Solo texto con sombra, sin contenedor === */
+        .header-center {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .active-module-badge {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+            opacity: 0;
+            transform: translateY(-8px);
+            transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                        transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            white-space: nowrap;
+        }
+
+        .active-module-badge.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .active-module-icon {
+            font-size: 1.5rem;
+            color: var(--color-primary);
+            text-shadow: 0 0 12px rgba(223, 168, 119, 0.7);
+        }
+
+        .active-module-name {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-shadow:
+                0 0 18px rgba(223, 168, 119, 0.5),
+                0 2px 8px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Spinner Neumórfico Naranja */
+        .aether-spinner {
+            width: 45px;
+            height: 45px;
+            border: 3px solid rgba(255, 255, 255, 0.05);
+            border-radius: 50%;
+            border-top-color: #dfa877;
+            border-right-color: #7bbca9;
+            animation: spin 1s cubic-bezier(0.55, 0.055, 0.675, 0.19) infinite;
+            margin: 0 auto 15px auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Quitar marcos, fondos y sombras de PrimeFaces en el diálogo de carga */
+        .aether-loading-dialog,
+        .aether-loading-dialog.ui-dialog,
+        .aether-loading-dialog.ui-widget,
+        .aether-loading-dialog .ui-dialog-content {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            overflow: visible !important;
+        }
+    
+        /* Badge Indicador de Dispositivo */
+        .device-indicator-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-soft);
+            color: var(--text-primary);
+            box-shadow: var(--neu-shadow-flat);
+            transition: all 0.3s ease;
+        }
+
+        /* Responsive Media Queries para Dispositivos Móviles y Tablets */
+        @media (max-width: 1024px) {
+            html, body {
+                height: auto !important;
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+            }
+            .app-container {
+                height: auto !important;
+                min-height: 100vh;
+            }
+            .app-body {
+                height: auto !important;
+                overflow: visible !important;
+            }
+            .app-main {
+                overflow: visible !important;
+                height: auto !important;
+                padding: 12px 14px !important;
+            }
+            /* Sidebar como Drawer flotante en tablets y móviles */
+            .app-sidebar {
+                position: fixed !important;
+                top: 70px;
+                left: 0;
+                bottom: 0;
+                z-index: 1000 !important;
+                background: var(--bg-surface) !important;
+                box-shadow: 8px 0 28px rgba(0, 0, 0, 0.45) !important;
+            }
+            .app-sidebar.collapsed {
+                width: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                transform: translateX(-100%) !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .app-header {
+                padding: 0 12px !important;
+                height: 60px !important;
+            }
+            .header-left {
+                gap: 8px !important;
+            }
+            .header-title h1 {
+                font-size: 1.35rem !important;
+            }
+            .header-center {
+                display: none !important; /* Ocultar badge central en móviles */
+            }
+            .header-right {
+                gap: 8px !important;
+            }
+            .device-indicator-badge #deviceLabel {
+                display: none !important; /* Solo mostrar icono en móvil */
+            }
+            .device-indicator-badge {
+                padding: 6px 8px !important;
+            }
+            .theme-toggle-btn #themeToggleLabel,
+            .theme-toggle-btn #atalaiaAudioLabel {
+                display: none !important; /* Solo icono en móvil */
+            }
+            .theme-toggle-btn {
+                padding: 6px 8px !important;
+            }
+            .theme-toggle-btn i {
+                margin-right: 0 !important;
+            }
+            .user-info {
+                display: none !important; /* Ocultar texto de usuario/rol, mantener avatar */
+            }
+            .user-profile {
+                padding: 4px 6px !important;
+            }
+        }
+
+        /* ===================================================================
+           ESTILO GLOBAL PARA TODAS LAS TABLAS:
+           1. ENCABEZADOS OSCUROS (#1e293b) CON TEXTO BLANCO (#ffffff)
+           =================================================================== */
+        .ui-datatable thead th,
+        .ui-datatable .ui-datatable-header,
+        .ui-datatable .ui-datatable-scrollable-header th,
+        .ui-datatable-scrollable-header-box table thead th,
+        .aether-datatable thead th,
+        .aether-datatable .ui-datatable-scrollable-header th,
+        .aether-hechos-table thead th,
+        .aether-hechos-table .ui-datatable-scrollable-header th,
+        .aether-table-compact thead th,
+        .aether-table-compact .ui-datatable-scrollable-header th {
+            background-color: #1e293b !important;
+            background: #1e293b !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+            border-bottom: 2px solid #0f172a !important;
+            text-shadow: none !important;
+        }
+
+        .ui-datatable thead th *,
+        .ui-datatable thead th span,
+        .ui-datatable thead th .ui-column-title,
+        .ui-datatable .ui-datatable-scrollable-header th *,
+        .ui-datatable .ui-datatable-scrollable-header th span,
+        .aether-datatable thead th *,
+        .aether-hechos-table thead th *,
+        .aether-table-compact thead th * {
+            color: #ffffff !important;
+            font-size: 1.05rem !important;
+            font-weight: 800 !important;
+        }
+
+        .ui-datatable thead th .ui-sortable-column-icon,
+        .ui-datatable thead th .ui-icon,
+        .ui-datatable .ui-datatable-scrollable-header th .ui-sortable-column-icon,
+        .ui-sortable-column-icon {
+            color: #cbd5e1 !important;
+        }
+
+        .ui-datatable thead th:hover,
+        .ui-datatable thead th.ui-state-hover {
+            background-color: #334155 !important;
+            background: #334155 !important;
+            cursor: pointer;
+        }
+
+        .ui-datatable thead th.ui-state-active {
+            background-color: #0f172a !important;
+            background: #0f172a !important;
+        }
+        .ui-datatable thead th.ui-state-active .ui-sortable-column-icon,
+        .ui-datatable thead th.ui-state-active .ui-icon {
+            color: #38bdf8 !important;
+        }
+
+        /* ===================================================================
+           ESTILO GLOBAL PARA TODAS LAS TABLAS:
+           2. RENGLONES PARES EN TONO MÁS OSCURO (#dbe4ee) QUE LOS NONES (#ffffff)
+           =================================================================== */
+        .ui-datatable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .ui-datatable .ui-datatable-data tr:nth-child(odd):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .aether-datatable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .aether-datatable .ui-datatable-data tr:nth-child(odd):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) {
+            background-color: #ffffff !important;
+        }
+        .ui-datatable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .ui-datatable .ui-datatable-data tr:nth-child(odd):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .aether-datatable .ui-datatable-data tr.ui-datatable-odd:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .aether-datatable .ui-datatable-data tr:nth-child(odd):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td {
+            background-color: #ffffff !important;
+        }
+
+        .ui-datatable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .ui-datatable .ui-datatable-data tr:nth-child(even):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .aether-datatable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content),
+        .aether-datatable .ui-datatable-data tr:nth-child(even):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) {
+            background-color: #dbe4ee !important;
+        }
+        .ui-datatable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .ui-datatable .ui-datatable-data tr:nth-child(even):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .aether-datatable .ui-datatable-data tr.ui-datatable-even:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td,
+        .aether-datatable .ui-datatable-data tr:nth-child(even):not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content) td {
+            background-color: #dbe4ee !important;
+        }
+
+        .ui-datatable .ui-datatable-data tr:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content):hover,
+        .ui-datatable .ui-datatable-data tr:not(.aether-subtotal-row):not(.aether-hechos-subtotal-row):not(.ui-expanded-row-content):hover td {
+            background-color: #cbd5e1 !important;
+        }
+
+        /* ===================================================================
+           SISTEMA GLOBAL DE REALCE VISUAL DE ICONOS PARA TODO ATALA.IA
+           Hace que todos los iconos de objetos, botones y controles sean
+           claramente visibles, más grandes y armónicos en todo el sistema.
+           =================================================================== */
+
+        /* 1. PrimeIcons base en elementos i y span */
+        .pi {
+            font-size: 1.35rem !important;
+            vertical-align: middle !important;
+        }
+
+        /* 2. Botones Ensanchados y Centrado Perfecto de Iconos */
+        .ui-button .ui-icon,
+        .ui-button .ui-button-icon-left,
+        .ui-button .ui-button-icon-right,
+        .ui-button .pi {
+            font-size: 1.35rem !important;
+            width: 1.35rem !important;
+            height: 1.35rem !important;
+            line-height: 1.35rem !important;
+            vertical-align: middle !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        /* Botones con Texto + Icono: Ensanchados y centrados con flexbox */
+        .ui-button.ui-button-text-icon-left,
+        .ui-button.ui-button-text-icon-right,
+        .ui-button.aether-btn-primary,
+        .ui-button.aether-btn-secondary {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 8px !important;
+            padding: 6px 18px !important;
+            min-height: 34px !important;
+            box-sizing: border-box !important;
+        }
+
+        .ui-button.ui-button-text-icon-left .ui-button-icon-left,
+        .ui-button.ui-button-text-icon-right .ui-button-icon-right,
+        .ui-button.aether-btn-primary .ui-icon,
+        .ui-button.aether-btn-secondary .ui-icon {
+            position: static !important;
+            margin: 0 !important;
+            top: auto !important;
+            left: auto !important;
+            right: auto !important;
+            transform: none !important;
+            flex-shrink: 0 !important;
+        }
+
+        .ui-button.ui-button-text-icon-left .ui-button-text,
+        .ui-button.ui-button-text-icon-right .ui-button-text,
+        .ui-button.aether-btn-primary .ui-button-text,
+        .ui-button.aether-btn-secondary .ui-button-text {
+            padding: 0 !important;
+            margin: 0 !important;
+            line-height: normal !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+        }
+
+        /* Botones de Solo Icono: Más anchos, cuadrados y centrados */
+        .ui-button.ui-button-icon-only {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            min-width: 32px !important;
+            width: 32px !important;
+            height: 32px !important;
+            min-height: 32px !important;
+            box-sizing: border-box !important;
+        }
+
+        .ui-button.ui-button-icon-only .ui-icon,
+        .ui-button.ui-button-icon-only .ui-button-icon-left {
+            position: static !important;
+            margin: 0 !important;
+            top: auto !important;
+            left: auto !important;
+            transform: none !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 1.35rem !important;
+        }
+
+        .ui-button.ui-button-icon-only .ui-button-text {
+            display: none !important;
+        }
+
+        /* 3. Disparadores de SelectOneMenu / Dropdowns */
+        .ui-selectonemenu .ui-selectonemenu-trigger .ui-icon,
+        .ui-selectonemenu-trigger .ui-icon {
+            font-size: 1.25rem !important;
+            width: 1.25rem !important;
+            height: 1.25rem !important;
+            margin: 0 !important;
+        }
+
+        /* 4. Calendario / DatePicker */
+        .ui-datepicker-trigger,
+        .ui-datepicker-trigger .ui-icon,
+        .ui-datepicker-trigger.ui-button .ui-icon {
+            font-size: 1.30rem !important;
+        }
+
+        .ui-datepicker .ui-datepicker-header .ui-datepicker-prev .ui-icon,
+        .ui-datepicker .ui-datepicker-header .ui-datepicker-next .ui-icon {
+            font-size: 1.25rem !important;
+        }
+
+        /* 5. Checkboxes y Switches */
+        .ui-chkbox .ui-chkbox-box .ui-chkbox-icon,
+        .ui-selectbooleancheckbox .ui-chkbox-icon {
+            font-size: 1.35rem !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+        }
+
+        /* 6. Acordeones y Pestañas */
+        .ui-accordion .ui-accordion-header .ui-icon,
+        .ui-accordion-toggle-icon {
+            font-size: 1.35rem !important;
+        }
+
+        .ui-tabs .ui-tabs-nav .ui-icon,
+        .ui-tabs .ui-tabs-nav .pi,
+        .ui-tabview .ui-tabview-nav .ui-icon,
+        .ui-tabview .ui-tabview-nav .pi {
+            font-size: 1.30rem !important;
+            margin-right: 6px !important;
+            vertical-align: middle !important;
+        }
+
+        /* 7. Columnas ordenables y filtros en tablas */
+        .ui-datatable thead th .ui-sortable-column-icon,
+        .ui-datatable thead th .ui-icon,
+        .ui-sortable-column-icon {
+            font-size: 1.20rem !important;
+        }
+
+        /* 8. Diálogos y Modales (Iconos de cierre y alertas) */
+        .ui-dialog-titlebar-close .ui-icon {
+            font-size: 1.30rem !important;
+        }
+
+        /* 9. Botones de acción estándar (Guardar, Borrar, Actualizar, Filtrar, Excel) */
+        .aether-btn-primary .ui-icon,
+        .aether-btn-secondary .ui-icon,
+        .ui-button-success .ui-icon,
+        .ui-button-danger .ui-icon,
+        .ui-button-warning .ui-icon,
+        .ui-button-info .ui-icon,
+        #btnGuardarRatio .ui-icon,
+        #btnBorrarRatio .ui-icon {
+            font-size: 1.40rem !important;
+        }
+    </style>
+    <ui:insert name="head"></ui:insert>
+</h:head>
+<h:body>
+    <!-- Modal de Carga Global (Efecto Suspensión Esfera Aetherial) -->
+    <p:dialog widgetVar="statusDialog" modal="true" draggable="false" closable="false" resizable="false" showHeader="false"
+              onShow="checkSessionStatusOnModal()"
+              styleClass="aether-loading-dialog" 
+              style="background: transparent !important; border: none !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;">
+        <div style="padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: transparent; gap: 18px;">
+            <video autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline" 
+                   style="width: 180px; height: 180px; border-radius: 50%; object-fit: cover; object-position: calc(50% + 3px) 50%; border: 2px solid rgba(255, 107, 53, 0.7); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.95), 0 0 35px rgba(255, 107, 53, 0.9); transform: translate3d(0,0,0); will-change: transform;">
+                <source src="#{request.contextPath}/resources/videos/atalaia.mp4" type="video/mp4" />
+                Tu navegador no soporta video.
+            </video>
+            <div style="text-align: center; font-family: 'Outfit', 'Inter', sans-serif;">
+                <div style="color: #ffffff; font-size: 15px; font-weight: 700; letter-spacing: 1.5px; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9); text-transform: uppercase;">PROCESANDO ENGINE</div>
+                <div style="color: #ffffff; opacity: 0.8; font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);">Espere un momento...</div>
+            </div>
+        </div>
+    </p:dialog>
+    <p:ajaxStatus onstart="onAjaxStartCheckSession()" oncomplete="if (window.PF &amp;&amp; PF('statusDialog')) { try { PF('statusDialog').hide(); } catch(e){} }" onerror="onAjaxErrorCheckSession()" />
+
+    <script type="text/javascript">
+    // <![CDATA[
+        function checkSessionStatusOnModal() {
+            var loginUrl = '#{request.contextPath}/login.xhtml';
+            var checkUrl = '#{request.contextPath}/api/session-check?_=' + new Date().getTime();
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', checkUrl, true);
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status === 200) {
+                            try {
+                                var res = JSON.parse(xhr.responseText);
+                                if (res && res.active === false) {
+                                    if (window.PF && PF('statusDialog')) { PF('statusDialog').hide(); }
+                                    window.location.href = loginUrl;
+                                }
+                            } catch(e) {}
+                        } else if (xhr.status === 401 || xhr.status === 403) {
+                            if (window.PF && PF('statusDialog')) { PF('statusDialog').hide(); }
+                            window.location.href = loginUrl;
+                        }
+                    }
+                };
+                xhr.send();
+            } catch(err) {
+                console.warn('[ATALAia] Error en checkSessionStatusOnModal:', err);
+            }
+        }
+
+        function onAjaxStartCheckSession() {
+            if (window.PF && PF('statusDialog')) {
+                PF('statusDialog').show();
+            }
+            checkSessionStatusOnModal();
+        }
+
+        function onAjaxErrorCheckSession() {
+            if (window.PF && PF('statusDialog')) {
+                PF('statusDialog').hide();
+            }
+            checkSessionStatusOnModal();
+        }
+
+        // Listener global de AJAX de PrimeFaces para interceptar redirecciones de sesión y asegurar cierre de modal
+        if (window.$) {
+            $(document).on('pfAjaxComplete', function(e, xhr, settings) {
+                if (window.PF && PF('statusDialog')) {
+                    try { PF('statusDialog').hide(); } catch(err) {}
+                }
+                if (xhr && xhr.responseText) {
+                    if (xhr.responseText.indexOf('login.xhtml') !== -1 && xhr.responseText.indexOf('<partial-response') === -1) {
+                        window.location.href = '#{request.contextPath}/login.xhtml';
+                    }
+                }
+            });
+        }
+    // ]]>
+    </script>
+
+    <!-- Monitor de Inactividad Institucional: Auto-Logout tras 20 minutos (1,200,000 ms) sin actividad -->
+    <p:idleMonitor timeout="1200000">
+        <p:ajax event="idle" listener="#{securityBean.logout}" oncomplete="window.location.href = '#{request.contextPath}/login.xhtml';" />
+    </p:idleMonitor>
+
+    <div class="app-container">
+        <!-- HEADER SUPERIOR -->
+        <header class="app-header">
+            <div class="header-left">
+                <!-- Logo clickeable: abre/cierra el sidebar -->
+                <div id="sidebarToggle" class="logo-toggle-btn"
+                     title="Mostrar/Ocultar Menú"
+                     onclick="atalaiaToggle()">
+                    <video autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"
+                           style="height: 55px; width: 55px; border-radius: 50%; object-fit: cover; object-position: calc(50% + 2px) 50%; border: 2px solid rgba(223, 168, 119, 0.75); box-shadow: 0 0 16px rgba(223, 168, 119, 0.5); display: block; pointer-events: none;">
+                        <source src="#{request.contextPath}/resources/videos/atalaia.mp4" type="video/mp4" />
+                    </video>
+                </div>
+                <div class="header-title">
+                    <h1>ATALA.ia</h1>
+                </div>
+            </div>
+
+            <!-- Módulo Activo: Indicador central dinámico -->
+            <div class="header-center">
+                <div class="active-module-badge" id="activeModuleBadge">
+                    <i class="active-module-icon" id="activeModuleIcon"></i>
+                    <span class="active-module-name" id="activeModuleName"></span>
+                </div>
+            </div>
+
+            <div class="header-right">
+                <!-- Switcher de Tema: NeoMorphism / Emotional UI -->
+                <!-- Indicador Dinámico de Dispositivo Detectado -->
+                <div class="device-indicator-badge" id="deviceIndicatorBadge" title="Dispositivo Detectado: Computador">
+                    <i class="pi pi-desktop" id="deviceIcon" style="font-size: 1.05rem; color: var(--color-primary);"></i>
+                    <span id="deviceLabel" style="font-size: 0.88rem; font-weight: 700;">Computador</span>
+                </div>
+
+                <div class="theme-toggle-wrapper" style="display: inline-flex; align-items: center;">
+                    <button type="button" class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleAtalaiaTheme()" title="Cambiar Tema (NeoMorphism / Emotional UI)">
+                        <i class="pi pi-palette" style="font-size: 1.2rem; margin-right: 6px;"></i>
+                        <span id="themeToggleLabel">NeoMorphism</span>
+                    </button>
+                </div>
+
+                <!-- Control de Sonido de Operaciones (🔊 / 🔇) -->
+                <div class="audio-toggle-wrapper" style="display: inline-flex; align-items: center;">
+                    <button type="button" class="theme-toggle-btn" id="atalaiaAudioToggleBtn" onclick="toggleAtalaiaAudio()" title="Sonido de Operaciones: Activado (Clic para silenciar)">
+                        <i class="pi pi-volume-up" id="atalaiaAudioIcon" style="font-size: 1.15rem; color: #16a34a; margin-right: 5px;"></i>
+                        <span id="atalaiaAudioLabel">Sonido</span>
+                    </button>
+                </div>
+
+                <!-- Perfil del usuario firmado -->
+                <div class="user-profile">
+                    <div class="user-avatar">
+                        <h:outputText value="#{not empty securityBean.nombreCompleto ? securityBean.nombreCompleto.substring(0,1).toUpperCase() : ''}" />
+                    </div>
+                    <div class="user-info">
+                        <div class="user-name"><h:outputText value="#{securityBean.nombreCompleto}" /></div>
+                        <div class="user-role"><h:outputText value="#{securityBean.nameRole}" /></div>
+                    </div>
+                </div>
+
+                <!-- Botón Cambio de Contraseña -->
+                <h:form id="headerSecurityForm" style="display: inline-block;">
+                    <p:commandButton id="changePassBtn" icon="pi pi-key" 
+                                     action="#{securityBean.openChangePasswordDialog}" 
+                                     update=":layoutChangePasswordForm" 
+                                     oncomplete="PF('layoutChangePasswordDlg').show();"
+                                     styleClass="btn-logout" 
+                                     style="color: var(--color-primary) !important;"
+                                     title="Cambiar Contraseña (Seguridad)" />
+                </h:form>
+
+                <!-- Botón de Logout -->
+                <h:form id="logoutForm">
+                    <p:commandButton id="logoutBtn" icon="pi pi-power-off" 
+                                     action="#{securityBean.logout}" 
+                                     ajax="false"
+                                     styleClass="btn-logout" 
+                                     title="Cerrar Sesión" />
+                </h:form>
+            </div>
+        </header>
+
+        <!-- CUERPO PRINCIPAL (SIDEBAR + CONTENT) -->
+        <div class="app-body">
+            <!-- BARRA LATERAL (MENÚ DINÁMICO POR ROL) -->
+            <aside class="app-sidebar">
+                <div class="sidebar-header">Navegación</div>
+                <nav class="menu-list">
+                    <ui:repeat value="#{securityBean.authorizedMenus}" var="menu">
+                        <a href="#{request.contextPath}/#{menu.url}"
+                           class="menu-item #{view.viewId.contains(menu.url) ? 'active' : ''}"
+                           data-menu-label="#{menu.nameMenu}"
+                           data-menu-icon="#{menu.icon}">
+                            <i class="#{menu.icon} menu-icon"></i>
+                            <span>#{menu.nameMenu}</span>
+                        </a>
+                    </ui:repeat>
+                </nav>
+            </aside>
+
+            <!-- CONTENIDO DE LA PÁGINA -->
+            <main class="app-content">
+                <ui:insert name="content"></ui:insert>
+            </main>
+        </div>
+    </div>
+
+
+    <!-- DIÁLOGO MODAL INSTITUCIONAL: CAMBIO DE CONTRASEÑA EN DASHBOARD -->
+    <p:dialog id="layoutChangePasswordDlg" widgetVar="layoutChangePasswordDlg" 
+              header="🛡️ Cambio de Contraseña Institucional" 
+              modal="true" resizable="false" closable="true" draggable="false"
+              width="460" styleClass="custom-security-dialog">
+        <h:form id="layoutChangePasswordForm">
+            <p:growl id="layoutDlgMessages" showDetail="true" life="5000" />
+            
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0 0 16px 0; font-weight: 600; text-align: left; line-height: 1.4;">
+                La contraseña debe cumplir con la política institucional de seguridad y se renueva <b>cada 4 meses (120 días)</b>.
+            </p>
+
+            <div style="margin-bottom: 14px; text-align: left;">
+                <label style="display: block; font-size: 0.88rem; color: var(--text-muted); font-weight: 700; margin-bottom: 6px;">Contraseña Actual</label>
+                <p:password id="layoutCurrentPass" value="#{securityBean.currentPassword}" 
+                            placeholder="Contraseña actual" 
+                            styleClass="aether-input login-input" 
+                            style="width: 100% !important;"
+                            required="true" requiredMessage="Debe ingresar la contraseña actual."
+                            feedback="false" toggleMask="true" />
+            </div>
+
+            <div style="margin-bottom: 14px; text-align: left;">
+                <label style="display: block; font-size: 0.88rem; color: var(--text-muted); font-weight: 700; margin-bottom: 6px;">Nueva Contraseña</label>
+                <p:password id="layoutNewPass" value="#{securityBean.newPassword}" 
+                            placeholder="Nueva contraseña" 
+                            styleClass="aether-input login-input" 
+                            style="width: 100% !important;"
+                            required="true" requiredMessage="Debe ingresar la nueva contraseña."
+                            feedback="true" promptLabel="Requisitos de seguridad"
+                            weakLabel="Débil" goodLabel="Aceptable" strongLabel="Fuerte"
+                            toggleMask="true" />
+            </div>
+
+            <div style="margin-bottom: 16px; text-align: left;">
+                <label style="display: block; font-size: 0.88rem; color: var(--text-muted); font-weight: 700; margin-bottom: 6px;">Confirmar Nueva Contraseña</label>
+                <p:password id="layoutConfirmPass" value="#{securityBean.confirmPassword}" 
+                            placeholder="Repita la nueva contraseña" 
+                            styleClass="aether-input login-input" 
+                            style="width: 100% !important;"
+                            required="true" requiredMessage="Debe confirmar la nueva contraseña."
+                            feedback="false" toggleMask="true" />
+            </div>
+
+            <!-- Caja con Requisitos Exigidos -->
+            <div style="background: rgba(217, 223, 235, 0.5); border-radius: 14px; padding: 12px 16px; margin: 12px 0 16px 0; border: 1px solid var(--border-soft); text-align: left;">
+                <div style="font-size: 0.84rem; font-weight: 800; color: #0f766e; margin-bottom: 6px;">
+                    <i class="pi pi-shield"></i> Requisitos Obligatorios de la Clave:
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; margin: 3px 0;">
+                    <i class="pi pi-check" style="color: #10b981;"></i> Mínimo 8 caracteres.
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; margin: 3px 0;">
+                    <i class="pi pi-check" style="color: #10b981;"></i> Al menos 1 número (0-9).
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; margin: 3px 0;">
+                    <i class="pi pi-check" style="color: #10b981;"></i> Letras mayúsculas (A-Z) y minúsculas (a-z).
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text-main); font-weight: 600; margin: 3px 0;">
+                    <i class="pi pi-check" style="color: #10b981;"></i> Al menos 1 símbolo especial (!@#$%^&amp;*...).
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 14px;">
+                <p:commandButton value="Guardar Contraseña" 
+                                 action="#{securityBean.changePassword}" 
+                                 update="layoutDlgMessages" 
+                                 styleClass="login-btn" 
+                                 style="margin-top: 0 !important; width: 100% !important; background: linear-gradient(180deg, #10b981 0%, #059669 100%) !important; color: white !important; font-weight: 800 !important; border-radius: 16px !important;" />
+                <p:commandButton value="Cancelar" 
+                                 action="#{securityBean.closeChangePasswordDialog}" 
+                                 onclick="PF('layoutChangePasswordDlg').hide();"
+                                 process="@this"
+                                 style="background: #94a3b8 !important; border-radius: 16px !important; color: white !important; font-weight: 700 !important;" />
+            </div>
+        </h:form>
+    </p:dialog>
+
+    <!-- Script del Sidebar + Módulo Activo en Header -->
+    <script type="text/javascript">
+    // <![CDATA[
+        // ── Helpers badge globales ───────────────────────────────────────────
+        function showActiveModule(label, iconClass) {
+            var badge     = document.getElementById("activeModuleBadge");
+            var badgeName = document.getElementById("activeModuleName");
+            var badgeIcon = document.getElementById("activeModuleIcon");
+            if (!badge || !badgeName || !badgeIcon) return;
+            badgeIcon.className  = "active-module-icon " + (iconClass || "");
+            badgeName.textContent = label || "";
+            badge.classList.remove("visible");
+            void badge.offsetWidth; // reflow para reiniciar animación
+            badge.classList.add("visible");
+        }
+        function hideActiveModule() {
+            var badge = document.getElementById("activeModuleBadge");
+            if (badge) badge.classList.remove("visible");
+        }
+
+        // ── Función global de Toggle llamada por el logo ─────────────────────
+        // ── Detector Dinámico de Dispositivo (Computador / Tablet / Celular) ──
+        function detectAtalaiaDevice() {
+            var ua = navigator.userAgent || "";
+            var isTablet = /(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua);
+            var isMobile = /Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated/i.test(ua);
+            var width = window.innerWidth || document.documentElement.clientWidth;
+            
+            var type = "desktop";
+            var label = "Computador";
+            var icon = "pi pi-desktop";
+            
+            if (isTablet || (navigator.maxTouchPoints > 1 && width >= 768 && width <= 1024)) {
+                type = "tablet";
+                label = "Tablet";
+                icon = "pi pi-tablet";
+            } else if (isMobile || width < 768) {
+                type = "mobile";
+                label = "Celular";
+                icon = "pi pi-mobile";
+            }
+            
+            document.documentElement.setAttribute("data-device", type);
+            window.ATALAIA_DEVICE = type;
+            
+            var badge = document.getElementById("deviceIndicatorBadge");
+            var lbl = document.getElementById("deviceLabel");
+            var ico = document.getElementById("deviceIcon");
+            if (badge) badge.setAttribute("title", "Dispositivo detectado: " + label);
+            if (lbl) lbl.textContent = label;
+            if (ico) ico.className = icon;
+            
+            // En móvil o tablet, colapsar sidebar al entrar si no se ha toggleado manualmente
+            if ((type === "mobile" || type === "tablet") && !sessionStorage.getItem("userToggledSidebar")) {
+                var sidebar = document.querySelector(".app-sidebar");
+                if (sidebar && !sidebar.classList.contains("collapsed")) {
+                    sidebar.classList.add("collapsed");
+                }
+            }
+        }
+
+        function atalaiaToggle() {
+            sessionStorage.setItem("userToggledSidebar", "true");
+            var sidebar = document.querySelector(".app-sidebar");
+            if (!sidebar) return;
+            
+            var isCollapsed = sidebar.classList.contains("collapsed");
+
+            if (isCollapsed) {
+                // Abrir sidebar
+                sidebar.classList.remove("collapsed");
+                localStorage.setItem("sidebarOpen", "true");
+                hideActiveModule();
+            } else {
+                // Cerrar sidebar
+                sidebar.classList.add("collapsed");
+                localStorage.removeItem("sidebarOpen");
+                // Mostrar badge si hay módulo guardado
+                var lbl = localStorage.getItem("activeMenuLabel");
+                var ico = localStorage.getItem("activeMenuIcon");
+                if (lbl) showActiveModule(lbl, ico);
+            }
+        }
+
+        // ── Funciones globales de Theme Switcher ───────────────────────────
+        function toggleAtalaiaTheme() {
+            var current = localStorage.getItem("atalaiaTheme") || "neomorphism";
+            var nextTheme = (current === "neomorphism") ? "emotional" : "neomorphism";
+            applyAtalaiaTheme(nextTheme);
+        }
+
+        function applyAtalaiaTheme(themeName) {
+            var link = document.getElementById("atalaiaThemeLink");
+            var label = document.getElementById("themeToggleLabel");
+            var ctx = "#{request.contextPath}";
+            
+            if (themeName === "emotional") {
+                if (link) link.href = ctx + "/resources/css/aetherial-ui.css";
+                if (label) label.textContent = "Emotional UI";
+                localStorage.setItem("atalaiaTheme", "emotional");
+            } else {
+                if (link) link.href = ctx + "/resources/css/neumorphic-pure.css";
+                if (label) label.textContent = "NeoMorphism";
+                localStorage.setItem("atalaiaTheme", "neomorphism");
+            }
+        }
+
+        // ── Sistema de Audio Institucional (Moneda al Aire / Monedas Tintineando) ───
+        (function() {
+            var ctxAudioPath = "#{request.contextPath}";
+            var sndEntrada = new Audio(ctxAudioPath + "/resources/audio/moneda_al_aire.mp3");
+            var sndCierre = new Audio(ctxAudioPath + "/resources/audio/monedas_tintineando.mp3");
+            sndEntrada.preload = "auto";
+            sndCierre.preload = "auto";
+
+            function isAudioEnabled() {
+                var v = localStorage.getItem("atalaiaAudioEnabled");
+                return (v === null || v === "true");
+            }
+
+            window.toggleAtalaiaAudio = function() {
+                var current = isAudioEnabled();
+                var next = !current;
+                localStorage.setItem("atalaiaAudioEnabled", String(next));
+                updateAudioUI(next);
+                if (next) {
+                    window.playSonidoEntrada();
+                }
+            };
+
+            function updateAudioUI(enabled) {
+                var btn = document.getElementById("atalaiaAudioToggleBtn");
+                var icon = document.getElementById("atalaiaAudioIcon");
+                var label = document.getElementById("atalaiaAudioLabel");
+                if (!btn || !icon) return;
+
+                if (enabled) {
+                    icon.className = "pi pi-volume-up";
+                    icon.style.color = "#16a34a";
+                    if (label) label.textContent = "Sonido";
+                    btn.title = "Sonido de Operaciones: Activado (Clic para silenciar)";
+                } else {
+                    icon.className = "pi pi-volume-off";
+                    icon.style.color = "#ef4444";
+                    if (label) label.textContent = "Mute";
+                    btn.title = "Sonido de Operaciones: Silenciado (Clic para activar)";
+                }
+            }
+
+            window.playSonidoEntrada = function() {
+                if (!isAudioEnabled()) return;
+                try {
+                    sndEntrada.currentTime = 0;
+                    var p = sndEntrada.play();
+                    if (p && typeof p.catch === "function") {
+                        p.catch(function(e) { console.debug("Audio entrada esperando interacción:", e); });
+                    }
+                } catch(e) {
+                    console.warn("Error reproduciendo sonido entrada:", e);
+                }
+            };
+
+            window.playSonidoCierre = function() {
+                if (!isAudioEnabled()) return;
+                try {
+                    sndCierre.currentTime = 0;
+                    var p = sndCierre.play();
+                    if (p && typeof p.catch === "function") {
+                        p.catch(function(e) { console.debug("Audio cierre esperando interacción:", e); });
+                    }
+                } catch(e) {
+                    console.warn("Error reproduciendo sonido cierre:", e);
+                }
+            };
+
+            function unlockAudioOnGesture() {
+                if (window._atalaiaAudioUnlocked) return;
+                window._atalaiaAudioUnlocked = true;
+                try {
+                    sndEntrada.load();
+                    sndCierre.load();
+                } catch(e) {}
+                document.removeEventListener('click', unlockAudioOnGesture);
+                document.removeEventListener('keydown', unlockAudioOnGesture);
+            }
+            document.addEventListener('click', unlockAudioOnGesture, { once: true });
+            document.addEventListener('keydown', unlockAudioOnGesture, { once: true });
+
+            // ── Detección en Tiempo Real de Entradas y Cierres (RIDER + Ratios) ──
+            window._lastKnownCartPair = null;
+            window._knownCartActiveTradeIds = null;
+            window._lastKnownRatioPair = null;
+            window._knownRatioActiveTradeIds = null;
+
+            function checkCartTradeSounds() {
+                var cartPairEl = document.querySelector("[id$='activeCartPair']");
+                var curPair = cartPairEl && cartPairEl.value ? cartPairEl.value.trim().toUpperCase() : '';
+                var cartTradesEl = document.querySelector("[id$='cartActiveTradesJsonData']");
+                var cartTradesStr = cartTradesEl ? cartTradesEl.value : '[]';
+
+                var activeIds = [];
+                if (cartTradesStr && cartTradesStr !== '[]') {
+                    try {
+                        var parsed = JSON.parse(cartTradesStr);
+                        if (Array.isArray(parsed)) {
+                            for (var i = 0; i < parsed.length; i++) {
+                                var t = parsed[i];
+                                if (!t) continue;
+                                var id = String(t.idTrade || t.ticketId || (t.symbol + '_' + t.openTime));
+                                activeIds.push(id);
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                if (window._knownCartActiveTradeIds === null || window._lastKnownCartPair !== curPair) {
+                    window._lastKnownCartPair = curPair;
+                    window._knownCartActiveTradeIds = new Set(activeIds);
+                    return;
+                }
+
+                var curSet = new Set(activeIds);
+                var hasEntry = false;
+                var hasClose = false;
+
+                curSet.forEach(function(id) {
+                    if (!window._knownCartActiveTradeIds.has(id)) {
+                        hasEntry = true;
+                    }
+                });
+
+                window._knownCartActiveTradeIds.forEach(function(id) {
+                    if (!curSet.has(id)) {
+                        hasClose = true;
+                    }
+                });
+
+                window._knownCartActiveTradeIds = curSet;
+
+                if (hasEntry) {
+                    window.playSonidoEntrada();
+                }
+                if (hasClose) {
+                    if (hasEntry) {
+                        setTimeout(function() { window.playSonidoCierre(); }, 1200);
+                    } else {
+                        window.playSonidoCierre();
+                    }
+                }
+            }
+
+            function checkRatioTradeSounds() {
+                var pairAEl = document.querySelector("[id$='activePairA']");
+                var pairBEl = document.querySelector("[id$='activePairB']");
+                var curRatio = (pairAEl && pairAEl.value ? pairAEl.value.trim().toUpperCase() : '') + '/' +
+                               (pairBEl && pairBEl.value ? pairBEl.value.trim().toUpperCase() : '');
+                var ratioTradesEl = document.querySelector("[id$='activeTradesJson']");
+                var ratioTradesStr = ratioTradesEl ? ratioTradesEl.value : '[]';
+
+                var activeIds = [];
+                if (ratioTradesStr && ratioTradesStr !== '[]') {
+                    try {
+                        var parsedR = JSON.parse(ratioTradesStr);
+                        if (Array.isArray(parsedR)) {
+                            for (var j = 0; j < parsedR.length; j++) {
+                                var rt = parsedR[j];
+                                if (!rt) continue;
+                                var rid = String(rt.idTrade || rt.ticketId || (rt.symbol + '_' + rt.openTime));
+                                activeIds.push(rid);
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                if (window._knownRatioActiveTradeIds === null || window._lastKnownRatioPair !== curRatio) {
+                    window._lastKnownRatioPair = curRatio;
+                    window._knownRatioActiveTradeIds = new Set(activeIds);
+                    return;
+                }
+
+                var curRSet = new Set(activeIds);
+                var hasREntry = false;
+                var hasRClose = false;
+
+                curRSet.forEach(function(id) {
+                    if (!window._knownRatioActiveTradeIds.has(id)) {
+                        hasREntry = true;
+                    }
+                });
+
+                window._knownRatioActiveTradeIds.forEach(function(id) {
+                    if (!curRSet.has(id)) {
+                        hasRClose = true;
+                    }
+                });
+
+                window._knownRatioActiveTradeIds = curRSet;
+
+                if (hasREntry) {
+                    window.playSonidoEntrada();
+                }
+                if (hasRClose) {
+                    if (hasREntry) {
+                        setTimeout(function() { window.playSonidoCierre(); }, 1200);
+                    } else {
+                        window.playSonidoCierre();
+                    }
+                }
+            }
+
+            window.checkAllAtalaiaTradeSounds = function() {
+                checkCartTradeSounds();
+                checkRatioTradeSounds();
+            };
+
+            document.addEventListener("DOMContentLoaded", function() {
+                updateAudioUI(isAudioEnabled());
+                setInterval(window.checkAllAtalaiaTradeSounds, 2500);
+            });
+        })();
+
+        document.addEventListener("DOMContentLoaded", function() {
+            var savedTheme = localStorage.getItem("atalaiaTheme") || "neomorphism";
+            applyAtalaiaTheme(savedTheme);
+            detectAtalaiaDevice();
+            window.addEventListener("resize", detectAtalaiaDevice);
+            window.addEventListener("orientationchange", function() {
+                setTimeout(detectAtalaiaDevice, 200);
+            });
+            var sidebar = document.querySelector(".app-sidebar");
+
+            // ── Limpiar clave legacy (compatibilidad versiones anteriores) ────────
+            localStorage.removeItem("sidebarCollapsed");
+
+            // ── Estado inicial: sidebar colapsado salvo que se haya guardado abierto ──
+            var sidebarOpen = localStorage.getItem("sidebarOpen") === "true";
+
+            if (sidebar) {
+                if (sidebarOpen) {
+                    sidebar.classList.remove("collapsed");
+                    hideActiveModule();
+                } else {
+                    sidebar.classList.add("collapsed");
+                    // Mostrar badge del último módulo visitado
+                    var savedLabel = localStorage.getItem("activeMenuLabel");
+                    var savedIcon  = localStorage.getItem("activeMenuIcon");
+                    if (savedLabel) showActiveModule(savedLabel, savedIcon);
+                }
+            }
+
+            // ── Click en item de menú: cerrar sidebar + guardar módulo elegido ───
+            document.querySelectorAll(".menu-item").forEach(function(item) {
+                item.addEventListener("click", function() {
+                    var label   = item.getAttribute("data-menu-label") || "";
+                    var iconCls = item.getAttribute("data-menu-icon")  || "";
+
+                    // Guardar módulo seleccionado
+                    if (label) {
+                        localStorage.setItem("activeMenuLabel", label);
+                        localStorage.setItem("activeMenuIcon",  iconCls);
+                    }
+
+                    // Cerrar sidebar (próxima página arrancará colapsada)
+                    localStorage.removeItem("sidebarOpen");
+                    if (sidebar) sidebar.classList.add("collapsed");
+                    showActiveModule(label, iconCls);
+                    // La navegación sigue su curso (href del anchor)
+                });
+            });
+        });
+    // ]]>
+    </script>
+</h:body>
+</html>

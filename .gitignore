@@ -19,6 +19,8 @@ venv/
 !*.sh
 !*.java
 !*.js
+!*.xhtml
+!*.xml
 
 
 # 5. Permitir el propio archivo .gitignore

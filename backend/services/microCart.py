@@ -21,7 +21,7 @@ import pymysql
 import urllib.request
 import urllib.error
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 
 import numpy as np
 import pandas as pd
@@ -79,39 +79,82 @@ def isCryptoSymbol(symbol: Optional[str] = None) -> bool:
     return any(c in sym for c in ["BTC", "ETH", "ETHEREUM", "SOL", "LTC", "XRP", "DOGE"])
 
 
-def isWeekendClosingWindow(currentDt: Optional[datetime] = None) -> bool:
+MEXICAN_IPC_STOCKS = {
+    "AC", "ALSEA", "AMX", "BBAJIO", "BIMBO", "CEMEX", "CUERVO", "FEMSA",
+    "GAP", "GCC", "GFNORTE", "GMEXICO", "GRUMA", "KIMBER", "KOF", "LIVEPOL",
+    "MEGACABLE", "OMA", "ORBIA", "PENOLES", "PINFRA", "TLEVISA", "VESTA", "WALMEX"
+}
+MEXICAN_STOCKS_CACHE: Set[str] = set()
+
+
+def isMexicanStock(symbol: Optional[str], dbSession=None) -> bool:
     """
-    Determina si estamos en la ventana de cierre de fin de semana para activos tradicionales:
-    Inicia los Viernes a las 21:30 UTC (15:30 CDMX / 16:30 NY - 30 min antes del cierre de las 22:00 UTC)
-    y se mantiene hasta el Domingo a las 21:00 UTC (17:00 NY / 15:00 CDMX invierno) cuando el mercado reabre.
+    Determina si un símbolo corresponde a una emisora mexicana (BMV / BIVA)
+    cuyo horario de mercado regular concluye a las 14:00 CDMX.
     """
+    if not symbol:
+        return False
+    clean = symbol.upper().replace("/", "").replace("_", "").strip()
+    if clean in MEXICAN_IPC_STOCKS or clean in MEXICAN_STOCKS_CACHE:
+        return True
+
+    if dbSession is not None:
+        try:
+            row = dbSession.execute(text("""
+                SELECT 1 FROM symbols 
+                WHERE (symbol = :s OR UPPER(REPLACE(symbol, '/', '')) = :s)
+                  AND tipo = 'ACCION' AND quote_currency = 'MXN'
+                LIMIT 1
+            """), {"s": clean}).fetchone()
+            if row:
+                MEXICAN_STOCKS_CACHE.add(clean)
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def isWeekendClosingWindow(currentDt: Optional[datetime] = None, symbol: Optional[str] = None, dbSession=None) -> bool:
+    """
+    Determina si estamos en la ventana de cierre preventivo de fin de semana para RIDER:
+    - Criptomonedas: NUNCA se cierran (24/7).
+    - Emisoras Mexicanas (BMV): NUNCA se cierran por fin de semana en RIDER (permanecen abiertas por instrucción del usuario).
+    - Forex / Metales / Activos Internacionales: Inicia Viernes a las 21:30 UTC (15:30 CDMX / 16:30 NY - 30 min antes de 22:00 UTC)
+      hasta Domingo a las 21:00 UTC (17:00 NY / 15:00 CDMX cuando reabre Forex).
+    """
+    if symbol and (isCryptoSymbol(symbol) or isMexicanStock(symbol, dbSession)):
+        return False
+
     now_utc = currentDt.astimezone(timezone.utc) if currentDt and currentDt.tzinfo else (currentDt or datetime.now(timezone.utc))
     weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
     hour = now_utc.hour
     minute = now_utc.minute
 
-    # Viernes después de 21:30 UTC (30 min antes del cierre de las 22:00 UTC)
+    # Regla exclusiva para Forex / Metales / Activos Internacionales en RIDER (cierre 22:00 UTC / 17:00 NY)
+    # Viernes después de 21:30 UTC (15:30 CDMX / 16:30 NY)
     if weekday == 4 and (hour > 21 or (hour == 21 and minute >= 30)):
         return True
     # Sábado completo
     if weekday == 5:
         return True
-    # Domingo antes de 21:00 UTC (17:00 NY)
+    # Domingo antes de 21:00 UTC (17:00 NY / 15:00 CDMX)
     if weekday == 6 and hour < 21:
         return True
 
     return False
 
 
-def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
+def isMarketOpenForSymbol(symbol: Optional[str] = None, dbSession=None) -> bool:
     """
-    Determina si el mercado para un símbolo está abierto actualmente:
-    - Criptomonedas (BTC, ETH, etc.): Abiertas 24/7 sin cierre de fin de semana.
-    - Forex / Metales / Índices: Cierran desde Viernes 21:30 UTC (pre-cierre preventivo) hasta Domingo 21:00 UTC.
+    Determina si el mercado para un símbolo está abierto actualmente en RIDER:
+    - Criptomonedas: Abiertas 24/7.
+    - Emisoras Mexicanas: Permanecen abiertas en RIDER (sin cierre preventivo de fin de semana).
+    - Forex / Metales / Índices USA: Cierran desde Viernes 21:30 UTC (15:30 CDMX) hasta Domingo 21:00 UTC.
     """
-    if isCryptoSymbol(symbol):
+    if isCryptoSymbol(symbol) or isMexicanStock(symbol, dbSession):
         return True
-    return not isWeekendClosingWindow()
+    return not isWeekendClosingWindow(symbol=symbol, dbSession=dbSession)
 
 
 def isDividendShortRestricted(dbSession, symbol: str, currentDt: Optional[datetime] = None) -> Tuple[bool, Optional[str]]:
@@ -337,7 +380,8 @@ def evaluateCartSignals(
     if natrPct is None:
         if dbSession is not None and symbol:
             try:
-                natrPct = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+                natrPeriod = int(carWindow) if carWindow and int(carWindow) > 0 else 14
+                natrPct = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, period=natrPeriod, kMultiplier=CART_NATR_MULTIPLIER)
             except Exception as e:
                 logger.warning(f"Error obteniendo NATR para {symbol} en evaluateCartSignals: {e}")
                 natrPct = CART_STOP_LOSS_FALLBACK_PCT
@@ -575,7 +619,8 @@ def runCartBacktest(
             s = SessionLocal()
             closeSession = True
         try:
-            natrPct = calculateSymbolNATR(s, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+            natrPeriod = int(carWindow) if carWindow and int(carWindow) > 0 else 14
+            natrPct = calculateSymbolNATR(s, symbol, timeframe=timeframe, period=natrPeriod, kMultiplier=CART_NATR_MULTIPLIER)
         except Exception as e:
             logger.warning(f"Error obteniendo NATR para {symbol} en runCartBacktest: {e}")
             natrPct = CART_STOP_LOSS_FALLBACK_PCT
@@ -1221,6 +1266,7 @@ def sendCartWebhookOrder(
             WHERE bc.idCuenta = :idc AND bc.activo = 1
         """)
         activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
+        dbSession.commit()  # Liberar cualquier transacción/lock en MySQL antes de llamada de red al Webhook
         if not activeBrokers:
             logger.warning(f"⚠️ [CART] No hay brokers activos en brokercuenta para idCuenta {idCuenta}. Operando en modo local.")
             return {"success": True, "order_id": "", "fill_price": price}
@@ -1398,8 +1444,9 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         logger.warning(f"⚠️ [CART] Historial insuficiente para {symbol} ({timeframe}).")
         return
 
-    # Cálculo dinámico de volatilidad NATR para Trailing Stop Loss con pisos institucionales realistas
-    rawTsl = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, kMultiplier=CART_NATR_MULTIPLIER)
+    # Cálculo dinámico de volatilidad NATR para Trailing Stop Loss tomando el período del RIDER (carWindow)
+    natrPeriod = int(carWindow) if carWindow and int(carWindow) > 0 else 14
+    rawTsl = calculateSymbolNATR(dbSession, symbol, timeframe=timeframe, period=natrPeriod, kMultiplier=CART_NATR_MULTIPLIER)
     symU = symbol.upper()
     if "BTC" in symU or "ETH" in symU or "CRYPTO" in symU:
         tslPct = max(0.50, float(rawTsl))
@@ -1535,10 +1582,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         trailingSlPx = currentSl
 
-        # 5. Cierre preventivo de Fin de Semana (30 min antes del cierre para símbolos tradicionales, excepto Cripto)
+        # 5. Cierre preventivo de Fin de Semana:
+        # Solo aplica a la estrategia RIDER para activos internacionales/Forex (las emisoras mexicanas y criptomonedas permanecen abiertas)
         hitWeekendClose = False
-        if not isCryptoSymbol(symbol):
-            hitWeekendClose = isWeekendClosingWindow()
+        if not isCryptoSymbol(symbol) and not isMexicanStock(symbol, dbSession):
+            hitWeekendClose = isWeekendClosingWindow(symbol=symbol, dbSession=dbSession)
 
         # 6. Cierre preventivo por Periodo de Dividendos (1 día previo y durante todo el periodo para posiciones CORTAS)
         hitDividendClose = False
@@ -1562,7 +1610,7 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             if hitDividendClose:
                 closeReasonComment = f"Cierre preventivo RIDER por periodo de dividendos ({dividendReason}) para {symbol}"
             elif hitWeekendClose:
-                closeReasonComment = f"Cierre preventivo RIDER por fin de semana (30min antes del cierre de mercado para {symbol})"
+                closeReasonComment = f"Cierre preventivo RIDER por fin de semana (15:30 CDMX - 30min antes del cierre de mercado para {symbol})"
             elif hitCarReentry:
                 closeReasonComment = f"Cierre CART por reingreso al CAR (Px={px:.5f} vs Límite={cMax if isLong else cMin:.5f})"
             elif hitBreakevenExit:
@@ -1579,7 +1627,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             rowSym = dbSession.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
             pipSz = float(rowSym[0]) if rowSym and rowSym[0] else (0.01 if "JPY" in symbol else 0.0001)
 
-            for tr in openTrades:
+            dbSession.commit()  # Liberar locks previos de lectura antes de iterar cierres
+
+            for idxTr, tr in enumerate(openTrades):
+                if idxTr > 0:
+                    time.sleep(2.0)  # Pausa anti-rate-limit (429) entre cierres consecutivos de la misma cuenta
                 closeAct = "close"
                 tId = str(tr["ticketId"] or "") if "ticketId" in tr and tr["ticketId"] else ""
                 idt = int(tr["idTrade"])
@@ -1625,7 +1677,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                     SET Capital = Capital + :pnl
                     WHERE idCuenta = :idc
                 """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
-            dbSession.commit()
+                dbSession.commit()  # Confirmar de inmediato cada trade para evitar row locks prolongados
+
 
             if str(cartRecord.get("accionCierre") or "Continua").strip().lower() == "para":
                 dbSession.execute(text("UPDATE userCART SET operar = 0 WHERE id = :cid"), {"cid": cartRecord["id"]})
@@ -1691,6 +1744,12 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         if useHourFilter and not isWithinOperatingHours(hInicio, hFin):
             if shouldLogStatus(idCuenta, symbol, 60.0):
                 logger.info(f"⏳ [CART] [{symbol}] Fuera de horario operativo configurado ({hInicio} - {hFin} CST). Apertura omitida.")
+            return
+
+        # 4b. Comprobar ventana de fin de semana (no abrir si ya inició el periodo de cierre preventivo)
+        if isWeekendClosingWindow(symbol=symbol, dbSession=dbSession):
+            if shouldLogStatus(idCuenta, symbol, 60.0):
+                logger.info(f"⏸️ [CART] [{symbol}] En ventana de cierre de fin de semana. Apertura omitida.")
             return
 
         candleDt = parseCandleDateTime(latestSig.get("datetime") or latestSig.get("date"))
@@ -1811,6 +1870,7 @@ def runCycle(isHourlyTick: bool = True) -> None:
             FROM userCART
             WHERE (borrado = 0 OR borrado IS NULL)
         """)).mappings().fetchall()
+        dbSession.commit()  # Liberar snapshot de lectura inmediatamente
 
         if not rows:
             logger.info("ℹ️ Sin pares CART registrados en userCART.")
@@ -1825,11 +1885,13 @@ def runCycle(isHourlyTick: bool = True) -> None:
                     SELECT COUNT(*) FROM trades
                     WHERE idCuenta = :idc AND strategy = :strat AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
                 """), {"idc": rec["idCuenta"], "strat": STRATEGY_NAME, "sym": rec["symbol"]}).scalar()
+                dbSession.commit()
                 if not cntOpen or cntOpen == 0:
                     continue
 
             try:
                 evaluateSingleCart(dbSession, dict(rec))
+                dbSession.commit()
             except Exception as ex:
                 try:
                     dbSession.rollback()

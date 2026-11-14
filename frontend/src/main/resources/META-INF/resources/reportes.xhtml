@@ -1,0 +1,732 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="http://xmlns.jcp.org/jsf/html"
+                xmlns:f="http://xmlns.jcp.org/jsf/core"
+                xmlns:p="http://primefaces.org/ui"
+                xmlns:ui="http://xmlns.jcp.org/jsf/facelets"
+                template="/templates/layout.xhtml">
+
+<ui:define name="title">ATALAia - Estado de Cuenta y Reportes Institucionales</ui:define>
+
+<ui:define name="head">
+    <style>
+        .report-header {
+            margin-bottom: 20px;
+        }
+        .report-header h2 {
+            margin: 0;
+            color: var(--text-green, #33ff77);
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        .report-header p {
+            margin: 4px 0 0 0;
+            color: var(--text-muted, #94a3b8);
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        .filter-panel {
+            background: var(--bg-surface, #1e293b);
+            border: 1px solid var(--border-color, #334155);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .filter-item label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-muted, #94a3b8);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .report-kpis {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 14px;
+            margin-bottom: 25px;
+        }
+        @media (max-width: 1400px) {
+            .report-kpis {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        @media (max-width: 768px) {
+            .report-kpis {
+                grid-template-columns: repeat(1, 1fr);
+            }
+        }
+        .kpi-report-card {
+            border-left: 4px solid var(--color-primary, #3b82f6);
+            background: var(--bg-surface, #1e293b);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .kpi-report-card.kpi-initial {
+            border-left-color: #38bdf8;
+        }
+        .kpi-report-card.kpi-deposito {
+            border-left-color: #10b981;
+        }
+        .kpi-report-card.kpi-retiro {
+            border-left-color: #f97316;
+        }
+        .kpi-report-card.kpi-profit {
+            border-left-color: #14532d;
+        }
+        .kpi-report-card.kpi-loss {
+            border-left-color: #ff4d4d;
+        }
+        .kpi-report-card.kpi-winrate {
+            border-left-color: #f59e0b;
+        }
+        .badge-largo {
+            background: #14532d;
+            color: #86efac;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border: 1px solid #22c55e;
+        }
+        .badge-corto {
+            background: #7f1d1d;
+            color: #fca5a5;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border: 1px solid #ef4444;
+        }
+        .badge-deposito {
+            background: #064e3b;
+            color: #6ee7b7;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border: 1px solid #10b981;
+            display: inline-block;
+        }
+        .badge-retiro {
+            background: #7c2d12;
+            color: #fdba74;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            border: 1px solid #f97316;
+            display: inline-block;
+        }
+        .pnl-pos {
+            color: #14532d;
+            font-weight: 800;
+        }
+        .pnl-neg {
+            color: #ff4d4d;
+            font-weight: 800;
+        }
+    </style>
+</ui:define>
+
+<ui:define name="content">
+    <div class="report-header">
+        <h2>Estado de Cuenta Mensual</h2>
+        <p>Bitácora oficial institucional de saldos, rendimientos, aportaciones de capital y operaciones conciliadas con FOREX.com</p>
+    </div>
+
+    <!-- PANEL DE FILTROS, DESCARGA Y REGISTRO DE MOVIMIENTOS -->
+    <h:form id="filterForm">
+        <p:growl id="growl" showDetail="true" life="4000" />
+        
+        <div class="filter-panel">
+            <div class="filter-group">
+                <!-- Selector de Cuenta -->
+                <div class="filter-item">
+                    <label>Cuenta de Trading:</label>
+                    <p:selectOneMenu id="comboCuenta" value="#{reportesBean.selectedAccountId}" style="min-width: 240px;">
+                        <f:selectItems value="#{reportesBean.userAccounts}" var="acc"
+                                       itemLabel="#{acc.nombreCuenta} (##{acc.idCuenta}) - $#{acc.capital}"
+                                       itemValue="#{acc.idCuenta}" />
+                        <p:ajax listener="#{reportesBean.consultarEstadoCuenta}" update=":kpiPanel :tablePanel :filterForm:growl" />
+                    </p:selectOneMenu>
+                </div>
+
+                <!-- Selector de Año -->
+                <div class="filter-item">
+                    <label>Año:</label>
+                    <p:selectOneMenu id="comboAnio" value="#{reportesBean.selectedAnio}" style="min-width: 110px;">
+                        <f:selectItems value="#{reportesBean.aniosDisponibles}" var="a"
+                                       itemLabel="#{a}" itemValue="#{a}" />
+                        <p:ajax listener="#{reportesBean.consultarEstadoCuenta}" update=":kpiPanel :tablePanel :filterForm:growl" />
+                    </p:selectOneMenu>
+                </div>
+
+                <!-- Selector de Mes -->
+                <div class="filter-item">
+                    <label>Mes:</label>
+                    <p:selectOneMenu id="comboMes" value="#{reportesBean.selectedMes}" style="min-width: 140px;">
+                        <f:selectItems value="#{reportesBean.mesesDisponibles}" var="m"
+                                       itemLabel="#{m.nombre}" itemValue="#{m.id}" />
+                        <p:ajax listener="#{reportesBean.consultarEstadoCuenta}" update=":kpiPanel :tablePanel :filterForm:growl" />
+                    </p:selectOneMenu>
+                </div>
+
+                <div class="filter-item" style="justify-content: flex-end;">
+                    <p:commandButton value="Consultar" icon="pi pi-search"
+                                     actionListener="#{reportesBean.consultarEstadoCuenta}"
+                                     update=":kpiPanel :tablePanel :filterForm:growl"
+                                     styleClass="ui-button-primary" />
+                </div>
+            </div>
+
+            <!-- Acciones Principales: Registrar Capital y Descargar PDF -->
+            <div class="filter-group">
+                <p:commandButton value="Registrar Depósito / Retiro" icon="pi pi-wallet"
+                                 type="button" onclick="PF('dlgMovimiento').show();"
+                                 styleClass="ui-button-success" style="font-weight: 700; background: #10b981; border-color: #059669;" />
+
+                <p:commandButton value="Descargar Estado de Cuenta (PDF)" icon="pi pi-file-pdf"
+                                 ajax="false" styleClass="ui-button-danger" style="font-weight: 700;">
+                    <p:fileDownload value="#{reportesBean.pdfFile}" />
+                </p:commandButton>
+            </div>
+        </div>
+    </h:form>
+
+    <!-- KPIs HOLOGRÁFICOS DEL PERIODO (FÓRMULA CONTABLE COMPLETA) -->
+    <h:panelGroup id="kpiPanel" layout="block">
+        <div class="report-kpis">
+            <!-- 1. Saldo Inicial -->
+            <div class="kpi-card kpi-report-card kpi-initial">
+                <div class="kpi-label">Saldo Inicial (#{reportesBean.etiquetaPeriodo})</div>
+                <div class="kpi-value" style="color: #38bdf8;">
+                    <h:outputText value="#{reportesBean.saldoInicial}">
+                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                    </h:outputText> USD
+                </div>
+            </div>
+
+            <!-- 2. Depósitos del Mes -->
+            <div class="kpi-card kpi-report-card kpi-deposito">
+                <div class="kpi-label">Depósitos del Mes</div>
+                <div class="kpi-value" style="color: #34d399;">
+                    +<h:outputText value="#{reportesBean.depositos}">
+                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                    </h:outputText> USD
+                </div>
+            </div>
+
+            <!-- 3. Retiros del Mes -->
+            <div class="kpi-card kpi-report-card kpi-retiro">
+                <div class="kpi-label">Retiros del Mes</div>
+                <div class="kpi-value" style="color: #fb923c;">
+                    -<h:outputText value="#{reportesBean.retiros}">
+                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                    </h:outputText> USD
+                </div>
+            </div>
+
+            <!-- 4. PnL Neto y Rendimiento -->
+            <div class="kpi-card kpi-report-card #{reportesBean.pnlNeto >= 0 ? 'kpi-profit' : 'kpi-loss'}">
+                <div class="kpi-label">PnL Neto Realizado (Trading)</div>
+                <div class="kpi-value #{reportesBean.pnlNeto >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                    <h:outputText value="#{reportesBean.pnlNeto >= 0 ? '+' : ''}" />
+                    <h:outputText value="#{reportesBean.pnlNeto}">
+                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                    </h:outputText> USD
+                    <span style="font-size: 0.9rem; margin-left: 4px;">
+                        (<h:outputText value="#{reportesBean.rendimientoPct >= 0 ? '+' : ''}" />
+                        <h:outputText value="#{reportesBean.rendimientoPct}">
+                            <f:convertNumber maxFractionDigits="2" />
+                        </h:outputText>%)
+                    </span>
+                </div>
+            </div>
+
+            <!-- 5. Saldo Final / Actual -->
+            <div class="kpi-card kpi-report-card">
+                <div class="kpi-label">Saldo de Cierre / Actual</div>
+                <div class="kpi-value" style="color: #e2e8f0;">
+                    <h:outputText value="#{reportesBean.saldoFinal}">
+                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                    </h:outputText> USD
+                </div>
+            </div>
+
+            <!-- 6. Tasa de Acierto y Conteo de Operaciones -->
+            <div class="kpi-card kpi-report-card kpi-winrate">
+                <div class="kpi-label">Win Rate / Trades Forex</div>
+                <div class="kpi-value" style="color: #f59e0b;">
+                    <h:outputText value="#{reportesBean.winRate}">
+                        <f:convertNumber maxFractionDigits="1" />
+                    </h:outputText>%
+                    <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 6px;">
+                        (#{reportesBean.tradesGanadores}G / #{reportesBean.tradesPerdedores}P de #{reportesBean.totalTrades})
+                    </span>
+                </div>
+            </div>
+        </div>
+    </h:panelGroup>
+
+    <!-- PANELES TABULADOS: RESUMEN POR ESTRATEGIA, DETALLE POR ESTRATEGIA Y MOVIMIENTOS -->
+    <h:panelGroup id="tablePanel" layout="block">
+        <p:tabView id="reportTabs" styleClass="aether-tabview">
+            
+            <!-- PESTAÑA 1: RESUMEN POR ESTRATEGIA -->
+            <p:tab title="📊 Resumen por Estrategia" titletip="#{reportesBean.resumenEstrategias.size()} estrategias activas en el periodo">
+                <h:form id="resumenStratForm">
+                    <p:dataTable id="tblResumenStrat" value="#{reportesBean.resumenEstrategias}" var="re"
+                                 emptyMessage="No se registraron operaciones de trading en este periodo mensual."
+                                 styleClass="ui-datatable" style="margin-bottom: 20px;">
+                        
+                        <p:column headerText="Estrategia" style="font-weight: 800; font-size: 1.05rem;">
+                            <span class="chip chip-active" style="font-size: 0.95rem; font-weight: 800; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"
+                                  title="#{re.totalTrades} Trades · Win Rate: #{re.winRate}% (#{re.tradesGanadores}G / #{re.tradesPerdedores}P) · PnL Neto: #{re.pnlNeto >= 0 ? '+' : ''}$#{re.pnlNeto} USD · Volumen: #{re.lotes} lotes">
+                                <i class="pi pi-compass" style="color: #38bdf8;"></i>
+                                <h:outputText value="#{re.estrategia}" />
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Trades" style="width: 90px; text-align: center; font-weight: 800;">
+                            <h:outputText value="#{re.totalTrades}" />
+                        </p:column>
+                        
+                        <p:column headerText="G / P" style="width: 120px; text-align: center; font-weight: 700;">
+                            <span style="color: #34d399;">#{re.tradesGanadores}G</span>
+                            <span style="color: var(--text-muted); margin: 0 4px;">/</span>
+                            <span style="color: #f87171;">#{re.tradesPerdedores}P</span>
+                        </p:column>
+                        
+                        <p:column headerText="Win Rate" style="width: 100px; text-align: center; font-weight: 800; color: #f59e0b;">
+                            <h:outputText value="#{re.winRate}">
+                                <f:convertNumber maxFractionDigits="1" minFractionDigits="1" />
+                            </h:outputText>%
+                        </p:column>
+                        
+                        <p:column headerText="Volumen (Lotes)" style="width: 130px; text-align: right; font-weight: 700;">
+                            <h:outputText value="#{re.lotes}">
+                                <f:convertNumber maxFractionDigits="0" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="PnL Bruto (USD)" style="width: 140px; text-align: right; font-weight: 800;">
+                            <span class="#{re.pnlBruto >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                                <h:outputText value="#{re.pnlBruto >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{re.pnlBruto}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Comisiones" style="width: 110px; text-align: right; color: var(--text-muted);">
+                            <h:outputText value="#{re.comisiones}">
+                                <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="PnL Neto (USD)" style="width: 140px; text-align: right; font-weight: 800;">
+                            <span class="#{re.pnlNeto >= 0 ? 'pnl-pos' : 'pnl-neg'}" style="font-size: 1.05rem;">
+                                <h:outputText value="#{re.pnlNeto >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{re.pnlNeto}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="% Contribución" style="width: 120px; text-align: center; font-weight: 800; color: #38bdf8;">
+                            <h:outputText value="#{re.contribucionPct}">
+                                <f:convertNumber maxFractionDigits="1" minFractionDigits="1" />
+                            </h:outputText>%
+                        </p:column>
+
+                        <!-- Fila de Totales Consolidada -->
+                        <p:columnGroup type="footer">
+                            <p:row>
+                                <p:column footerText="TOTAL CONSOLIDADO" style="text-align: left; font-weight: 900; font-size: 1.05rem;" />
+                                <p:column footerText="#{reportesBean.totalTrades}" style="text-align: center; font-weight: 900;" />
+                                <p:column footerText="#{reportesBean.tradesGanadores}G / #{reportesBean.tradesPerdedores}P" style="text-align: center; font-weight: 800;" />
+                                <p:column footerText="#{reportesBean.winRate}%" style="text-align: center; font-weight: 900; color: #f59e0b;" />
+                                <p:column footerText="-" style="text-align: right;" />
+                                <p:column footerText="$#{reportesBean.pnlBruto}" style="text-align: right; font-weight: 900;" />
+                                <p:column footerText="$#{reportesBean.comisiones}" style="text-align: right;" />
+                                <p:column footerText="$#{reportesBean.pnlNeto}" style="text-align: right; font-weight: 900; font-size: 1.1rem;" />
+                                <p:column footerText="100.0%" style="text-align: center; font-weight: 900; color: #38bdf8;" />
+                            </p:row>
+                        </p:columnGroup>
+                    </p:dataTable>
+                </h:form>
+            </p:tab>
+
+            <!-- PESTAÑA 2: RESUMEN POR SÍMBOLO -->
+            <p:tab title="💱 Resumen por Símbolo" titletip="#{reportesBean.resumenSymbols.size()} símbolos operados en el periodo">
+                <h:form id="resumenSymbolForm">
+                    <p:dataTable id="tblResumenSymbol" value="#{reportesBean.resumenSymbols}" var="rs"
+                                 emptyMessage="No se registraron operaciones de trading en este periodo mensual."
+                                 styleClass="ui-datatable" style="margin-bottom: 20px;">
+                        
+                        <p:column headerText="Símbolo / Par" style="font-weight: 800; font-size: 1.05rem;">
+                            <span class="chip chip-active" style="font-size: 0.95rem; font-weight: 800; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"
+                                  title="#{rs.totalTrades} Trades · Win Rate: #{rs.winRate}% (#{rs.tradesGanadores}G / #{rs.tradesPerdedores}P) · PnL Neto: #{rs.pnlNeto >= 0 ? '+' : ''}$#{rs.pnlNeto} USD · Volumen: #{rs.lotes} lotes">
+                                <i class="pi pi-chart-line" style="color: #a78bfa;"></i>
+                                <h:outputText value="#{rs.symbol}" />
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Trades" style="width: 90px; text-align: center; font-weight: 800;">
+                            <h:outputText value="#{rs.totalTrades}" />
+                        </p:column>
+                        
+                        <p:column headerText="G / P" style="width: 120px; text-align: center; font-weight: 700;">
+                            <span style="color: #34d399;">#{rs.tradesGanadores}G</span>
+                            <span style="color: var(--text-muted); margin: 0 4px;">/</span>
+                            <span style="color: #f87171;">#{rs.tradesPerdedores}P</span>
+                        </p:column>
+                        
+                        <p:column headerText="Win Rate" style="width: 100px; text-align: center; font-weight: 800; color: #f59e0b;">
+                            <h:outputText value="#{rs.winRate}">
+                                <f:convertNumber maxFractionDigits="1" minFractionDigits="1" />
+                            </h:outputText>%
+                        </p:column>
+                        
+                        <p:column headerText="Volumen (Lotes)" style="width: 130px; text-align: right; font-weight: 700;">
+                            <h:outputText value="#{rs.lotes}">
+                                <f:convertNumber maxFractionDigits="2" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="PnL Bruto (USD)" style="width: 140px; text-align: right; font-weight: 800;">
+                            <span class="#{rs.pnlBruto >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                                <h:outputText value="#{rs.pnlBruto >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{rs.pnlBruto}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Comisiones" style="width: 110px; text-align: right; color: var(--text-muted);">
+                            <h:outputText value="#{rs.comisiones}">
+                                <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="PnL Neto (USD)" style="width: 140px; text-align: right; font-weight: 800;">
+                            <span class="#{rs.pnlNeto >= 0 ? 'pnl-pos' : 'pnl-neg'}" style="font-size: 1.05rem;">
+                                <h:outputText value="#{rs.pnlNeto >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{rs.pnlNeto}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="% Contribución" style="width: 120px; text-align: center; font-weight: 800; color: #38bdf8;">
+                            <h:outputText value="#{rs.contribucionPct}">
+                                <f:convertNumber maxFractionDigits="1" minFractionDigits="1" />
+                            </h:outputText>%
+                        </p:column>
+
+                        <!-- Fila de Totales Consolidada -->
+                        <p:columnGroup type="footer">
+                            <p:row>
+                                <p:column footerText="TOTAL CONSOLIDADO" style="text-align: left; font-weight: 900; font-size: 1.05rem;" />
+                                <p:column footerText="#{reportesBean.totalTrades}" style="text-align: center; font-weight: 900;" />
+                                <p:column footerText="#{reportesBean.tradesGanadores}G / #{reportesBean.tradesPerdedores}P" style="text-align: center; font-weight: 800;" />
+                                <p:column footerText="#{reportesBean.winRate}%" style="text-align: center; font-weight: 900; color: #f59e0b;" />
+                                <p:column footerText="-" style="text-align: right;" />
+                                <p:column footerText="$#{reportesBean.pnlBruto}" style="text-align: right; font-weight: 900;" />
+                                <p:column footerText="$#{reportesBean.comisiones}" style="text-align: right;" />
+                                <p:column footerText="$#{reportesBean.pnlNeto}" style="text-align: right; font-weight: 900; font-size: 1.1rem;" />
+                                <p:column footerText="100.0%" style="text-align: center; font-weight: 900; color: #38bdf8;" />
+                            </p:row>
+                        </p:columnGroup>
+                    </p:dataTable>
+                </h:form>
+            </p:tab>
+
+            <!-- PESTAÑA 3: DETALLE POR ESTRATEGIA -->
+            <p:tab title="📑 Detalle por Estrategia" titletip="#{reportesBean.detalleEstrategias.size()} estrategias detalladas en el periodo">
+                <h:form id="detalleStratForm">
+                    <p:accordionPanel id="accDetalleStrat" value="#{reportesBean.detalleEstrategias}" var="det"
+                                      multiple="true" activeIndex="0,1,2,3,4" styleClass="aether-accordion" style="margin-top: 10px;">
+                        
+                        <p:tab title="🎯 #{det.estrategia}" titletip="#{det.resumen.totalTrades} Trades · Win Rate: #{det.resumen.winRate}% (#{det.resumen.tradesGanadores}G / #{det.resumen.tradesPerdedores}P) · PnL Neto: #{det.resumen.pnlNeto >= 0 ? '+' : ''}$#{det.resumen.pnlNeto} USD · Volumen: #{det.resumen.lotes} lotes">
+                            <f:facet name="title">
+                                <span title="#{det.resumen.totalTrades} Trades · Win Rate: #{det.resumen.winRate}% (#{det.resumen.tradesGanadores}G / #{det.resumen.tradesPerdedores}P) · PnL Neto: #{det.resumen.pnlNeto >= 0 ? '+' : ''}$#{det.resumen.pnlNeto} USD · Volumen: #{det.resumen.lotes} lotes" style="font-weight: 800; font-size: 1.05rem; cursor: pointer;">
+                                    🎯 #{det.estrategia}
+                                </span>
+                            </f:facet>
+                            <p:dataTable id="tblDetalleTrades" value="#{det.trades}" var="tr"
+                                         emptyMessage="Sin operaciones para esta estrategia en el periodo."
+                                         paginator="true" rows="20" paginatorPosition="bottom"
+                                         styleClass="ui-datatable">
+                                
+                                <p:column headerText="# Trade" style="width: 75px; text-align: center;">
+                                    <h:outputText value="##{tr.idTrade}" style="font-weight: 700; color: var(--text-muted);" />
+                                </p:column>
+                                
+                                <p:column headerText="Fecha Cierre" style="width: 140px; text-align: center;">
+                                    <h:outputText value="#{tr.closeTime}" />
+                                </p:column>
+                                
+                                <p:column headerText="Setup / Ratio">
+                                    <span class="chip chip-active">#{tr.setup}</span>
+                                </p:column>
+                                
+                                <p:column headerText="Símbolo" style="width: 100px; text-align: center;">
+                                    <b>#{tr.symbol}</b>
+                                </p:column>
+                                
+                                <p:column headerText="Dirección" style="text-align: center; width: 95px;">
+                                    <span class="#{tr.direction eq 'LARGO' or tr.direction eq 'BUY' ? 'badge-largo' : 'badge-corto'}">
+                                        #{tr.direction}
+                                    </span>
+                                </p:column>
+                                
+                                <p:column headerText="Lotes" style="text-align: right; width: 95px;">
+                                    <h:outputText value="#{tr.size}">
+                                        <f:convertNumber maxFractionDigits="0" />
+                                    </h:outputText>
+                                </p:column>
+                                
+                                <p:column headerText="Entrada" style="text-align: right; width: 105px;">
+                                    <h:outputText value="#{tr.entryPrice}">
+                                        <f:convertNumber minFractionDigits="5" maxFractionDigits="5" />
+                                    </h:outputText>
+                                </p:column>
+                                
+                                <p:column headerText="Salida" style="text-align: right; width: 105px;">
+                                    <h:outputText value="#{tr.exitPrice}">
+                                        <f:convertNumber minFractionDigits="5" maxFractionDigits="5" />
+                                    </h:outputText>
+                                </p:column>
+                                
+                                <p:column headerText="PnL (USD)" style="text-align: right; width: 120px;">
+                                    <span class="#{tr.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                                        <h:outputText value="#{tr.pnl >= 0 ? '+' : ''}" />
+                                        <h:outputText value="#{tr.pnl}">
+                                            <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                        </h:outputText>
+                                    </span>
+                                </p:column>
+                                
+                                <p:column headerText="Comisión" style="text-align: right; width: 95px; color: var(--text-muted);">
+                                    <h:outputText value="#{tr.commission}">
+                                        <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                    </h:outputText>
+                                </p:column>
+                                
+                                <p:column headerText="Ticket Broker" style="text-align: center; width: 115px;">
+                                    <h:outputText value="#{tr.ticketId}" style="font-family: monospace; font-size: 0.85rem;" />
+                                </p:column>
+
+                                <!-- Subtotal al pie de cada estrategia -->
+                                <p:columnGroup type="footer">
+                                    <p:row>
+                                        <p:column colspan="8" footerText="Subtotal #{det.estrategia}:" style="text-align: right; font-weight: 800;" />
+                                        <p:column footerText="#{det.resumen.pnlNeto >= 0 ? '+' : ''}$#{det.resumen.pnlNeto} USD" style="text-align: right; font-weight: 900;" />
+                                        <p:column footerText="$#{det.resumen.comisiones}" style="text-align: right;" />
+                                        <p:column footerText="" />
+                                    </p:row>
+                                </p:columnGroup>
+                            </p:dataTable>
+                        </p:tab>
+                    </p:accordionPanel>
+                </h:form>
+            </p:tab>
+
+            <!-- PESTAÑA 4: BITÁCORA GLOBAL CRONOLÓGICA -->
+            <p:tab title="📋 Bitácora Global" titletip="#{reportesBean.tradesList.size()} operaciones cerradas en el periodo">
+                <h:form id="reportForm">
+                    <p:dataTable id="tradesTable" value="#{reportesBean.tradesList}" var="tr"
+                                 emptyMessage="No se encontraron operaciones cerradas de Forex para este periodo mensual."
+                                 paginator="true" rows="25" paginatorPosition="bottom"
+                                 styleClass="ui-datatable">
+                        
+                        <p:column headerText="# Trade" style="width: 80px; text-align: center;">
+                            <h:outputText value="##{tr.idTrade}" style="font-weight: 700; color: var(--text-muted);" />
+                        </p:column>
+                        
+                        <p:column headerText="Fecha Cierre" style="width: 140px; text-align: center;">
+                            <h:outputText value="#{tr.closeTime}" />
+                        </p:column>
+                        
+                        <p:column headerText="Setup / Ratio">
+                            <span class="chip chip-active">#{tr.setup}</span>
+                        </p:column>
+                        
+                        <p:column headerText="Símbolo" style="width: 100px; text-align: center;">
+                            <b>#{tr.symbol}</b>
+                        </p:column>
+                        
+                        <p:column headerText="Dirección" style="text-align: center; width: 100px;">
+                            <span class="#{tr.direction eq 'LARGO' or tr.direction eq 'BUY' ? 'badge-largo' : 'badge-corto'}">
+                                #{tr.direction}
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Lotes" style="text-align: right; width: 100px;">
+                            <h:outputText value="#{tr.size}">
+                                <f:convertNumber maxFractionDigits="0" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="Entrada" style="text-align: right; width: 110px;">
+                            <h:outputText value="#{tr.entryPrice}">
+                                <f:convertNumber minFractionDigits="5" maxFractionDigits="5" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="Salida" style="text-align: right; width: 110px;">
+                            <h:outputText value="#{tr.exitPrice}">
+                                <f:convertNumber minFractionDigits="5" maxFractionDigits="5" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="PnL (USD)" style="text-align: right; width: 120px;">
+                            <span class="#{tr.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">
+                                <h:outputText value="#{tr.pnl >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{tr.pnl}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+                        
+                        <p:column headerText="Comisión" style="text-align: right; width: 100px;">
+                            <h:outputText value="#{tr.commission}">
+                                <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                            </h:outputText>
+                        </p:column>
+                        
+                        <p:column headerText="Ticket Broker" style="text-align: center; width: 120px;">
+                            <h:outputText value="#{tr.ticketId}" style="font-family: monospace; font-size: 0.85rem;" />
+                        </p:column>
+                    </p:dataTable>
+                </h:form>
+            </p:tab>
+
+            <!-- PESTAÑA 5: MOVIMIENTOS DE CAPITAL (DEPÓSITOS Y RETIROS) -->
+            <p:tab title="💰 Movimientos de Capital" titletip="#{reportesBean.movimientosCapitalList.size()} depósitos y retiros registrados">
+                <h:form id="movimientosForm">
+                    <p:dataTable id="tblMovimientos" value="#{reportesBean.movimientosCapitalList}" var="mc"
+                                 emptyMessage="No se registraron depósitos ni retiros en este periodo mensual."
+                                 paginator="true" rows="15" paginatorPosition="bottom"
+                                 styleClass="ui-datatable">
+                        
+                        <p:column headerText="# ID" style="width: 80px; text-align: center;">
+                            <h:outputText value="##{mc.idTrade}" style="font-weight: 700; color: var(--text-muted);" />
+                        </p:column>
+
+                        <p:column headerText="Fecha" style="width: 150px; text-align: center;">
+                            <h:outputText value="#{mc.fecha}" />
+                        </p:column>
+
+                        <p:column headerText="Tipo de Movimiento" style="width: 140px; text-align: center;">
+                            <span class="#{mc.tipo eq 'Depósito' or mc.tipo eq 'DEPOSITO' ? 'badge-deposito' : 'badge-retiro'}">
+                                #{mc.tipo eq 'Depósito' or mc.tipo eq 'DEPOSITO' ? '💰 DEPÓSITO' : '💸 RETIRO'}
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Concepto / Referencia">
+                            <b>#{mc.concepto}</b>
+                        </p:column>
+
+                        <p:column headerText="Monto (USD)" style="text-align: right; width: 140px;">
+                            <span class="#{mc.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}" style="font-size: 1rem;">
+                                <h:outputText value="#{mc.pnl >= 0 ? '+' : ''}" />
+                                <h:outputText value="#{mc.pnl}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </span>
+                        </p:column>
+
+                        <p:column headerText="Folio / Comprobante" style="width: 160px; text-align: center;">
+                            <h:outputText value="#{mc.folio}" style="font-family: monospace; color: var(--text-muted);" />
+                        </p:column>
+
+                    </p:dataTable>
+                </h:form>
+            </p:tab>
+        </p:tabView>
+    </h:panelGroup>
+
+    <!-- MODAL DE CAPTURA: REGISTRAR DEPÓSITO O RETIRO -->
+    <p:dialog id="dlgMovimiento" widgetVar="dlgMovimiento" header="Registrar Movimiento de Capital"
+              modal="true" responsive="true" width="460" styleClass="aether-dialog"
+              showEffect="fade" hideEffect="fade" closeOnEscape="true" resizable="false">
+        <h:form id="dlgMovForm">
+            <div style="padding: 10px 4px;">
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        Tipo de Movimiento:
+                    </label>
+                    <p:selectOneButton value="#{reportesBean.nuevoTipo}" style="width: 100%;">
+                        <f:selectItem itemLabel="💰 Depósito (+)" itemValue="DEPOSITO" />
+                        <f:selectItem itemLabel="💸 Retiro (-)" itemValue="RETIRO" />
+                    </p:selectOneButton>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        Monto en USD:
+                    </label>
+                    <p:inputNumber value="#{reportesBean.nuevoMonto}" symbol="$ "
+                                   decimalPlaces="2" required="true" minValue="0.01"
+                                   placeholder="0.00" style="width: 100%;" inputStyle="width: 100%; font-size: 1.1rem; font-weight: 700;" />
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        Fecha del Movimiento:
+                    </label>
+                    <p:datePicker value="#{reportesBean.nuevaFecha}" pattern="yyyy-MM-dd"
+                                  showIcon="true" style="width: 100%;" inputStyle="width: 100%;" />
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        Concepto / Referencia:
+                    </label>
+                    <p:inputText value="#{reportesBean.nuevoConcepto}"
+                                 placeholder="Ej: Aportación Capital, Retiro Utilidades..." style="width: 100%;" />
+                </div>
+
+                <div style="margin-bottom: 24px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 6px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        Folio Bancario / Comprobante (Opcional):
+                    </label>
+                    <p:inputText value="#{reportesBean.nuevoFolio}"
+                                 placeholder="Ej: SPEI-984218, TRF-0192" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--border-color, #334155); padding-top: 16px;">
+                    <p:commandButton value="Cancelar" type="button" onclick="PF('dlgMovimiento').hide();"
+                                     styleClass="ui-button-secondary ui-button-outlined" />
+                    
+                    <p:commandButton value="Guardar Movimiento" icon="pi pi-check"
+                                     actionListener="#{reportesBean.registrarMovimiento}"
+                                     update=":filterForm:comboCuenta :kpiPanel :tablePanel :filterForm:growl :dlgMovForm"
+                                     styleClass="ui-button-success" style="font-weight: 700; background: #10b981; border-color: #059669;" />
+                </div>
+            </div>
+        </h:form>
+    </p:dialog>
+
+</ui:define>
+</ui:composition>

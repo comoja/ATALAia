@@ -28,6 +28,7 @@ from backend.services.monthlyBalanceService import (
     registrarMovimientoCapital,
     obtenerMovimientosCapital
 )
+from backend.services.conciliacionService import obtenerConciliacionPosiciones
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -4429,6 +4430,22 @@ def descargarPdfEstadoCuenta(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/conciliacion/posiciones")
+async def getConciliacionPosiciones(
+    idUsuario: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Auditoría y Conciliación de Posiciones en vivo entre ATALAia y FOREX.com (Solo Consulta).
+    """
+    try:
+        data = await obtenerConciliacionPosiciones(db, idUsuario)
+        return {"status": "success", "data": data}
+    except Exception as e:
+        logger.error(f"Error en conciliación de posiciones: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/reportes/inicializar-saldos")
 def api_inicializar_saldos(
     anio: Optional[int] = None,
@@ -5338,7 +5355,11 @@ async def manual_close_cart(
     if rowPx and rowPx[0]:
         px = float(rowPx[0])
 
-    for tr in openTrades:
+    db.commit()  # Liberar cualquier lock en MySQL antes de llamadas al Webhook
+
+    for idxTr, tr in enumerate(openTrades):
+        if idxTr > 0:
+            time.sleep(2.0)  # Pausa anti-429 entre cierres consecutivos
         tId = str(tr["ticketId"] or "") if "ticketId" in tr and tr["ticketId"] else ""
         idt = int(tr["idTrade"])
         epx = float(tr["entryPrice"] or (px or 1.0))
@@ -5379,6 +5400,7 @@ async def manual_close_cart(
             SET Capital = Capital + :pnl
             WHERE idCuenta = :idc
         """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
+        db.commit()  # Commit inmediato tras cada trade
 
     db.execute(text("UPDATE userCART SET operar = :op WHERE idCuenta = :idc AND (symbol = :sym)"), {"op": targetOperar, "idc": idCuenta, "sym": symbol})
     db.commit()

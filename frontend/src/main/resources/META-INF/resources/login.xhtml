@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:h="http://xmlns.jcp.org/jsf/html"
+      xmlns:f="http://xmlns.jcp.org/jsf/core"
+      xmlns:p="http://primefaces.org/ui">
+<h:head>
+    <title>ATALA.ia | Acceso Seguro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Icono institucional y pestaña del navegador (Favicon con Fondo Transparente) -->
+    <link rel="icon" type="image/png" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    <link rel="shortcut icon" type="image/x-icon" href="#{request.contextPath}/favicon.ico" />
+    <link rel="apple-touch-icon" href="#{request.contextPath}/resources/images/ATALA.ia.png" />
+    
+    <!-- Tipografías institucionales -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+
+    <style>
+        /* Reset y Base Neumórfica Suave */
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #e0e5ec;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Ambient Glow Esmeralda de fondo */
+        .login-background {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            overflow: hidden;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .blur-circle {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.45;
+            animation: pulseGlow 10s ease-in-out infinite alternate;
+        }
+
+        .circle-1 {
+            width: 450px;
+            height: 450px;
+            background: #10b981;
+            top: -120px;
+            left: -120px;
+        }
+
+        .circle-2 {
+            width: 400px;
+            height: 400px;
+            background: #059669;
+            bottom: -100px;
+            right: -100px;
+            animation-delay: -5s;
+        }
+
+        @keyframes pulseGlow {
+            0% { transform: scale(0.9) translate(0, 0); opacity: 0.35; }
+            100% { transform: scale(1.15) translate(30px, 30px); opacity: 0.6; }
+        }
+
+        /* Tarjeta Neumórfica Central Soft Clay */
+        .login-card {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 430px;
+            background: #e0e5ec;
+            border-radius: 36px;
+            padding: 42px 36px 36px 36px;
+            text-align: center;
+            box-shadow: -14px -14px 28px rgba(255, 255, 255, 0.95), 
+                        14px 14px 28px rgba(163, 177, 198, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            transition: all 0.3s ease;
+        }
+
+        /* Logo de Video Circular Neumórfico */
+        .login-logo-wrapper {
+            margin: 0 auto 20px auto;
+            width: 110px;
+            height: 110px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-logo-video {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+            object-position: calc(50% + 3px) 50%;
+            border: 2.5px solid #10b981;
+            box-shadow: 0 0 24px rgba(16, 185, 129, 0.45), 
+                        -6px -6px 14px rgba(255, 255, 255, 0.9), 
+                        6px 6px 14px rgba(163, 177, 198, 0.6);
+        }
+
+        .login-header {
+            margin-bottom: 24px;
+        }
+
+        .login-header h1 {
+            margin: 0;
+            color: #1e293b;
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2em;
+            letter-spacing: -0.5px;
+            font-weight: 800;
+        }
+
+        .login-header p {
+            margin: 4px 0 0 0;
+            color: #059669;
+            font-size: 0.92em;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+        }
+
+        .input-group {
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.88em;
+            color: #64748b;
+            font-weight: 700;
+            margin-bottom: 6px;
+            padding-left: 4px;
+        }
+
+        .input-container {
+            position: relative;
+            width: 100%;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-container .ui-password {
+            width: 100% !important;
+            display: block !important;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+        }
+
+        .input-container input,
+        .input-container input.ui-inputfield,
+        .input-container input[type="text"],
+        .input-container input[type="password"],
+        .login-input,
+        .login-input.ui-inputfield,
+        .login-input input {
+            width: 100% !important;
+            padding: 10px 40px 10px 48px !important;
+            box-sizing: border-box !important;
+            background: #d9dfeb !important;
+            border: 1px solid rgba(163, 177, 198, 0.35) !important;
+            border-radius: 18px !important;
+            box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.65), 
+                        inset -4px -4px 8px rgba(255, 255, 255, 0.95) !important;
+            color: #1e293b !important;
+            font-weight: 600 !important;
+            font-size: 1.25rem !important;
+            line-height: 1.4 !important;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+            font-size: 1.35rem;
+            z-index: 15;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.3s ease;
+        }
+
+        .login-input:focus-within ~ .input-icon {
+            color: #10b981;
+        }
+
+        .login-footer {
+            margin-top: 24px;
+            font-size: 0.85em;
+            color: #64748b;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        /* Botón institucional Esmeralda Neumórfico */
+        .login-btn {
+            margin-top: 10px;
+            width: 100% !important;
+            padding: 11px 0 !important;
+            font-size: 1.25rem !important;
+            border-radius: 20px !important;
+            background: linear-gradient(180deg, #10b981 0%, #059669 100%) !important;
+            color: #FFFFFF !important;
+            border: 1px solid rgba(255, 255, 255, 0.4) !important;
+            font-weight: 800 !important;
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45), 
+                        -5px -5px 12px rgba(255, 255, 255, 0.9), 
+                        5px 5px 12px rgba(163, 177, 198, 0.6) !important;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+            transition: all 0.25s cubic-bezier(0.2, 0, 0, 1) !important;
+            cursor: pointer;
+        }
+
+        .login-btn:hover {
+            background: linear-gradient(180deg, #34d399 0%, #059669 100%) !important;
+            box-shadow: 0 10px 26px rgba(16, 185, 129, 0.65), 
+                        -6px -6px 14px rgba(255, 255, 255, 1), 
+                        6px 6px 14px rgba(163, 177, 198, 0.75) !important;
+            transform: translateY(-2px) !important;
+        }
+
+        .login-btn:active {
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+            transform: translateY(1px) !important;
+        }
+
+        /* Requisitos de Contraseña Checklist */
+        .password-rules-box {
+            background: rgba(217, 223, 235, 0.7);
+            border-radius: 16px;
+            padding: 14px 18px;
+            margin: 14px 0 18px 0;
+            text-align: left;
+            border: 1px solid rgba(163, 177, 198, 0.4);
+            box-shadow: inset 2px 2px 5px rgba(163, 177, 198, 0.4), inset -2px -2px 5px rgba(255, 255, 255, 0.8);
+        }
+
+        .password-rules-title {
+            font-size: 0.84rem;
+            font-weight: 800;
+            color: #0f766e;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .password-rule-item {
+            font-size: 0.82rem;
+            color: #334155;
+            font-weight: 600;
+            margin: 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .password-rule-item i {
+            color: #10b981;
+            font-size: 0.9rem;
+        }
+
+        /* Modal Dialog Neumórfico */
+        .ui-dialog.custom-security-dialog {
+            background: #e0e5ec !important;
+            border-radius: 28px !important;
+            border: 1px solid rgba(255, 255, 255, 0.8) !important;
+            box-shadow: -12px -12px 30px rgba(255, 255, 255, 0.95), 12px 12px 30px rgba(163, 177, 198, 0.8) !important;
+            padding: 10px !important;
+        }
+
+        .ui-dialog.custom-security-dialog .ui-dialog-titlebar {
+            background: transparent !important;
+            border: none !important;
+            font-family: 'Outfit', sans-serif !important;
+            font-weight: 800 !important;
+            color: #1e293b !important;
+            font-size: 1.35rem !important;
+            padding: 14px 20px 8px 20px !important;
+        }
+
+        .ui-dialog.custom-security-dialog .ui-dialog-content {
+            background: transparent !important;
+            padding: 10px 20px 20px 20px !important;
+        }
+
+        /* Mensajes de error Growl */
+        .ui-growl {
+            z-index: 99999 !important;
+        }
+        .ui-growl-item-container {
+            background: #e0e5ec !important;
+            border: 1px solid rgba(255, 255, 255, 0.7) !important;
+            border-radius: 18px !important;
+            color: #1e293b !important;
+            box-shadow: -6px -6px 16px rgba(255, 255, 255, 0.95), 
+                        6px 6px 16px rgba(163, 177, 198, 0.65) !important;
+        }
+        .ui-growl-title {
+            font-family: 'Outfit', sans-serif !important;
+            font-weight: 800 !important;
+            color: #059669 !important;
+        }
+        .ui-growl-message p {
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            color: #1e293b !important;
+            font-weight: 600 !important;
+        }
+    </style>
+</h:head>
+<h:body>
+    <div class="login-background">
+        <div class="blur-circle circle-1"></div>
+        <div class="blur-circle circle-2"></div>
+    </div>
+
+    <div class="login-card">
+        <div class="login-logo-wrapper">
+            <video autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"
+                   class="login-logo-video">
+                <source src="#{request.contextPath}/resources/videos/atalaia.mp4" type="video/mp4" />
+            </video>
+        </div>
+        
+        <div class="login-header">
+            <h1>ATALA.ia</h1>
+            <p>Acceso Institucional</p>
+        </div>
+
+        <h:form id="loginForm">
+            <p:growl id="loginMessages" showDetail="true" life="5000" />
+
+            <div class="input-group">
+                <label for="usernameInput">Nombre de Usuario</label>
+                <div class="input-container">
+                    <p:inputText id="usernameInput" value="#{securityBean.username}" 
+                                 placeholder="Ingrese su usuario" 
+                                 styleClass="aether-input login-input" 
+                                 required="true" requiredMessage="El usuario es requerido.">
+                    </p:inputText>
+                    <i class="pi pi-user input-icon"></i>
+                </div>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 26px;">
+                <label for="passwordInput">Contraseña de Seguridad</label>
+                <div class="input-container">
+                    <p:password id="passwordInput" value="#{securityBean.password}" 
+                                placeholder="Ingrese su contraseña" 
+                                styleClass="aether-input login-input" 
+                                required="true" requiredMessage="La contraseña es requerida."
+                                feedback="false" toggleMask="true">
+                    </p:password>
+                    <i class="pi pi-lock input-icon"></i>
+                </div>
+            </div>
+
+            <p:commandButton value="Iniciar Sesión" 
+                             action="#{securityBean.login}" 
+                             update="loginMessages :changePasswordForm" 
+                             oncomplete="if(#{securityBean.showChangePasswordDialog}) { PF('changePasswordDlg').show(); }"
+                             styleClass="login-btn" />
+        </h:form>
+
+        <div class="login-footer">
+            <span>ATALA.ia © 2026</span>
+        </div>
+    </div>
+
+    <!-- DIÁLOGO MODAL INSTITUCIONAL: RENOVACIÓN DE CONTRASEÑA CADA 4 MESES -->
+    <p:dialog id="changePasswordDlg" widgetVar="changePasswordDlg" 
+              header="🛡️ Actualización de Seguridad de Contraseña" 
+              modal="true" resizable="false" closable="false" draggable="false"
+              width="460" styleClass="custom-security-dialog"
+              visible="#{securityBean.showChangePasswordDialog}">
+        <h:form id="changePasswordForm">
+            <p:growl id="dlgMessages" showDetail="true" life="5000" />
+            
+            <p style="font-size: 0.9rem; color: #475569; margin: 0 0 16px 0; font-weight: 600; text-align: left; line-height: 1.4;">
+                Por política de seguridad institucional, su contraseña debe renovarse <b>cada 4 meses (120 días)</b>. Por favor ingrese su contraseña actual y defina una nueva clave segura.
+            </p>
+
+            <div class="input-group">
+                <label for="dlgCurrentPass">Contraseña Actual</label>
+                <div class="input-container">
+                    <p:password id="dlgCurrentPass" value="#{securityBean.currentPassword}" 
+                                placeholder="Contraseña actual" 
+                                styleClass="aether-input login-input" 
+                                required="true" requiredMessage="Debe ingresar la contraseña actual."
+                                feedback="false" toggleMask="true" />
+                    <i class="pi pi-key input-icon"></i>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="dlgNewPass">Nueva Contraseña</label>
+                <div class="input-container">
+                    <p:password id="dlgNewPass" value="#{securityBean.newPassword}" 
+                                placeholder="Nueva contraseña" 
+                                styleClass="aether-input login-input" 
+                                required="true" requiredMessage="Debe ingresar la nueva contraseña."
+                                feedback="true" promptLabel="Requisitos de seguridad"
+                                weakLabel="Débil" goodLabel="Aceptable" strongLabel="Fuerte"
+                                toggleMask="true" />
+                    <i class="pi pi-lock input-icon"></i>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="dlgConfirmPass">Confirmar Nueva Contraseña</label>
+                <div class="input-container">
+                    <p:password id="dlgConfirmPass" value="#{securityBean.confirmPassword}" 
+                                placeholder="Repita la nueva contraseña" 
+                                styleClass="aether-input login-input" 
+                                required="true" requiredMessage="Debe confirmar la nueva contraseña."
+                                feedback="false" toggleMask="true" />
+                    <i class="pi pi-check-circle input-icon"></i>
+                </div>
+            </div>
+
+            <!-- Caja con Requisitos Exigidos -->
+            <div class="password-rules-box">
+                <div class="password-rules-title">
+                    <i class="pi pi-shield"></i> Requisitos Obligatorios de la Clave:
+                </div>
+                <div class="password-rule-item">
+                    <i class="pi pi-check"></i> Mínimo 8 caracteres de longitud.
+                </div>
+                <div class="password-rule-item">
+                    <i class="pi pi-check"></i> Al menos 1 número (0-9).
+                </div>
+                <div class="password-rule-item">
+                    <i class="pi pi-check"></i> Letras mayúsculas (A-Z) y minúsculas (a-z).
+                </div>
+                <div class="password-rule-item">
+                    <i class="pi pi-check"></i> Al menos 1 símbolo especial (!@#$%^&amp;*...).
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 14px;">
+                <p:commandButton value="Actualizar Contraseña" 
+                                 action="#{securityBean.changePassword}" 
+                                 update="dlgMessages :loginForm:loginMessages" 
+                                 styleClass="login-btn" 
+                                 style="margin-top: 0 !important;" />
+                <p:commandButton value="Cancelar" 
+                                 action="#{securityBean.closeChangePasswordDialog}" 
+                                 onclick="PF('changePasswordDlg').hide();"
+                                 process="@this"
+                                 styleClass="login-btn" 
+                                 style="background: #94a3b8 !important; box-shadow: none !important; margin-top: 0 !important;" />
+            </div>
+        </h:form>
+    </p:dialog>
+</h:body>
+</html>

@@ -76,11 +76,17 @@ public class ReportesBean implements Serializable {
     private List<EstrategiaResumenDto> resumenEstrategias = new ArrayList<>();
     private List<EstrategiaDetalleDto> detalleEstrategias = new ArrayList<>();
 
+    // Resumen por Símbolo / Par
+    private List<SymbolResumenDto> resumenSymbols = new ArrayList<>();
+
     public List<EstrategiaResumenDto> getResumenEstrategias() { return resumenEstrategias; }
     public void setResumenEstrategias(List<EstrategiaResumenDto> resumenEstrategias) { this.resumenEstrategias = resumenEstrategias; }
 
     public List<EstrategiaDetalleDto> getDetalleEstrategias() { return detalleEstrategias; }
     public void setDetalleEstrategias(List<EstrategiaDetalleDto> detalleEstrategias) { this.detalleEstrategias = detalleEstrategias; }
+
+    public List<SymbolResumenDto> getResumenSymbols() { return resumenSymbols; }
+    public void setResumenSymbols(List<SymbolResumenDto> resumenSymbols) { this.resumenSymbols = resumenSymbols; }
 
     public String getNuevoTipo() { return nuevoTipo; }
     public void setNuevoTipo(String nuevoTipo) { this.nuevoTipo = nuevoTipo; }
@@ -363,9 +369,29 @@ public class ReportesBean implements Serializable {
                     }
                 }
 
+                // 3. Parsear Resumen por Símbolo / Par
+                this.resumenSymbols.clear();
+                JsonNode resSymNode = data.path("resumenPorSymbol");
+                if (resSymNode.isArray()) {
+                    for (JsonNode rs : resSymNode) {
+                        SymbolResumenDto sd = new SymbolResumenDto();
+                        sd.setSymbol(rs.path("symbol").asText(""));
+                        sd.setTotalTrades(rs.path("totalTrades").asInt(0));
+                        sd.setTradesGanadores(rs.path("tradesGanadores").asInt(0));
+                        sd.setTradesPerdedores(rs.path("tradesPerdedores").asInt(0));
+                        sd.setWinRate(rs.path("winRate").asDouble(0.0));
+                        sd.setLotes(rs.path("lotes").asDouble(0.0));
+                        sd.setPnlBruto(rs.path("pnlBruto").asDouble(0.0));
+                        sd.setComisiones(rs.path("comisiones").asDouble(0.0));
+                        sd.setPnlNeto(rs.path("pnlNeto").asDouble(0.0));
+                        sd.setContribucionPct(rs.path("contribucionPct").asDouble(0.0));
+                        this.resumenSymbols.add(sd);
+                    }
+                }
+
                 this.consultado = true;
-                log.info("Estado de cuenta cargado con éxito: {} trades, {} estrategias, Saldo Inicial={}, Saldo Final={}",
-                        this.tradesList.size(), this.resumenEstrategias.size(), this.saldoInicial, this.saldoFinal);
+                log.info("Estado de cuenta cargado con éxito: {} trades, {} estrategias, {} símbolos, Saldo Inicial={}, Saldo Final={}",
+                        this.tradesList.size(), this.resumenEstrategias.size(), this.resumenSymbols.size(), this.saldoInicial, this.saldoFinal);
             }
         } catch (Exception e) {
             log.error("Error al consultar estado de cuenta mensual: {}", e.getMessage(), e);
@@ -619,5 +645,48 @@ public class ReportesBean implements Serializable {
 
         public List<TradeReportDto> getTrades() { return trades; }
         public void setTrades(List<TradeReportDto> trades) { this.trades = trades; }
+    }
+
+    public static class SymbolResumenDto implements Serializable {
+        private String symbol = "";
+        private Integer totalTrades = 0;
+        private Integer tradesGanadores = 0;
+        private Integer tradesPerdedores = 0;
+        private Double winRate = 0.0;
+        private Double lotes = 0.0;
+        private Double pnlBruto = 0.0;
+        private Double comisiones = 0.0;
+        private Double pnlNeto = 0.0;
+        private Double contribucionPct = 0.0;
+
+        public String getSymbol() { return symbol; }
+        public void setSymbol(String symbol) { this.symbol = symbol; }
+
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+
+        public Integer getTradesGanadores() { return tradesGanadores; }
+        public void setTradesGanadores(Integer tradesGanadores) { this.tradesGanadores = tradesGanadores; }
+
+        public Integer getTradesPerdedores() { return tradesPerdedores; }
+        public void setTradesPerdedores(Integer tradesPerdedores) { this.tradesPerdedores = tradesPerdedores; }
+
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+
+        public Double getLotes() { return lotes; }
+        public void setLotes(Double lotes) { this.lotes = lotes; }
+
+        public Double getPnlBruto() { return pnlBruto; }
+        public void setPnlBruto(Double pnlBruto) { this.pnlBruto = pnlBruto; }
+
+        public Double getComisiones() { return comisiones; }
+        public void setComisiones(Double comisiones) { this.comisiones = comisiones; }
+
+        public Double getPnlNeto() { return pnlNeto; }
+        public void setPnlNeto(Double pnlNeto) { this.pnlNeto = pnlNeto; }
+
+        public Double getContribucionPct() { return contribucionPct; }
+        public void setContribucionPct(Double contribucionPct) { this.contribucionPct = contribucionPct; }
     }
 }

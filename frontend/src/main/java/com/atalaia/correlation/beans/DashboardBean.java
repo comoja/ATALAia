@@ -1332,6 +1332,20 @@ public class DashboardBean implements Serializable {
                 return String.format(java.util.Locale.US, "-$%,.2f", Math.abs(pnl));
             }
         }
+        private double volumeRatio = 0.0;
+        private String volumeColor = "#16a34a";
+        private String volumeBgColor = "rgba(22, 163, 74, 0.12)";
+        private String volumeBorderColor = "rgba(22, 163, 74, 0.35)";
+
+        public double getVolumeRatio() { return volumeRatio; }
+        public void setVolumeRatio(double volumeRatio) { this.volumeRatio = volumeRatio; }
+        public String getVolumeColor() { return volumeColor; }
+        public void setVolumeColor(String volumeColor) { this.volumeColor = volumeColor; }
+        public String getVolumeBgColor() { return volumeBgColor; }
+        public void setVolumeBgColor(String volumeBgColor) { this.volumeBgColor = volumeBgColor; }
+        public String getVolumeBorderColor() { return volumeBorderColor; }
+        public void setVolumeBorderColor(String volumeBorderColor) { this.volumeBorderColor = volumeBorderColor; }
+
         public String getFormattedCommission() { return String.format(java.util.Locale.US, "%,.2f", commission); }
     }
 
@@ -7516,6 +7530,44 @@ public class DashboardBean implements Serializable {
                         item.setCycleNum(realEntryCounter++);
                         item.setIsSubtotal(false);
                         items.add(item);
+                    }
+                }
+
+                // Normalizar volumen por símbolo para colorear Verde (mínimo) -> Amarillo -> Rojo (máximo)
+                double minVol = Double.MAX_VALUE;
+                double maxVol = -Double.MAX_VALUE;
+                for (RealTradeItemDto it : items) {
+                    if (it.isSubtotal()) continue;
+                    double v = it.getSize();
+                    if (v < minVol) minVol = v;
+                    if (v > maxVol) maxVol = v;
+                }
+                if (minVol != Double.MAX_VALUE && maxVol != -Double.MAX_VALUE) {
+                    double volDiff = maxVol - minVol;
+                    for (RealTradeItemDto it : items) {
+                        if (it.isSubtotal()) continue;
+                        double ratio = (volDiff > 1e-6) ? Math.max(0.0, Math.min(1.0, (it.getSize() - minVol) / volDiff)) : 0.0;
+                        it.setVolumeRatio(ratio);
+                        // Interpolación de Verde (H:130) a Rojo (H:0)
+                        // ratio = 0 -> Verde intenso (#16a34a / rgb(22, 163, 74))
+                        // ratio = 0.5 -> Amarillo (#eab308 / rgb(234, 179, 8))
+                        // ratio = 1.0 -> Rojo intenso (#dc2626 / rgb(220, 38, 38))
+                        int r, g, b;
+                        if (ratio <= 0.5) {
+                            double localT = ratio / 0.5;
+                            r = (int) Math.round(22 + (234 - 22) * localT);
+                            g = (int) Math.round(163 + (179 - 163) * localT);
+                            b = (int) Math.round(74 + (8 - 74) * localT);
+                        } else {
+                            double localT = (ratio - 0.5) / 0.5;
+                            r = (int) Math.round(234 + (220 - 234) * localT);
+                            g = (int) Math.round(179 + (38 - 179) * localT);
+                            b = (int) Math.round(8 + (38 - 8) * localT);
+                        }
+                        String hexColor = String.format("#%02x%02x%02x", r, g, b);
+                        it.setVolumeColor(hexColor);
+                        it.setVolumeBgColor(String.format(java.util.Locale.US, "rgba(%d, %d, %d, 0.12)", r, g, b));
+                        it.setVolumeBorderColor(String.format(java.util.Locale.US, "rgba(%d, %d, %d, 0.40)", r, g, b));
                     }
                 }
 

@@ -1,0 +1,695 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="http://xmlns.jcp.org/jsf/html"
+                xmlns:f="http://xmlns.jcp.org/jsf/core"
+                xmlns:p="http://primefaces.org/ui"
+                xmlns:ui="http://xmlns.jcp.org/jsf/facelets"
+                template="/templates/layout.xhtml">
+
+<f:metadata>
+    <f:viewAction action="#{configuracionBean.init}" />
+</f:metadata>
+
+<ui:define name="title">ATALAia - Configuración General</ui:define>
+
+<ui:define name="head">
+    <style>
+        .config-header {
+            margin-bottom: 10px;
+        }
+        .config-header h2 {
+            margin: 0;
+            color: var(--text-green);
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        .config-header p {
+            margin: 2px 0 0 0;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        
+        /* Consola Neumórfica Oscura */
+        .terminal-console {
+            background: #161920 !important;
+            border: 1px solid var(--border-soft) !important;
+            border-radius: 16px !important;
+            padding: 20px !important;
+            box-shadow: var(--neu-shadow-inset) !important;
+            height: 350px;
+            overflow-y: auto;
+            color: #FF6B35 !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 1.15rem !important;
+            line-height: 1.6 !important;
+            white-space: pre-wrap;
+        }
+        
+        .terminal-status-panel {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            padding: 10px 16px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-soft);
+            border-radius: 12px;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 1.0rem;
+        }
+        
+        .status-badge.running {
+            background: rgba(255, 107, 53, 0.15);
+            color: #FF6B35;
+            border: 1px solid rgba(255, 107, 53, 0.4);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-badge.idle {
+            background: var(--bg-surface-active);
+            color: var(--text-muted);
+            border: 1px solid var(--border-soft);
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(35, 154, 85, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(35, 154, 85, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(35, 154, 85, 0); }
+        }
+        
+        /* Ajustes menores para Datatables neumórficos */
+        .ui-datatable.aether-table .ui-datatable-data tr.ui-state-highlight {
+            background: var(--bg-surface-active) !important;
+            color: var(--text-green) !important;
+        }
+        
+        .ui-tabs.ui-widget-content {
+            background: transparent !important;
+            border: none !important;
+        }
+        .ui-tabs .ui-tabs-nav {
+            background: transparent !important;
+            border: none !important;
+            border-bottom: 2px solid var(--border-soft) !important;
+            display: flex;
+            gap: 8px;
+            padding: 0 0 4px 0 !important;
+        }
+        .ui-tabs .ui-tabs-nav li {
+            background: var(--bg-surface) !important;
+            border: 1px solid var(--border-soft) !important;
+            border-radius: 8px !important;
+            margin: 0 !important;
+            transition: all 0.2s ease;
+        }
+        .ui-tabs .ui-tabs-nav li.ui-state-active {
+            background: var(--color-primary) !important;
+            box-shadow: var(--neu-shadow-flat) !important;
+        }
+        .ui-tabs .ui-tabs-nav li a {
+            color: var(--text-primary) !important;
+            font-weight: 600 !important;
+            font-size: 1.05rem !important;
+            padding: 2px 10px !important;
+        }
+        .ui-tabs .ui-tabs-nav li.ui-state-active a {
+            color: var(--text-green) !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Badges para la Matriz de Rendimiento */
+        .badge-increment {
+            background: rgba(51, 255, 119, 0.15) !important;
+            color: #2e7d32 !important;
+            border: 1px solid rgba(51, 255, 119, 0.3) !important;
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .badge-normal {
+            background: rgba(255, 204, 0, 0.15) !important;
+            color: #5d4037 !important;
+            border: 1px solid rgba(255, 204, 0, 0.3) !important;
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .badge-conservative {
+            background: rgba(255, 128, 0, 0.15) !important;
+            color: #ff8000 !important;
+            border: 1px solid rgba(255, 128, 0, 0.3) !important;
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .badge-reduce {
+            background: rgba(255, 51, 51, 0.15) !important;
+            color: #ff3333 !important;
+            border: 1px solid rgba(255, 51, 51, 0.3) !important;
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+    </style>
+    
+    <script type="text/javascript">
+        // Auto-scroll para la consola al recibir actualizaciones
+        function scrollTerminal() {
+            var term = document.getElementById("terminalLog");
+            if (term) {
+                term.scrollTop = term.scrollHeight;
+            }
+        }
+    </script>
+</ui:define>
+
+<ui:define name="content">
+    <div class="config-header">
+        <h2>Panel de Configuración General</h2>
+        <p>Calibración operativa de cuentas, exclusión de divisas y auditoría de backtesting en vivo</p>
+    </div>
+
+    <!-- Pestañas Principales -->
+    <p:tabView id="configTabs" styleClass="aether-tabview">
+        <p:ajax event="tabChange" listener="#{configuracionBean.onTabChange}" />
+        
+        <!-- PESTAÑA 1: CUENTAS DE TRADING -->
+        <p:tab title="Cuentas de Trading">
+            <h:form id="cuentasForm">
+                <p:growl id="msgs" showDetail="true" />
+                
+                <p:dataTable id="tblCuentas" value="#{configuracionBean.cuentas}" var="cta" 
+                             editable="true" styleClass="aether-table" reflow="true" 
+                             emptyMessage="No se encontraron cuentas operacionales activas.">
+                    
+                    <p:ajax event="rowEdit" global="false" listener="#{configuracionBean.guardarCuenta(cta)}" update=":configTabs:cuentasForm:msgs" />
+                    
+                    <p:column style="width: 60px; text-align: center;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrCtaId" value="ID" />
+                            <p:tooltip for="hdrCtaId" value="Identificador interno de la cuenta" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{cta.idCuenta}" />
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaNom" layout="block">Nombre<br/>Cuenta</h:panelGroup>
+                            <p:tooltip for="hdrCtaNom" value="Nombre o etiqueta asignada a la cuenta de trading" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output"><h:outputText value="#{cta.nombre}" style="font-weight: 700;" /></f:facet>
+                            <f:facet name="input"><p:inputText value="#{cta.nombre}" style="width:100%" required="true" /></f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaCor" layout="block">Correo<br/>Electrónico</h:panelGroup>
+                            <p:tooltip for="hdrCtaCor" value="Correo electrónico asociado a la cuenta" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output"><h:outputText value="#{cta.correo}" /></f:facet>
+                            <f:facet name="input"><p:inputText value="#{cta.correo}" style="width:100%" placeholder="correo@dominio.com" /></f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaCap" layout="block">Capital<br/>(USD)</h:panelGroup>
+                            <p:tooltip for="hdrCtaCap" value="Saldo o capital total depositado en la cuenta" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{cta.capital}">
+                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.capital}" symbol="$ " decimalSeparator="." thousandSeparator="," required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaRsg" layout="block">Riesgo Base<br/>(ganancia %)</h:panelGroup>
+                            <p:tooltip for="hdrCtaRsg" value="Objetivo o tasa de ganancia base por operación en porcentaje" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{cta.ganancia}">
+                                    <f:convertNumber pattern="0.00 '%'" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.ganancia}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="2" required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaMax" layout="block">Riesgo Máx<br/>por Trade (%)</h:panelGroup>
+                            <p:tooltip for="hdrCtaMax" value="Pérdida máxima permitida por operación en porcentaje del capital" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{cta.riesgoPorOperacion}">
+                                    <f:convertNumber pattern="0.00 '%'" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.riesgoPorOperacion}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="2" required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaCom" layout="block">Comisión<br/>(%)</h:panelGroup>
+                            <p:tooltip for="hdrCtaCom" value="Comisión cobrada por administración y manejo de cuenta" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{cta.comision}">
+                                    <f:convertNumber pattern="0.00 '%'" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.comision}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="2" required="false" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="text-align: right; width: 105px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaIndMar" layout="block">Ind. Margen<br/>(%)</h:panelGroup>
+                            <p:tooltip for="hdrCtaIndMar" value="Indicador de margen mínimo requerido para operar en esta cuenta (default 200%)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{cta.indicadorMargen}">
+                                    <f:convertNumber pattern="0.0 '%'" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.indicadorMargen}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="1" minValue="0" required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+
+                    <p:column style="text-align: center; width: 110px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrCtaConc" value="Concentradora" />
+                            <p:tooltip for="hdrCtaConc" value="Indica si la cuenta es concentradora (true/false)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge #{cta.concentradora ? 'badge-active' : 'badge-inactive'}">
+                                    #{cta.concentradora ? 'SÍ' : 'NO'}
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:selectBooleanCheckbox value="#{cta.concentradora}" disabled="#{configuracionBean.isConcentradoraDisabled(cta)}" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="text-align: center;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrCtaEst" value="Estado" />
+                            <p:tooltip for="hdrCtaEst" value="Estado operacional actual de la cuenta" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge #{cta.activo == 1 ? 'badge-active' : 'badge-inactive'}">
+                                    #{cta.activo == 1 ? 'ACTIVO' : 'INACTIVO'}
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:selectOneMenu value="#{cta.activo}" style="width:100%">
+                                    <f:selectItem itemLabel="ACTIVO" itemValue="1" />
+                                    <f:selectItem itemLabel="INACTIVO" itemValue="0" />
+                                </p:selectOneMenu>
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="width:80px; text-align: center;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrCtaEdi" value="Editar" />
+                            <p:tooltip for="hdrCtaEdi" value="Habilitar edición de los parámetros de la cuenta" position="top" />
+                        </f:facet>
+                        <p:rowEditor />
+                    </p:column>
+                </p:dataTable>
+            </h:form>
+        </p:tab>
+        
+        <!-- PESTAÑA 2: INSTRUMENTOS / SÍMBOLOS -->
+        <p:tab title="Símbolos de Sentinel">
+            <h:form id="simbolosForm">
+                <p:growl id="msgsSim" showDetail="true" />
+                
+                <p:dataTable id="tblSimbolos" value="#{configuracionBean.simbolos}" var="sym" 
+                             editable="true" styleClass="aether-table" reflow="true" rows="15" 
+                             paginator="true" paginatorPosition="bottom"
+                             paginatorTemplate="{CurrentPageReport} {FirstPageLink} {PreviousPageLink} {PageLinks} {NextPageLink} {LastPageLink}"
+                             emptyMessage="No se encontraron símbolos registrados.">
+                    
+                    <p:ajax event="rowEdit" global="false" listener="#{configuracionBean.guardarSimbolo(sym)}" update=":configTabs:simbolosForm:msgsSim" />
+                    
+                    <p:column style="font-weight: 700; width: 120px; text-align: center;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrSymSym" value="Símbolo" />
+                            <p:tooltip for="hdrSymSym" value="Código o ticker del activo financiero" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{sym.symbol}" />
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrSymLot" layout="block">Lote Mínimo<br/>/ Unidades</h:panelGroup>
+                            <p:tooltip for="hdrSymLot" value="Volumen mínimo permitido para la apertura de operaciones" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{sym.min_lots}">
+                                    <f:convertNumber pattern="#,##0" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{sym.min_lots}" decimalPlaces="2" thousandSeparator="," required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="text-align: center;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrSymBrk" layout="block">Conexión<br/>Bróker Real</h:panelGroup>
+                            <p:tooltip for="hdrSymBrk" value="Indica si opera en cuenta real de MT5 o en simulación" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge #{sym.broker == 1 ? 'badge-active' : 'badge-inactive'}">
+                                    #{sym.broker == 1 ? 'REAL (MT5)' : 'SIMULADO'}
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:selectOneMenu value="#{sym.broker}" style="width:100%">
+                                    <f:selectItem itemLabel="REAL (MT5)" itemValue="1" />
+                                    <f:selectItem itemLabel="SIMULADO" itemValue="0" />
+                                </p:selectOneMenu>
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrSymMax" layout="block">Precio Máx<br/>Sesión (LRC)</h:panelGroup>
+                            <p:tooltip for="hdrSymMax" value="Límite superior dinámico del canal de regresión lineal (LRC)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{sym.precioMaximo}">
+                                    <f:convertNumber pattern="#,##0.00000" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{sym.precioMaximo}" decimalPlaces="5" required="false" placeholder="Autocalculado" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column>
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrSymMin" layout="block">Precio Mín<br/>Sesión (LRC)</h:panelGroup>
+                            <p:tooltip for="hdrSymMin" value="Límite inferior dinámico del canal de regresión lineal (LRC)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{sym.precioMinimo}">
+                                    <f:convertNumber pattern="#,##0.00000" />
+                                </h:outputText>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{sym.precioMinimo}" decimalPlaces="5" required="false" placeholder="Autocalculado" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="text-align: center; width: 100px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrSymEst" layout="block">Estatus<br/>Canal</h:panelGroup>
+                            <p:tooltip for="hdrSymEst" value="Estado de la estrategia sobre el canal (activo o pausado)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge #{sym.activo == 1 ? 'badge-active' : 'badge-inactive'}">
+                                    #{sym.activo == 1 ? 'ACTIVO' : 'PAUSADO'}
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:selectOneMenu value="#{sym.activo}" style="width:100%">
+                                    <f:selectItem itemLabel="ACTIVO" itemValue="1" />
+                                    <f:selectItem itemLabel="PAUSADO" itemValue="0" />
+                                </p:selectOneMenu>
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
+                    <p:column style="width:80px; text-align: center;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrSymEdi" value="Editar" />
+                            <p:tooltip for="hdrSymEdi" value="Habilitar edición de los parámetros del símbolo" position="top" />
+                        </f:facet>
+                        <p:rowEditor />
+                    </p:column>
+                </p:dataTable>
+            </h:form>
+        </p:tab>
+        
+        <!-- PESTAÑA 3: AUDITORÍA Y BACKTESTING EN CALIENTE -->
+        <p:tab title="Consola de Backtesting">
+            <h:form id="backtestForm">
+                <p:growl id="btMsgs" showDetail="true" />
+                
+                <!-- Polling para la consola en vivo -->
+                <p:poll interval="2" 
+                        global="false"
+                        enabled="#{configuracionBean.running}" 
+                        listener="#{configuracionBean.checkBacktestStatus}" 
+                        update=":configTabs:backtestForm:consolePanel :configTabs:backtestForm:statusPanel"
+                        oncomplete="scrollTerminal()" />
+                
+                <!-- Panel de Status -->
+                <h:panelGroup id="statusPanel" layout="block" class="terminal-status-panel">
+                    <div>
+                        <span style="font-weight: 700; color: var(--text-primary);">Subproceso de Simulación Compuesto:</span>
+                    </div>
+                    <div>
+                        <h:panelGroup rendered="#{configuracionBean.running}" class="status-badge running">
+                            <span class="status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #239a55; display: inline-block;"></span>
+                            EJECUTANDO PRUEBA QUANT (PID: #{configuracionBean.activePid})
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{!configuracionBean.running}" class="status-badge idle">
+                            SISTEMA EN ESPERA (STANDBY)
+                        </h:panelGroup>
+                    </div>
+                </h:panelGroup>
+                
+                <!-- Consola Neumórfica -->
+                <h:panelGroup id="consolePanel" layout="block" style="margin-bottom: 25px;">
+                    <div id="terminalLog" class="terminal-console">#{configuracionBean.consoleLog}</div>
+                </h:panelGroup>
+                
+                <!-- Acciones de Ejecución -->
+                <p:panel header="Panel de Control de Auditoría (Backtesting)" styleClass="aether-panel">
+                    <div style="display: flex; gap: 20px; align-items: center; justify-content: flex-start; margin-top: 10px;">
+                        <div>
+                            <p:commandButton value="Lanzar Backtest Semanal (7 Días)" 
+                                             action="#{configuracionBean.runBacktest('weekly')}" 
+                                             update=":configTabs:backtestForm:btMsgs :configTabs:backtestForm:consolePanel :configTabs:backtestForm:statusPanel"
+                                             disabled="#{configuracionBean.running}"
+                                             styleClass="aether-btn-primary" 
+                                             icon="pi pi-play" />
+                        </div>
+                        <div>
+                            <p:commandButton value="Lanzar Backtest Trimestral (3 Meses)" 
+                                             action="#{configuracionBean.runBacktest('trimestral')}" 
+                                             update=":configTabs:backtestForm:btMsgs :configTabs:backtestForm:consolePanel :configTabs:backtestForm:statusPanel"
+                                             disabled="#{configuracionBean.running}"
+                                             styleClass="aether-btn-primary" 
+                                             style="background: var(--bg-surface-active) !important; color: var(--text-green) !important;"
+                                             icon="pi pi-forward" />
+                        </div>
+                    </div>
+                </p:panel>
+            </h:form>
+        </p:tab>
+        
+        <!-- PESTAÑA 4: MATRIZ DE RENDIMIENTO ESTRATEGIA-SÍMBOLO -->
+        <p:tab title="Matriz de Rendimiento">
+            <h:form id="matrizForm">
+                <p:growl id="matrizMsgs" showDetail="true" />
+                
+                <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <h:outputText value="Matriz de Rendimiento Estrategia-Símbolo (Calibrador Dinámico de Riesgo)" style="font-weight: 700; font-size: 1.1rem; color: var(--text-green);" />
+                    <div style="display: flex; gap: 10px;">
+                        <p:commandButton value="Aplicar sugerencias de riesgo" 
+                                         action="#{configuracionBean.aplicarSugerenciasRiesgo()}" 
+                                         update=":configTabs:matrizForm:tblMatriz :configTabs:matrizForm:matrizMsgs" 
+                                         styleClass="aether-btn-primary" 
+                                         icon="pi pi-check-circle" />
+                        <p:commandButton value="Refrescar Matriz" 
+                                         action="#{configuracionBean.loadMatrizRendimiento()}" 
+                                         update=":configTabs:matrizForm:tblMatriz :configTabs:matrizForm:matrizMsgs" 
+                                         styleClass="aether-btn-primary" 
+                                         icon="pi pi-refresh" />
+                    </div>
+                </div>
+
+                
+                <p:dataTable id="tblMatriz" value="#{configuracionBean.matrizRendimiento}" var="row" 
+                             styleClass="aether-table" reflow="true" rows="15" 
+                             paginator="true" paginatorPosition="bottom"
+                             paginatorTemplate="{CurrentPageReport} {FirstPageLink} {PreviousPageLink} {PageLinks} {NextPageLink} {LastPageLink}"
+                             emptyMessage="No hay datos de rendimiento disponibles. Ejecute un backtest para poblar la matriz.">
+                    
+                    <p:column sortBy="#{row.strategy}" filterBy="#{row.strategy}" filterMatchMode="contains" style="font-weight: 700;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzEst" value="Estrategia" />
+                            <p:tooltip for="hdrMtzEst" value="Nombre de la estrategia de trading cuantitativo" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.strategy}" />
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.symbol}" filterBy="#{row.symbol}" filterMatchMode="contains" style="text-align: center; width: 100px; font-weight: 700;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzSym" value="Símbolo" />
+                            <p:tooltip for="hdrMtzSym" value="Activo financiero o par analizado" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.symbol}" />
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.totalTrades}" style="text-align: center; width: 70px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzTds" value="Trades" />
+                            <p:tooltip for="hdrMtzTds" value="Total de operaciones históricas evaluadas" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.totalTrades}" />
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.wins}" style="text-align: center; width: 70px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzWns" value="Wins" />
+                            <p:tooltip for="hdrMtzWns" value="Total de operaciones cerradas en ganancia" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.wins}" />
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.winRate}" style="text-align: center; width: 85px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrMtzWR" layout="block">Win<br/>Rate</h:panelGroup>
+                            <p:tooltip for="hdrMtzWR" value="Tasa de efectividad (operaciones ganadas / total)" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.winRate}">
+                            <f:convertNumber pattern="0.0'%'" />
+                        </h:outputText>
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.pnlNeto}" style="text-align: right; width: 100px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrMtzPnl" layout="block">PnL<br/>Neto</h:panelGroup>
+                            <p:tooltip for="hdrMtzPnl" value="Pérdidas y Ganancias Netas netas en USD" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.pnlNeto}" style="color: #{row.pnlNeto lt 0 ? '#ff3333' : '#239a55'}; font-weight: bold;">
+                            <f:convertNumber pattern="'$'#,##0.00" />
+                        </h:outputText>
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.expectancy}" style="text-align: right; width: 120px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzExp" value="Expectativa" />
+                            <p:tooltip for="hdrMtzExp" value="Retorno esperado promedio por operación en USD" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.expectancy}">
+                            <f:convertNumber pattern="'$'0.0000" />
+                        </h:outputText>
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.profitFactor}" style="text-align: center; width: 90px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrMtzPF" layout="block">Profit<br/>Factor</h:panelGroup>
+                            <p:tooltip for="hdrMtzPF" value="Relación entre la ganancia bruta y la pérdida bruta total" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.profitFactor eq 99.99 ? '∞' : row.profitFactor}">
+                            <f:convertNumber pattern="0.00" />
+                        </h:outputText>
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.maxDrawdown}" style="text-align: center; width: 80px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrMtzDD" layout="block">Max<br/>DD</h:panelGroup>
+                            <p:tooltip for="hdrMtzDD" value="Drawdown máximo porcentual registrado" position="top" />
+                        </f:facet>
+                        <h:outputText value="#{row.maxDrawdown}" style="color: #{row.maxDrawdown gt 15 ? '#ff3333' : 'inherit'}">
+                            <f:convertNumber pattern="0.0'%'" />
+                        </h:outputText>
+                    </p:column>
+                    
+                    <p:column sortBy="#{row.riesgoSugerido}" style="text-align: center; width: 140px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrMtzRsg" layout="block">Riesgo<br/>Sugerido</h:panelGroup>
+                            <p:tooltip for="hdrMtzRsg" value="Multiplicador del riesgo base calculado para equilibrar la cuenta" position="top" />
+                        </f:facet>
+                        <h:panelGroup rendered="#{row.riesgoSugerido ge 1.5}">
+                            <span class="badge-increment">INCREMENTAR (x#{row.riesgoSugerido})</span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{row.riesgoSugerido eq 1.0}">
+                            <span class="badge-normal">NORMAL (x1.0)</span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{row.riesgoSugerido eq 0.75}">
+                            <span class="badge-conservative">CONSERVADOR (x0.75)</span>
+                        </h:panelGroup>
+                        <h:panelGroup rendered="#{row.riesgoSugerido le 0.5}">
+                            <span class="badge-reduce">REDUCIR (x#{row.riesgoSugerido})</span>
+                        </h:panelGroup>
+                    </p:column>
+                    
+                    <p:column style="text-align: center; width: 95px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrMtzFrq" value="Frecuencia" />
+                            <p:tooltip for="hdrMtzFrq" value="Frecuencia de actualización operativa (Semanal o Trimestral)" position="top" />
+                        </f:facet>
+                        <span class="badge" style="background: var(--bg-surface-active); color: var(--text-primary); border: 1px solid var(--border-soft);">
+                            #{row.fuente eq 'weekly' ? 'SEMANAL' : 'TRIMESTRAL'}
+                        </span>
+                    </p:column>
+                </p:dataTable>
+            </h:form>
+        </p:tab>
+        
+    </p:tabView>
+</ui:define>
+</ui:composition>
