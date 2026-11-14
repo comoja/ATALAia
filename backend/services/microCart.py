@@ -360,6 +360,7 @@ def evaluateCartSignals(
     highs = [float(x) if not pd.isna(x) else None for x in df["highPrice"].tolist()] if "highPrice" in df.columns else prices
     lows = [float(x) if not pd.isna(x) else None for x in df["lowPrice"].tolist()] if "lowPrice" in df.columns else prices
     opens = [float(x) if not pd.isna(x) else None for x in df["openPrice"].tolist()] if "openPrice" in df.columns else prices
+    volumes = [float(x) if not pd.isna(x) else 0.0 for x in df["volume"].tolist()] if "volume" in df.columns else [0.0] * len(prices)
     dates = [
         idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx, "strftime") else str(idx)
         for idx in df.index
@@ -551,11 +552,14 @@ def evaluateCartSignals(
                             valleyPx = None
                             activeSl = None
 
+        volVal = volumes[i] if i < len(volumes) else 0.0
+
         sigItem = {
             "datetime": dtStr,
             "symbol": symbol,
             "price": round(px, 5) if px is not None else None,
             "priceA": round(px, 5) if px is not None else None,
+            "volume": round(volVal, 2),
             "priceSlope": round(sigPriceSlope, 6),
             "candleSlope": round(sigCandleSlope, 6),
             "normPrice": round((px - min_px_series) / range_px_series, 4) if px is not None else None,
@@ -1130,8 +1134,14 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                             df_mt5['lowPrice'] = pd.to_numeric(df_mt5['low'], errors='coerce')
                         if 'open' in df_mt5.columns:
                             df_mt5['openPrice'] = pd.to_numeric(df_mt5['open'], errors='coerce')
-                        cols = [c for c in ['closePrice', 'highPrice', 'lowPrice', 'openPrice'] if c in df_mt5.columns]
-                        return df_mt5[cols].dropna()
+                        if 'tick_volume' in df_mt5.columns:
+                            df_mt5['volume'] = pd.to_numeric(df_mt5['tick_volume'], errors='coerce').fillna(0.0)
+                        elif 'volume' in df_mt5.columns:
+                            df_mt5['volume'] = pd.to_numeric(df_mt5['volume'], errors='coerce').fillna(0.0)
+                        else:
+                            df_mt5['volume'] = 0.0
+                        cols = [c for c in ['closePrice', 'highPrice', 'lowPrice', 'openPrice', 'volume'] if c in df_mt5.columns]
+                        return df_mt5[cols].dropna(subset=['closePrice'])
         except Exception as e_mt5:
             logger.debug(f"MT5 rates no disponible para {symbol}: {e_mt5}")
 
@@ -1150,7 +1160,7 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
 
             # 1. Búsqueda primaria: consultar el timeframe exacto solicitado si ya existe en candles
             sqlExact = """
-                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
+                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice, COALESCE(volume, 0.0) AS volume
                 FROM candles
                 WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
                 ORDER BY timestamp ASC
@@ -1159,15 +1169,17 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             if not dfExact.empty and len(dfExact) >= 20:
                 dfExact["timestamp"] = pd.to_datetime(dfExact["timestamp"])
                 dfExact = dfExact.drop_duplicates(subset=["timestamp"], keep="last").set_index("timestamp")
-                for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+                for c in ["closePrice", "highPrice", "lowPrice", "openPrice", "volume"]:
                     if c in dfExact.columns:
                         dfExact[c] = pd.to_numeric(dfExact[c], errors="coerce")
+                if "volume" not in dfExact.columns:
+                    dfExact["volume"] = 0.0
 
                 # Si el timeframe no es 1min, complementar con las velas recientes de 1min hasta el momento actual
                 if targetTf != "1min" and not dfExact.empty:
                     lastDt = dfExact.index[-1]
                     sqlRecent1m = """
-                        SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
+                        SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice, COALESCE(volume, 0.0) AS volume
                         FROM candles
                         WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s
                         ORDER BY timestamp ASC
@@ -1176,28 +1188,28 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                     if not dfRecent.empty and len(dfRecent) > 1:
                         dfRecent["timestamp"] = pd.to_datetime(dfRecent["timestamp"])
                         dfRecent = dfRecent.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
-                        for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+                        for c in ["closePrice", "highPrice", "lowPrice", "openPrice", "volume"]:
                             if c in dfRecent.columns:
                                 dfRecent[c] = pd.to_numeric(dfRecent[c], errors="coerce")
                         ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
                         rule = ruleMap.get(tfLower, "1h")
-                        aggDict = {"closePrice": "last"}
+                        aggDict = {"closePrice": "last", "volume": "sum"}
                         if "highPrice" in dfRecent.columns:
                             aggDict["highPrice"] = "max"
                         if "lowPrice" in dfRecent.columns:
                             aggDict["lowPrice"] = "min"
                         if "openPrice" in dfRecent.columns:
                             aggDict["openPrice"] = "first"
-                        dfRecentResampled = dfRecent.resample(rule).agg(aggDict).dropna()
+                        dfRecentResampled = dfRecent.resample(rule).agg(aggDict).dropna(subset=["closePrice"])
                         if not dfRecentResampled.empty:
                             dfExact = pd.concat([dfExact, dfRecentResampled])
                             dfExact = dfExact[~dfExact.index.duplicated(keep="last")].sort_index()
 
-                return dfExact.dropna().tail(limit_bars)
+                return dfExact.dropna(subset=["closePrice"]).tail(limit_bars)
 
             # 2. Fallback: Si no existe el TM o la solicitud es previa a oct 1, tomar 1min/5min y resamplear en memoria
             sql = """
-                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice
+                SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice, COALESCE(volume, 0.0) AS volume
                 FROM candles
                 WHERE symbol = %s AND timeframe IN ('1min', '5min') AND timestamp >= %s
                 ORDER BY timestamp ASC, CASE WHEN timeframe = '1min' THEN 1 ELSE 2 END ASC
@@ -1207,19 +1219,19 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                 return pd.DataFrame()
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.drop_duplicates(subset=["timestamp"], keep="first").set_index("timestamp")
-            for c in ["closePrice", "highPrice", "lowPrice", "openPrice"]:
+            for c in ["closePrice", "highPrice", "lowPrice", "openPrice", "volume"]:
                 if c in df.columns:
                     df[c] = pd.to_numeric(df[c], errors="coerce")
             ruleMap = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "15m": "15min", "30min": "30min", "30m": "30min", "1d": "1D"}
             rule = ruleMap.get(tfLower, "1h")
-            aggDict = {"closePrice": "last"}
+            aggDict = {"closePrice": "last", "volume": "sum"}
             if "highPrice" in df.columns:
                 aggDict["highPrice"] = "max"
             if "lowPrice" in df.columns:
                 aggDict["lowPrice"] = "min"
             if "openPrice" in df.columns:
                 aggDict["openPrice"] = "first"
-            return df.resample(rule).agg(aggDict).dropna().tail(limit_bars)
+            return df.resample(rule).agg(aggDict).dropna(subset=["closePrice"]).tail(limit_bars)
         else:
             sql = """
                 SELECT priceDate AS timestamp, closePrice, closePrice AS highPrice, closePrice AS lowPrice, closePrice AS openPrice
