@@ -213,10 +213,18 @@ public class ConciliacionBean implements Serializable {
     public Integer getFiltroUsuarioId() { return filtroUsuarioId; }
     public void setFiltroUsuarioId(Integer filtroUsuarioId) { this.filtroUsuarioId = filtroUsuarioId; }
 
-    public KpiResumenDto getKpiGlobal() { return kpiGlobal; }
+    public KpiResumenDto getKpiGlobal() {
+        if (!this.consultado && !this.cargando) {
+            consultar();
+        }
+        return kpiGlobal;
+    }
     public void setKpiGlobal(KpiResumenDto kpiGlobal) { this.kpiGlobal = kpiGlobal; }
 
     public List<UsuarioConciliacionDto> getUsuarios() {
+        if (!this.consultado && !this.cargando) {
+            consultar();
+        }
         return usuarios;
     }
     public void setUsuarios(List<UsuarioConciliacionDto> usuarios) { this.usuarios = usuarios; }

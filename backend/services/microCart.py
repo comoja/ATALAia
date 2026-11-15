@@ -1375,13 +1375,17 @@ def sendCartWebhookOrder(
                 if resp.status_code == 200:
                     resData = resp.json() if resp.text else {}
                     isSuccess = (resData.get("status") == "success") or (resData.get("success") is True)
-                    orderId = str(resData.get("order_id") or resData.get("ticketId") or resData.get("OrderId") or "")
+                    orderId = str(resData.get("order_ids_str") or resData.get("order_id") or resData.get("ticketId") or resData.get("OrderId") or "")
                     fillPrice = float(resData.get("fill_price") or resData.get("Price") or price)
-                    logger.info(f"✅ [CART Webhook] Respuesta de FOREX.com -> Success: {isSuccess}, OrderId: {orderId}, FillPrice: {fillPrice}")
+                    execQty = resData.get("total_qty") or resData.get("quantity") or resData.get("totalQty")
+                    execMargin = resData.get("margin")
+                    logger.info(f"✅ [CART Webhook] Respuesta de FOREX.com -> Success: {isSuccess}, OrderId: {orderId}, FillPrice: {fillPrice}, ExecQty: {execQty}")
                     return {
                         "success": isSuccess,
                         "order_id": orderId,
                         "fill_price": fillPrice,
+                        "quantity": float(execQty) if execQty is not None else None,
+                        "margin": float(execMargin) if execMargin is not None else None,
                         "raw": resData
                     }
                 else:
@@ -1912,6 +1916,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         ticketId = str(whRes.get("order_id") or "")
         fillPrice = float(whRes.get("fill_price") or px)
+        confirmedUnits = float(whRes.get("quantity") or units)
+        confirmedMargin = float(whRes.get("margin") or marginUsed)
 
         dbSession.execute(text("""
             INSERT INTO trades (
@@ -1929,13 +1935,13 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             "dir": directionStr,
             "tf": timeframe,
             "cdt": candleDt,
-            "sz": units,
+            "sz": confirmedUnits,
             "epx": fillPrice,
-            "mrg": marginUsed,
+            "mrg": confirmedMargin,
             "tkt": ticketId
         })
         dbSession.commit()
-        logger.info(f"✅ [CART] Trade insertado exitosamente en BD (idCuenta={idCuenta}, Ticket={ticketId}, Symbol={symbol}, Units={units:g}, Px={fillPrice})")
+        logger.info(f"✅ [CART] Trade insertado exitosamente en BD (idCuenta={idCuenta}, Ticket={ticketId}, Symbol={symbol}, Units={confirmedUnits:g}, Px={fillPrice}, Margen=${confirmedMargin:.2f})")
 
 
 def runCycle(isHourlyTick: bool = True) -> None:

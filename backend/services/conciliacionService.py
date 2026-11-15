@@ -145,6 +145,7 @@ async def obtenerConciliacionPosiciones(
             for tk in tickets:
                 t_copy = dict(t_dict)
                 t_copy["ticketIdSingle"] = tk
+                t_copy["allTradeTickets"] = tickets
                 atalaia_trades_by_ticket[tk] = t_copy
         else:
             # Trade OPEN sin ticket válido asignado
@@ -228,15 +229,29 @@ async def obtenerConciliacionPosiciones(
             diffs = []
             if dir_a != dir_f:
                 diffs.append(f"Dirección difiere: ATALAia={dir_a} vs FOREX={dir_f}")
-            if abs(qty_a - qty_f) > 0.001:
-                diffs.append(f"Volumen difiere: ATALAia={qty_a:g} vs FOREX={qty_f:g}")
+
+            trade_tickets = t.get("allTradeTickets", [tk])
+            is_multi_chunk = len(trade_tickets) > 1
+            if is_multi_chunk:
+                forex_trade_qty = sum(float(forex_positions_by_ticket[sub_tk].get("Quantity", 0.0)) for sub_tk in trade_tickets if sub_tk in forex_positions_by_ticket)
+                total_trade_qty = float(t.get("size") or 0.0)
+                if abs(total_trade_qty - forex_trade_qty) <= 0.001:
+                    qty_a = qty_f  # Coincide con la fracción de este sub-lote
+                else:
+                    diffs.append(f"Volumen total difiere: ATALAia={total_trade_qty:g} vs FOREX={forex_trade_qty:g}")
+            else:
+                if abs(qty_a - qty_f) > 0.001:
+                    diffs.append(f"Volumen difiere: ATALAia={qty_a:g} vs FOREX={qty_f:g}")
 
             if diffs:
                 st = "DIFERENCIA"
                 det = " | ".join(diffs)
             else:
                 st = "MATCH"
-                det = "Coincidencia exacta de ticket, símbolo y volumen"
+                if is_multi_chunk:
+                    det = f"Coincidencia exacta (Sub-lote de Trade #{t.get('idTrade')}, total {float(t.get('size') or 0.0):g} u)"
+                else:
+                    det = "Coincidencia exacta de ticket, símbolo y volumen"
 
             open_time_str = t.get("openTime").strftime("%Y-%m-%d %H:%M:%S") if isinstance(t.get("openTime"), datetime) else str(t.get("openTime") or "-")
             created_utc_str = str(f.get("CreatedDateTimeUTC") or "-")

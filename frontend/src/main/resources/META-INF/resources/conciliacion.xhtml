@@ -46,8 +46,9 @@
         }
     </style>
 
+    <h:form id="conciliacionForm">
     <div id="strategyConciliacionWrapper"
-         style="display: #{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'flex' : 'none'}; flex-direction: column; gap: 8px; width: 100%; flex: 1; min-height: 0; height: 100%; overflow-y: auto !important; overflow-x: hidden; box-sizing: border-box; padding: 2px 10px 40px 2px;">
+         style="display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box; padding: 2px 4px 20px 2px;">
 
         <!-- 1. ENCABEZADO Y BARRA DE CONTROL COMPACTA -->
         <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 10px; padding: 6px 14px; box-shadow: var(--neu-shadow-flat); flex-wrap: wrap; gap: 8px; flex-shrink: 0;">
@@ -77,7 +78,7 @@
                         <f:selectItem itemLabel="🌐 Todos los Usuarios (Consolidado)" itemValue="#{null}" />
                         <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
                                        itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
-                        <p:ajax process="@this" listener="#{conciliacionBean.onFiltroUsuarioChange}" update=":aetherForm:conciliacionContent" />
+                        <p:ajax process="@this" listener="#{conciliacionBean.onFiltroUsuarioChange}" update="conciliacionContent" />
                     </p:selectOneMenu>
                 </h:panelGroup>
 
@@ -101,7 +102,7 @@
                                  value="Auditar Ahora"
                                  action="#{conciliacionBean.consultar}"
                                  process="@this"
-                                 update=":aetherForm:conciliacionContent"
+                                 update="conciliacionContent"
                                  styleClass="aether-btn-primary"
                                  style="font-size: 0.90rem !important; font-weight: 800 !important; padding: 4px 14px !important; border-radius: 7px !important; height: 30px !important;" />
             </div>
@@ -438,5 +439,6 @@
         </h:panelGroup>
 
     </div>
+    </h:form>
 </ui:composition>
 </html>

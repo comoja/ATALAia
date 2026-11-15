@@ -1319,16 +1319,10 @@
             var s = (strat || 'RATIOS').toUpperCase();
             var rWrap = document.getElementById('strategyRatiosWrapper');
             var cWrap = document.getElementById('strategyCartWrapper');
-            var concWrap = document.getElementById('strategyConciliacionWrapper');
             if (rWrap && cWrap) {
-                if (s === 'CONCILIACION') {
-                    rWrap.style.display = 'none';
-                    cWrap.style.display = 'none';
-                    if (concWrap) concWrap.style.display = 'flex';
-                } else if (s === 'CART') {
+                if (s === 'CART') {
                     rWrap.style.display = 'none';
                     cWrap.style.display = 'flex';
-                    if (concWrap) concWrap.style.display = 'none';
                     setTimeout(function () {
                         renderCartChart();
                         renderCartBtPriceChart();
@@ -1337,7 +1331,6 @@
                 } else {
                     cWrap.style.display = 'none';
                     rWrap.style.display = 'flex';
-                    if (concWrap) concWrap.style.display = 'none';
                     setTimeout(function () {
                         if (typeof renderAetherChart === 'function') renderAetherChart();
                     }, 80);

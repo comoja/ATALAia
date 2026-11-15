@@ -48,7 +48,11 @@ def get_live_price_from_mt5(symbol: str, direction: Optional[str] = None):
         clean_sym = symbol.replace("/", "").upper()
         sym_map = {
             'BTCUSD': 'Bitcoin',
-            'BTC': 'Bitcoin'
+            'BTC': 'Bitcoin',
+            'BITCOIN': 'Bitcoin',
+            'ETHUSD': 'Ethereum',
+            'ETH': 'Ethereum',
+            'ETHEREUM': 'Ethereum'
         }
         mt5_sym = sym_map.get(clean_sym, clean_sym)
 
@@ -5287,7 +5291,8 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             })
 
         avg_entry = (w_entry / tot_size) if tot_size > 0 else (last_px or 1.0)
-        ret_pct = (tot_pnl / tot_margin * 100.0) if tot_margin > 0 else 0.0
+        notional_val = avg_entry * tot_size
+        ret_pct = (tot_pnl / notional_val * 100.0) if notional_val > 0 else 0.0
         cur_px = last_px or 1.0
         results.append({
             "setup": sym,

@@ -1257,19 +1257,6 @@
                         <i class="pi pi-compass" style="color: #0284c7; font-size: 1.05rem;"></i> Estrategia Activa:
                     </span>
 
-                    <!-- Botón 0: CONCILIACIÓN DE POSICIÓN (Hasta la izquierda a nivel de estrategias) -->
-                    <p:commandLink id="btnStratConciliacion"
-                                   action="#{dashboardBean.selectStrategy('CONCILIACION')}"
-                                   actionListener="#{conciliacionBean.consultar}"
-                                   process="@this"
-                                   update=":aetherForm"
-                                   oncomplete="switchStrategyView('CONCILIACION');"
-                                   title="Conciliación de Posición: Auditoría en vivo de órdenes y posiciones entre ATALAia y FOREX.com (Solo Consulta)"
-                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(99, 102, 241, 0.35); border: 1px solid #6366f1;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
-                        <i class="pi pi-check-circle" style="font-size: 1.05rem;"></i>
-                        <span>CONCILIACIÓN</span>
-                    </p:commandLink>
-
                     <!-- Botón Estrategia 1: RATIOS -->
                     <p:commandLink id="btnStratRatios"
                                    action="#{dashboardBean.selectStrategy('RATIOS')}"
@@ -1298,14 +1285,11 @@
                 <!-- Indicador de Cuenta Compartida y Microservicio Activo -->
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                     <span style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 8px; font-size: 0.82rem; font-weight: 800;">
-                        <i class="pi pi-server" style="margin-right: 4px; color: #{dashboardBean.activeStrategy eq 'CONCILIACION' ? '#6366f1' : (dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : '#0284c7')};"></i>
-                        Motor: <b>#{dashboardBean.activeStrategy eq 'CONCILIACION' ? 'Auditoría Transaccional (Solo Consulta)' : (dashboardBean.activeStrategy eq 'CART' ? 'microCart.py (1 Par · Precios Reales · CAR)' : 'microRatio.py (2 Pares Normalizados)')}</b>
+                        <i class="pi pi-server" style="margin-right: 4px; color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : '#0284c7'};"></i>
+                        Motor: <b>#{dashboardBean.activeStrategy eq 'CART' ? 'microCart.py (1 Par · Precios Reales · CAR)' : 'microRatio.py (2 Pares Normalizados)'}</b>
                     </span>
                 </div>
             </div>
-
-            <!-- VISTA 0: CONCILIACIÓN DE POSICIÓN (ATALAia vs FOREX.com) -->
-            <ui:include src="/conciliacion.xhtml" />
 
             <!-- ESTRATEGIA 1: RATIOS (Ratio, BackTest, Hechos) -->
             <ui:include src="/ratios.xhtml" />
