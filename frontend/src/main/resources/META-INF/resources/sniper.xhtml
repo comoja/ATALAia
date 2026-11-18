@@ -840,8 +840,16 @@
                     else if (id === 'sniperBtEquityChart') chart = sniperBtEquityChartInstance;
                     else if (id === 'sniperChart') chart = sniperChartInstance;
                 }
-                if (chart && typeof chart.resetZoom === 'function') {
-                    chart.resetZoom();
+                if (chart) {
+                    if (id === 'sniperChart') {
+                        delete chart.options.scales.x.min;
+                        delete chart.options.scales.x.max;
+                        delete chart.options.scales.y.min;
+                        delete chart.options.scales.y.max;
+                        chart.update();
+                    } else if (typeof chart.resetZoom === 'function') {
+                        chart.resetZoom();
+                    }
                 }
             } catch (e) {
                 console.warn("Error en resetChartZoom:", e);
@@ -1096,12 +1104,19 @@
 
                 // Si hay trade activo, graficar líneas horizontales y recuadro dinámico (TP verde, SL roja o TSL ámbar)
                 var pluginsList = [];
+                var candleStep = 15 * 60 * 1000;
+                if (pricePoints.length > 1) {
+                    var diff = pricePoints[pricePoints.length - 1].x - pricePoints[pricePoints.length - 2].x;
+                    if (diff > 0 && diff < 86400000) candleStep = diff;
+                }
+                var lineExtendTs = (maxTs !== null) ? (maxTs + candleStep * 8) : maxTs;
+
                 if (activeTrade && minTs !== null && maxTs !== null) {
                     if (activeTrade.entryPrice) {
                         var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
                         datasets.push({
                             label: 'Entrada (' + (isBuy ? 'BUY' : 'SELL') + ')',
-                            data: [{ x: minTs, y: activeTrade.entryPrice }, { x: maxTs, y: activeTrade.entryPrice }],
+                            data: [{ x: minTs, y: activeTrade.entryPrice }, { x: lineExtendTs, y: activeTrade.entryPrice }],
                             borderColor: isBuy ? '#16a34a' : '#dc2626',
                             borderWidth: 2,
                             borderDash: [0, 0],
@@ -1112,7 +1127,7 @@
                     if (activeTrade.takeProfit) {
                         datasets.push({
                             label: 'Take Profit (TP)',
-                            data: [{ x: minTs, y: activeTrade.takeProfit }, { x: maxTs, y: activeTrade.takeProfit }],
+                            data: [{ x: minTs, y: activeTrade.takeProfit }, { x: lineExtendTs, y: activeTrade.takeProfit }],
                             borderColor: '#10b981',
                             borderWidth: 2,
                             borderDash: [6, 4],
@@ -1123,7 +1138,7 @@
                     if (activeTrade.stopLoss) {
                         datasets.push({
                             label: 'Stop Loss (SL)',
-                            data: [{ x: minTs, y: activeTrade.stopLoss }, { x: maxTs, y: activeTrade.stopLoss }],
+                            data: [{ x: minTs, y: activeTrade.stopLoss }, { x: lineExtendTs, y: activeTrade.stopLoss }],
                             borderColor: '#ef4444',
                             borderWidth: 2,
                             borderDash: [6, 4],
@@ -1135,7 +1150,7 @@
                     if (activeTrade.hasBe && activeTrade.bePrice) {
                         datasets.push({
                             label: activeTrade.isBreakEven ? 'BreakEven (Asegurado)' : 'Trigger BreakEven (50%)',
-                            data: [{ x: minTs, y: activeTrade.bePrice }, { x: maxTs, y: activeTrade.bePrice }],
+                            data: [{ x: minTs, y: activeTrade.bePrice }, { x: lineExtendTs, y: activeTrade.bePrice }],
                             borderColor: '#3b82f6',
                             borderWidth: 2,
                             borderDash: [4, 4],
@@ -1147,7 +1162,7 @@
                     if (activeTrade.hasTsl && activeTrade.tslPrice) {
                         datasets.push({
                             label: 'Trailing Stop Loss (TSL)',
-                            data: [{ x: minTs, y: activeTrade.tslPrice }, { x: maxTs, y: activeTrade.tslPrice }],
+                            data: [{ x: minTs, y: activeTrade.tslPrice }, { x: lineExtendTs, y: activeTrade.tslPrice }],
                             borderColor: '#d97706',
                             borderWidth: 2,
                             borderDash: [3, 3],
@@ -1290,9 +1305,99 @@
                             }
                         }
                     };
+                    pluginsList.push(tradeBoxPlugin);
+                }
+
+                // =========================================================
+                // CONFIGURACIÓN DE ESCALAS Y ZOOM DINÁMICO (SIMILAR A RIDER)
+                // =========================================================
+                var scalesConfig = {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            displayFormats: {
+                                hour: 'HH:mm',
+                                day: 'MMM dd'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(226, 232, 240, 0.6)'
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 10, weight: '700' }
+                        }
+                    },
+                    y: {
+                        position: 'right',
+                        grid: {
+                            color: 'rgba(226, 232, 240, 0.6)'
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            font: { size: 11, weight: '700' }
+                        }
+                    }
+                };
+
+                // Zoom condicional en vivo para SNIPER (similar a RIDER):
+                // Si hay una posición activa para el par, hacer zoom automático en el eje X
+                // de unas 10 temporalidades (velas) previas a la entrada hasta la vela en curso + margen futuro (4 temporalidades).
+                // Si no hay posición activa o se presiona Reset Zoom, se muestra la serie histórica completa.
+                if (activeTrade && activeTrade.entryPrice && minTs !== null && maxTs !== null) {
+                    var openTs = parseSniperDateMs(activeTrade.openTime);
+                    var zoomMinTs;
+                    if (openTs && !isNaN(openTs) && openTs >= minTs && openTs <= maxTs) {
+                        // Unas 10 temporalidades (velas) antes de la orden para dar contexto previo a la entrada
+                        zoomMinTs = Math.max(minTs, openTs - (10 * candleStep));
+                    } else {
+                        // Fallback: 12 temporalidades antes de la última vela
+                        zoomMinTs = Math.max(minTs, maxTs - (12 * candleStep));
+                    }
+
+                    // Margen derecho (4 temporalidades hacia adelante para proyectar el recuadro dinámico TP/SL)
+                    var zoomMaxTs = maxTs + (candleStep * 4);
+
+                    scalesConfig.x.min = zoomMinTs;
+                    scalesConfig.x.max = zoomMaxTs;
+
+                    // Ajuste dinámico del rango vertical (eje Y) sobre los puntos visibles en la ventana de zoom
+                    // para que las velas y los niveles de TP, SL, BE y Entrada aprovechen toda la altura visual
+                    var visMinY = Infinity;
+                    var visMaxY = -Infinity;
+
+                    for (var pIdx = 0; pIdx < pricePoints.length; pIdx++) {
+                        var pt = pricePoints[pIdx];
+                        if (pt && pt.x >= zoomMinTs && pt.x <= maxTs) {
+                            var pHigh = (pt.high !== undefined && !isNaN(pt.high)) ? pt.high : pt.y;
+                            var pLow = (pt.low !== undefined && !isNaN(pt.low)) ? pt.low : pt.y;
+                            if (pLow < visMinY) visMinY = pLow;
+                            if (pHigh > visMaxY) visMaxY = pHigh;
+                        }
+                    }
+
+                    var checkLevelY = function(val) {
+                        if (val !== null && val !== undefined && !isNaN(Number(val))) {
+                            var nVal = Number(val);
+                            if (nVal < visMinY) visMinY = nVal;
+                            if (nVal > visMaxY) visMaxY = nVal;
                         }
                     };
-                    pluginsList.push(tradeBoxPlugin);
+
+                    checkLevelY(activeTrade.entryPrice);
+                    checkLevelY(activeTrade.takeProfit);
+                    checkLevelY(activeTrade.stopLoss);
+                    if (activeTrade.hasTsl && activeTrade.tslPrice) checkLevelY(activeTrade.tslPrice);
+                    if (activeTrade.hasBe && activeTrade.bePrice) checkLevelY(activeTrade.bePrice);
+
+                    if (visMinY !== Infinity && visMaxY !== -Infinity) {
+                        var visRange = visMaxY - visMinY;
+                        if (visRange <= 0) visRange = (visMaxY !== 0 ? Math.abs(visMaxY) * 0.002 : 1);
+                        var yPad = visRange * 0.08;
+                        scalesConfig.y.min = visMinY - yPad;
+                        scalesConfig.y.max = visMaxY + yPad;
+                    }
                 }
 
                 if (sniperChartInstance) {
@@ -1312,35 +1417,7 @@
                             intersect: false,
                             mode: 'index'
                         },
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    unit: 'hour',
-                                    displayFormats: {
-                                        hour: 'HH:mm',
-                                        day: 'MMM dd'
-                                    }
-                                },
-                                grid: {
-                                    color: 'rgba(226, 232, 240, 0.6)'
-                                },
-                                ticks: {
-                                    color: '#64748b',
-                                    font: { size: 10, weight: '700' }
-                                }
-                            },
-                            y: {
-                                position: 'right',
-                                grid: {
-                                    color: 'rgba(226, 232, 240, 0.6)'
-                                },
-                                ticks: {
-                                    color: '#64748b',
-                                    font: { size: 11, weight: '700' }
-                                }
-                            }
-                        },
+                        scales: scalesConfig,
                         plugins: {
                             legend: {
                                 position: 'top',
