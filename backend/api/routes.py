@@ -32,7 +32,7 @@ from backend.services.conciliacionService import obtenerConciliacionPosiciones
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UsuarioCuenta, Usuario
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UserSniper, UsuarioCuenta, Usuario
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -52,7 +52,9 @@ def get_live_price_from_mt5(symbol: str, direction: Optional[str] = None):
             'BITCOIN': 'Bitcoin',
             'ETHUSD': 'Ethereum',
             'ETH': 'Ethereum',
-            'ETHEREUM': 'Ethereum'
+            'ETHEREUM': 'Ethereum',
+            'COFFEE': 'Coffee C',
+            'COFFEEC': 'Coffee C'
         }
         mt5_sym = sym_map.get(clean_sym, clean_sym)
 
@@ -1530,6 +1532,7 @@ def getUsuarioCuentas(idUsuario: int, db: Session = Depends(get_db)):
             "comision": float(getattr(c, "comision", 0.0) or 0.0),
             "activo": bool(uc.activo and c.Activo),
             "concentradora": bool(getattr(c, "Concentradora", False) or False),
+            "riesgoPorOperacion": float(getattr(c, "riesgoPorOperacion", 1.0) or 1.0),
             "createdAt": uc.createdAt
         }
         for uc, c in relaciones
@@ -3502,6 +3505,24 @@ class CloseRatioRequest(BaseModel):
     setup: str
     operar: Optional[int] = 0
 
+class RatioManualPreviewRequest(BaseModel):
+    idCuenta: int
+    numerador: str
+    denominador: str
+    directionRatio: str = "LARGO"  # "LARGO" (Buy A, Sell B) or "CORTO" (Sell A, Buy B)
+    unitsA: float = 1000.0
+    unitsB: Optional[float] = None
+    autoEquivalence: bool = False
+
+class RatioManualOpenRequest(BaseModel):
+    idCuenta: int
+    numerador: str
+    denominador: str
+    directionRatio: str = "LARGO"
+    unitsA: float
+    unitsB: float
+    setup: Optional[str] = None
+
 @router.post("/trades/close-all-ratios/{idCuenta}")
 def manual_close_all_ratios(
     idCuenta: int,
@@ -3715,6 +3736,232 @@ async def manual_close_ratio(
         "status": "ok",
         "message": f"Successfully sent close signals for {setupName}",
         "operar": targetOperar
+    }
+
+
+def _get_symbol_price_for_ratio(db: Session, symbol: str, direction: str = "LARGO") -> float:
+    try:
+        live = get_live_price_from_mt5(symbol, direction)
+        if live and float(live) > 0:
+            return float(live)
+    except Exception:
+        pass
+    try:
+        res = db.execute(text("SELECT close FROM candles WHERE symbol = :s ORDER BY timestamp DESC LIMIT 1"), {"s": symbol}).fetchone()
+        if res and res[0] and float(res[0]) > 0:
+            return float(res[0])
+    except Exception:
+        pass
+    try:
+        res = db.execute(text("SELECT priceOffset FROM symbols WHERE symbol = :s LIMIT 1"), {"s": symbol}).fetchone()
+        if res and res[0] and float(res[0]) > 0:
+            return float(res[0])
+    except Exception:
+        pass
+    return 1.0
+
+
+def _calculate_notional_usd(symbol: str, units: float, price: float) -> float:
+    s = (symbol or "").strip().upper()
+    if s.startswith("USD/"):
+        return round(float(units), 2)
+    return round(float(units) * float(price), 2)
+
+
+def _calculate_equivalent_units_b(
+    symA: str, symB: str, unitsA: float, pxA: float, pxB: float, symDataB: dict
+) -> float:
+    notionalA = _calculate_notional_usd(symA, unitsA, pxA)
+    sB = (symB or "").strip().upper()
+    if sB.startswith("USD/"):
+        rawB = notionalA
+    else:
+        rawB = (notionalA / pxB) if pxB > 0 else unitsA
+
+    minLotsB = float(symDataB.get("minLots") or 1000.0)
+    stepB = minLotsB if minLotsB > 0 else 1.0
+    eqUnitsB = max(minLotsB, round(round(rawB / stepB) * stepB, 4))
+    return float(eqUnitsB)
+
+
+@router.post("/trades/preview-manual-ratio")
+def preview_manual_ratio(
+    req: RatioManualPreviewRequest,
+    db: Session = Depends(get_db)
+):
+    from backend.services.microRatio import fetchAccountData, fetchSymbolData
+    from backend.core.pnl_calculator import calculate_margin
+    from backend.services.trade_executor import check_account_margin_health, check_projected_margin
+
+    dirRatio = (req.directionRatio or "LARGO").strip().upper()
+    dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
+    dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
+
+    symDataA = fetchSymbolData(db, req.numerador)
+    symDataB = fetchSymbolData(db, req.denominador)
+
+    pxA = _get_symbol_price_for_ratio(db, req.numerador, dirA)
+    pxB = _get_symbol_price_for_ratio(db, req.denominador, dirB)
+
+    unitsA = float(req.unitsA or 1000.0)
+    eqUnitsB = _calculate_equivalent_units_b(req.numerador, req.denominador, unitsA, pxA, pxB, symDataB)
+
+    if req.autoEquivalence or req.unitsB is None or req.unitsB <= 0:
+        unitsB = eqUnitsB
+    else:
+        unitsB = float(req.unitsB)
+
+    notionalA = _calculate_notional_usd(req.numerador, unitsA, pxA)
+    notionalB = _calculate_notional_usd(req.denominador, unitsB, pxB)
+    maxNotional = max(notionalA, notionalB, 1.0)
+    notionalDiffPct = round(abs(notionalA - notionalB) / maxNotional * 100.0, 1)
+    isEquallyBalanced = bool(notionalDiffPct <= 10.0)
+
+    marginPctA = symDataA.get("margenPct", 0.5)
+    marginPctB = symDataB.get("margenPct", 0.5)
+    margenA = calculate_margin(req.numerador, unitsA, pxA, marginPctA)
+    margenB = calculate_margin(req.denominador, unitsB, pxB, marginPctB)
+    totalPlannedMargin = round(margenA + margenB, 2)
+
+    accountData = fetchAccountData(db, req.idCuenta)
+    accountCapital = float(accountData.get("capital", 0.0))
+
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(
+        db, req.idCuenta, accountCapital
+    )
+    isAllowed, projInd = check_projected_margin(equity, totalMargin, totalPlannedMargin, minMarginReq)
+
+    warningMessage = None
+    if not canOperate:
+        isAllowed = False
+        warningMessage = (
+            f"⛔ Indicador de Margen actual ({marginInd:.1f}%) es inferior al {minMarginReq:.0f}% mínimo requerido para la cuenta. "
+            f"Operación bloqueada."
+        )
+    elif not isAllowed:
+        warningMessage = (
+            f"⛔ Margen proyectado insuficiente ({projInd:.1f}% < {minMarginReq:.0f}% requerido). "
+            f"La orden requiere ${totalPlannedMargin:,.2f} USD de margen."
+        )
+
+    return {
+        "success": True,
+        "numerador": req.numerador,
+        "denominador": req.denominador,
+        "directionRatio": dirRatio,
+        "directionA": dirA,
+        "directionB": dirB,
+        "priceA": pxA,
+        "priceB": pxB,
+        "unitsA": unitsA,
+        "unitsB": unitsB,
+        "equivalentUnitsB": eqUnitsB,
+        "notionalA": notionalA,
+        "notionalB": notionalB,
+        "notionalDiffPct": notionalDiffPct,
+        "isEquallyBalanced": isEquallyBalanced,
+        "margenA": margenA,
+        "margenB": margenB,
+        "totalPlannedMargin": totalPlannedMargin,
+        "accountCapital": accountCapital,
+        "accountEquity": equity,
+        "currentMargin": totalMargin,
+        "currentMarginIndicator": marginInd,
+        "projectedMargin": round(totalMargin + totalPlannedMargin, 2),
+        "projectedMarginIndicator": projInd,
+        "minMarginRequired": minMarginReq,
+        "canOperate": canOperate,
+        "isAllowed": isAllowed,
+        "warningMessage": warningMessage
+    }
+
+
+@router.post("/trades/open-manual-ratio")
+def open_manual_ratio(
+    req: RatioManualOpenRequest,
+    db: Session = Depends(get_db)
+):
+    from backend.services.microRatio import (
+        fetchAccountData, fetchSymbolData, openSingleRatioTradePair
+    )
+    from backend.core.pnl_calculator import calculate_margin
+    from backend.services.trade_executor import check_account_margin_health, check_projected_margin
+
+    if req.unitsA <= 0 or req.unitsB <= 0:
+        raise HTTPException(status_code=400, detail="Las cantidades de ambas patas deben ser mayores a 0")
+
+    dirRatio = (req.directionRatio or "LARGO").strip().upper()
+    dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
+    dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
+
+    symDataA = fetchSymbolData(db, req.numerador)
+    symDataB = fetchSymbolData(db, req.denominador)
+
+    pxA = _get_symbol_price_for_ratio(db, req.numerador, dirA)
+    pxB = _get_symbol_price_for_ratio(db, req.denominador, dirB)
+
+    marginPctA = symDataA.get("margenPct", 0.5)
+    marginPctB = symDataB.get("margenPct", 0.5)
+    margenA = calculate_margin(req.numerador, req.unitsA, pxA, marginPctA)
+    margenB = calculate_margin(req.denominador, req.unitsB, pxB, marginPctB)
+    totalPlannedMargin = round(margenA + margenB, 2)
+
+    accountData = fetchAccountData(db, req.idCuenta)
+    accountCapital = float(accountData.get("capital", 0.0))
+
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(
+        db, req.idCuenta, accountCapital
+    )
+    if not canOperate:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Indicador de margen actual ({marginInd:.1f}%) es menor al {minMarginReq:.0f}% requerido para la cuenta"
+        )
+
+    isAllowed, projInd = check_projected_margin(equity, totalMargin, totalPlannedMargin, minMarginReq)
+    if not isAllowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Margen proyectado insuficiente: {projInd:.1f}% es menor al {minMarginReq:.0f}% requerido (Margen orden: ${totalPlannedMargin:,.2f})"
+        )
+
+    setupName = req.setup or f"{req.numerador} - {req.denominador}"
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    opened = openSingleRatioTradePair(
+        dbSession=db,
+        idCuenta=req.idCuenta,
+        setupName=setupName,
+        numerador=req.numerador,
+        denominador=req.denominador,
+        periodo="1h",
+        candleDateStr=nowStr,
+        signalType="MANUAL",
+        directionA=dirA,
+        directionB=dirB,
+        entryPxA=pxA,
+        entryPxB=pxB,
+        accountData=accountData,
+        symDataA=symDataA,
+        symDataB=symDataB,
+        customUnitsA=req.unitsA,
+        customUnitsB=req.unitsB
+    )
+
+    if not opened:
+        raise HTTPException(
+            status_code=500,
+            detail="Fallo al ejecutar la orden en el broker. Verifique logs del Webhook/FOREX.com."
+        )
+
+    return {
+        "success": True,
+        "message": f"Orden de Ratio abierta exitosamente ({req.numerador} {dirA} {req.unitsA:g} u / {req.denominador} {dirB} {req.unitsB:g} u)",
+        "setup": setupName,
+        "unitsA": req.unitsA,
+        "unitsB": req.unitsB,
+        "margenTotal": totalPlannedMargin,
+        "projectedIndicator": projInd
     }
 
 
@@ -4882,6 +5129,39 @@ class UserCartOperarUpdate(BaseModel):
     operar: bool = Field(..., description="Indica si se generan órdenes para este par CART")
 
 
+class UserSniperCreate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo del activo (ej. EUR/USD)")
+    Temporalidad: Optional[str] = Field("15min", description="Temporalidad operativa")
+    periodo: Optional[int] = Field(180, description="Días de historial")
+    minConfidence: Optional[float] = Field(75.0, description="Umbral mínimo de confianza ML (%)")
+    minRr: Optional[float] = Field(1.2, description="Risk-Reward mínimo adaptativo")
+    maxRr: Optional[float] = Field(1.5, description="Risk-Reward máximo adaptativo")
+    operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este par SNIPER")
+    accionCierre: Optional[str] = Field("Continua", description="Acción al cerrar posición (Continua o Para)")
+    tipoCierre: Optional[str] = Field("Estructural", description="Tipo de cierre de posición")
+    usarBreakEven: Optional[bool] = Field(True, description="Mueve a BreakEven al alcanzar 50% de recorrido")
+    usarTSL: Optional[bool] = Field(False, description="Activa Trailing Stop Loss tras BreakEven")
+    filtroHorario: Optional[bool] = Field(True, description="Filtra horario operativo")
+    horaInicio: Optional[str] = Field("08:00", description="Hora de inicio de operaciones (CST)")
+    horaFin: Optional[str] = Field("16:00", description="Hora fin de operaciones (CST)")
+    multiplicadorRiesgo: Optional[float] = Field(1.0, description="Multiplicador de riesgo financiero por operación")
+
+
+class UserSniperDelete(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo a borrar de userSNIPER")
+
+
+class UserSniperOperarUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo en userSNIPER")
+    operar: bool = Field(..., description="Indica si se generan órdenes para este par SNIPER")
+
+
 @router.get("/user-cart/buscar")
 def findUserCart(
     idUsuario: Optional[int] = None,
@@ -5212,7 +5492,7 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     """
     sql = text("""
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction,
-               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime
+               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime, status
         FROM trades
         WHERE idCuenta = :idc
           AND status = 'OPEN'
@@ -5287,7 +5567,8 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 "currentPrice": cur_px,
                 "margin": mg,
                 "pnl": round(item_pnl, 2),
-                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if dt_val else ""
+                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if dt_val else "",
+                "status": str(t.status or "OPEN")
             })
 
         avg_entry = (w_entry / tot_size) if tot_size > 0 else (last_px or 1.0)
@@ -5667,5 +5948,815 @@ async def getCartAnalysis(
     except Exception as e:
         logger.error(f"Error en getCartAnalysis para {symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================================================================
+# RUTAS ESTRATEGIA 3: SNIPER (Smart Order Block, Momentum & ML Precision)
+# =========================================================================
+
+@router.get("/user-sniper/buscar")
+def findUserSniper(
+    idUsuario: Optional[int] = None,
+    symbol: str = "",
+    idCuenta: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Busca la configuración de un par guardado en userSNIPER por cuenta/usuario y symbol.
+    Si no existe en userSNIPER, consulta la jerarquía adaptativa (symbolstrategyconfig -> strategyconfig)
+    para proveer valores por defecto inteligentes.
+    """
+    from backend.services.microSniper import getAdaptiveConfigForSymbol
+
+    symbol = unquote(unquote(str(symbol or ""))).strip()
+    query = db.query(UserSniper).filter(
+        UserSniper.symbol == symbol,
+        (UserSniper.borrado == False) | (UserSniper.borrado == None)
+    )
+    if idCuenta:
+        query = query.filter(UserSniper.idCuenta == idCuenta)
+    elif idUsuario:
+        query = query.filter(UserSniper.idUsuario == idUsuario)
+
+    item = query.order_by(UserSniper.id.desc()).first()
+
+    has_open_trades = False
+    open_count = 0
+    target_account = idCuenta or (item.idCuenta if item else None)
+    if target_account:
+        cnt = db.execute(text("""
+            SELECT COUNT(*) FROM trades
+            WHERE idCuenta = :idc
+              AND strategy = 'SNIPER'
+              AND (symbol = :sym OR setup = :sym)
+              AND status = 'OPEN'
+        """), {"idc": target_account, "sym": symbol}).scalar()
+        if cnt and cnt > 0:
+            has_open_trades = True
+            open_count = int(cnt)
+
+    if not item:
+        # Devolver parámetros adaptativos inteligentes por defecto
+        adaptiveCfg = getAdaptiveConfigForSymbol(db, symbol)
+        return {
+            "found": False,
+            "symbol": symbol,
+            "Temporalidad": "15min",
+            "periodo": 180,
+            "minConfidence": float(adaptiveCfg.get("minConfidence", 75.0)),
+            "minRr": float(adaptiveCfg.get("minRr", 1.2)),
+            "maxRr": float(adaptiveCfg.get("maxRr", 1.5)),
+            "operar": False,
+            "accionCierre": "Continua",
+            "tipoCierre": "Estructural",
+            "usarBreakEven": True,
+            "usarTSL": False,
+            "filtroHorario": True,
+            "horaInicio": "08:00",
+            "horaFin": "16:00",
+            "multiplicadorRiesgo": 1.0,
+            "hasOpenTrades": has_open_trades,
+            "openTradesCount": open_count
+        }
+
+    return {
+        "found": True,
+        "id": item.id,
+        "idUsuario": item.idUsuario,
+        "idCuenta": item.idCuenta,
+        "symbol": item.symbol,
+        "Temporalidad": item.Temporalidad or "15min",
+        "temporalidad": item.Temporalidad or "15min",
+        "periodo": item.periodo or 180,
+        "dias": item.periodo or 180,
+        "minConfidence": float(item.minConfidence if item.minConfidence is not None else 75.0),
+        "minRr": float(item.minRr if item.minRr is not None else 1.2),
+        "maxRr": float(item.maxRr if item.maxRr is not None else 1.5),
+        "operar": bool(item.operar),
+        "accionCierre": item.accionCierre or "Continua",
+        "tipoCierre": item.tipoCierre or "Estructural",
+        "usarBreakEven": bool(item.usarBreakEven if item.usarBreakEven is not None else True),
+        "usarTSL": bool(item.usarTSL if item.usarTSL is not None else False),
+        "filtroHorario": bool(item.filtroHorario if item.filtroHorario is not None else True),
+        "horaInicio": str(item.horaInicio or "08:00"),
+        "horaFin": str(item.horaFin or "16:00"),
+        "multiplicadorRiesgo": float(getattr(item, "multiplicadorRiesgo", 1.0) if getattr(item, "multiplicadorRiesgo", None) is not None else 1.0),
+        "createdAt": item.createdAt,
+        "hasOpenTrades": has_open_trades,
+        "openTradesCount": open_count
+    }
+
+
+@router.get("/user-sniper/{idUsuario}")
+def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Obtiene todos los pares SNIPER guardados en userSNIPER para la cuenta o usuario.
+    """
+    if idCuenta:
+        query = db.query(UserSniper).filter(
+            UserSniper.idCuenta == idCuenta,
+            (UserSniper.borrado == False) | (UserSniper.borrado == None)
+        )
+    else:
+        query = db.query(UserSniper).filter(
+            UserSniper.idUsuario == idUsuario,
+            (UserSniper.borrado == False) | (UserSniper.borrado == None)
+        )
+    items = query.order_by(UserSniper.id.desc()).all()
+
+    results = []
+    for r in items:
+        has_open = False
+        if r.idCuenta:
+            cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy = 'SNIPER'
+                  AND (symbol = :sym OR setup = :sym)
+                  AND status = 'OPEN'
+            """), {"idc": r.idCuenta, "sym": r.symbol}).scalar()
+            if cnt and cnt > 0:
+                has_open = True
+
+        results.append({
+            "id": r.id,
+            "idUsuario": r.idUsuario,
+            "idCuenta": r.idCuenta,
+            "symbol": r.symbol,
+            "numerador": r.symbol,
+            "denominador": "",
+            "Temporalidad": r.Temporalidad or "15min",
+            "temporalidad": r.Temporalidad or "15min",
+            "periodo": r.periodo or 180,
+            "dias": r.periodo or 180,
+            "minConfidence": float(r.minConfidence if r.minConfidence is not None else 75.0),
+            "minRr": float(r.minRr if r.minRr is not None else 1.2),
+            "maxRr": float(r.maxRr if r.maxRr is not None else 1.5),
+            "operar": bool(r.operar),
+            "accionCierre": r.accionCierre or "Continua",
+            "tipoCierre": r.tipoCierre or "Estructural",
+            "usarBreakEven": bool(r.usarBreakEven if r.usarBreakEven is not None else True),
+            "usarTSL": bool(r.usarTSL if r.usarTSL is not None else False),
+            "filtroHorario": bool(r.filtroHorario if r.filtroHorario is not None else True),
+            "horaInicio": str(r.horaInicio or "08:00"),
+            "horaFin": str(r.horaFin or "16:00"),
+            "multiplicadorRiesgo": float(getattr(r, "multiplicadorRiesgo", 1.0) if getattr(r, "multiplicadorRiesgo", None) is not None else 1.0),
+            "createdAt": r.createdAt,
+            "hasOpenTrades": has_open
+        })
+    return results
+
+
+@router.post("/user-sniper/guardar")
+async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db)):
+    """
+    Guarda o actualiza (UPSERT) en userSNIPER la configuración de un par para la estrategia SNIPER.
+    """
+    try:
+        payload.symbol = unquote(unquote(str(payload.symbol or ""))).strip()
+        cuentaId = payload.idCuenta
+        if not cuentaId:
+            uc = db.query(UsuarioCuenta).filter(
+                UsuarioCuenta.idUsuario == payload.idUsuario,
+                UsuarioCuenta.activo == True
+            ).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
+            cuentaId = uc.idCuenta if uc else 1
+
+        query = db.query(UserSniper).filter(
+            UserSniper.idUsuario == payload.idUsuario,
+            UserSniper.idCuenta == cuentaId,
+            UserSniper.symbol == payload.symbol
+        )
+        existing = query.first()
+
+        temporalidad_val = payload.Temporalidad or "15min"
+        periodo_val = int(payload.periodo or 180)
+        min_conf = float(payload.minConfidence if payload.minConfidence is not None else 75.0)
+        min_rr = float(payload.minRr if payload.minRr is not None else 1.2)
+        max_rr = float(payload.maxRr if payload.maxRr is not None else 1.5)
+        operar_val = bool(payload.operar) if payload.operar is not None else False
+        accion_cierre = str(payload.accionCierre or "Continua").strip()
+        tipo_cierre = str(payload.tipoCierre or "Estructural").strip()
+        usar_be = bool(payload.usarBreakEven) if payload.usarBreakEven is not None else True
+        usar_tsl = bool(payload.usarTSL) if payload.usarTSL is not None else False
+        filtro_horario = bool(payload.filtroHorario) if payload.filtroHorario is not None else True
+        hora_inicio = str(payload.horaInicio or "08:00")
+        hora_fin = str(payload.horaFin or "16:00")
+        mult_riesgo = float(payload.multiplicadorRiesgo if payload.multiplicadorRiesgo is not None else 1.0)
+
+        if existing:
+            existing.Temporalidad = temporalidad_val
+            existing.periodo = periodo_val
+            existing.minConfidence = min_conf
+            existing.minRr = min_rr
+            existing.maxRr = max_rr
+            existing.operar = operar_val
+            existing.accionCierre = accion_cierre
+            existing.tipoCierre = tipo_cierre
+            existing.usarBreakEven = usar_be
+            existing.usarTSL = usar_tsl
+            existing.filtroHorario = filtro_horario
+            existing.horaInicio = hora_inicio
+            existing.horaFin = hora_fin
+            existing.multiplicadorRiesgo = mult_riesgo
+            existing.borrado = False
+            db.commit()
+            db.refresh(existing)
+            return {"status": "success", "message": "Configuración SNIPER actualizada exitosamente", "id": existing.id, "idCuenta": cuentaId, "action": "updated"}
+        else:
+            nuevo = UserSniper(
+                idUsuario=payload.idUsuario,
+                idCuenta=cuentaId,
+                symbol=payload.symbol,
+                Temporalidad=temporalidad_val,
+                periodo=periodo_val,
+                minConfidence=min_conf,
+                minRr=min_rr,
+                maxRr=max_rr,
+                operar=operar_val,
+                accionCierre=accion_cierre,
+                tipoCierre=tipo_cierre,
+                usarBreakEven=usar_be,
+                usarTSL=usar_tsl,
+                filtroHorario=filtro_horario,
+                horaInicio=hora_inicio,
+                horaFin=hora_fin,
+                multiplicadorRiesgo=mult_riesgo,
+                borrado=False,
+                createdAt=datetime.now().replace(microsecond=0)
+            )
+            db.add(nuevo)
+            db.commit()
+            db.refresh(nuevo)
+            return {"status": "success", "message": "Configuración SNIPER guardada exitosamente", "id": nuevo.id, "idCuenta": cuentaId, "action": "created"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al guardar userSNIPER: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-sniper/borrar")
+def deleteUserSniper(payload: UserSniperDelete, db: Session = Depends(get_db)):
+    """
+    Elimina lógica o físicamente un par de userSNIPER.
+    """
+    try:
+        query = db.query(UserSniper).filter(
+            UserSniper.idUsuario == payload.idUsuario,
+            UserSniper.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserSniper.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="No se encontró el par en userSNIPER.")
+
+        targetAccount = item.idCuenta or payload.idCuenta
+        if targetAccount:
+            open_cnt = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy = 'SNIPER'
+                  AND (symbol = :sym OR setup = :sym)
+                  AND status = 'OPEN'
+            """), {"idc": targetAccount, "sym": payload.symbol}).scalar()
+            if open_cnt and open_cnt > 0:
+                raise HTTPException(status_code=400, detail=f"No se puede borrar {payload.symbol} porque tiene {open_cnt} posición(es) abierta(s) en SNIPER.")
+
+            total_trades = db.execute(text("""
+                SELECT COUNT(*) FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy = 'SNIPER'
+                  AND (symbol = :sym OR setup = :sym)
+            """), {"idc": targetAccount, "sym": payload.symbol}).scalar() or 0
+        else:
+            total_trades = 0
+
+        if total_trades > 0:
+            item.borrado = True
+            item.operar = False
+            db.commit()
+            return {"status": "success", "action": "logical_delete", "message": f"Par SNIPER {payload.symbol} archivado lógicamente."}
+        else:
+            db.delete(item)
+            db.commit()
+            return {"status": "success", "action": "physical_delete", "message": f"Par SNIPER {payload.symbol} eliminado de la base de datos."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-sniper/update-operar")
+def updateUserSniperOperar(payload: UserSniperOperarUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza el campo operar en userSNIPER.
+    """
+    try:
+        query = db.query(UserSniper).filter(
+            UserSniper.idUsuario == payload.idUsuario,
+            UserSniper.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserSniper.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Par SNIPER no encontrado")
+        item.operar = bool(payload.operar)
+        db.commit()
+        db.refresh(item)
+        return {"status": "success", "message": "Generar Órdenes SNIPER actualizado", "operar": item.operar}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades/active-summary-sniper/{idCuenta}")
+def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene las posiciones activas en trades para la estrategia SNIPER en la cuenta.
+    """
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, direction,
+               openTime, size, entryPrice, stopLoss, takeProfit, isBreakEven,
+               margin_used, pnl, intervalo, candleTime, status, ticketId
+        FROM trades
+        WHERE idCuenta = :idc
+          AND status = 'OPEN'
+          AND strategy = 'SNIPER'
+        ORDER BY symbol, openTime ASC, idTrade ASC
+    """)
+    rows = db.execute(sql, {"idc": idCuenta}).mappings().fetchall()
+    if not rows:
+        return []
+
+    by_symbol = {}
+    for r in rows:
+        sym = r["symbol"] or r["setup"] or "SNIPER"
+        by_symbol.setdefault(sym, []).append(r)
+
+    results = []
+    for sym, t_list in by_symbol.items():
+        clean = sym.replace("/", "").upper()
+        row_s = db.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+
+        tot_margin = 0.0
+        tot_pnl = 0.0
+        tot_size = 0.0
+        w_entry = 0.0
+        open_dates = []
+        dir_str = ""
+        trade_items = []
+        last_px = None
+
+        for t in t_list:
+            sz = float(t["size"] or 0.0)
+            ep = float(t["entryPrice"] or 0.0)
+            mg = float(t["margin_used"] or 0.0)
+            d_str = str(t["direction"] or "LARGO").upper()
+            dir_str = d_str
+            tot_margin += mg
+            tot_size += sz
+            w_entry += ep * sz
+
+            live_px = get_live_price_from_mt5(sym, direction=d_str)
+            if live_px is not None:
+                cur_px = float(live_px)
+            else:
+                row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
+            last_px = cur_px
+
+            item_pnl, _, _, _ = calculate_unrealized_pnl(
+                symbol=sym,
+                direction=d_str,
+                entry_price=ep,
+                current_price=cur_px,
+                size=sz,
+                pip_size=pip_size
+            )
+            tot_pnl += item_pnl
+            dt_val = t["openTime"] or t["candleTime"]
+            if dt_val:
+                open_dates.append(dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val))
+
+            trade_items.append({
+                "idTrade": t["idTrade"],
+                "symbol": sym,
+                "direction": d_str,
+                "size": sz,
+                "entryPrice": ep,
+                "stopLoss": float(t["stopLoss"]) if t.get("stopLoss") is not None else None,
+                "takeProfit": float(t["takeProfit"]) if t.get("takeProfit") is not None else None,
+                "isBreakEven": bool(t.get("isBreakEven", 0)),
+                "currentPrice": cur_px,
+                "margin": mg,
+                "pnl": round(item_pnl, 2),
+                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
+                "status": str(t["status"] or "OPEN"),
+                "ticketId": str(t.get("ticketId") or "")
+            })
+
+        avg_entry = (w_entry / tot_size) if tot_size > 0 else (last_px or 1.0)
+        notional_val = avg_entry * tot_size
+        ret_pct = (tot_pnl / notional_val * 100.0) if notional_val > 0 else 0.0
+        cur_px = last_px or 1.0
+        results.append({
+            "setup": sym,
+            "pairA": sym,
+            "pairB": "",
+            "totalOpenTrades": len(t_list),
+            "totalPnl": round(tot_pnl, 2),
+            "totalMargin": round(tot_margin, 2),
+            "returnPct": round(ret_pct, 2),
+            "avgEntryPriceA": round(avg_entry, 5),
+            "currentPriceA": round(cur_px, 5),
+            "sizeA": round(tot_size, 2),
+            "marginA": round(tot_margin, 2),
+            "pnlA": round(tot_pnl, 2),
+            "dirA": dir_str,
+            "firstEntryDate": open_dates[0] if open_dates else "",
+            "lastEntryDate": open_dates[-1] if open_dates else "",
+            "trades": trade_items
+        })
+    return results
+
+
+@router.post("/trades/close-sniper/{idCuenta}")
+async def manual_close_sniper(
+    idCuenta: int,
+    raw_req: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Cierra manualmente una posición SNIPER desde la interfaz gráfica.
+    Envía orden de cierre al Webhook y actualiza trades y userSNIPER.
+    """
+    body = {}
+    try:
+        body = await raw_req.json()
+    except Exception:
+        pass
+    symbol = body.get("symbol")
+    targetOperar = int(body.get("operar", 0))
+
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+
+    from backend.services.microSniper import sendSniperWebhookOrder
+
+    openTrades = db.execute(text("""
+        SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId
+        FROM trades
+        WHERE idCuenta = :idc
+          AND strategy = 'SNIPER'
+          AND (symbol = :sym OR setup = :sym)
+          AND status = 'OPEN'
+        ORDER BY idTrade ASC
+    """), {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
+
+    if not openTrades:
+        raise HTTPException(status_code=404, detail="No active trades found for this symbol in SNIPER")
+
+    cleanSym = symbol.replace("/", "").upper()
+    rowSym = db.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
+    pipSz = float(rowSym[0]) if rowSym and rowSym[0] else (0.01 if "JPY" in symbol else 0.0001)
+
+    px = None
+    rowPx = db.execute(text("SELECT closePrice FROM stockprices WHERE symbol = :sym ORDER BY priceDate DESC LIMIT 1"), {"sym": symbol}).fetchone()
+    if rowPx and rowPx[0]:
+        px = float(rowPx[0])
+
+    db.commit()
+
+    for idxTr, tr in enumerate(openTrades):
+        if idxTr > 0:
+            time.sleep(2.0)
+        idt = int(tr["idTrade"])
+        epx = float(tr["entryPrice"] or (px or 1.0))
+        curPx = px or epx
+        closeReason = f"Cierre manual SNIPER desde Dashboard ({symbol})"
+
+        whRes = sendSniperWebhookOrder(
+            dbSession=db,
+            idCuenta=idCuenta,
+            symbol=symbol,
+            action="close",
+            size=float(tr["size"] or 1000.0),
+            price=curPx,
+            comment=closeReason
+        )
+        fillPx = float(whRes.get("fill_price") or curPx) if whRes.get("success") else curPx
+        pnlVal, _, _, _ = calculate_unrealized_pnl(
+            symbol=symbol,
+            direction=str(tr["direction"] or "CORTO").upper(),
+            entry_price=epx,
+            current_price=fillPx,
+            size=float(tr["size"] or 1000.0),
+            pip_size=pipSz
+        )
+        db.execute(text("""
+            UPDATE trades
+            SET status = 'CLOSED',
+                exitPrice = :epx,
+                pnl = :pnl,
+                closeTime = NOW()
+            WHERE idTrade = :idt
+        """), {"epx": fillPx, "pnl": round(pnlVal, 2), "idt": idt})
+
+        db.execute(text("""
+            UPDATE cuenta
+            SET Capital = Capital + :pnl
+            WHERE idCuenta = :idc
+        """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
+        db.commit()
+
+    db.execute(text("UPDATE userSNIPER SET operar = :op WHERE idCuenta = :idc AND symbol = :sym"), {"op": targetOperar, "idc": idCuenta, "sym": symbol})
+    db.commit()
+    return {"status": "success", "message": f"Posiciones SNIPER para {symbol} cerradas exitosamente"}
+
+
+@router.get("/sniper/analysis/{symbol:path}")
+async def getSniperAnalysis(
+    symbol: str,
+    timeframe: str = "15min",
+    days: int = 90,
+    idCuenta: Optional[int] = None,
+    multiplicadorRiesgo: Optional[float] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Obtiene el historial de velas (15min) y niveles estructurales (Swing High/Low, High Zone, Low Zone)
+    para un par en SNIPER, además de los datos del trade activo con sus niveles de TP, SL, BE y TSL.
+    """
+    try:
+        from backend.services.microSniper import fetchSniperCandlesHistory, getAdaptiveConfigForSymbol, runSniperBacktest
+        from Sentinel.analysis.technical import get_structural_levels
+
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        tf_lower = str(timeframe or "15min").lower().strip()
+
+        # 1. Obtener velas para Backtest y Calibración según días seleccionados
+        candlesPerDay = 24 if "h" in tf_lower else (96 if "15" in tf_lower else (288 if "5" in tf_lower else (1440 if "1m" in tf_lower else 24)))
+        limitCandles = max(300, min(5000, int(days or 90) * candlesPerDay))
+        df_bt = await asyncio.to_thread(fetchSniperCandlesHistory, symbol, tf_lower, max(15, int(days or 90)), limitCandles)
+        if df_bt.empty or len(df_bt) < 10:
+            raise HTTPException(status_code=404, detail=f"Sin velas suficientes para {symbol} en temporalidad {timeframe}")
+
+        df = df_bt
+
+        # 2. Configuración adaptativa jerárquica
+        adaptiveCfg = getAdaptiveConfigForSymbol(db, symbol)
+
+        cleanSym = symbol.replace("/", "").upper()
+        rowSym = db.execute(text("SELECT pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
+        pipSz = float(rowSym[0]) if rowSym and rowSym[0] else (0.01 if "JPY" in symbol else 0.0001)
+
+        # 3. Capital y parámetros de cuenta / userSNIPER
+        accountCap = 1000.0
+        allocPct = 1.0
+        minConfVal = float(adaptiveCfg.get("minConfidence", 65.0))
+        minRrVal = float(adaptiveCfg.get("minRr", 1.5))
+        maxRrVal = float(adaptiveCfg.get("maxRr", 2.5))
+        usarBeVal = True
+        usarTslVal = False
+
+        multRiesgoVal = 1.0
+        if idCuenta:
+            accRow = db.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).fetchone()
+            baseRiesgo = 1.0
+            if accRow:
+                if accRow[0]:
+                    accountCap = float(accRow[0])
+                if accRow[1] is not None and float(accRow[1]) > 0:
+                    baseRiesgo = float(accRow[1])
+
+            userCfgRow = db.execute(text("""
+                SELECT minConfidence, minRr, maxRr, usarBreakEven, usarTSL, multiplicadorRiesgo
+                FROM userSNIPER
+                WHERE idCuenta = :idc AND symbol = :sym
+                LIMIT 1
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
+
+            if userCfgRow:
+                if userCfgRow.get("minConfidence") is not None: minConfVal = float(userCfgRow["minConfidence"])
+                if userCfgRow.get("minRr") is not None: minRrVal = float(userCfgRow["minRr"])
+                if userCfgRow.get("maxRr") is not None: maxRrVal = float(userCfgRow["maxRr"])
+                if userCfgRow.get("usarBreakEven") is not None: usarBeVal = bool(userCfgRow["usarBreakEven"])
+                if userCfgRow.get("usarTSL") is not None: usarTslVal = bool(userCfgRow["usarTSL"])
+                if userCfgRow.get("multiplicadorRiesgo") is not None: multRiesgoVal = float(userCfgRow["multiplicadorRiesgo"])
+
+            if multiplicadorRiesgo is not None:
+                try:
+                    multRiesgoVal = max(0.1, float(multiplicadorRiesgo))
+                except Exception:
+                    pass
+
+            allocPct = round(baseRiesgo * multRiesgoVal, 2)
+
+        # 4. Ejecutar BackTest de SNIPER
+        btResult = await asyncio.to_thread(
+            runSniperBacktest,
+            df=df_bt,
+            symbol=symbol,
+            minConfidence=minConfVal,
+            minRr=minRrVal,
+            maxRr=maxRrVal,
+            initialCapital=accountCap,
+            allocationPct=allocPct,
+            usarBreakEven=usarBeVal,
+            usarTSL=usarTslVal,
+            pipSize=pipSz,
+            timeframe=timeframe,
+            adaptiveCfg=adaptiveCfg
+        )
+
+        # 5. Niveles estructurales
+        structLevels = get_structural_levels(df, lookback=40, lookback_macro=120)
+
+        # 6. Formatear velas para la gráfica principal de calibración (últimas 250 velas para máxima fluidez y carga instantánea)
+        df_live = df.tail(250)
+        historyList = []
+        for idx, row in df_live.iterrows():
+            ts_str = str(idx)
+            if hasattr(idx, "strftime"):
+                ts_str = idx.strftime("%Y-%m-%d %H:%M")
+            historyList.append({
+                "datetime": ts_str,
+                "open": round(float(row["open"]), 5),
+                "high": round(float(row["high"]), 5),
+                "low": round(float(row["low"]), 5),
+                "close": round(float(row["close"]), 5),
+                "volume": float(row.get("volume", 0.0) or 0.0)
+            })
+
+        # 7. Consultar trade activo en trades para esta cuenta y símbolo
+        activeTrade = None
+        currentPx = float(df["close"].iloc[-1])
+        if idCuenta:
+            openTradeRow = db.execute(text("""
+                SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
+                       margin_used, pnl, openTime, candleTime, status, ticketId
+                FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy = 'SNIPER'
+                  AND (symbol = :sym OR setup = :sym)
+                  AND status = 'OPEN'
+                ORDER BY idTrade DESC
+                LIMIT 1
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
+
+            if openTradeRow:
+                dirStr = str(openTradeRow["direction"] or "LARGO").upper()
+                isLong = "LARG" in dirStr or "BUY" in dirStr
+                entryPx = float(openTradeRow["entryPrice"] or currentPx)
+                slVal = float(openTradeRow["stopLoss"]) if openTradeRow.get("stopLoss") is not None else None
+                tpVal = float(openTradeRow["takeProfit"]) if openTradeRow.get("takeProfit") is not None else None
+                isBe = bool(openTradeRow.get("isBreakEven", 0))
+
+                pnlFloat, pipsVal, _, _ = calculate_unrealized_pnl(
+                    symbol=symbol,
+                    direction=dirStr,
+                    entry_price=entryPx,
+                    current_price=currentPx,
+                    size=float(openTradeRow["size"] or 1000.0),
+                    pip_size=pipSz
+                )
+
+                beTrigger = None
+                if tpVal and entryPx:
+                    beTrigger = entryPx + (tpVal - entryPx) * 0.50 if isLong else entryPx - (entryPx - tpVal) * 0.50
+
+                dt_val = openTradeRow["openTime"] or openTradeRow["candleTime"]
+                activeTrade = {
+                    "idTrade": openTradeRow["idTrade"],
+                    "symbol": symbol,
+                    "direction": dirStr,
+                    "isLong": isLong,
+                    "entryPrice": entryPx,
+                    "currentPrice": currentPx,
+                    "stopLoss": slVal,
+                    "takeProfit": tpVal,
+                    "isBreakEven": isBe,
+                    "bePrice": entryPx if isBe else beTrigger,
+                    "beTrigger": beTrigger,
+                    "size": float(openTradeRow["size"] or 1000.0),
+                    "margin": float(openTradeRow["margin_used"] or 0.0),
+                    "pnl": round(pnlFloat, 2),
+                    "pips": round(pipsVal, 1),
+                    "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
+                    "ticketId": str(openTradeRow.get("ticketId") or "")
+                }
+
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "currentPrice": currentPx,
+            "initialCapital": accountCap,
+            "allocationPct": allocPct,
+            "multiplicadorRiesgo": multRiesgoVal,
+            "history": historyList,
+            "backtest": btResult,
+            "structuralLevels": structLevels,
+            "adaptiveConfig": adaptiveCfg,
+            "activeTrade": activeTrade
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en getSniperAnalysis para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sniper/optimize/{symbol:path}")
+async def optimizeSniperSymbolEndpoint(
+    symbol: str,
+    idCuenta: Optional[int] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Ejecuta el proceso autónomo de optimización y parametrización adaptativa
+    para la emisora especificada (evalúa 5min, 15min, 30min, 1h, confianza, R:R, BE, TSL y mejor horario).
+    Persiste la combinación óptima directamente en la base de datos (userSNIPER y symbolstrategyconfig).
+    """
+    try:
+        from urllib.parse import unquote
+        from backend.services.microSniperOptimizer import optimizeSingleSniperSymbol
+
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Símbolo no proporcionado")
+
+        result = await asyncio.to_thread(
+            optimizeSingleSniperSymbol,
+            dbSession=db,
+            symbol=symbol,
+            idCuenta=idCuenta,
+            applyToDb=True
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en optimizeSniperSymbolEndpoint para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sniper/optimize-all")
+async def optimizeAllSniperSymbolsEndpoint() -> Dict[str, Any]:
+    """
+    Ejecuta la calibración global de todas las emisoras activas en SNIPER en segundo plano.
+    """
+    try:
+        from backend.services.microSniperOptimizer import optimizeAllSniperSymbols
+        result = await asyncio.to_thread(optimizeAllSniperSymbols)
+        return result
+    except Exception as e:
+        logger.error(f"Error en optimizeAllSniperSymbolsEndpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sniper/optimal-config/{symbol:path}")
+async def getSniperOptimalConfigEndpoint(
+    symbol: str,
+    idCuenta: Optional[int] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Devuelve la configuración óptima almacenada en base de datos para una emisora en SNIPER.
+    """
+    try:
+        from urllib.parse import unquote
+        from backend.services.microSniper import getAdaptiveConfigForSymbol
+
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        adaptive = getAdaptiveConfigForSymbol(db, symbol)
+
+        userCfg = {}
+        if idCuenta:
+            row = db.execute(text("""
+                SELECT Temporalidad, minConfidence, minRr, maxRr, usarBreakEven, usarTSL,
+                       filtroHorario, horaInicio, horaFin, multiplicadorRiesgo
+                FROM userSNIPER
+                WHERE idCuenta = :idc AND symbol = :sym
+                LIMIT 1
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
+            if row:
+                userCfg = dict(row)
+
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "adaptiveConfig": adaptive,
+            "userConfig": userCfg
+        }
+    except Exception as e:
+        logger.error(f"Error en getSniperOptimalConfigEndpoint para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 

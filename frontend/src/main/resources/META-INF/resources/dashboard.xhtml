@@ -1238,6 +1238,114 @@
                 height: 24px !important;
                 min-width: 24px !important;
             }
+
+            /* ===================================================================
+               TEMA VISUAL DISTINTIVO POR ESTRATEGIA (RATIOS vs RIDER)
+               =================================================================== */
+
+            /* --- ESTRATEGIA 1: RATIOS (AZUL ZAFIRO / OCEÁNICO #0284c7) --- */
+            .strategy-bar-ratios {
+                border-left: 8px solid #0284c7 !important;
+                background: linear-gradient(90deg, rgba(2, 132, 199, 0.14) 0%, rgba(2, 132, 199, 0.03) 30%, var(--bg-surface) 100%) !important;
+                box-shadow: 0 3px 12px rgba(2, 132, 199, 0.16) !important;
+            }
+
+            #strategyRatiosWrapper {
+                border-top: 3.5px solid #0284c7 !important;
+                border-radius: 14px !important;
+                box-shadow: 0 -2px 10px rgba(2, 132, 199, 0.12) !important;
+                transition: all 0.25s ease !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav {
+                border-left: 5px solid #0284c7 !important;
+                background: rgba(2, 132, 199, 0.04) !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active {
+                background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+                box-shadow: 0 4px 12px rgba(2, 132, 199, 0.40) !important;
+                border: 1px solid #0284c7 !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active a {
+                color: #ffffff !important;
+                font-weight: 800 !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+            }
+
+            #strategyRatiosWrapper .ui-accordion .ui-accordion-header.ui-state-active {
+                border-left: 4px solid #0284c7 !important;
+            }
+
+            /* --- ESTRATEGIA 2: RIDER (VERDE ESMERALDA / TEAL #0d9488) --- */
+            .strategy-bar-cart {
+                border-left: 8px solid #0d9488 !important;
+                background: linear-gradient(90deg, rgba(13, 148, 136, 0.14) 0%, rgba(13, 148, 136, 0.03) 30%, var(--bg-surface) 100%) !important;
+                box-shadow: 0 3px 12px rgba(13, 148, 136, 0.16) !important;
+            }
+
+            #strategyCartWrapper {
+                border-top: 3.5px solid #0d9488 !important;
+                border-radius: 14px !important;
+                box-shadow: 0 -2px 10px rgba(13, 148, 136, 0.12) !important;
+                transition: all 0.25s ease !important;
+            }
+
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav {
+                border-left: 5px solid #0d9488 !important;
+                background: rgba(13, 148, 136, 0.04) !important;
+            }
+
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active {
+                background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important;
+                box-shadow: 0 4px 12px rgba(13, 148, 136, 0.40) !important;
+                border: 1px solid #0d9488 !important;
+            }
+
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active a {
+                color: #ffffff !important;
+                font-weight: 800 !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+            }
+
+            #strategyCartWrapper .ui-accordion .ui-accordion-header.ui-state-active {
+                border-left: 4px solid #0d9488 !important;
+            }
+
+            /* --- ESTRATEGIA 3: SNIPER (CAMEL MILITAR / COYOTE TAN #b47b2b) --- */
+            .strategy-bar-sniper {
+                border-left: 8px solid #b47b2b !important;
+                background: linear-gradient(90deg, rgba(180, 123, 43, 0.16) 0%, rgba(180, 123, 43, 0.04) 30%, var(--bg-surface) 100%) !important;
+                box-shadow: 0 3px 12px rgba(180, 123, 43, 0.18) !important;
+            }
+
+            #strategySniperWrapper {
+                border-top: 3.5px solid #b47b2b !important;
+                border-radius: 14px !important;
+                box-shadow: 0 -2px 10px rgba(180, 123, 43, 0.14) !important;
+                transition: all 0.25s ease !important;
+            }
+
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav {
+                border-left: 5px solid #b47b2b !important;
+                background: rgba(180, 123, 43, 0.04) !important;
+            }
+
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active {
+                background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important;
+                box-shadow: 0 4px 12px rgba(180, 123, 43, 0.40) !important;
+                border: 1px solid #b47b2b !important;
+            }
+
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active a {
+                color: #ffffff !important;
+                font-weight: 800 !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+            }
+
+            #strategySniperWrapper .ui-accordion .ui-accordion-header.ui-state-active {
+                border-left: 4px solid #b47b2b !important;
             }
         </style>
     </ui:define>
@@ -1249,44 +1357,53 @@
             <h:inputHidden id="activeStrategyHidden" value="#{dashboardBean.activeStrategy}" />
 
 
-            <!-- BARRA SUPERIOR DE AGRUPACIÓN POR ESTRATEGIA (NIVEL 1: RATIOS | CART | FUTURAS ESTRATEGIAS) -->
+            <!-- BARRA SUPERIOR DE AGRUPACIÓN POR ESTRATEGIA (NIVEL 1: RATIOS | RIDER | SNIPER) -->
             <div id="strategySelectorBar"
-                 style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; margin-bottom: 6px; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0;">
+                class="#{dashboardBean.activeStrategy eq 'CART' ? 'strategy-bar-cart' : (dashboardBean.activeStrategy eq 'SNIPER' ? 'strategy-bar-sniper' : 'strategy-bar-ratios')}"
+                style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 14px; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0; transition: all 0.25s ease;">
                 <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <span style="font-size: 0.85rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; border-right: 1px solid #cbd5e1;">
-                        <i class="pi pi-compass" style="color: #0284c7; font-size: 1.05rem;"></i> Estrategia Activa:
+                    <span
+                        style="font-size: 0.85rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; border-right: 1px solid #cbd5e1;">
+                        <i id="activeStrategyBarIcon" class="pi pi-compass"
+                            style="color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : (dashboardBean.activeStrategy eq 'SNIPER' ? '#b47b2b' : '#0284c7')}; font-size: 1.05rem;"></i>
+                        Estrategia:
                     </span>
 
                     <!-- Botón Estrategia 1: RATIOS -->
-                    <p:commandLink id="btnStratRatios"
-                                   action="#{dashboardBean.selectStrategy('RATIOS')}"
-                                   process="@this"
-                                   update=":aetherForm"
-                                   oncomplete="switchStrategyView('RATIOS');"
-                                   title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
-                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.35); border: 1px solid #0284c7;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                    <p:commandLink id="btnStratRatios" action="#{dashboardBean.selectStrategy('RATIOS')}"
+                        process="@this" update=":aetherForm" oncomplete="switchStrategyView('RATIOS');"
+                        title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
+                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 18px; border-radius: 10px; font-weight: 800; font-size: 1.0rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45); border: 1px solid #0284c7;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
                         <i class="pi pi-percentage" style="font-size: 1.05rem;"></i>
                         <span>RATIOS</span>
                     </p:commandLink>
 
                     <!-- Botón Estrategia 2: RIDER (Rastreador de Impulso por Desviación, Expansión y Reingreso) -->
-                    <p:commandLink id="btnStratCart"
-                                   action="#{dashboardBean.selectStrategy('CART')}"
-                                   process="@this"
-                                   update=":aetherForm"
-                                   oncomplete="switchStrategyView('CART');"
-                                   title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
-                                   style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 9px; font-weight: 800; font-size: 0.98rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 3px 10px rgba(13, 148, 136, 0.35); border: 1px solid #0d9488;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                    <p:commandLink id="btnStratCart" action="#{dashboardBean.selectStrategy('CART')}" process="@this"
+                        update=":aetherForm" oncomplete="switchStrategyView('CART');"
+                        title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
+                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 18px; border-radius: 10px; font-weight: 800; font-size: 1.0rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45); border: 1px solid #0d9488;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
                         <i class="pi pi-chart-line" style="font-size: 1.05rem;"></i>
                         <span>RIDER</span>
+                    </p:commandLink>
+
+                    <!-- Botón Estrategia 3: SNIPER (Smart Order Block, Momentum & Machine Learning Precision) -->
+                    <p:commandLink id="btnStratSniper" action="#{dashboardBean.selectStrategy('SNIPER')}"
+                        process="@this" update=":aetherForm" oncomplete="switchStrategyView('SNIPER');"
+                        title="SNIPER: Smart Order Block, Momentum &amp; Machine Learning Precision (Camel Militar · 15min)"
+                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 18px; border-radius: 10px; font-weight: 800; font-size: 1.0rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(180, 123, 43, 0.45); border: 1px solid #b47b2b;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        <i class="pi pi-crosshair" style="font-size: 1.05rem;"></i>
+                        <span>SNIPER</span>
                     </p:commandLink>
                 </div>
 
                 <!-- Indicador de Cuenta Compartida y Microservicio Activo -->
                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <span style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 8px; font-size: 0.82rem; font-weight: 800;">
-                        <i class="pi pi-server" style="margin-right: 4px; color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : '#0284c7'};"></i>
-                        Motor: <b>#{dashboardBean.activeStrategy eq 'CART' ? 'microCart.py (1 Par · Precios Reales · CAR)' : 'microRatio.py (2 Pares Normalizados)'}</b>
+                    <span
+                        style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 4px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 800;">
+                        <i class="pi pi-server"
+                            style="margin-right: 5px; color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : (dashboardBean.activeStrategy eq 'SNIPER' ? '#b47b2b' : '#0284c7')};"></i>
+                        Motor: <b>#{dashboardBean.activeStrategy eq 'CART' ? 'microRider.py (1 Par · Precios Reales · CAR)' : (dashboardBean.activeStrategy eq 'SNIPER' ? 'microSNIPER.py (1 Par · 15m · ML &amp; Order Blocks)' : 'microRatio.py (2 Pares Normalizados)')}</b>
                     </span>
                 </div>
             </div>
@@ -1294,8 +1411,11 @@
             <!-- ESTRATEGIA 1: RATIOS (Ratio, BackTest, Hechos) -->
             <ui:include src="/ratios.xhtml" />
 
-            <!-- ESTRATEGIA 2: CART - Canal Adaptativo de Ruido por Tendencia (CART, BackTest, Hechos) -->
+            <!-- ESTRATEGIA 2: RIDER (Rastreador de Impulso por Desviación, Expansión y Reingreso · CAR) -->
             <ui:include src="/cart.xhtml" />
+
+            <!-- ESTRATEGIA 3: SNIPER (Smart Order Block, Momentum & ML Precision) -->
+            <ui:include src="/sniper.xhtml" />
 
         </h:form>
 
@@ -1596,6 +1716,192 @@
             </p:dialog>
         </h:form>
 
+        <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR CANTIDAD (RATIO) -->
+        <h:form id="entradaManualRatioForm">
+            <p:dialog id="entradaManualRatioDlg" widgetVar="entradaManualRatioDlg" modal="true" responsive="true"
+                width="640" minWidth="550" maxWidth="750" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
+                resizable="false" styleClass="aether-dialog">
+                <f:facet name="header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <i class="pi pi-plus-circle" style="font-size: 1.35rem; color: #0284c7;"></i>
+                        <div>
+                            <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a;">
+                                Entrada por Cantidad — <span style="color: #0284c7;">#{dashboardBean.entradaManualRatioSetup}</span>
+                            </div>
+                            <div style="font-size: 0.80rem; color: #64748b; font-weight: 600;">
+                                Cuenta: <b style="color: #334155;">#{dashboardBean.selectedAccountName}</b> |
+                                Ratio ID: <b style="color: #0284c7;">#{dashboardBean.entradaManualRatioId != null ? dashboardBean.entradaManualRatioId : 'Nuevo'}</b>
+                            </div>
+                        </div>
+                    </div>
+                </f:facet>
+
+                <h:panelGroup id="panelDetallesEntrada" layout="block" style="padding: 6px 2px;">
+                    <!-- BANNER DIRECCIÓN DEL RATIO -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="font-weight: 800; font-size: 0.88rem; color: #334155;">
+                            Dirección de la Operación:
+                        </div>
+                        <p:selectOneButton value="#{dashboardBean.entradaManualDireccion}" styleClass="aether-direction-toggle">
+                            <f:selectItem itemLabel="🟢 LARGO (Compra #{dashboardBean.entradaManualNumerador} / Venta #{dashboardBean.entradaManualDenominador})" itemValue="LARGO" />
+                            <f:selectItem itemLabel="🔴 CORTO (Venta #{dashboardBean.entradaManualNumerador} / Compra #{dashboardBean.entradaManualDenominador})" itemValue="CORTO" />
+                            <p:ajax process="@this" listener="#{dashboardBean.onEntradaManualDireccionChange}" update="panelDetallesEntrada" />
+                        </p:selectOneButton>
+                    </div>
+
+                    <!-- PRECIOS DE MERCADO ACTUALES -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                        <div style="background: rgba(0, 123, 255, 0.06); border: 1px solid rgba(0, 123, 255, 0.25); border-radius: 6px; padding: 6px 10px;">
+                            <div style="font-size: 0.72rem; color: #0284c7; font-weight: 800; text-transform: uppercase;">
+                                Pata A: #{dashboardBean.entradaManualNumerador}
+                            </div>
+                            <div style="font-size: 1.05rem; font-weight: 900; color: #0f172a;">
+                                Px: #{dashboardBean.entradaManualPriceA}
+                            </div>
+                        </div>
+                        <div style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 6px 10px;">
+                            <div style="font-size: 0.72rem; color: #d97706; font-weight: 800; text-transform: uppercase;">
+                                Pata B: #{dashboardBean.entradaManualDenominador}
+                            </div>
+                            <div style="font-size: 1.05rem; font-weight: 900; color: #0f172a;">
+                                Px: #{dashboardBean.entradaManualPriceB}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CAPTURA DE CANTIDADES POR PATA -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                        <!-- Input Pata A -->
+                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px;">
+                            <div style="font-weight: 800; font-size: 0.84rem; color: #0f172a; margin-bottom: 4px;">
+                                Cantidad Pata A (#{dashboardBean.entradaManualNumerador})
+                            </div>
+                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadA}" decimalPlaces="2" thousandSeparator=","
+                                style="width: 100%; font-size: 1.05rem; font-weight: 800;">
+                                <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualCantidadAChange}" update="panelDetallesEntrada" />
+                            </p:inputNumber>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: #64748b; margin-top: 6px;">
+                                <span>Nocional: <b style="color: #0f172a;">#{dashboardBean.formattedEntradaManualNotionalA}</b></span>
+                                <span>Margen: <b style="color: #0f172a;">#{dashboardBean.formattedEntradaManualMargenA}</b></span>
+                            </div>
+                        </div>
+
+                        <!-- Input Pata B -->
+                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px;">
+                            <div style="font-weight: 800; font-size: 0.84rem; color: #0f172a; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                                <span>Cantidad Pata B (#{dashboardBean.entradaManualDenominador})</span>
+                                <span style="font-size: 0.70rem; color: #{dashboardBean.entradaManualAutoEquivalencia ? '#0284c7' : '#64748b'}; font-weight: 700;">
+                                    #{dashboardBean.entradaManualAutoEquivalencia ? 'Auto-calculada' : 'Manual'}
+                                </span>
+                            </div>
+                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadB}" decimalPlaces="2" thousandSeparator=","
+                                disabled="#{dashboardBean.entradaManualAutoEquivalencia}"
+                                style="width: 100%; font-size: 1.05rem; font-weight: 800;">
+                                <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualCantidadBChange}" update="panelDetallesEntrada" />
+                            </p:inputNumber>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: #64748b; margin-top: 6px;">
+                                <span>Nocional: <b style="color: #0f172a;">#{dashboardBean.formattedEntradaManualNotionalB}</b></span>
+                                <span>Margen: <b style="color: #0f172a;">#{dashboardBean.formattedEntradaManualMargenB}</b></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CONTROL DE EQUIVALENCIA AUTOMÁTICA -->
+                    <div style="background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <p:selectBooleanCheckbox value="#{dashboardBean.entradaManualAutoEquivalencia}">
+                                <p:ajax process="@this" listener="#{dashboardBean.onEntradaManualAutoEquivalenciaToggle}" update="panelDetallesEntrada" />
+                            </p:selectBooleanCheckbox>
+                            <span style="font-size: 0.82rem; font-weight: 700; color: #334155;">
+                                Auto-calcular equivalencia para Pata B (Equilibrio Nocional/Monetario)
+                            </span>
+                        </div>
+                        <p:commandLink value="Sincronizar Equivalencia" action="#{dashboardBean.aplicarEquivalenciaAutomatica}" process="@this" update="panelDetallesEntrada"
+                            style="font-size: 0.76rem; font-weight: 800; color: #0284c7; text-decoration: underline; cursor: pointer;" />
+                    </div>
+
+                    <!-- TARJETA DE CHEQUEO DE EQUIVALENCIA POR PATA -->
+                    <div style="border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#bbf7d0' : '#fde68a'}; background: #{dashboardBean.entradaManualEquallyBalanced ? 'rgba(240, 253, 244, 0.6)' : 'rgba(254, 252, 232, 0.6)'}; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="#{dashboardBean.entradaManualEquallyBalanced ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'}"
+                                style="font-size: 1.25rem; color: #{dashboardBean.entradaManualEquallyBalanced ? '#16a34a' : '#d97706'};"></i>
+                            <div>
+                                <div style="font-size: 0.84rem; font-weight: 800; color: #{dashboardBean.entradaManualEquallyBalanced ? '#15803d' : '#b45309'};">
+                                    #{dashboardBean.entradaManualEquallyBalanced ? 'Equivalencia de Patas Equilibrada' : 'Desbalance Nocional entre Patas'}
+                                </div>
+                                <div style="font-size: 0.74rem; color: #64748b;">
+                                    Diferencia nocional: <b>#{dashboardBean.formattedEntradaManualDiffPct}</b> (Nocional A: #{dashboardBean.formattedEntradaManualNotionalA} vs B: #{dashboardBean.formattedEntradaManualNotionalB})
+                                </div>
+                            </div>
+                        </div>
+                        <span class="badge" style="font-size: 0.78rem; font-weight: 800; padding: 3px 8px; border-radius: 12px; background: #{dashboardBean.entradaManualEquallyBalanced ? '#dcfce7' : '#fef3c7'}; color: #{dashboardBean.entradaManualEquallyBalanced ? '#166534' : '#92400e'}; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#86efac' : '#fde047'};">
+                            #{dashboardBean.entradaManualEquallyBalanced ? 'Balanceado' : 'Desbalanceado'}
+                        </span>
+                    </div>
+
+                    <!-- EVALUACIÓN ESTRICTA DEL INDICADOR DE MARGEN MÍNIMO -->
+                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+                        <div style="font-weight: 800; font-size: 0.82rem; color: #475569; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                            <span><i class="pi pi-shield" style="margin-right: 5px; color: #0284c7;"></i>Evaluación del Indicador de Margen Mínimo</span>
+                            <span style="font-size: 0.72rem; color: #64748b;">Mínimo Requerido: <b style="color: #0f172a;">#{dashboardBean.formattedEntradaManualMinMargin}</b></span>
+                        </div>
+
+                        <!-- 4 Cajas métricas -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                                <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Margen Orden</div>
+                                <div style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">#{dashboardBean.formattedEntradaManualTotalMargin}</div>
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                                <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Margen Actual</div>
+                                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a;">$#{dashboardBean.entradaManualCurrentMargin}</div>
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                                <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Ind. Actual</div>
+                                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a;">#{dashboardBean.formattedEntradaManualCurrentIndicator}</div>
+                            </div>
+                            <div style="background: #{dashboardBean.entradaManualAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                                <div style="font-size: 0.65rem; color: #{dashboardBean.entradaManualAllowed ? '#065f46' : '#991b1b'}; font-weight: 700; text-transform: uppercase;">Ind. Proyectado</div>
+                                <div style="font-size: 1.05rem; font-weight: 900; color: #{dashboardBean.entradaManualAllowed ? '#059669' : '#dc2626'};">
+                                    #{dashboardBean.formattedEntradaManualProjectedIndicator}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ALERTA VERDE (APROBADO) O ROJA (BLOQUEADO) -->
+                        <h:panelGroup layout="block" rendered="#{dashboardBean.entradaManualAllowed}"
+                            style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; color: #065f46; font-size: 0.82rem; font-weight: 700;">
+                            <i class="pi pi-check-circle" style="font-size: 1.15rem; color: #10b981;"></i>
+                            <span>✅ APROBADO: El margen proyectado (#{dashboardBean.formattedEntradaManualProjectedIndicator}) supera el #{dashboardBean.formattedEntradaManualMinMargin} mínimo requerido para la cuenta.</span>
+                        </h:panelGroup>
+
+                        <h:panelGroup layout="block" rendered="#{!dashboardBean.entradaManualAllowed}"
+                            style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; color: #991b1b; font-size: 0.82rem; font-weight: 700;">
+                            <i class="pi pi-ban" style="font-size: 1.15rem; color: #ef4444;"></i>
+                            <span>#{dashboardBean.entradaManualWarningMessage != null ? dashboardBean.entradaManualWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador de Margen Mínimo permitido.'}</span>
+                        </h:panelGroup>
+                    </div>
+
+                    <!-- BOTONES DE ACCIÓN DEL MODAL -->
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                        <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                            onclick="PF('entradaManualRatioDlg').hide();"
+                            style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+
+                        <p:commandButton id="btnConfirmarEntradaManual" value="Confirmar y Enviar Orden"
+                            action="#{dashboardBean.ejecutarEntradaManualRatio}"
+                            disabled="#{!dashboardBean.entradaManualAllowed}"
+                            process="@form"
+                            update=":aetherForm :aetherForm:growl :entradaManualRatioForm:panelDetallesEntrada"
+                            styleClass="aether-btn-primary"
+                            style="font-weight: 800; border-radius: 6px; padding: 6px 18px; #{dashboardBean.entradaManualAllowed ? 'background: #10b981 !important; border-color: #10b981 !important; color: white !important;' : 'opacity: 0.55;'}"
+                            icon="pi pi-send"
+                            title="#{dashboardBean.entradaManualAllowed ? 'Enviar ordenes balanceadas a FOREX.com' : 'Bloqueado: Margen proyectado insuficiente'}" />
+                    </div>
+                </h:panelGroup>
+            </p:dialog>
+        </h:form>
+
         <h:form id="ratioHechosForm">
             <p:dialog id="ratioHechosDlg" widgetVar="ratioHechosDlg" modal="true" responsive="true" width="890"
                 minWidth="780" maxWidth="980" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
@@ -1761,7 +2067,8 @@
                             </span>
                             <h:panelGroup rendered="#{t.isCobertura}">
                                 <div style="margin-top: 2px;">
-                                    <span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 1px 3px; border-radius: 3px; text-transform: lowercase;">
+                                    <span
+                                        style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 1px 3px; border-radius: 3px; text-transform: lowercase;">
                                         cobertura
                                     </span>
                                 </div>
@@ -1958,7 +2265,8 @@
                             </span>
                         </p:column>
 
-                        <p:column headerText="Estrategia" sortBy="#{p.estrategia}" style="width: 135px; text-align: center;">
+                        <p:column headerText="Estrategia" sortBy="#{p.estrategia}"
+                            style="width: 135px; text-align: center;">
                             <span class="badge"
                                 style="font-size: 0.82rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; display: inline-block; background: #{p.estrategiaColorBg}; color: #{p.estrategiaColorText}; border: 1px solid #{p.estrategiaColorBorder};">
                                 #{p.estrategia}
@@ -2116,6 +2424,38 @@
         <!-- SCRIPT DE ORDENAMIENTO EN CLIENTE DE ALTO RENDIMIENTO PARA TABLAS Y SUBTABLAS -->
         <script type="text/javascript">
             //<![CDATA[
+            /**
+             * Rutina unificada y reusable para calcular la temperatura (color) de la línea de precio
+             * en función del volumen relativo (volRatio / RVOL).
+             * Compartida entre RIDER y SNIPER (todas las estrategias de par individual, excepto RATIO).
+             *
+             * Calibración de temperatura adaptada con umbral institucional RVOL >= 0.8:
+             * - 0.0 a 0.5: Verde suave equilibrado (#22c55e -> #cad726)
+             * - 0.5 a 0.8: Amarillo a ámbar cálido (#cad726 -> #f59e0b)
+             * - 0.8 a 1.0: Ámbar a rojo de ruptura institucional (#f59e0b -> #dc2626)
+             */
+            window.getPriceTemperatureColor = function (volRatio) {
+                var ratio = Math.max(0.0, Math.min(1.0, Number(volRatio) || 0.0));
+                var r, g, b;
+                if (ratio <= 0.5) {
+                    var localT = ratio / 0.5;
+                    r = Math.round(34 + (202 - 34) * localT);
+                    g = Math.round(197 + (215 - 197) * localT);
+                    b = Math.round(94 + (38 - 94) * localT);
+                } else if (ratio <= 0.8) {
+                    var localT2 = (ratio - 0.5) / 0.3;
+                    r = Math.round(202 + (245 - 202) * localT2);
+                    g = Math.round(215 + (158 - 215) * localT2);
+                    b = Math.round(38 + (11 - 38) * localT2);
+                } else {
+                    var localT3 = (ratio - 0.8) / 0.2;
+                    r = Math.round(245 + (220 - 245) * localT3);
+                    g = Math.round(158 + (38 - 158) * localT3);
+                    b = Math.round(11 + (38 - 11) * localT3);
+                }
+                return 'rgb(' + r + ',' + g + ',' + b + ')';
+            };
+
             (function () {
                 function parseCellValue(text) {
                     if (!text) return "";

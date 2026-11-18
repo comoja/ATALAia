@@ -38,6 +38,7 @@ if projectRoot not in sys.path:
 from backend.database.models import SessionLocal
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from backend.services.signal_engine import signalEngine
+from backend.services.trade_executor import check_account_margin_health, check_projected_margin
 from middleware.utils.communications import alertaInmediata
 
 # Configuración de Logging
@@ -585,75 +586,11 @@ def checkTradeExistsForCandle(dbSession, idCuenta: int, setupName: str, candleDt
 def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) -> Tuple[bool, float, float, float]:
     """
     Evalúa la salud de margen de la cuenta considerando todas las operaciones abiertas.
-    Calcula:
-    - totalMargin: sumatoria de margen retenido de todos los trades OPEN
-    - totalFloatingPnl: sumatoria de PnL no realizado de todos los trades OPEN
-    - equidad: accountCapital + totalFloatingPnl
-    - marginIndicator: (equidad / totalMargin) * 100.0 si totalMargin > 0 sino 9999.0
-    
-    Regla: Permite operar si marginIndicator >= 200.0 (o si no hay margen retenido).
-    Retorna: (canOperate: bool, marginIndicator: float, totalMargin: float, equidad: float)
+    Delega en la rutina centralizada de trade_executor.
     """
-    sqlTrades = text("""
-        SELECT t.idTrade, t.symbol, t.direction, t.size, t.entryPrice, t.margin_used,
-               s.pip, s.quote_currency
-        FROM trades t
-        LEFT JOIN symbols s ON t.symbol = s.symbol
-        WHERE t.idCuenta = :idc AND t.status = 'OPEN'
-    """)
-    rows = dbSession.execute(sqlTrades, {"idc": idCuenta}).fetchall()
-    
-    if not rows:
-        return True, 9999.0, 0.0, accountCapital
-
-    totalMargin = 0.0
-    totalFloatingPnl = 0.0
-    symbolPrices = {}
-
-    for r in rows:
-        sym = str(r[1])
-        direction = str(r[2]).upper()
-        size = float(r[3])
-        entryPx = float(r[4])
-        marginUsed = float(r[5]) if r[5] is not None else 0.0
-        pipVal = float(r[6]) if r[6] is not None and float(r[6]) > 0 else 0.0001
-        quoteCurr = str(r[7]) if r[7] else "USD"
-
-        totalMargin += marginUsed
-
-        if sym not in symbolPrices:
-            sqlPx = text("""
-                SELECT closePrice 
-                FROM stockprices 
-                WHERE symbol = :sym 
-                ORDER BY priceDate DESC 
-                LIMIT 1
-            """)
-            pxRow = dbSession.execute(sqlPx, {"sym": sym}).fetchone()
-            symbolPrices[sym] = float(pxRow[0]) if pxRow and pxRow[0] is not None else entryPx
-
-        currentPx = symbolPrices[sym]
-
-        # Cálculo unificado de PnL no realizado institucional (sin costos artificiales)
-        tradePnl, _pips, _pipMoneyValue, _mov = calculate_unrealized_pnl(
-            symbol=sym,
-            direction=direction,
-            entry_price=entryPx,
-            current_price=currentPx,
-            size=size,
-            pip_size=pipVal
-        )
-        totalFloatingPnl += tradePnl
-
-    equity = accountCapital + totalFloatingPnl
-    marginIndicator = (equity / totalMargin * 100.0) if totalMargin > 0 else 9999.0
-    
-    # Consulta de indicador de margen personalizado para esta cuenta
-    sqlIndMargen = text("SELECT COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc")
-    rowInd = dbSession.execute(sqlIndMargen, {"idc": idCuenta}).fetchone()
-    minMarginRequired = float(rowInd[0]) if rowInd and rowInd[0] is not None else 200.0
-    canOperate = bool(marginIndicator >= minMarginRequired)
-
+    canOperate, marginIndicator, totalMargin, equity, _minMarginReq = check_account_margin_health(
+        dbSession, idCuenta, accountCapital
+    )
     return canOperate, marginIndicator, totalMargin, equity
 
 
@@ -1010,11 +947,13 @@ def openSingleRatioTradePair(
     entryPxB: float,
     accountData: Dict[str, Any],
     symDataA: Dict[str, Any],
-    symDataB: Dict[str, Any]
+    symDataB: Dict[str, Any],
+    customUnitsA: Optional[float] = None,
+    customUnitsB: Optional[float] = None
 ) -> bool:
     """
     Ejecuta el ciclo de apertura de órdenes:
-    1. Se calcula el dimensionamiento y fragmentación de lotes.
+    1. Se calcula el dimensionamiento y fragmentación de lotes (o usa customUnits si se proporcionan).
     2. Si la cuenta tiene broker activo en brokercuenta:
        - Se envía a FOREX.com lote por lote (con 5s de pausa).
        - Se confirma con el broker.
@@ -1029,29 +968,33 @@ def openSingleRatioTradePair(
     accountCapital = float(accountData.get("capital", 300.0))
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
 
-    # Porcentaje de riesgo dinámico tomado de cuenta.riesgoPorOperacion (ej. 3.0 -> 3.0% del capital)
-    riesgoPct = float(accountData.get("riesgoPorOperacion", 3.0))
-    allocationRate = (riesgoPct / 100.0) if riesgoPct >= 0.05 else riesgoPct
-    if allocationRate <= 0:
-        allocationRate = 0.03
-
-    budget = max(0.0, accountCapital) * allocationRate
-    budgetA = budget / 2.0
-    budgetB = budget / 2.0
-
     minLotsA = float(symDataA.get("minLots", 1000.0))
     minLotsB = float(symDataB.get("minLots", 1000.0))
     margenRateA = float(symDataA.get("margenRate", 0.0025))
     margenRateB = float(symDataB.get("margenRate", 0.0025))
 
-    margen1LotA = calculate_margin(numerador, minLotsA, entryPxA, symDataA.get("margenPct", 0.5))
-    margen1LotB = calculate_margin(denominador, minLotsB, entryPxB, symDataB.get("margenPct", 0.5))
+    if customUnitsA is not None and customUnitsA > 0 and customUnitsB is not None and customUnitsB > 0:
+        unitsA = round(float(customUnitsA), 4)
+        unitsB = round(float(customUnitsB), 4)
+    else:
+        # Porcentaje de riesgo dinámico tomado de cuenta.riesgoPorOperacion (ej. 3.0 -> 3.0% del capital)
+        riesgoPct = float(accountData.get("riesgoPorOperacion", 3.0))
+        allocationRate = (riesgoPct / 100.0) if riesgoPct >= 0.05 else riesgoPct
+        if allocationRate <= 0:
+            allocationRate = 0.03
 
-    multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA and margen1LotA > 0) else 1
-    multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB and margen1LotB > 0) else 1
+        budget = max(0.0, accountCapital) * allocationRate
+        budgetA = budget / 2.0
+        budgetB = budget / 2.0
 
-    unitsA = round(multA * minLotsA, 4)
-    unitsB = round(multB * minLotsB, 4)
+        margen1LotA = calculate_margin(numerador, minLotsA, entryPxA, symDataA.get("margenPct", 0.5))
+        margen1LotB = calculate_margin(denominador, minLotsB, entryPxB, symDataB.get("margenPct", 0.5))
+
+        multA = max(1, int(budgetA // margen1LotA)) if (budgetA >= margen1LotA and margen1LotA > 0) else 1
+        multB = max(1, int(budgetB // margen1LotB)) if (budgetB >= margen1LotB and margen1LotB > 0) else 1
+
+        unitsA = round(multA * minLotsA, 4)
+        unitsB = round(multB * minLotsB, 4)
 
     candleDt = parseCandleDateTime(candleDateStr)
 
@@ -1109,11 +1052,22 @@ def openSingleRatioTradePair(
         calculate_margin(lot["symbol"], float(lot["size"]), float(lot["entryPrice"]), lot.get("margenPct", 0.5))
         for lot in lotsToExecute
     ), 2)
-    if totalPlannedMargin > accountCapital:
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(
+        dbSession, idCuenta, accountCapital
+    )
+    if not canOperate:
         logger.error(
-            f"⛔ [MARGEN INSUFICIENTE] [{setupName}] El margen requerido total (${totalPlannedMargin:,.2f} USD) "
-            f"para {numerador} ({unitsA:g} u) + {denominador} ({unitsB:g} u) supera el capital disponible "
-            f"(${accountCapital:,.2f} USD) de Cuenta #{idCuenta} ({accountName}). Se aborta antes de enviar a FOREX.com."
+            f"⛔ [SALUD MARGEN INSUFICIENTE] [{setupName}] Cuenta #{idCuenta} ({accountName}) tiene "
+            f"Indicador de Margen actual ({marginInd:.1f}%) inferior al {minMarginReq:.0f}% requerido. Se aborta apertura."
+        )
+        return False
+
+    isAllowed, projInd = check_projected_margin(equity, totalMargin, totalPlannedMargin, minMarginReq)
+    if not isAllowed:
+        logger.error(
+            f"⛔ [MARGEN PROYECTADO INSUFICIENTE] [{setupName}] El margen requerido total (${totalPlannedMargin:,.2f} USD) "
+            f"para {numerador} ({unitsA:g} u) + {denominador} ({unitsB:g} u) llevaría el Indicador de Margen a {projInd:.1f}%, "
+            f"por debajo de {minMarginReq:.0f}% requerido para Cuenta #{idCuenta} ({accountName}). Se aborta antes de enviar a FOREX.com."
         )
         return False
 
@@ -1773,9 +1727,28 @@ def openSingleCoverageTrade(
     4. Envía notificación por Telegram.
     """
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
+    accountCapital = float(accountData.get("capital", 0.0))
     margenRate = float(symData.get("margenRate", 0.0025))
     margenPct = symData.get("margenPct", 0.5)
     chunkMargin = calculate_margin(symbol, size, entryPrice, margenPct)
+
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(
+        dbSession, idCuenta, accountCapital
+    )
+    if not canOperate:
+        logger.error(
+            f"⛔ [{strategyName}] Apertura de cobertura SUSPENDIDA para Cuenta #{idCuenta} ({accountName}): "
+            f"Indicador de Margen {marginInd:.1f}% < {minMarginReq:.0f}% requerido."
+        )
+        return None
+
+    isAllowed, projInd = check_projected_margin(equity, totalMargin, chunkMargin, minMarginReq)
+    if not isAllowed:
+        logger.error(
+            f"⛔ [{strategyName}] Apertura de cobertura SUSPENDIDA para Cuenta #{idCuenta} ({accountName}): "
+            f"Margen proyectado {projInd:.1f}% caería por debajo de {minMarginReq:.0f}% (Margen req: ${chunkMargin:,.2f})."
+        )
+        return None
 
     nowDt = datetime.now()
     nowStr = nowDt

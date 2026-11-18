@@ -126,6 +126,26 @@ class SystemMonitorService:
             "description": "Optimizador sabatino de la ventana RIDE (Canal Adaptativo de Ruido) para pares userCART."
         },
         {
+            "id": "microsniper",
+            "name": "microSniper Daemon",
+            "unit": "microSniper",
+            "is_system": False,
+            "port": None,
+            "category": "Trading Cuantitativo",
+            "icon": "pi pi-compass",
+            "description": "Microservicio autónomo de monitoreo y ejecución de señales tácticas SNIPER."
+        },
+        {
+            "id": "microsniper_optimizer",
+            "name": "microSniper Optimizer",
+            "unit": "microSniperOptimizer",
+            "is_system": False,
+            "port": None,
+            "category": "Optimización Cuantitativa",
+            "icon": "pi pi-sliders-h",
+            "description": "Optimizador adaptativo de temporalidad, R:R, confianza y horario operativo para SNIPER."
+        },
+        {
             "id": "ngrok",
             "name": "Ngrok Tunnel (WebHook)",
             "unit": "ngrok",
@@ -237,8 +257,15 @@ class SystemMonitorService:
                 # Para subcomponentes de la suite (FastAPI, MT5, Frontend)
                 if svc_id in ["backend", "mt5bridge", "frontend"]:
                     is_active = is_listening or unit_info["active"]
-                elif svc_id in ["microratio", "microcart", "microcart_optimizer"] and not is_active:
-                    proc_match = "microRatio.py" if svc_id == "microratio" else ("microCartOptimizer.py" if svc_id == "microcart_optimizer" else "microCart.py")
+                elif svc_id in ["microratio", "microcart", "microcart_optimizer", "microsniper", "microsniper_optimizer"] and not is_active:
+                    proc_map = {
+                        "microratio": "microRatio.py",
+                        "microcart": "microCart.py",
+                        "microcart_optimizer": "microCartOptimizer.py",
+                        "microsniper": "microSniper.py",
+                        "microsniper_optimizer": "microSniperOptimizer.py"
+                    }
+                    proc_match = proc_map.get(svc_id, "")
                     proc_info = cls.check_process(proc_match)
                     if proc_info["active"]:
                         is_active = True

@@ -1,0 +1,1360 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:h="http://xmlns.jcp.org/jsf/html"
+    xmlns:f="http://xmlns.jcp.org/jsf/core"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
+
+    <!-- ========================================================================= -->
+    <!-- HIDDEN INPUTS DE ESTRATEGIA SNIPER (CAMEL MILITAR)                        -->
+    <!-- ========================================================================= -->
+    <h:inputHidden id="activeSniperPair" value="#{dashboardBean.selectedSniperPair}" />
+    <h:inputHidden id="sniperHistoryJsonData" value="#{dashboardBean.sniperHistoryJson}" />
+    <h:inputHidden id="sniperActiveTradesJsonData" value="#{dashboardBean.sniperActiveTradesJson}" />
+    <h:inputHidden id="sniperRealTradesJsonData" value="#{dashboardBean.sniperRealTradesJson}" />
+    <h:inputHidden id="sniperRealTradesEquityCurveJsonData" value="#{dashboardBean.sniperRealTradesEquityCurveJson}" />
+    <h:inputHidden id="sniperFiltroHorarioHidden" value="#{dashboardBean.sniperFiltroHorario}" />
+    <h:inputHidden id="sniperHoraInicioHidden" value="#{dashboardBean.sniperHoraInicio}" />
+    <h:inputHidden id="sniperHoraFinHidden" value="#{dashboardBean.sniperHoraFin}" />
+    <h:inputHidden id="sniperMinConfHidden" value="#{dashboardBean.sniperMinConfidence}" />
+    <h:inputHidden id="sniperMinRrHidden" value="#{dashboardBean.sniperMinRr}" />
+    <h:inputHidden id="sniperMaxRrHidden" value="#{dashboardBean.sniperMaxRr}" />
+    <h:inputHidden id="sniperBtHistoryJsonData" value="#{dashboardBean.sniperBtHistoryJson}" />
+    <h:inputHidden id="sniperBtTradesJsonData" value="#{dashboardBean.sniperBtTradesJson}" />
+    <h:inputHidden id="sniperBtEquityCurveJsonData" value="#{dashboardBean.sniperBtEquityCurveJson}" />
+
+    <!-- Polling en vivo para SNIPER (10 segundos, no invasivo) -->
+    <p:poll id="sniperLivePoll" widgetVar="sniperLivePollWidget" interval="10" global="false"
+        enabled="#{dashboardBean.activeStrategy eq 'SNIPER'}" listener="#{dashboardBean.analyzeSniperPair}" process="@this"
+        update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
+        oncomplete="renderSniperChart(); if (typeof updateSniperLiveTimestamp === 'function') updateSniperLiveTimestamp();" />
+
+    <p:remoteCommand name="rcRefreshSniperChart" actionListener="#{dashboardBean.analyzeSniperPair}" process="@this"
+        global="false"
+        update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
+        oncomplete="renderSniperChart(); if (typeof updateSniperLiveTimestamp === 'function') updateSniperLiveTimestamp();" />
+
+    <!-- ========================================================================= -->
+    <!-- CONTENEDOR ESTRATEGIA 3: SNIPER (TEMA CAMEL MILITAR #b47b2b)              -->
+    <!-- ========================================================================= -->
+    <div id="strategySniperWrapper"
+        style="display: #{dashboardBean.activeStrategy eq 'SNIPER' ? 'flex' : 'none'}; flex-direction: column; flex: 1; min-height: 0;">
+        <p:tabView id="sniperTabView" widgetVar="sniperTabViewWidget" activeIndex="#{dashboardBean.activeSniperTabIndex}"
+            onTabShow="handleSniperTabShow(index);">
+            <p:ajax event="tabChange" listener="#{dashboardBean.onSniperTabChange}" />
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 1: CALIBRACIÓN Y MONITOREO EN VIVO SNIPER                     -->
+            <!-- ===================================================================== -->
+            <p:tab title="SNIPER">
+                <div class="dashboard-grid">
+
+                    <!-- COLUMNA IZQUIERDA: CONTROLES DE CALIBRACIÓN SNIPER -->
+                    <p:panel styleClass="aether-panel">
+                        <f:facet name="header">
+                            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-weight: 800; color: #b47b2b; font-size: 1.05rem; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="pi pi-crosshair" style="font-size: 1.1rem; color: #b47b2b;"></i>Configuración SNIPER
+                                    </span>
+                                    <span style="background: rgba(180, 123, 43, 0.15); color: #8c5d1e; border: 1px solid #b47b2b; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase;">
+                                        Tactical #{dashboardBean.sniperTimeframeLabel}
+                                    </span>
+                                </div>
+                                <h:panelGroup layout="block" rendered="#{securityBean.admin}"
+                                    style="display: flex; align-items: center; gap: 6px;">
+                                    <i class="pi pi-user" style="font-size: 1.20rem; color: #64748b;"></i>
+                                    <p:selectOneMenu id="sniperUsuarioSelector" value="#{securityBean.selectedUserId}"
+                                        styleClass="aether-input" style="min-width: 135px; font-size: 0.85em;">
+                                        <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
+                                            itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                                        <p:ajax process="@this" update=":aetherForm"
+                                            oncomplete="handleUserSniperSelected();"
+                                            listener="#{dashboardBean.onUsuarioChange}" />
+                                    </p:selectOneMenu>
+                                </h:panelGroup>
+                            </div>
+                        </f:facet>
+
+                        <p:accordionPanel id="sniperLeftAccordion" multiple="false"
+                            activeIndex="#{dashboardBean.activeSniperAccordionIndex}" styleClass="aether-accordion"
+                            style="margin-top: 4px;">
+
+                            <!-- SECCIÓN 1: PARES SNIPER CONFIGURADOS DEL USUARIO -->
+                            <p:tab id="tabUserSniper">
+                                <f:facet name="title">
+                                    <div class="aether-tab-title-container">
+                                        <span class="aether-tab-title-text"
+                                            style="font-weight: 700; font-size: 1.15rem; color: #8c5d1e; white-space: nowrap; display: flex; align-items: center; gap: 4px;">
+                                            1. Pares SNIPER de la Cuenta
+                                        </span>
+                                        <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
+                                            style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                                            <p:selectOneMenu id="sniperCuentaSelector"
+                                                value="#{dashboardBean.selectedAccountId}"
+                                                styleClass="aether-input aether-cuenta-selector"
+                                                style="min-width: 155px; max-width: 230px; width: 185px; height: 28px !important; line-height: 28px !important; font-size: 1.05rem !important;">
+                                                <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
+                                                    itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
+                                                <p:ajax process="@this" update=":aetherForm"
+                                                    oncomplete="handleUserSniperSelected();"
+                                                    listener="#{dashboardBean.onCuentaChange}" />
+                                            </p:selectOneMenu>
+                                            <p:commandButton icon="pi pi-refresh"
+                                                action="#{dashboardBean.refreshDashboard}" process="@this"
+                                                update=":aetherForm"
+                                                oncomplete="handleUserSniperSelected();"
+                                                styleClass="aether-btn-secondary"
+                                                style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
+                                                title="Actualizar datos y pares SNIPER" />
+                                        </div>
+                                    </div>
+                                </f:facet>
+
+                                <p:dataTable id="userSniperTable" value="#{dashboardBean.userSniperList}" var="us"
+                                    selectionMode="single" selection="#{dashboardBean.selectedUserSniper}"
+                                    rowKey="#{us.id}" emptyMessage="No hay pares SNIPER registrados" scrollable="true"
+                                    scrollHeight="330px" styleClass="aether-table-compact"
+                                    style="width: 100%; margin-bottom: 2px; cursor: pointer;">
+                                    <p:ajax event="rowSelect" listener="#{dashboardBean.onSniperRowSelect}"
+                                        process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();" />
+
+                                    <p:column headerText="ID" style="width: 28px; text-align: center; padding: 4px 1px !important;">
+                                        <h:outputText value="#{us.id}"
+                                            style="font-size: 0.82rem; font-weight: 800; color: #8c5d1e;" />
+                                    </p:column>
+                                    <p:column headerText="Par" style="font-weight: 700; padding: 4px 2px !important;">
+                                        <h:outputText value="#{us.numerador}"
+                                            style="font-size: 0.90rem; font-weight: 800; color: #b47b2b; white-space: nowrap;"
+                                            title="#{us.numerador}" />
+                                    </p:column>
+                                    <p:column headerText="TF" style="width: 38px; text-align: center; padding: 4px 1px !important;">
+                                        <h:outputText value="#{us.temporalidad}"
+                                            style="font-size: 0.82rem; font-weight: 700; color: #475569;" />
+                                    </p:column>
+                                    <p:column headerText="Conf" style="width: 38px; text-align: center; padding: 4px 1px !important;">
+                                        <span style="font-size: 0.80rem; font-weight: 800; color: #334155;">
+                                            #{us.minConfidence}%
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="R:R" style="width: 36px; text-align: center; padding: 4px 1px !important;">
+                                        <span style="font-size: 0.82rem; font-weight: 800; color: #0284c7;">
+                                            #{us.minRr}
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="BE" style="width: 26px; text-align: center; padding: 4px 1px !important;">
+                                        <i class="#{us.usarBreakEven ? 'pi pi-check-circle' : 'pi pi-minus-circle'}"
+                                           style="color: #{us.usarBreakEven ? '#10b981' : '#cbd5e1'}; font-size: 0.85rem;"
+                                           title="Break-Even: #{us.usarBreakEven ? 'Activo' : 'Inactivo'}"></i>
+                                    </p:column>
+                                    <p:column headerText="Op" style="width: 30px; text-align: center; padding: 4px 1px !important;">
+                                        <h:panelGroup layout="block"
+                                            style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; #{us.operar ? 'background: rgba(180, 123, 43, 0.2); border: 1px solid #b47b2b;' : 'background: #f1f5f9; border: 1px solid #cbd5e1;'}"
+                                            title="#{us.operar ? 'Generación de órdenes activa' : 'Sólo monitoreo'}">
+                                            <i class="#{us.operar ? 'pi pi-check' : 'pi pi-times'}"
+                                               style="font-size: 0.75rem; color: #{us.operar ? '#8c5d1e' : '#94a3b8'}; font-weight: 900;"></i>
+                                        </h:panelGroup>
+                                    </p:column>
+                                    <p:column headerText="Pos" style="width: 34px; text-align: center; padding: 4px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.70rem; padding: 2px 3px; font-weight: 800; border-radius: 3px; display: inline-block; line-height: 1; #{us.hasOpenTrades ? 'background: #16a34a; color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'background: transparent; color: #cbd5e1;'}">
+                                            #{us.hasOpenTrades ? 'ON' : '—'}
+                                        </span>
+                                    </p:column>
+                                </p:dataTable>
+                            </p:tab>
+
+                            <!-- SECCIÓN 2: CALIBRACIÓN Y PARÁMETROS ADAPTATIVOS SNIPER -->
+                            <p:tab id="tabCalibSniper" title="#{dashboardBean.sniperCalibrationTabTitle}">
+                                <div style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;">
+                                    
+                                    <!-- Selector de Emisora y Multiplicador de Riesgo (Lado a Lado) -->
+                                    <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; align-items: end;">
+                                        <!-- Columna Izquierda: Emisora -->
+                                        <div>
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                                <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Emisora:</label>
+                                                <h:panelGroup rendered="#{dashboardBean.currentSniperId != null}"
+                                                    style="font-size: 0.75rem; font-weight: 800; color: #8c5d1e; background: rgba(180, 123, 43, 0.15); border: 1px solid #b47b2b; padding: 1px 6px; border-radius: 4px;"
+                                                    title="ID de Registro SNIPER">
+                                                    ID: #{dashboardBean.currentSniperId}
+                                                </h:panelGroup>
+                                            </div>
+                                            <p:selectOneMenu id="sniperSymbolSelect" value="#{dashboardBean.selectedSniperPair}"
+                                                disabled="#{dashboardBean.readOnly}" styleClass="aether-input" filter="true"
+                                                filterMatchMode="contains" style="width: 100%; font-weight: 800;">
+                                                <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
+                                                    itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
+                                                <p:ajax process="@this" update=":aetherForm"
+                                                    listener="#{dashboardBean.onSniperSymbolChange}"
+                                                    oncomplete="handleUserSniperSelected();" />
+                                            </p:selectOneMenu>
+                                        </div>
+
+                                        <!-- Columna Derecha: Multiplicador de Riesgo -->
+                                        <h:panelGroup layout="block" id="pnlRiesgoSniper">
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                                <label style="font-weight: 700; color: #8c5d1e; font-size: 0.80rem;"
+                                                       title="Multiplicador de riesgo sobre la base de cuenta (#{dashboardBean.selectedAccountRiesgoPorOperacion}%)">
+                                                    <i class="pi pi-shield" style="font-size: 0.75rem; color: #b47b2b; margin-right: 2px;"></i>Riesgo:
+                                                </label>
+                                                <span style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 4px; border-radius: 3px;"
+                                                      title="Riesgo Efectivo = Base #{dashboardBean.selectedAccountRiesgoPorOperacion}% x Multiplicador">
+                                                    #{dashboardBean.formattedSniperRiesgoEfectivoPct}%
+                                                </span>
+                                            </div>
+                                            <p:inputNumber id="sniperMultRiesgoInput" value="#{dashboardBean.sniperMultiplicadorRiesgo}"
+                                                decimalPlaces="2" minValue="0.10" maxValue="10.00"
+                                                symbol="x" symbolPosition="s"
+                                                style="width: 100%;" inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff;">
+                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                    update="pnlRiesgoSniper"
+                                                    oncomplete="handleUserSniperSelected();" />
+                                            </p:inputNumber>
+                                        </h:panelGroup>
+                                    </div>
+
+                                    <!-- Temporalidad y Días -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                        <div>
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Temporalidad:</label>
+                                            <p:selectOneMenu id="sniperTimeframeSelect" value="#{dashboardBean.sniperTimeframe}"
+                                                disabled="#{dashboardBean.readOnly}" styleClass="aether-input"
+                                                style="width: 100%; font-weight: 800;">
+                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                    update=":aetherForm"
+                                                    oncomplete="handleUserSniperSelected();" />
+                                                <f:selectItem itemLabel="1 Minuto" itemValue="1min" />
+                                                <f:selectItem itemLabel="5 Minutos" itemValue="5min" />
+                                                <f:selectItem itemLabel="15 Minutos" itemValue="15min" />
+                                                <f:selectItem itemLabel="30 Minutos" itemValue="30min" />
+                                                <f:selectItem itemLabel="1 Hora" itemValue="1h" />
+                                                <f:selectItem itemLabel="4 Horas" itemValue="4h" />
+                                                <f:selectItem itemLabel="1 Día" itemValue="1d" />
+                                            </p:selectOneMenu>
+                                        </div>
+                                        <div>
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días Historial:</label>
+                                            <p:spinner id="sniperDaysBackSpinner" value="#{dashboardBean.sniperDaysBack}" min="30" max="365" stepFactor="30"
+                                                styleClass="aether-input" style="width: 100%;">
+                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                    update=":aetherForm" oncomplete="handleUserSniperSelected();" />
+                                            </p:spinner>
+                                        </div>
+                                    </div>
+
+                                    <!-- Confianza ML y R:R Mínimo -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                        <div>
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza Mín ML (%):</label>
+                                            <p:spinner value="#{dashboardBean.sniperMinConfidence}" min="50.0" max="95.0" stepFactor="5.0"
+                                                styleClass="aether-input" style="width: 100%;" />
+                                        </div>
+                                        <div>
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R Mínimo:</label>
+                                            <p:spinner value="#{dashboardBean.sniperMinRr}" min="1.0" max="5.0" stepFactor="0.1"
+                                                styleClass="aether-input" style="width: 100%;" />
+                                        </div>
+                                    </div>
+
+                                    <!-- BreakEven y Trailing Stop Loss -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(180, 123, 43, 0.06); padding: 8px; border-radius: 8px; border: 1px solid rgba(180, 123, 43, 0.2);">
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit">BreakEven (50%):</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}" />
+                                        </div>
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Activa Trailing Stop Loss una vez asegurado el BreakEven">Trailing SL:</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}" />
+                                        </div>
+                                    </div>
+
+                                    <!-- Horario Operativo -->
+                                    <h:panelGroup layout="block" id="pnlHorarioSniper" style="background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Filtro Horario (CST):</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperFiltroHorario}">
+                                                <p:ajax process="@this" update="pnlHorarioSniper" />
+                                            </p:selectBooleanCheckbox>
+                                        </div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                            <p:inputText value="#{dashboardBean.sniperHoraInicio}" placeholder="08:00"
+                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                            <p:inputText value="#{dashboardBean.sniperHoraFin}" placeholder="16:00"
+                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                        </div>
+                                    </h:panelGroup>
+
+                                    <!-- Generar Órdenes (Operar) -->
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #{dashboardBean.sniperOperar ? 'rgba(180, 123, 43, 0.15)' : '#f8fafc'}; border: 1.5px solid #{dashboardBean.sniperOperar ? '#b47b2b' : '#cbd5e1'}; border-radius: 8px; margin-top: 4px;">
+                                        <div>
+                                            <span style="font-weight: 800; font-size: 0.90rem; color: #{dashboardBean.sniperOperar ? '#8c5d1e' : '#475569'}; display: block;">
+                                                Generar Órdenes SNIPER:
+                                            </span>
+                                            <span style="font-size: 0.75rem; color: #64748b;">
+                                                #{dashboardBean.sniperOperar ? 'Ejecución autónoma activa en microSNIPER' : 'Modo sólo monitoreo (sin órdenes)'}
+                                            </span>
+                                        </div>
+                                        <p:inputSwitch value="#{dashboardBean.sniperOperar}">
+                                            <p:ajax listener="#{dashboardBean.onSniperOperarToggle}" update=":aetherForm" />
+                                        </p:inputSwitch>
+                                    </div>
+
+                                    <!-- Botones de Acción -->
+                                    <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 8px;">
+                                        <p:commandButton value="Auto-Calibrar Parámetros y Horario" icon="pi pi-sliders-h"
+                                            action="#{dashboardBean.optimizarSniperPair}"
+                                            process="@this"
+                                            update=":aetherForm :aetherForm:growl"
+                                            oncomplete="handleUserSniperSelected();"
+                                            styleClass="aether-btn-secondary"
+                                            style="width: 100%; border: 1.5px solid #b47b2b !important; color: #8c5d1e !important; background: #fefce8 !important; font-weight: 800; font-size: 0.92rem;"
+                                            title="Calcula de forma automática la temporalidad, niveles ML, R:R y ventana horaria óptima para #{dashboardBean.selectedSniperPair}" />
+
+                                        <div style="display: flex; gap: 8px;">
+                                            <p:commandButton value="Guardar" icon="pi pi-check"
+                                                action="#{dashboardBean.guardarSniper}"
+                                                process="@form"
+                                                update=":aetherForm :aetherForm:growl"
+                                                oncomplete="handleUserSniperSelected();"
+                                                styleClass="aether-btn-primary"
+                                                style="flex: 2; background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
+                                            
+                                            <p:commandButton value="Borrar" icon="pi pi-trash"
+                                                action="#{dashboardBean.borrarSniper}"
+                                                rendered="#{dashboardBean.sniperExistsInDb}"
+                                                process="@this"
+                                                update=":aetherForm"
+                                                oncomplete="handleUserSniperSelected();"
+                                                styleClass="aether-btn-secondary"
+                                                style="flex: 1; color: #dc2626 !important; border-color: #f87171 !important;">
+                                                <p:confirm header="Confirmar Eliminación"
+                                                    message="¿Deseas eliminar el par #{dashboardBean.selectedSniperPair} de la estrategia SNIPER?"
+                                                    icon="pi pi-exclamation-triangle" />
+                                            </p:commandButton>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </p:tab>
+                        </p:accordionPanel>
+                    </p:panel>
+
+                    <!-- COLUMNA DERECHA: ENCABEZADO Y GRÁFICA INTERACTIVA SNIPER -->
+                    <div id="sniperRightChartColumn" class="dashboard-chart-column">
+                        <div class="pairs-trading-header-box"
+                            style="margin-bottom: 10px; padding: 0 16px; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; box-shadow: var(--neu-shadow-flat); gap: 10px; font-size: 1.22rem; min-height: 46px; max-height: 46px; box-sizing: border-box;">
+
+                            <div
+                                style="font-weight: 900; color: #8c5d1e; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.35rem; line-height: 1; display: flex; align-items: center; gap: 8px;">
+                                <i class="pi pi-crosshair" style="color: #b47b2b; font-size: 1.35rem;"></i>
+                                <span>SNIPER (#{dashboardBean.selectedSniperPair})</span>
+                            </div>
+
+                            <!-- INFORMACIÓN DE CUENTA COMPARTIDA -->
+                            <div
+                                style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: nowrap;">
+                                <div
+                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 1.22rem;">
+                                    <i class="pi pi-user" style="color: #b47b2b; font-size: 1.22rem;"></i>
+                                    <span style="font-weight: 800; color: #1e293b; font-size: 1.22rem;">
+                                        #{dashboardBean.selectedAccountName}
+                                    </span>
+                                </div>
+                                <div
+                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 1.22rem;">
+                                    <i class="pi pi-wallet" style="color: #0369a1; font-size: 1.22rem;"></i>
+                                    <span style="color: #64748b; font-weight: 700; font-size: 1.22rem;">Capital:</span>
+                                    <span style="font-weight: 800; color: #0369a1; font-size: 1.22rem;">
+                                        $#{dashboardBean.formattedSelectedAccountCapital} USD
+                                    </span>
+                                </div>
+                                <div
+                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: rgba(180, 123, 43, 0.1); border-radius: 6px; border: 1px solid rgba(180, 123, 43, 0.3); font-size: 1.22rem;">
+                                    <span style="color: #8c5d1e; font-weight: 800; font-size: 1.22rem;">
+                                        #{dashboardBean.sniperTimeframeLabel} · Precisión
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div
+                                style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: nowrap;">
+                                <div id="sniperLiveIndicator"
+                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #047857; transition: all 0.2s ease;">
+                                    <span id="sniperLivePulseDot"
+                                        style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);"></span>
+                                    <span id="sniperLiveText" style="font-size: 1.22rem;">En Vivo (10s)</span>
+                                </div>
+                                <p:commandButton icon="pi pi-refresh" title="Refrescar gráfica en vivo"
+                                    action="#{dashboardBean.analyzeSniperPair}" process="@this"
+                                    update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
+                                    oncomplete="renderSniperChart();"
+                                    styleClass="aether-btn-secondary"
+                                    style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
+                                <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperChart');"
+                                    style="display: inline-flex; align-items: center; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #334155; cursor: pointer;">
+                                    Reset Zoom
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- CONTENEDOR DE LA GRÁFICA INTERACTIVA CHART.JS -->
+                        <div id="sniper-chart-container"
+                            style="flex: 1; position: relative; width: 100%; min-height: 500px; background: #ffffff; border-radius: 12px; padding: 10px; border: 1px solid var(--border-soft); display: flex; flex-direction: column;">
+
+                            <!-- BANNER DE POSICIÓN ACTIVA EN CURSO (SI EXISTE TRADE OPEN EN SNIPER) -->
+                            <div id="sniperActiveTradeBanner" style="display: none; margin-bottom: 10px; padding: 10px 14px; border-radius: 10px; background: rgba(180, 123, 43, 0.08); border: 1.5px solid #b47b2b; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                    <span id="sniperBannerDirBadge" style="font-weight: 900; font-size: 0.85rem; padding: 3px 10px; border-radius: 6px; color: #ffffff;"></span>
+                                    <span style="font-size: 0.88rem; color: #334155;">
+                                        Entrada: <b id="sniperBannerEntry" style="color: #0f172a;">—</b>
+                                    </span>
+                                    <span style="font-size: 0.88rem; color: #334155;">
+                                        Stop Loss: <b id="sniperBannerSl" style="color: #dc2626;">—</b>
+                                    </span>
+                                    <span style="font-size: 0.88rem; color: #334155;">
+                                        Take Profit: <b id="sniperBannerTp" style="color: #16a34a;">—</b>
+                                    </span>
+                                    <span style="font-size: 0.88rem; color: #334155;">
+                                        BreakEven: <b id="sniperBannerBe" style="color: #0284c7;">—</b>
+                                    </span>
+                                    <span style="font-size: 0.88rem; color: #334155;">
+                                        PnL Flotante: <b id="sniperBannerPnl" style="font-size: 1.0rem;">$0.00</b>
+                                    </span>
+                                </div>
+                                <p:commandButton value="Cerrar Posición" icon="pi pi-times"
+                                    action="#{dashboardBean.cerrarPosicionSniper(dashboardBean.selectedSniperPair)}"
+                                    process="@this" update=":aetherForm"
+                                    oncomplete="handleUserSniperSelected();"
+                                    styleClass="aether-btn-secondary"
+                                    style="color: #dc2626 !important; border-color: #ef4444 !important; font-weight: 800; font-size: 0.85rem;" />
+                            </div>
+
+                            <!-- LEYENDA TÁCTICA DE ELEMENTOS DIBUJADOS -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 4px 10px; background: #f8fafc; border-radius: 6px; font-size: 0.85rem; border: 1px solid #e2e8f0; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #b47b2b; display: inline-block;"></span>
+                                        <b>Precio (Cierre)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #16a34a; display: inline-block;"></span>
+                                        <b>Precio Entrada</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #10b981; display: inline-block;"></span>
+                                        <b style="color: #059669;">Take Profit (TP)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #ef4444; display: inline-block;"></span>
+                                        <b style="color: #dc2626;">Stop Loss (SL)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #3b82f6; display: inline-block;"></span>
+                                        <b style="color: #2563eb;">BreakEven (BE)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #f59e0b; display: inline-block;"></span>
+                                        <b style="color: #d97706;">TSL</b>
+                                    </span>
+                                </div>
+                                <span id="sniperLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
+                            </div>
+
+                            <!-- CANVAS DE GRÁFICA CHART.JS -->
+                            <div style="position: relative; flex: 1; min-height: 480px; width: 100%;">
+                                <canvas id="sniperChart" style="width: 100%; height: 100%;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 2: BACKTEST SNIPER (SIMULACIÓN HISTÓRICA CON MACHINE LEARNING) -->
+            <!-- ===================================================================== -->
+            <p:tab title="BackTest">
+                <p:outputPanel id="sniperBtWrapper" layout="block"
+                    style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
+
+                    <div style="background: #ffffff; border-radius: 8px; border: 1px solid #e7d8c0; padding: 8px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 8px;">
+                        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 2px solid #e7d8c0; padding-bottom: 6px; gap: 8px; background: linear-gradient(135deg, #fdfbf7 0%, #fef3c7 100%); border-radius: 8px; padding: 8px 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <span style="font-weight: 900; font-size: 1.22rem; color: #8c5d1e; display: inline-flex; align-items: center;">
+                                    <i class="pi pi-compass" style="margin-right: 6px; color: #b47b2b;"></i>Estrategia SNIPER: Precision Order Blocks &amp; ML
+                                </span>
+                                <span style="color: #8c5d1e; background: #ffffff; border: 1.5px solid #d4b584; padding: 3px 10px; border-radius: 6px; font-weight: 900; font-size: 1.15rem;">
+                                    #{dashboardBean.selectedSniperPair}
+                                </span>
+                                <span style="background: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 700;">
+                                    <i class="pi pi-clock" style="color: #b47b2b; margin-right: 4px;"></i>#{dashboardBean.sniperTimeframe} (#{dashboardBean.sniperDaysBack} periodos)
+                                </span>
+                                <span style="background: #ffffff; color: #8c5d1e; border: 1px solid #e7d8c0; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 800;">
+                                    Conf. Mín: #{dashboardBean.sniperMinConfidence}% | R:R #{dashboardBean.sniperMinRr}:1 | Horario: #{dashboardBean.sniperHoraInicio}-#{dashboardBean.sniperHoraFin} CST
+                                </span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <span style="background: #ffffff; color: #8c5d1e; border: 1px solid #d4b584; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
+                                    <i class="pi pi-wallet" style="margin-right: 4px;"></i>Capital: $#{dashboardBean.formattedSniperBtInitialCapital} USD
+                                </span>
+                                <span style="background: #ffffff; color: #0369a1; border: 1px solid #bae6fd; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
+                                    Asignación: #{dashboardBean.formattedSniperBtAllocationPct}% / Entrada
+                                </span>
+                                <p:commandButton value="Auto-Calibrar" icon="pi pi-sliders-h"
+                                    actionListener="#{dashboardBean.optimizarSniperPair}"
+                                    update=":aetherForm :aetherForm:growl"
+                                    oncomplete="handleUserSniperSelected();"
+                                    styleClass="ui-button-outlined"
+                                    style="font-size: 0.90rem; padding: 4px 10px; color: #8c5d1e; border-color: #b47b2b; background: #fefce8; font-weight: 800;"
+                                    title="Auto-calibrar temporalidad, ML, R:R y horario óptimo para #{dashboardBean.selectedSniperPair}" />
+                                <p:commandButton icon="pi pi-refresh" actionListener="#{dashboardBean.analyzeSniperPair}"
+                                    update=":aetherForm"
+                                    oncomplete="handleUserSniperSelected();"
+                                    styleClass="ui-button-outlined"
+                                    style="font-size: 0.90rem; padding: 4px 8px; color: #8c5d1e; border-color: #b47b2b; background: #ffffff;"
+                                    title="Recalcular Backtest SNIPER" />
+                            </div>
+                        </div>
+
+                        <!-- KPIs de BackTest SNIPER -->
+                        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;">
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #b47b2b;">
+                                <span style="display: block; font-size: 0.88rem; color: #8c5d1e; font-weight: 700;">Ventana BackTest</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">#{dashboardBean.formattedSniperBtTotalDays} días</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.formattedSniperBtTotalBars} velas</span>
+                            </div>
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #0284c7;">
+                                <span style="display: block; font-size: 0.88rem; color: #0369a1; font-weight: 700;">Total Operaciones</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">#{dashboardBean.sniperBtMetrics.formattedTotalTrades} Trades</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.sniperBtMetrics.winningTrades} W / #{dashboardBean.sniperBtMetrics.losingTrades} L</span>
+                            </div>
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #10b981;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Retorno Total</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '#10b981' : '#ef4444'};">
+                                    #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '+' : ''}#{dashboardBean.sniperBtMetrics.formattedTotalReturnPct}%
+                                </span>
+                                <span style="display: block; font-size: 0.85rem; font-weight: 700; color: #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '#15803d' : '#b91c1c'};">
+                                    #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '+' : ''}$#{dashboardBean.sniperBtMetrics.formattedNetProfit} USD
+                                </span>
+                            </div>
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #d97706;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Capital Final</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">$#{dashboardBean.formattedSniperBtFinalCapital}</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Reinversión Compuesta</span>
+                            </div>
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #8c5d1e;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Win Rate / PF</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #8c5d1e;">#{dashboardBean.sniperBtMetrics.winRate}%</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">PF: #{dashboardBean.sniperBtMetrics.formattedProfitFactor}</span>
+                            </div>
+                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #ef4444;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Max Drawdown</span>
+                                <span style="font-size: 1.25rem; font-weight: 800; color: #ef4444;">-#{dashboardBean.sniperBtMetrics.formattedMaxDrawdown}%</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Sharpe: #{dashboardBean.sniperBtMetrics.formattedSharpeRatio}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-Pestañas Internas de BackTest SNIPER -->
+                    <p:tabView id="sniperBtInnerTabs" widgetVar="sniperBtInnerTabsWidget" styleClass="compact-inner-tabs"
+                        onTabShow="if (index === 1) setTimeout(renderSniperBtPriceChart, 50); else if (index === 2) setTimeout(renderSniperBtEquityChart, 50);">
+
+                        <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES SNIPER -->
+                        <p:tab title="Bitácora detallada de Trades">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <p:dataTable id="sniperSignalTradesTable" value="#{dashboardBean.sniperBtTradesList}"
+                                    var="st" scrollable="true" scrollHeight="340px" styleClass="aether-table-compact"
+                                    emptyMessage="Sin operaciones simuladas para este par en SNIPER"
+                                    style="width: 100%;">
+                                    <p:column headerText="Entrada" style="width: 50px; text-align: center;">
+                                        <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}" style="font-weight: 700;" />
+                                    </p:column>
+                                    <p:column headerText="Dirección / Señal" style="width: 140px; text-align: center;">
+                                        <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 800; font-size: 0.82rem; background: #{st.direction == 'COMPRA' ? '#dcfce7' : '#fee2e2'}; color: #{st.direction == 'COMPRA' ? '#15803d' : '#b91c1c'}; border: 1px solid #{st.direction == 'COMPRA' ? '#86efac' : '#fca5a5'};">
+                                            #{st.direction == 'COMPRA' ? '▲ COMPRA' : '▼ VENTA'}
+                                        </span>
+                                        <div style="font-size: 0.75rem; color: #475569; margin-top: 2px; font-weight: 600;">#{st.signalType}</div>
+                                    </p:column>
+                                    <p:column headerText="Fecha Entrada" style="width: 140px; text-align: center;">
+                                        <h:outputText value="#{st.entryDate}" style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                    </p:column>
+                                    <p:column headerText="Px Entrada" style="width: 95px; text-align: right;">
+                                        <h:outputText value="#{st.entryPriceA}" style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                    </p:column>
+                                    <p:column headerText="Fecha Cierre" style="width: 140px; text-align: center;">
+                                        <h:outputText value="#{st.exitDate}" style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                        <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración: #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
+                                    </p:column>
+                                    <p:column headerText="Px Cierre" style="width: 95px; text-align: right;">
+                                        <h:outputText value="#{st.exitPriceA}" style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                    </p:column>
+                                    <p:column headerText="Motivo Cierre" style="width: 130px; text-align: center;">
+                                        <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-weight: 800; font-size: 0.76rem; background: #{st.exitReason.contains('Take Profit') ? '#dcfce7' : (st.exitReason.contains('Break-Even') ? '#e0f2fe' : (st.exitReason.contains('Trailing') ? '#fef3c7' : '#fee2e2'))}; color: #{st.exitReason.contains('Take Profit') ? '#15803d' : (st.exitReason.contains('Break-Even') ? '#0369a1' : (st.exitReason.contains('Trailing') ? '#b45309' : '#b91c1c'))};">
+                                            #{st.exitReason}
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="Retorno %" style="width: 85px; text-align: right;">
+                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                            #{st.returnPct > 0 ? '+' : ''}#{st.formattedReturnPct}%
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="PnL ($)" style="width: 110px; text-align: right;">
+                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                            #{st.pnl >= 0 ? '+' : ''}$#{st.formattedPnl}
+                                        </span>
+                                        <div style="font-size: 0.76rem; color: #64748b;">(#{st.formattedPipsAWithSign}p)</div>
+                                    </p:column>
+                                    <p:column headerText="Capital Acum. ($)" style="width: 110px; text-align: right;">
+                                        <span style="font-weight: 800; color: #0f172a;">$#{st.formattedAccumCapital}</span>
+                                    </p:column>
+                                </p:dataTable>
+                            </div>
+                        </p:tab>
+
+                        <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS Y OPERACIONES SIMULADAS (BACKTEST) -->
+                        <p:tab title="Gráfica del Par y Operaciones Simuladas">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                        <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
+                                            Velas #{dashboardBean.sniperTimeframeLabel} + Señales Tácticas SNIPER (#{dashboardBean.selectedSniperPair})
+                                        </span>
+                                        <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ▲ Entrada Compra
+                                        </span>
+                                        <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ▼ Entrada Venta
+                                        </span>
+                                        <span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ◆ Salida (TP / SL / BE / TSL)
+                                        </span>
+                                    </div>
+                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtPriceChart');"
+                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
+                                        Reset Zoom
+                                    </button>
+                                </div>
+                                <div style="height: 460px; width: 100%; position: relative;">
+                                    <canvas id="sniperBtPriceChart"></canvas>
+                                </div>
+                            </div>
+                        </p:tab>
+
+                        <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD BACKTEST SNIPER -->
+                        <p:tab title="Gráfica de Curva de Equidad">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
+                                        Evolución de Capital SNIPER ($ USD)
+                                    </span>
+                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtEquityChart');"
+                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
+                                        Reset Zoom
+                                    </button>
+                                </div>
+                                <div style="height: 440px; width: 100%; position: relative;">
+                                    <canvas id="sniperBtEquityChart"></canvas>
+                                </div>
+                            </div>
+                        </p:tab>
+                    </p:tabView>
+                </p:outputPanel>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 3: HECHOS REALES SNIPER (EJECUCIONES EN TABLA TRADES)         -->
+            <!-- ===================================================================== -->
+            <p:tab title="Hechos Reales SNIPER">
+                <div style="display: flex; flex-direction: column; gap: 12px; padding: 4px;">
+                    
+                    <!-- Resumen Métricas SNIPER -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                        <div class="aether-card" style="padding: 12px; border-left: 4px solid #b47b2b;">
+                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total Trades:</span>
+                            <div style="font-size: 1.4rem; font-weight: 900; color: #0f172a;">
+                                #{dashboardBean.sniperRealTradesSummary.totalTrades}
+                            </div>
+                        </div>
+                        <div class="aether-card" style="padding: 12px; border-left: 4px solid #10b981;">
+                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Win Rate:</span>
+                            <div style="font-size: 1.4rem; font-weight: 900; color: #059669;">
+                                #{dashboardBean.sniperRealTradesSummary.winRate}%
+                            </div>
+                        </div>
+                        <div class="aether-card" style="padding: 12px; border-left: 4px solid #0284c7;">
+                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Profit Factor:</span>
+                            <div style="font-size: 1.4rem; font-weight: 900; color: #0284c7;">
+                                #{dashboardBean.sniperRealTradesSummary.profitFactor}
+                            </div>
+                        </div>
+                        <div class="aether-card" style="padding: 12px; border-left: 4px solid #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#10b981' : '#ef4444'};">
+                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">PnL Neto:</span>
+                            <div style="font-size: 1.4rem; font-weight: 900; color: #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#059669' : '#dc2626'};">
+                                $#{dashboardBean.sniperRealTradesSummary.netProfit}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Operaciones Reales -->
+                    <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}" var="tr"
+                        emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true" scrollHeight="420px"
+                        styleClass="aether-table-compact" style="width: 100%;">
+
+                        <p:column headerText="#" style="width: 40px; text-align: center;">
+                            <h:outputText value="#{tr.tradeNum}" rendered="#{!tr.isSubtotal}" />
+                            <h:outputText value="TOTAL" rendered="#{tr.isSubtotal}" style="font-weight: 900;" />
+                        </p:column>
+                        <p:column headerText="Ticket" style="width: 80px; text-align: center;">
+                            <h:outputText value="#{tr.ticketId}" />
+                        </p:column>
+                        <p:column headerText="Símbolo" style="width: 90px; font-weight: 700;">
+                            <h:outputText value="#{tr.symbol}" />
+                        </p:column>
+                        <p:column headerText="Dirección" style="width: 80px; text-align: center;">
+                            <span class="badge"
+                                style="font-size: 0.80rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'LARGO'.equalsIgnoreCase(tr.direction) or 'BUY'.equalsIgnoreCase(tr.direction) ? 'background: rgba(22, 163, 74, 0.15); color: #15803d; border: 1px solid #22c55e;' : 'background: rgba(220, 38, 38, 0.15); color: #b91c1c; border: 1px solid #ef4444;'}">
+                                #{tr.direction}
+                            </span>
+                        </p:column>
+                        <p:column headerText="Apertura" style="width: 120px; font-size: 0.85rem;">
+                            <h:outputText value="#{tr.openTime}" />
+                        </p:column>
+                        <p:column headerText="Cierre" style="width: 120px; font-size: 0.85rem;">
+                            <h:outputText value="#{tr.closeTime}" />
+                        </p:column>
+                        <p:column headerText="Precio Entrada" style="width: 95px; text-align: right;">
+                            <h:outputText value="#{tr.entryPrice}">
+                                <f:convertNumber pattern="#,##0.00000" />
+                            </h:outputText>
+                        </p:column>
+                        <p:column headerText="Precio Salida" style="width: 95px; text-align: right;">
+                            <h:outputText value="#{tr.exitPrice}">
+                                <f:convertNumber pattern="#,##0.00000" />
+                            </h:outputText>
+                        </p:column>
+                        <p:column headerText="PnL ($)" style="width: 90px; text-align: right; font-weight: 800;">
+                            <h:outputText value="#{tr.pnl}"
+                                style="color: #{tr.pnl ge 0 ? '#16a34a' : '#dc2626'};">
+                                <f:convertNumber pattern="$#,##0.00" />
+                            </h:outputText>
+                        </p:column>
+                        <p:column headerText="Estado" style="width: 70px; text-align: center;">
+                            <span class="badge"
+                                style="font-size: 0.75rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'OPEN'.equalsIgnoreCase(tr.status) ? 'background: rgba(180, 123, 43, 0.2); color: #8c5d1e; border: 1px solid #b47b2b;' : 'background: #f1f5f9; color: #475569;'}">
+                                #{tr.status}
+                            </span>
+                        </p:column>
+                    </p:dataTable>
+                </div>
+            </p:tab>
+        </p:tabView>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- JAVASCRIPT: RENDERIZADOR TÁCTICO DE GRÁFICA SNIPER (CHART.JS)             -->
+    <!-- ========================================================================= -->
+    <script type="text/javascript">
+        // <![CDATA[
+        var sniperChartInstance = null;
+
+        function handleSniperTabShow(index) {
+            if (index === 0) {
+                setTimeout(function() { renderSniperChart(); }, 60);
+            } else if (index === 1) {
+                setTimeout(function() {
+                    var innerWidget = (typeof PF !== 'undefined') ? PF('sniperBtInnerTabsWidget') : null;
+                    var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
+                    if (innerIdx === 1) {
+                        renderSniperBtPriceChart();
+                    } else if (innerIdx === 2) {
+                        renderSniperBtEquityChart();
+                    } else {
+                        renderSniperBtPriceChart();
+                        renderSniperBtEquityChart();
+                    }
+                }, 60);
+            }
+        }
+
+        function handleUserSniperSelected() {
+            setTimeout(function() {
+                var tabWidget = (typeof PF !== 'undefined') ? PF('sniperTabViewWidget') : null;
+                var curTab = tabWidget ? tabWidget.getActiveIndex() : 0;
+                if (curTab === 0) {
+                    renderSniperChart();
+                } else if (curTab === 1) {
+                    var innerWidget = (typeof PF !== 'undefined') ? PF('sniperBtInnerTabsWidget') : null;
+                    var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
+                    if (innerIdx === 1) {
+                        renderSniperBtPriceChart();
+                    } else if (innerIdx === 2) {
+                        renderSniperBtEquityChart();
+                    } else {
+                        renderSniperBtPriceChart();
+                        renderSniperBtEquityChart();
+                    }
+                } else {
+                    renderSniperChart();
+                }
+                var chartCol = document.getElementById("sniperRightChartColumn");
+                if (chartCol && typeof chartCol.scrollIntoView === 'function') {
+                    chartCol.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }, 80);
+        }
+        window.handleUserSniperSelected = handleUserSniperSelected;
+
+        function resetChartZoom(canvasId) {
+            try {
+                var id = canvasId || 'sniperBtPriceChart';
+                var chart = window['chart_' + id];
+                if (!chart) {
+                    if (id === 'sniperBtPriceChart') chart = sniperBtPriceChartInstance;
+                    else if (id === 'sniperBtEquityChart') chart = sniperBtEquityChartInstance;
+                    else if (id === 'sniperChart') chart = sniperChartInstance;
+                }
+                if (chart && typeof chart.resetZoom === 'function') {
+                    chart.resetZoom();
+                }
+            } catch (e) {
+                console.warn("Error en resetChartZoom:", e);
+            }
+        }
+        window.resetChartZoom = resetChartZoom;
+
+        function updateSniperLiveTimestamp() {
+            var tsEl = document.getElementById('sniperLiveLastUpdate');
+            if (tsEl) {
+                var d = new Date();
+                var hh = String(d.getHours()).padStart(2, '0');
+                var mm = String(d.getMinutes()).padStart(2, '0');
+                var ss = String(d.getSeconds()).padStart(2, '0');
+                tsEl.textContent = 'Actualizado: ' + hh + ':' + mm + ':' + ss;
+            }
+        }
+
+        function parseSniperDateMs(dateStr) {
+            if (!dateStr) return null;
+            if (typeof dateStr === 'number') return dateStr;
+            var s = String(dateStr).trim().replace('T', ' ');
+            var parts = s.split(' ');
+            if (parts.length >= 2) {
+                var dParts = parts[0].split('-');
+                var tParts = parts[1].split(':');
+                if (dParts.length === 3 && tParts.length >= 2) {
+                    var y = parseInt(dParts[0], 10);
+                    var m = parseInt(dParts[1], 10) - 1;
+                    var day = parseInt(dParts[2], 10);
+                    var hh = parseInt(tParts[0], 10);
+                    var mm = parseInt(tParts[1], 10);
+                    var ss = tParts.length > 2 ? parseInt(tParts[2], 10) : 0;
+                    return new Date(y, m, day, hh, mm, ss).getTime();
+                }
+            }
+            var parsed = Date.parse(s);
+            return isNaN(parsed) ? null : parsed;
+        }
+
+        function getSniperVolumeColor(volRatio) {
+            if (typeof window.getPriceTemperatureColor === 'function') {
+                return window.getPriceTemperatureColor(volRatio);
+            }
+            return 'rgb(34, 197, 94)';
+        }
+
+        function renderSniperChart() {
+            try {
+                var canvas = document.getElementById('sniperChart');
+                if (!canvas) return;
+                if (canvas.offsetParent === null) return;
+
+                var histEl = document.querySelector("[id$='sniperHistoryJsonData']");
+                var histStr = histEl ? histEl.value : '[]';
+                if (!histStr || histStr === '[]') return;
+
+                var rawCandles = JSON.parse(histStr);
+                if (!rawCandles || rawCandles.length === 0) return;
+                if (rawCandles.length > 250) {
+                    rawCandles = rawCandles.slice(-250);
+                }
+
+                var actTradesEl = document.querySelector("[id$='sniperActiveTradesJsonData']");
+                var actTrStr = actTradesEl ? actTradesEl.value : 'null';
+                var activeTrade = null;
+                if (actTrStr && actTrStr !== 'null' && actTrStr !== '[]') {
+                    try { activeTrade = JSON.parse(actTrStr); } catch(e) {}
+                }
+
+                var banner = document.getElementById('sniperActiveTradeBanner');
+                if (banner) {
+                    if (activeTrade && activeTrade.idTrade) {
+                        banner.style.display = 'flex';
+                        var dirBadge = document.getElementById('sniperBannerDirBadge');
+                        if (dirBadge) {
+                            var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
+                            dirBadge.textContent = isBuy ? 'COMPRA (BUY)' : 'VENTA (SELL)';
+                            dirBadge.style.background = isBuy ? '#16a34a' : '#dc2626';
+                        }
+                        var setTxt = function(id, val) {
+                            var el = document.getElementById(id);
+                            if (el) el.textContent = val !== null && val !== undefined ? Number(val).toFixed(5) : '—';
+                        };
+                        setTxt('sniperBannerEntry', activeTrade.entryPrice);
+                        setTxt('sniperBannerSl', activeTrade.stopLoss);
+                        setTxt('sniperBannerTp', activeTrade.takeProfit);
+                        setTxt('sniperBannerBe', activeTrade.bePrice);
+                        var pnlEl = document.getElementById('sniperBannerPnl');
+                        if (pnlEl) {
+                            var pnl = Number(activeTrade.pnl || 0);
+                            pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+                            pnlEl.style.color = pnl >= 0 ? '#16a34a' : '#dc2626';
+                        }
+                    } else {
+                        banner.style.display = 'none';
+                    }
+                }
+
+                var posVols = [];
+                for (var vIdx = 0; vIdx < rawCandles.length; vIdx++) {
+                    var vVal = Number(rawCandles[vIdx].volume || 0);
+                    if (vVal > 0) posVols.push(vVal);
+                }
+                posVols.sort(function(a, b) { return a - b; });
+
+                var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
+                var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
+                if (pMax <= pMin) pMax = pMin + 1;
+
+                var pricePoints = [];
+                var minTs = null;
+                var maxTs = null;
+
+                for (var i = 0; i < rawCandles.length; i++) {
+                    var c = rawCandles[i];
+                    var ts = parseSniperDateMs(c.datetime);
+                    if (!ts) continue;
+                    if (minTs === null || ts < minTs) minTs = ts;
+                    if (maxTs === null || ts > maxTs) maxTs = ts;
+                    var volVal = Number(c.volume || 0);
+                    var normV = Math.max(0.0, Math.min(1.0, (volVal - pMin) / (pMax - pMin)));
+                    var volRatio = Math.sqrt(normV);
+                    var volColor = getSniperVolumeColor(volRatio);
+                    pricePoints.push({
+                        x: ts,
+                        y: Number(c.close),
+                        open: Number(c.open),
+                        high: Number(c.high),
+                        low: Number(c.low),
+                        close: Number(c.close),
+                        volume: volVal,
+                        volRatio: volRatio,
+                        volColor: volColor
+                    });
+                }
+
+                var datasets = [
+                    {
+                        label: 'Precio (#{dashboardBean.sniperTimeframeLabel})',
+                        data: pricePoints,
+                        borderColor: '#b47b2b',
+                        segment: {
+                            borderColor: function (ctx) {
+                                var idx = (ctx.p1DataIndex !== undefined) ? ctx.p1DataIndex : ctx.p0DataIndex;
+                                var pt = pricePoints[idx];
+                                return (pt && pt.volColor) ? pt.volColor : '#b47b2b';
+                            }
+                        },
+                        backgroundColor: 'transparent',
+                        borderWidth: 3.2,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        fill: false,
+                        tension: 0.1
+                    }
+                ];
+
+                // Si hay trade activo, graficar líneas horizontales de Entrada, TP, SL, BE
+                if (activeTrade && minTs !== null && maxTs !== null) {
+                    if (activeTrade.entryPrice) {
+                        var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
+                        datasets.push({
+                            label: 'Entrada (' + (isBuy ? 'BUY' : 'SELL') + ')',
+                            data: [{ x: minTs, y: activeTrade.entryPrice }, { x: maxTs, y: activeTrade.entryPrice }],
+                            borderColor: isBuy ? '#16a34a' : '#dc2626',
+                            borderWidth: 2,
+                            borderDash: [0, 0],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+                    if (activeTrade.takeProfit) {
+                        datasets.push({
+                            label: 'Take Profit (TP)',
+                            data: [{ x: minTs, y: activeTrade.takeProfit }, { x: maxTs, y: activeTrade.takeProfit }],
+                            borderColor: '#10b981',
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+                    if (activeTrade.stopLoss) {
+                        datasets.push({
+                            label: 'Stop Loss (SL)',
+                            data: [{ x: minTs, y: activeTrade.stopLoss }, { x: maxTs, y: activeTrade.stopLoss }],
+                            borderColor: '#ef4444',
+                            borderWidth: 2,
+                            borderDash: [6, 4],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+                    if (activeTrade.bePrice) {
+                        datasets.push({
+                            label: activeTrade.isBreakEven ? 'BreakEven (Asegurado)' : 'Trigger BreakEven (50%)',
+                            data: [{ x: minTs, y: activeTrade.bePrice }, { x: maxTs, y: activeTrade.bePrice }],
+                            borderColor: '#3b82f6',
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+                }
+
+                if (sniperChartInstance) {
+                    sniperChartInstance.destroy();
+                }
+
+                var ctx = canvas.getContext('2d');
+                sniperChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets: datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    displayFormats: {
+                                        hour: 'HH:mm',
+                                        day: 'MMM dd'
+                                    }
+                                },
+                                grid: {
+                                    color: 'rgba(226, 232, 240, 0.6)'
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { size: 10, weight: '700' }
+                                }
+                            },
+                            y: {
+                                position: 'right',
+                                grid: {
+                                    color: 'rgba(226, 232, 240, 0.6)'
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { size: 11, weight: '700' }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    boxWidth: 14,
+                                    font: { size: 11, weight: '700' },
+                                    color: '#334155'
+                                }
+                            },
+                            zoom: {
+                                pan: { enabled: true, mode: 'x' },
+                                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(ctx) {
+                                        var raw = ctx.raw;
+                                        if (raw && raw.open !== undefined) {
+                                            return [
+                                                'O: ' + raw.open.toFixed(5) + ' | H: ' + raw.high.toFixed(5),
+                                                'L: ' + raw.low.toFixed(5) + ' | C: ' + raw.close.toFixed(5),
+                                                'Vol: ' + raw.volume.toLocaleString()
+                                            ];
+                                        }
+                                        return ctx.dataset.label + ': ' + Number(ctx.parsed.y).toFixed(5);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                window['chart_sniperChart'] = sniperChartInstance;
+                updateSniperLiveTimestamp();
+            } catch (err) {
+                console.error("Error renderizando gráfica SNIPER: ", err);
+            }
+        }
+
+        var sniperBtPriceChartInstance = null;
+        var sniperBtEquityChartInstance = null;
+
+        function renderSniperBtPriceChart() {
+            try {
+                var canvas = document.getElementById('sniperBtPriceChart');
+                if (!canvas) return;
+                if (canvas.offsetParent === null) return;
+
+                var histEl = document.querySelector("[id$='sniperBtHistoryJsonData']");
+                var histStr = histEl ? histEl.value : '[]';
+                if (!histStr || histStr === '[]') {
+                    histEl = document.querySelector("[id$='sniperHistoryJsonData']");
+                    histStr = histEl ? histEl.value : '[]';
+                }
+                if (!histStr || histStr === '[]') return;
+
+                var rawCandles = JSON.parse(histStr);
+                if (!rawCandles || rawCandles.length === 0) return;
+
+                var posVols = [];
+                for (var vIdx = 0; vIdx < rawCandles.length; vIdx++) {
+                    var vVal = Number(rawCandles[vIdx].volume || 0);
+                    if (vVal > 0) posVols.push(vVal);
+                }
+                posVols.sort(function(a, b) { return a - b; });
+
+                var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
+                var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
+                if (pMax <= pMin) pMax = pMin + 1;
+
+                var pricePoints = [];
+                for (var i = 0; i < rawCandles.length; i++) {
+                    var c = rawCandles[i];
+                    var t = parseSniperDateMs(c.datetime);
+                    if (t) {
+                        var volVal = Number(c.volume || 0);
+                        var normV = Math.max(0.0, Math.min(1.0, (volVal - pMin) / (pMax - pMin)));
+                        var volRatio = Math.sqrt(normV);
+                        var volColor = getSniperVolumeColor(volRatio);
+                        pricePoints.push({
+                            x: t,
+                            y: Number(c.close),
+                            open: Number(c.open),
+                            high: Number(c.high),
+                            low: Number(c.low),
+                            close: Number(c.close),
+                            volume: volVal,
+                            volRatio: volRatio,
+                            volColor: volColor
+                        });
+                    }
+                }
+
+                // Parsear trades simulados de Backtest
+                var tradesEl = document.querySelector("[id$='sniperBtTradesJsonData']");
+                var tradesStr = tradesEl ? tradesEl.value : '[]';
+                var rawTrades = [];
+                try { rawTrades = JSON.parse(tradesStr) || []; } catch (e) { }
+
+                var buyEntries = [];
+                var sellEntries = [];
+                var tradeExits = [];
+
+                for (var j = 0; j < rawTrades.length; j++) {
+                    var tr = rawTrades[j];
+                    var tEntry = parseSniperDateMs(tr.entryDate);
+                    var tExit = parseSniperDateMs(tr.exitDate);
+                    var ep = tr.entryPriceA !== undefined ? Number(tr.entryPriceA) : Number(tr.entryPrice);
+                    var xp = tr.exitPriceA !== undefined ? Number(tr.exitPriceA) : Number(tr.exitPrice);
+                    var dir = String(tr.direction || '').toUpperCase();
+
+                    if (tEntry && !isNaN(ep)) {
+                        if (dir.indexOf('COMPRA') >= 0 || dir.indexOf('LARG') >= 0) {
+                            buyEntries.push({ x: tEntry, y: ep, label: 'COMPRA #' + tr.tradeNum });
+                        } else {
+                            sellEntries.push({ x: tEntry, y: ep, label: 'VENTA #' + tr.tradeNum });
+                        }
+                    }
+                    if (tExit && !isNaN(xp)) {
+                        tradeExits.push({ x: tExit, y: xp, label: (tr.exitReason || 'Cierre') + ' #' + tr.tradeNum, isWin: tr.isWin });
+                    }
+                }
+
+                if (sniperBtPriceChartInstance) {
+                    try { sniperBtPriceChartInstance.destroy(); } catch (e) { }
+                }
+
+                var ctx = canvas.getContext('2d');
+                sniperBtPriceChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Precio Cierre (#{dashboardBean.sniperTimeframeLabel})',
+                                data: pricePoints,
+                                borderColor: '#8c5d1e',
+                                segment: {
+                                    borderColor: function (ctx) {
+                                        var idx = (ctx.p1DataIndex !== undefined) ? ctx.p1DataIndex : ctx.p0DataIndex;
+                                        var pt = pricePoints[idx];
+                                        return (pt && pt.volColor) ? pt.volColor : '#8c5d1e';
+                                    }
+                                },
+                                backgroundColor: 'transparent',
+                                borderWidth: 3.2,
+                                pointRadius: 0,
+                                fill: false,
+                                tension: 0.1
+                            },
+                            {
+                                label: '▲ Entrada Compra',
+                                data: buyEntries,
+                                borderColor: '#15803d',
+                                backgroundColor: '#22c55e',
+                                pointStyle: 'triangle',
+                                pointRadius: 6,
+                                showLine: false
+                            },
+                            {
+                                label: '▼ Entrada Venta',
+                                data: sellEntries,
+                                borderColor: '#b91c1c',
+                                backgroundColor: '#ef4444',
+                                pointStyle: 'triangle',
+                                pointRotation: 180,
+                                pointRadius: 6,
+                                showLine: false
+                            },
+                            {
+                                label: '◆ Cierre Posición',
+                                data: tradeExits,
+                                borderColor: '#d97706',
+                                backgroundColor: '#f59e0b',
+                                pointStyle: 'rectRot',
+                                pointRadius: 6,
+                                showLine: false
+                            }
+                        ]
+                    },
+                    options: {
+                        animation: false,
+                        animations: false,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                grid: { color: 'rgba(241, 245, 249, 0.7)' },
+                                ticks: { font: { size: 10 } }
+                            },
+                            y: {
+                                type: 'linear',
+                                grid: { color: 'rgba(241, 245, 249, 0.7)' },
+                                ticks: {
+                                    font: { size: 11, weight: '700' },
+                                    callback: function(v) { return Number(v).toFixed(5); }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { boxWidth: 12, font: { size: 11, weight: '700' }, color: '#334155' }
+                            },
+                            zoom: {
+                                pan: { enabled: true, mode: 'x' },
+                                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                            }
+                        }
+                    }
+                });
+                window['chart_sniperBtPriceChart'] = sniperBtPriceChartInstance;
+            } catch (e) {
+                console.warn("Error en renderSniperBtPriceChart: ", e);
+            }
+        }
+
+        function renderSniperBtEquityChart() {
+            try {
+                var canvas = document.getElementById('sniperBtEquityChart');
+                if (!canvas) return;
+                if (canvas.offsetParent === null) return;
+
+                var eqEl = document.querySelector("[id$='sniperBtEquityCurveJsonData']");
+                var eqStr = eqEl ? eqEl.value : '[]';
+                if (!eqStr || eqStr === '[]') return;
+
+                var rawEq = JSON.parse(eqStr);
+                if (!rawEq || rawEq.length === 0) return;
+
+                var eqPoints = [];
+                for (var i = 0; i < rawEq.length; i++) {
+                    var item = rawEq[i];
+                    var ts = parseSniperDateMs(item.datetime || item.x || item.date);
+                    var cap = item.equity !== undefined ? Number(item.equity) : (item.y !== undefined ? Number(item.y) : null);
+                    if (ts && cap !== null && !isNaN(cap)) {
+                        eqPoints.push({ x: ts, y: cap });
+                    }
+                }
+
+                if (sniperBtEquityChartInstance) {
+                    try { sniperBtEquityChartInstance.destroy(); } catch (e) { }
+                }
+
+                var ctx = canvas.getContext('2d');
+                sniperBtEquityChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [{
+                            label: 'Evolución de Capital SNIPER ($ USD)',
+                            data: eqPoints,
+                            borderColor: '#b47b2b',
+                            backgroundColor: 'rgba(180, 123, 43, 0.12)',
+                            borderWidth: 2.5,
+                            pointRadius: 3,
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        animation: false,
+                        animations: false,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { type: 'time', grid: { color: '#f1f5f9' } },
+                            y: {
+                                type: 'linear',
+                                grid: { color: '#f1f5f9' },
+                                ticks: { callback: function (v) { return '$' + Number(v).toFixed(2); } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { boxWidth: 12, font: { size: 11, weight: '700' }, color: '#334155' }
+                            },
+                            zoom: {
+                                pan: { enabled: true, mode: 'x' },
+                                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                            }
+                        }
+                    }
+                });
+                window['chart_sniperBtEquityChart'] = sniperBtEquityChartInstance;
+            } catch (e) {
+                console.warn("Error en renderSniperBtEquityChart: ", e);
+            }
+        }
+        // ]]>
+    </script>
+</ui:composition>

@@ -35,6 +35,14 @@ if rootDir not in sys.path:
 from backend.database.models import SessionLocal
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from backend.services.microRatio import calculateSymbolNATR
+from backend.services.trade_executor import (
+    check_account_margin_health,
+    check_projected_margin,
+    execute_single_asset_entry,
+    execute_single_asset_close,
+    send_broker_order,
+    get_account_broker
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -339,7 +347,7 @@ def evaluateCartSignals(
     timeframe: str = "1h",
     dbSession = None,
     usarTSL: bool = True,
-    minRvol: float = 1.0
+    minRvol: float = 0.8
 ) -> Dict[str, Any]:
     """
     Evalúa las series de precios reales y el Canal Adaptativo de Ruido (CAR: EMA 20 ± 1.5σ)
@@ -554,37 +562,43 @@ def evaluateCartSignals(
 
                     # COMPRA: Cruce saliendo del CAR o ya fuera del canal (px > cMax) con pendiente positiva y confirmación de volumen (RVOL >= minRvol)
                     if px > cMax and isSlopePositive and hasValidVolume:
-                        hasBuySignal = True
-                        signalLabel = "BUY_ENTRY"
-                        activeDir = "COMPRA"
-                        activeEntryPx = px
-                        peakPx = max(activeEntryPx, highVal if highVal is not None else px)
-                        valleyPx = None
-                        activeSl = peakPx * (1.0 - stopLossRatio)
-                        # Si en la misma barra se disparó TSL en territorio por encima de cMax (si usarTSL está activo)
-                        if usarTSL and activeSl > cMax and lowVal is not None and lowVal <= activeSl:
-                            hasBuyExit = True
-                            exitPxVal = activeSl
-                            activeDir = None
-                            peakPx = None
-                            activeSl = None
+                        isFreshCross = bool(prevPx <= prevCMax)
+                        isExpanding = bool(prevPx > prevCMax and px > prevPx and (px - cMax) >= (prevPx - prevCMax))
+                        if isFreshCross or isExpanding:
+                            hasBuySignal = True
+                            signalLabel = "BUY_ENTRY"
+                            activeDir = "COMPRA"
+                            activeEntryPx = px
+                            peakPx = max(activeEntryPx, highVal if highVal is not None else px)
+                            valleyPx = None
+                            activeSl = peakPx * (1.0 - stopLossRatio)
+                            # Si en la misma barra se disparó TSL en territorio por encima de cMax (si usarTSL está activo)
+                            if usarTSL and activeSl > cMax and lowVal is not None and lowVal <= activeSl:
+                                hasBuyExit = True
+                                exitPxVal = activeSl
+                                activeDir = None
+                                peakPx = None
+                                activeSl = None
 
                     # VENTA: Cruce saliendo del CAR o ya fuera del canal (px < cMin) con pendiente negativa y confirmación de volumen (RVOL >= minRvol)
                     elif px < cMin and isSlopeNegative and hasValidVolume:
-                        hasSellSignal = True
-                        signalLabel = "SELL_ENTRY"
-                        activeDir = "VENTA"
-                        activeEntryPx = px
-                        valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
-                        peakPx = None
-                        activeSl = valleyPx * (1.0 + stopLossRatio)
-                        # Si en la misma barra se disparó TSL en territorio por debajo de cMin (si usarTSL está activo)
-                        if usarTSL and activeSl < cMin and highVal is not None and highVal >= activeSl:
-                            hasSellExit = True
-                            exitPxVal = activeSl
-                            activeDir = None
-                            valleyPx = None
-                            activeSl = None
+                        isFreshCross = bool(prevPx >= prevCMin)
+                        isExpanding = bool(prevPx < prevCMin and px < prevPx and (cMin - px) >= (prevCMin - prevPx))
+                        if isFreshCross or isExpanding:
+                            hasSellSignal = True
+                            signalLabel = "SELL_ENTRY"
+                            activeDir = "VENTA"
+                            activeEntryPx = px
+                            valleyPx = min(activeEntryPx, lowVal if lowVal is not None else px)
+                            peakPx = None
+                            activeSl = valleyPx * (1.0 + stopLossRatio)
+                            # Si en la misma barra se disparó TSL en territorio por debajo de cMin (si usarTSL está activo)
+                            if usarTSL and activeSl < cMin and highVal is not None and highVal >= activeSl:
+                                hasSellExit = True
+                                exitPxVal = activeSl
+                                activeDir = None
+                                valleyPx = None
+                                activeSl = None
 
         sigItem = {
             "datetime": dtStr,
@@ -641,7 +655,7 @@ def runCartBacktest(
     dbSession = None,
     natrPct: Optional[float] = None,
     usarTSL: bool = True,
-    minRvol: float = 1.0
+    minRvol: float = 0.8
 ) -> Dict[str, Any]:
     """
     Ejecuta el BackTest de la estrategia CART sobre un solo par en precios reales:
@@ -1316,144 +1330,26 @@ def sendCartWebhookOrder(
     idTrade: Optional[int] = None,
     comment: str = ""
 ) -> Dict[str, Any]:
-    """
-    Envía orden al servidor Webhook local (/webhook/tradingview) para ejecución en bróker (FOREX.com / MT5),
-    utilizando autenticación cifrada por cuenta.
-    Retorna diccionario con 'success', 'order_id', 'fill_price', etc.
-    """
-    try:
-        query = text("""
-            SELECT bc.idBrokerCuenta, bc.idCuenta, bc.loginUsuario, bc.tokenAcceso, bc.activo, b.nombre AS nombreBroker
-            FROM brokercuenta bc
-            JOIN broker b ON b.idBroker = bc.idBroker
-            WHERE bc.idCuenta = :idc AND bc.activo = 1
-        """)
-        activeBrokers = dbSession.execute(query, {"idc": idCuenta}).mappings().fetchall()
-        dbSession.commit()  # Liberar cualquier transacción/lock en MySQL antes de llamada de red al Webhook
-        if not activeBrokers:
-            logger.warning(f"⚠️ [CART] No hay brokers activos en brokercuenta para idCuenta {idCuenta}. Operando en modo local.")
-            return {"success": True, "order_id": "", "fill_price": price}
-
-        import requests
-        from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
-
-        webhookUrl = os.getenv("WEBHOOK_URL") or "http://127.0.0.1:8002/webhook/tradingview"
-        rawPassphrase = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
-        encryptedPassphrase = encryptValue(rawPassphrase) if rawPassphrase else ""
-
-        for bc in activeBrokers:
-            loginUsuario = bc.get("loginUsuario", "")
-            tokenAcceso = bc.get("tokenAcceso", "")
-            nombreBroker = bc.get("nombreBroker", "Broker")
-
-            encryptedAccountToken = buildEncryptedAccountToken(
-                idCuenta=idCuenta,
-                loginUsuario=loginUsuario,
-                tokenAcceso=tokenAcceso
-            )
-
-            orderPayload = {
-                "strategy": STRATEGY_NAME,
-                "setup": symbol,
-                "passphrase": encryptedPassphrase,
-                "time": time.time(),
-                "action": action,
-                "ticker": symbol,
-                "entry": float(price or 0.0),
-                "quantity": float(size or 1000.0),
-                "tp": 0.0,
-                "sl": 0.0,
-                "sync": True,
-                "ticketId": ticketId,
-                "idTrade": idTrade,
-                "FOREX_USERNAME": encryptedAccountToken
-            }
-
-            logger.info(f"🌐 [CART Webhook] Enviando {action.upper()} {symbol} ({size:g} u) a FOREX.com para {loginUsuario} ({nombreBroker})...")
-            try:
-                resp = requests.post(webhookUrl, json=orderPayload, timeout=35)
-                if resp.status_code == 200:
-                    resData = resp.json() if resp.text else {}
-                    isSuccess = (resData.get("status") == "success") or (resData.get("success") is True)
-                    orderId = str(resData.get("order_ids_str") or resData.get("order_id") or resData.get("ticketId") or resData.get("OrderId") or "")
-                    fillPrice = float(resData.get("fill_price") or resData.get("Price") or price)
-                    execQty = resData.get("total_qty") or resData.get("quantity") or resData.get("totalQty")
-                    execMargin = resData.get("margin")
-                    logger.info(f"✅ [CART Webhook] Respuesta de FOREX.com -> Success: {isSuccess}, OrderId: {orderId}, FillPrice: {fillPrice}, ExecQty: {execQty}")
-                    return {
-                        "success": isSuccess,
-                        "order_id": orderId,
-                        "fill_price": fillPrice,
-                        "quantity": float(execQty) if execQty is not None else None,
-                        "margin": float(execMargin) if execMargin is not None else None,
-                        "raw": resData
-                    }
-                else:
-                    logger.error(f"❌ [CART Webhook] Error HTTP {resp.status_code}: {resp.text}")
-                    return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text}"}
-            except Exception as exReq:
-                logger.error(f"❌ [CART Webhook] Excepción conectando a {webhookUrl}: {exReq}")
-                return {"success": False, "error": str(exReq)}
-
-        return {"success": False, "error": "No broker processed"}
-    except Exception as ex:
-        logger.error(f"❌ [CART Webhook] Error general despachando orden: {ex}", exc_info=True)
-        return {"success": False, "error": str(ex)}
+    brokerInfo = get_account_broker(dbSession, idCuenta)
+    if not brokerInfo:
+        logger.warning(f"⚠️ [CART] No hay brokers activos en brokercuenta para idCuenta {idCuenta}.")
+        return {"success": False, "error": f"Sin broker activo para idCuenta {idCuenta}"}
+    return send_broker_order(
+        strategy=STRATEGY_NAME,
+        setup=symbol,
+        action=action,
+        symbol=symbol,
+        quantity=size,
+        price=price,
+        ticketId=ticketId,
+        idTrade=idTrade,
+        encryptedAccountToken=brokerInfo["encryptedAccountToken"],
+        comment=comment
+    )
 
 
 def checkAccountMarginHealth(dbSession, idCuenta: int, accountCapital: float) -> Tuple[bool, float, float, float, float]:
-    """
-    Evalúa la salud de margen de la cuenta considerando todas las operaciones abiertas (igual que en microRatio.py).
-    Retorna: (canOperate: bool, marginIndicator: float, totalMargin: float, equidad: float, minMarginRequired: float)
-    """
-    sqlIndMargen = text("SELECT COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc")
-    rowInd = dbSession.execute(sqlIndMargen, {"idc": idCuenta}).fetchone()
-    minMarginRequired = float(rowInd[0]) if rowInd and rowInd[0] is not None else 200.0
-
-    sqlTrades = text("""
-        SELECT t.idTrade, t.symbol, t.direction, t.size, t.entryPrice, t.margin_used,
-               s.pip, s.quote_currency
-        FROM trades t
-        LEFT JOIN symbols s ON t.symbol = s.symbol
-        WHERE t.idCuenta = :idc AND t.status = 'OPEN'
-    """)
-    rows = dbSession.execute(sqlTrades, {"idc": idCuenta}).fetchall()
-    if not rows:
-        return True, 9999.0, 0.0, accountCapital, minMarginRequired
-
-    totalMargin = 0.0
-    totalFloatingPnl = 0.0
-    symbolPrices: Dict[str, float] = {}
-
-    for r in rows:
-        sym = str(r[1])
-        direction = str(r[2]).upper()
-        size = float(r[3])
-        entryPx = float(r[4])
-        marginUsed = float(r[5]) if r[5] is not None else 0.0
-        pipVal = float(r[6]) if r[6] is not None and float(r[6]) > 0 else 0.0001
-
-        totalMargin += marginUsed
-        if sym not in symbolPrices:
-            sqlPx = text("SELECT closePrice FROM stockprices WHERE symbol = :sym ORDER BY priceDate DESC LIMIT 1")
-            pxRow = dbSession.execute(sqlPx, {"sym": sym}).fetchone()
-            symbolPrices[sym] = float(pxRow[0]) if pxRow and pxRow[0] is not None else entryPx
-
-        currentPx = symbolPrices[sym]
-        tradePnl, _, _, _ = calculate_unrealized_pnl(
-            symbol=sym,
-            direction=direction,
-            entry_price=entryPx,
-            current_price=currentPx,
-            size=size,
-            pip_size=pipVal
-        )
-        totalFloatingPnl += tradePnl
-
-    equity = accountCapital + totalFloatingPnl
-    marginIndicator = (equity / totalMargin * 100.0) if totalMargin > 0 else 9999.0
-    canOperate = bool(marginIndicator >= minMarginRequired)
-    return canOperate, marginIndicator, totalMargin, equity, minMarginRequired
+    return check_account_margin_health(dbSession, idCuenta, accountCapital)
 
 
 def parseCandleDateTime(dtVal: Any) -> datetime:
@@ -1488,6 +1384,58 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
         return True
 
     return False
+
+
+def checkRealtimeSlopeConfirmation(dbSession, symbol: str, direction: str, currentPx: float) -> Tuple[bool, float, str]:
+    """
+    Verifica de forma estricta e instantánea la pendiente real del precio (dP/dt) usando las velas de 1 minuto recientes:
+      - LARGO (COMPRA): Requiere pendiente estrictamente POSITIVA (precio subiendo, dP/dt > 0).
+        Si el precio en los últimos 3-5 minutos está cayendo o retrocediendo, BLOQUEA la entrada.
+      - CORTO (VENTA): Requiere pendiente estrictamente NEGATIVA (precio bajando, dP/dt < 0).
+        Si el precio en los últimos 3-5 minutos está subiendo o rebotando, BLOQUEA la entrada.
+    Retorna (isConfirmed: bool, recentSlope: float, reason: str)
+    """
+    try:
+        sql = text("""
+            SELECT closePrice, highPrice, lowPrice
+            FROM (
+                SELECT close AS closePrice, high AS highPrice, low AS lowPrice, timestamp
+                FROM candles
+                WHERE symbol = :sym AND timeframe = '1min'
+                ORDER BY timestamp DESC
+                LIMIT 6
+            ) sub
+            ORDER BY timestamp ASC
+        """)
+        rows = dbSession.execute(sql, {"sym": symbol}).fetchall()
+        if not rows or len(rows) < 2:
+            return True, 0.0, "Velas 1min no disponibles (confirmacion por barra)"
+
+        closes = [float(r[0]) for r in rows if r[0] is not None]
+        if len(closes) < 2:
+            return True, 0.0, "Velas insuficientes"
+
+        # Comparar precio actual con velas recientes (hace 4-5 min y hace 2-3 min)
+        pOld = closes[0]  # Hace ~5 minutos
+        pMid = closes[len(closes) // 2]  # Hace ~2-3 minutos
+
+        delta5m = currentPx - pOld
+        deltaMid = currentPx - pMid
+
+        isBuy = direction.upper() in ["LARGO", "COMPRA", "BUY"]
+        if isBuy:
+            # LARGO: Requiere pendiente positiva (precio subiendo, dP/dt > 0)
+            if delta5m < 0 or deltaMid < 0:
+                return False, delta5m, f"Pendiente micro 1m NEGATIVA (5m delta: {delta5m:+.2f}, mid: {deltaMid:+.2f}). Bloqueada compra en retroceso."
+            return True, delta5m, f"Pendiente positiva confirmada (+{delta5m:.2f})"
+        else:
+            # CORTO: Requiere pendiente negativa (precio bajando, dP/dt < 0)
+            if delta5m > 0 or deltaMid > 0:
+                return False, delta5m, f"Pendiente micro 1m POSITIVA (5m delta: {delta5m:+.2f}, mid: {deltaMid:+.2f}). Bloqueada venta en rebote."
+            return True, delta5m, f"Pendiente negativa confirmada ({delta5m:.2f})"
+    except Exception as e:
+        logger.warning(f"Error evaluando checkRealtimeSlopeConfirmation para {symbol}: {e}")
+        return True, 0.0, f"Error confirmacion: {e}"
 
 
 def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
@@ -1715,52 +1663,17 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             for idxTr, tr in enumerate(openTrades):
                 if idxTr > 0:
                     time.sleep(2.0)  # Pausa anti-rate-limit (429) entre cierres consecutivos de la misma cuenta
-                closeAct = "close"
-                tId = str(tr["ticketId"] or "") if "ticketId" in tr and tr["ticketId"] else ""
-                idt = int(tr["idTrade"])
-                whRes = sendCartWebhookOrder(
+                resClose = execute_single_asset_close(
                     dbSession=dbSession,
                     idCuenta=idCuenta,
-                    symbol=symbol,
-                    action=closeAct,
-                    size=float(tr["size"] or 1000.0),
-                    price=px,
-                    ticketId=tId,
-                    idTrade=idt,
-                    comment=closeReasonComment
+                    tradeRow=dict(tr),
+                    strategy=STRATEGY_NAME,
+                    exitPrice=px,
+                    closeReason=closeReasonComment
                 )
-                if not whRes.get("success"):
-                    logger.error(f"❌ [CART] Falló cierre en FOREX.com para Trade #{idt} (Ticket {tId}): {whRes.get('error')}. Se mantiene OPEN en BD para reintentar.")
+                if not resClose.get("success"):
+                    logger.error(f"❌ [CART] Falló cierre en FOREX.com para Trade #{tr['idTrade']}: {resClose.get('error')}. Se mantiene OPEN en BD para reintentar.")
                     continue
-
-                exitFillPx = float(whRes.get("fill_price") or px)
-                reportedPnl = whRes.get("pnl")
-                if reportedPnl is not None:
-                    pnlVal = float(reportedPnl)
-                else:
-                    pnlVal, _, _, _ = calculate_unrealized_pnl(
-                        symbol=symbol,
-                        direction=firstDir,
-                        entry_price=float(tr["entryPrice"] or px),
-                        current_price=exitFillPx,
-                        size=float(tr["size"] or 1000.0),
-                        pip_size=pipSz
-                    )
-                dbSession.execute(text("""
-                    UPDATE trades
-                    SET status = 'CLOSED',
-                        exitPrice = :epx,
-                        pnl = :pnl,
-                        closeTime = NOW()
-                    WHERE idTrade = :idt
-                """), {"epx": exitFillPx, "pnl": round(pnlVal, 2), "idt": tr["idTrade"]})
-
-                dbSession.execute(text("""
-                    UPDATE cuenta
-                    SET Capital = Capital + :pnl
-                    WHERE idCuenta = :idc
-                """), {"pnl": round(pnlVal, 2), "idc": idCuenta})
-                dbSession.commit()  # Confirmar de inmediato cada trade para evitar row locks prolongados
 
             # Cooldown protector tras el cierre de posición para evitar sobreoperar y reentradas espurias en la misma barra
             setOrderCooldown(idCuenta, symbol, 180.0)
@@ -1773,6 +1686,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         signalsList = evalRes.get("signals", [])
         prevSig = signalsList[-2] if len(signalsList) >= 2 else latestSig
         prevPx = prevSig.get("price") if prevSig else px
+        prevCMax = prevSig.get("carMax") if prevSig else cMax
+        prevCMin = prevSig.get("carMin") if prevSig else cMin
         openVal = latestSig.get("openPrice") if latestSig.get("openPrice") is not None else px
 
         # Pendientes de la barra según la temporalidad
@@ -1782,17 +1697,69 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         isSlopePositive = bool((priceSlope > 0) and (candleSlope >= 0))
         isSlopeNegative = bool((priceSlope < 0) and (candleSlope <= 0))
 
-        # Condiciones de entrada institucional:
-        # 1. Ruptura saliendo del interior del CAR hacia afuera con pendiente adecuada.
-        # 2. Si ya salió y no se cachó la ruptura previa:
-        #    - No hay posición activa en BD (len(openTrades) == 0)
-        #    - El precio actual está fuera del canal (px > cMax para compras, px < cMin para ventas)
-        #    - La pendiente actual es adecuada (isSlopePositive para compras, isSlopeNegative para ventas)
+        # Condiciones de entrada institucional (RVOL >= 0.8):
         currentRvol = latestSig.get("rvol", 1.0)
-        hasValidVolume = bool(currentRvol is None or currentRvol >= 1.0)
+        hasValidVolume = bool(currentRvol is None or currentRvol >= 0.8)
 
         isOutsideBuy = bool(px is not None and cMax is not None and px > cMax)
         isOutsideSell = bool(px is not None and cMin is not None and px < cMin)
+
+        # 1. Filtro estricto de expansión del canal (evitar entrar si el precio está reingresando/rebotando hacia el CAR):
+        # Para COMPRA: si ya estaba afuera, el precio debe estar alejándose al alza del CAR superior (px > prevPx y distancia creciendo)
+        if isOutsideBuy and prevPx is not None and prevCMax is not None and prevPx > prevCMax:
+            currDistBuy = px - cMax
+            prevDistBuy = prevPx - prevCMax
+            if px <= prevPx or currDistBuy < prevDistBuy:
+                isOutsideBuy = False  # Retroceso hacia el CAR superior (pendiente negativa hacia el canal)
+
+        # Para VENTA: si ya estaba afuera, el precio debe estar alejándose a la baja del CAR inferior (px < prevPx y distancia creciendo)
+        if isOutsideSell and prevPx is not None and prevCMin is not None and prevPx < prevCMin:
+            currDistSell = cMin - px
+            prevDistSell = prevCMin - prevPx
+            if px >= prevPx or currDistSell < prevDistSell:
+                isOutsideSell = False  # Rebote hacia el CAR inferior (pendiente positiva hacia el canal)
+
+        # 2. Confirmación instantánea de micro-pendiente (dP/dt en tiempo real con velas 1m):
+        slopeReason = ""
+        if (hasBuy or isOutsideBuy) and px is not None:
+            slopeOkBuy, dBuy, reasonBuy = checkRealtimeSlopeConfirmation(dbSession, symbol, "LARGO", px)
+            if not slopeOkBuy:
+                isSlopePositive = False
+                slopeReason = reasonBuy
+            else:
+                slopeReason = reasonBuy
+
+        if (hasSell or isOutsideSell) and px is not None:
+            slopeOkSell, dSell, reasonSell = checkRealtimeSlopeConfirmation(dbSession, symbol, "CORTO", px)
+            if not slopeOkSell:
+                isSlopeNegative = False
+                slopeReason = reasonSell
+            else:
+                slopeReason = reasonSell
+
+        # 3. Protección tras Stop Loss en la misma excursión (no reentrar a peor precio durante rebote/retroceso adverso):
+        if isOutsideBuy or isOutsideSell:
+            lastClosedTrade = dbSession.execute(text("""
+                SELECT direction, entryPrice, exitPrice, pnl, closeTime
+                FROM trades
+                WHERE idCuenta = :idc AND strategy = :strat AND (symbol = :sym OR setup = :sym) AND status = 'CLOSED'
+                ORDER BY idTrade DESC LIMIT 1
+            """), {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).mappings().fetchone()
+
+            if lastClosedTrade and lastClosedTrade["pnl"] is not None and float(lastClosedTrade["pnl"]) < 0:
+                lastDir = str(lastClosedTrade["direction"] or "").upper()
+                lastEntry = float(lastClosedTrade["entryPrice"] or 0.0)
+                # Si la última operación cerrada fue un CORTO perdedor, no reentrar en CORTO si el precio actual está por encima de la entrada previa
+                if ("CORTO" in lastDir or "VENTA" in lastDir) and isOutsideSell:
+                    if lastEntry > 0 and px >= lastEntry:
+                        isOutsideSell = False
+                        slopeReason = f"Bloqueada reentrada en CORTO a Px={px:.2f} >= entrada previa ({lastEntry:.2f}) tras pérdida"
+
+                # Si la última operación cerrada fue un LARGO perdedor, no reentrar en LARGO si el precio actual está por debajo de la entrada previa
+                if ("LARGO" in lastDir or "COMPRA" in lastDir) and isOutsideBuy:
+                    if lastEntry > 0 and px <= lastEntry:
+                        isOutsideBuy = False
+                        slopeReason = f"Bloqueada reentrada en LARGO a Px={px:.2f} <= entrada previa ({lastEntry:.2f}) tras pérdida"
 
         effectiveBuy = bool((hasBuy or isOutsideBuy) and isSlopePositive and hasValidVolume)
         effectiveSell = bool((hasSell or isOutsideSell) and isSlopeNegative and hasValidVolume)
@@ -1800,9 +1767,10 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
             logger.info(
                 f"📈 [CART] Cuenta {idCuenta} | {symbol} ({timeframe}) | "
-                f"Px={px} | CAR=[{cMin}, {cMax}] | RVOL={currentRvol:.2f} (Min=1.0) | "
+                f"Px={px} | CAR=[{cMin:.2f}, {cMax:.2f}] | RVOL={currentRvol:.2f} (Min=0.8) | "
                 f"BuySig={effectiveBuy} (SlopePos={isSlopePositive}, Out={isOutsideBuy}) | "
-                f"SellSig={effectiveSell} (SlopeNeg={isSlopeNegative}, Out={isOutsideSell}) | OpenTrades={len(openTrades)}"
+                f"SellSig={effectiveSell} (SlopeNeg={isSlopeNegative}, Out={isOutsideSell}) | "
+                f"MicroSlope={slopeReason or 'N/A'} | OpenTrades={len(openTrades)}"
             )
 
     if not openTrades and operar and (effectiveBuy or effectiveSell) and px is not None:
@@ -1898,50 +1866,29 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
 
         logger.info(
             f"🚀 [CART] Entrada {directionStr} por ruptura de CAR en {symbol} "
-            f"(Px={px}, Units={units:g}, RVOL={currentRvol:.2f} >= 1.0, Margen=${marginUsed:,.2f}, Ind.Margen={projectedIndicator:.1f}% >= {minMarginRequired:.0f}%) para Cuenta #{idCuenta}"
+            f"(Px={px}, Units={units:g}, RVOL={currentRvol:.2f} >= 0.8, Margen=${marginUsed:,.2f}, Ind.Margen={projectedIndicator:.1f}% >= {minMarginRequired:.0f}%) para Cuenta #{idCuenta}"
         )
-        whRes = sendCartWebhookOrder(
+        resEntry = execute_single_asset_entry(
             dbSession=dbSession,
             idCuenta=idCuenta,
+            strategy=STRATEGY_NAME,
+            setup=symbol,
             symbol=symbol,
-            action=actionStr,
+            direction=directionStr,
+            timeframe=timeframe,
             size=units,
             price=px,
-            comment=f"Entrada CART ({directionStr} RVOL={currentRvol:.2f})"
+            sl=None,
+            tp=None,
+            margenPct=margenPct,
+            comment=f"Entrada CART ({directionStr} RVOL={currentRvol:.2f})",
+            signalType=f"CART Ruptura (RVOL: {currentRvol:.2f})",
+            candleDt=candleDt
         )
-        if not whRes.get("success"):
+        if not resEntry.get("success"):
             setOrderCooldown(idCuenta, symbol, 120.0)
-            logger.error(f"❌ [CART] No se pudo ejecutar orden en Webhook para Cuenta #{idCuenta} {symbol}: {whRes.get('error')}. Cooldown activado por 120s.")
+            logger.error(f"❌ [CART] No se pudo ejecutar orden en Webhook para Cuenta #{idCuenta} {symbol}: {resEntry.get('error')}. Cooldown activado por 120s.")
             return
-
-        ticketId = str(whRes.get("order_id") or "")
-        fillPrice = float(whRes.get("fill_price") or px)
-        confirmedUnits = float(whRes.get("quantity") or units)
-        confirmedMargin = float(whRes.get("margin") or marginUsed)
-
-        dbSession.execute(text("""
-            INSERT INTO trades (
-                idCuenta, strategy, setup, symbol, status, direction, intervalo,
-                pnl, candleTime, openTime, size, entryPrice, margin_used, sentAt, ticketId
-            ) VALUES (
-                :idc, :strat, :setup, :sym, 'OPEN', :dir, :tf,
-                0.00, :cdt, NOW(), :sz, :epx, :mrg, NOW(), :tkt
-            )
-        """), {
-            "idc": idCuenta,
-            "strat": STRATEGY_NAME,
-            "setup": symbol,
-            "sym": symbol,
-            "dir": directionStr,
-            "tf": timeframe,
-            "cdt": candleDt,
-            "sz": confirmedUnits,
-            "epx": fillPrice,
-            "mrg": confirmedMargin,
-            "tkt": ticketId
-        })
-        dbSession.commit()
-        logger.info(f"✅ [CART] Trade insertado exitosamente en BD (idCuenta={idCuenta}, Ticket={ticketId}, Symbol={symbol}, Units={confirmedUnits:g}, Px={fillPrice}, Margen=${confirmedMargin:.2f})")
 
 
 def runCycle(isHourlyTick: bool = True) -> None:

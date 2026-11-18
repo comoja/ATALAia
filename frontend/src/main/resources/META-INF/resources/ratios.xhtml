@@ -58,7 +58,7 @@
                                     style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <span
-                                            style="font-weight: 700; color: #1e293b; font-size: 1.05rem;">Configuración</span>
+                                            style="font-weight: 800; color: #0284c7; font-size: 1.05rem; display: inline-flex; align-items: center; gap: 5px;"><i class="pi pi-percentage" style="font-size: 1.0rem;"></i>Configuración RATIOS</span>
                                         <p:commandLink id="btnBalanceGlobal" title="Balance General Global"
                                             action="#{dashboardBean.loadBalanceGeneralGlobal}"
                                             update=":balanceGlobalForm:balanceGlobalContent"
@@ -110,7 +110,7 @@
                                     <f:facet name="title">
                                         <div class="aether-tab-title-container">
                                             <span class="aether-tab-title-text"
-                                                style="font-weight: 700; font-size: 1.25rem; color: #1e293b; white-space: nowrap; display: flex; align-items: center; gap: 4px;">
+                                                style="font-weight: 700; font-size: 1.25rem; color: #0284c7; white-space: nowrap; display: flex; align-items: center; gap: 4px;">
                                                 1. Ratios del Usuario
                                             </span>
                                             <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
@@ -525,6 +525,16 @@
                                             action="#{dashboardBean.analyzePair}" update=":aetherForm"
                                             oncomplete="renderAetherChart()" styleClass="aether-btn-primary"
                                             style="width: 100%;" />
+
+                                        <p:commandButton id="btnEntradaManualRatio" value="Entrada por Cantidad"
+                                            action="#{dashboardBean.abrirEntradaManualRatio}"
+                                            process="@this"
+                                            update=":entradaManualRatioForm:entradaManualRatioDlg"
+                                            oncomplete="PF('entradaManualRatioDlg').show();"
+                                            styleClass="aether-btn-primary"
+                                            style="width: 100%; min-height: 36px; background: #0284c7 !important; border-color: #0284c7 !important; color: #ffffff !important; font-weight: 800; border-radius: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);"
+                                            icon="pi pi-plus-circle"
+                                            title="Abrir ventana para capturar una entrada por cantidad con evaluación de equivalencia de patas y margen mínimo" />
 
                                         <div style="display: flex; gap: 6px; width: 100%;">
                                             <p:commandButton id="btnGuardarRatio" value="Guardar Ratio"

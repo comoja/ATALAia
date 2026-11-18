@@ -50,7 +50,9 @@
                             <div
                                 style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-weight: 700; color: #0f766e; font-size: 1.05rem;">Configuración
+                                    <span
+                                        style="font-weight: 800; color: #0d9488; font-size: 1.05rem; display: inline-flex; align-items: center; gap: 5px;"><i
+                                            class="pi pi-chart-line" style="font-size: 1.0rem;"></i>Configuración
                                         RIDER</span>
                                     <p:commandLink id="btnBalanceGlobalCart" title="Balance General Global"
                                         action="#{dashboardBean.loadBalanceGeneralGlobal}"
@@ -144,7 +146,12 @@
                                     style="width: 100%; margin-bottom: 2px; cursor: pointer;">
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onCartRowSelect}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserCartSelected();" />
-                                    <p:column headerText="Par (1 Activo)" style="font-weight: 700;">
+                                    <p:column headerText="ID"
+                                        style="width: 32px; text-align: center; padding: 2px 1px !important;">
+                                        <h:outputText value="#{uc.id}"
+                                            style="font-size: 0.90rem; font-weight: 800; color: #0f766e;" />
+                                    </p:column>
+                                    <p:column headerText="PAR" style="font-weight: 700;">
                                         <h:outputText value="#{uc.numerador}"
                                             style="font-size: 1.05rem; font-weight: 800; color: #0f766e; white-space: nowrap;" />
                                     </p:column>
@@ -229,8 +236,13 @@
                                 <div
                                     style="margin-bottom: 8px; background-color: rgba(13, 148, 136, 0.08); padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(13, 148, 136, 0.3);">
                                     <div class="control-label"
-                                        style="color: #0f766e; font-weight: 800; font-size: 0.98rem; margin-bottom: 3px;">
-                                        Par Único a Operar (Precio Real sin Normalizar)
+                                        style="color: #0f766e; font-weight: 800; font-size: 0.98rem; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center;">
+                                        <span>Par Único a Operar (Precio Real sin Normalizar)</span>
+                                        <h:panelGroup rendered="#{dashboardBean.currentCartId != null}"
+                                            style="font-size: 0.75rem; font-weight: 800; color: #0f766e; background: rgba(13, 148, 136, 0.15); border: 1px solid #0d9488; padding: 1px 6px; border-radius: 4px;"
+                                            title="ID Registro RIDER">
+                                            ID: #{dashboardBean.currentCartId}
+                                        </h:panelGroup>
                                     </div>
                                     <p:selectOneMenu id="cartSymbolSelect" value="#{dashboardBean.selectedCartPair}"
                                         disabled="#{dashboardBean.readOnly}" styleClass="aether-input" filter="true"
@@ -322,77 +334,102 @@
                                 </div>
 
                                 <!-- Filtro de Horario Operativo (Calibración RIDER) -->
-                                <div style="margin-bottom: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <div
+                                    style="margin-bottom: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                                    <div
+                                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <i class="pi pi-clock" style="color: #0d9488; font-size: 1.05rem;"></i>
-                                            <span style="font-weight: 800; font-size: 0.92rem; color: #1e293b;">Filtro de Horario Operativo</span>
+                                            <span style="font-weight: 800; font-size: 0.92rem; color: #1e293b;">Filtro
+                                                de Horario Operativo</span>
                                         </div>
-                                        <p:selectBooleanCheckbox id="cartFiltroHorarioSwitch" value="#{dashboardBean.cartFiltroHorario}" disabled="#{dashboardBean.cartEditBlocked}">
-                                            <p:ajax process="@this" update=":aetherForm" oncomplete="renderCartChart();" />
+                                        <p:selectBooleanCheckbox id="cartFiltroHorarioSwitch"
+                                            value="#{dashboardBean.cartFiltroHorario}"
+                                            disabled="#{dashboardBean.cartEditBlocked}">
+                                            <p:ajax process="@this" update=":aetherForm"
+                                                oncomplete="renderCartChart();" />
                                         </p:selectBooleanCheckbox>
                                     </div>
 
                                     <!-- Tarjeta de Recomendación Estadística Óptima -->
-                                    <h:panelGroup id="cartOptimalHoursPanel" layout="block" rendered="#{dashboardBean.cartFiltroHorario}"
+                                    <h:panelGroup id="cartOptimalHoursPanel" layout="block"
+                                        rendered="#{dashboardBean.cartFiltroHorario}"
                                         style="margin-bottom: 8px; padding: 6px 10px; background: #f0fdf4; border: 1px dashed #86efac; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                                         <div style="display: flex; flex-direction: column;">
-                                            <div style="font-size: 0.74rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
+                                            <div
+                                                style="font-size: 0.74rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
                                                 ⭐ Horario Recomendado por el Sistema
                                             </div>
                                             <div style="font-size: 0.84rem; font-weight: 700; color: #166534;">
                                                 #{dashboardBean.cartOptimalHoursLabel}
                                             </div>
-                                            <h:panelGroup rendered="#{dashboardBean.cartOptimalWinRate != null}" style="font-size: 0.73rem; color: #047857;">
+                                            <h:panelGroup rendered="#{dashboardBean.cartOptimalWinRate != null}"
+                                                style="font-size: 0.73rem; color: #047857;">
                                                 Win Rate: <b>#{dashboardBean.cartOptimalWinRate}%</b>
-                                                <h:outputText value=" | Rend: +#{dashboardBean.cartOptimalReturnPct}%" rendered="#{dashboardBean.cartOptimalReturnPct != null}" />
+                                                <h:outputText value=" | Rend: +#{dashboardBean.cartOptimalReturnPct}%"
+                                                    rendered="#{dashboardBean.cartOptimalReturnPct != null}" />
                                             </h:panelGroup>
                                         </div>
                                         <p:commandButton value="Aplicar" icon="pi pi-check"
-                                            action="#{dashboardBean.applyOptimalCartHours}"
-                                            process="@this" update=":aetherForm"
-                                            disabled="#{dashboardBean.cartEditBlocked}"
+                                            action="#{dashboardBean.applyOptimalCartHours}" process="@this"
+                                            update=":aetherForm" disabled="#{dashboardBean.cartEditBlocked}"
                                             oncomplete="renderCartChart();"
                                             styleClass="p-button-sm p-button-success p-button-outlined"
                                             style="font-size: 0.75rem; padding: 2px 8px; white-space: nowrap;" />
                                     </h:panelGroup>
 
                                     <!-- Selectores Hora Inicio y Hora Fin -->
-                                    <h:panelGroup id="cartHoursSelectorsRow" layout="block" rendered="#{dashboardBean.cartFiltroHorario}"
+                                    <h:panelGroup id="cartHoursSelectorsRow" layout="block"
+                                        rendered="#{dashboardBean.cartFiltroHorario}"
                                         style="display: flex; gap: 8px; align-items: center;">
                                         <div style="flex: 1;">
-                                            <div class="control-label" style="font-size: 0.76rem; margin-bottom: 2px; color: #475569;">Hora Inicio</div>
-                                            <p:selectOneMenu id="cartHoraInicioSelect" value="#{dashboardBean.cartHoraInicio}"
-                                                disabled="#{dashboardBean.cartEditBlocked}" styleClass="aether-input" style="width: 100%;">
+                                            <div class="control-label"
+                                                style="font-size: 0.76rem; margin-bottom: 2px; color: #475569;">Hora
+                                                Inicio</div>
+                                            <p:selectOneMenu id="cartHoraInicioSelect"
+                                                value="#{dashboardBean.cartHoraInicio}"
+                                                disabled="#{dashboardBean.cartEditBlocked}" styleClass="aether-input"
+                                                style="width: 100%;">
                                                 <f:selectItems value="#{dashboardBean.availableHours}" />
-                                                <p:ajax process="@this" update=":aetherForm" oncomplete="renderCartChart();" />
+                                                <p:ajax process="@this" update=":aetherForm"
+                                                    oncomplete="renderCartChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                         <div style="flex: 1;">
-                                            <div class="control-label" style="font-size: 0.76rem; margin-bottom: 2px; color: #475569;">Hora Fin</div>
+                                            <div class="control-label"
+                                                style="font-size: 0.76rem; margin-bottom: 2px; color: #475569;">Hora Fin
+                                            </div>
                                             <p:selectOneMenu id="cartHoraFinSelect" value="#{dashboardBean.cartHoraFin}"
-                                                disabled="#{dashboardBean.cartEditBlocked}" styleClass="aether-input" style="width: 100%;">
+                                                disabled="#{dashboardBean.cartEditBlocked}" styleClass="aether-input"
+                                                style="width: 100%;">
                                                 <f:selectItems value="#{dashboardBean.availableHours}" />
-                                                <p:ajax process="@this" update=":aetherForm" oncomplete="renderCartChart();" />
+                                                <p:ajax process="@this" update=":aetherForm"
+                                                    oncomplete="renderCartChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                     </h:panelGroup>
                                 </div>
 
                                 <!-- Check Trailing Stop Loss (TSL) -->
-                                <div style="margin-bottom: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                                <div
+                                    style="margin-bottom: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                                     <div style="display: flex; align-items: center; justify-content: space-between;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <i class="pi pi-shield" style="color: #6366f1; font-size: 1.05rem;"></i>
                                             <div>
-                                                <div style="font-weight: 800; font-size: 0.92rem; color: #1e293b;">Usar Trailing Stop Loss (TSL)</div>
+                                                <div style="font-weight: 800; font-size: 0.92rem; color: #1e293b;">Usar
+                                                    Trailing Stop Loss (TSL)</div>
                                                 <div style="font-size: 0.75rem; color: #64748b; line-height: 1.2;">
-                                                    Si se desactiva, el trade solo cerrará cuando el precio reingrese al interior del canal CAR.
+                                                    Si se desactiva, el trade solo cerrará cuando el precio reingrese al
+                                                    interior del canal CAR.
                                                 </div>
                                             </div>
                                         </div>
-                                        <p:selectBooleanCheckbox id="cartUsarTslSwitch" value="#{dashboardBean.cartUsarTSL}" disabled="#{dashboardBean.cartEditBlocked}">
-                                            <p:ajax process="@this" update=":aetherForm" oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();" />
+                                        <p:selectBooleanCheckbox id="cartUsarTslSwitch"
+                                            value="#{dashboardBean.cartUsarTSL}"
+                                            disabled="#{dashboardBean.cartEditBlocked}">
+                                            <p:ajax process="@this" update=":aetherForm"
+                                                oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();" />
                                         </p:selectBooleanCheckbox>
                                     </div>
                                 </div>
@@ -409,12 +446,14 @@
                                             sale por arriba del <b>Límite Superior CAR</b> (RIDE
                                             #{dashboardBean.cartCarWindow} + #{dashboardBean.cartCarMultiplier}σ) y se
                                             cierra (◆) en el <b>Límite Superior</b> cuando reingresa al CAR o por
-                                            <b>Stop Loss (-0.15%)</b>.</div>
+                                            <b>Stop Loss (-0.15%)</b>.
+                                        </div>
                                         <div>• <b>Venta (CORTO ▼ — Solo Límite Inferior):</b> Abre cuando el precio sale
                                             por debajo del <b>Límite Inferior CAR</b> (RIDE
                                             #{dashboardBean.cartCarWindow} - #{dashboardBean.cartCarMultiplier}σ) y se
                                             cierra (◆) en el <b>Límite Inferior</b> cuando reingresa al CAR o por
-                                            <b>Stop Loss (-0.15%)</b>.</div>
+                                            <b>Stop Loss (-0.15%)</b>.
+                                        </div>
                                         <div>• <b>Stop Loss (-0.15%):</b> Si el precio de entrada de la Compra/Venta
                                             registra una pérdida de <b>0.15%</b>, se cierra la posición.</div>
                                     </div>
@@ -1249,7 +1288,8 @@
                                     </p:column>
                                     <p:column headerText="Volumen" style="text-align: right; width: 110px;">
                                         <h:panelGroup rendered="#{not rt.isSubtotal}">
-                                            <span style="font-weight: 800; color: #{rt.volumeColor}; background: #{rt.volumeBgColor}; border: 1px solid #{rt.volumeBorderColor}; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; display: inline-block;">
+                                            <span
+                                                style="font-weight: 800; color: #{rt.volumeColor}; background: #{rt.volumeBgColor}; border: 1px solid #{rt.volumeBorderColor}; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; display: inline-block;">
                                                 #{rt.formattedSize}
                                             </span>
                                         </h:panelGroup>
@@ -1317,19 +1357,79 @@
         // <![CDATA[
         function switchStrategyView(strat) {
             var s = (strat || 'RATIOS').toUpperCase();
+            var isCart = (s === 'CART' || s === 'RIDER');
+            var isSniper = (s === 'SNIPER');
             var rWrap = document.getElementById('strategyRatiosWrapper');
             var cWrap = document.getElementById('strategyCartWrapper');
+            var sWrap = document.getElementById('strategySniperWrapper');
+            var bar = document.getElementById('strategySelectorBar');
+            var barIcon = document.getElementById('activeStrategyBarIcon');
+            var badge = document.getElementById('activeStrategyBadge');
+
+            if (bar) {
+                bar.classList.remove('strategy-bar-ratios', 'strategy-bar-cart', 'strategy-bar-sniper');
+                if (isCart) {
+                    bar.classList.add('strategy-bar-cart');
+                } else if (isSniper) {
+                    bar.classList.add('strategy-bar-sniper');
+                } else {
+                    bar.classList.add('strategy-bar-ratios');
+                }
+            }
+
+            if (barIcon) {
+                barIcon.style.color = isCart ? '#0d9488' : (isSniper ? '#b47b2b' : '#0284c7');
+            }
+
+            if (badge) {
+                if (isCart) {
+                    badge.style.background = 'rgba(13, 148, 136, 0.15)';
+                    badge.style.color = '#0f766e';
+                    badge.style.border = '1.5px solid #0d9488';
+                    badge.innerHTML = '<i class="pi pi-chart-line" style="font-size: 0.95rem;"></i><span>ESTRATEGIA ACTIVA: <b>RIDER</b></span>';
+                } else if (isSniper) {
+                    badge.style.background = 'rgba(180, 123, 43, 0.15)';
+                    badge.style.color = '#8c5d1e';
+                    badge.style.border = '1.5px solid #b47b2b';
+                    badge.innerHTML = '<i class="pi pi-crosshair" style="font-size: 0.95rem;"></i><span>ESTRATEGIA ACTIVA: <b>SNIPER</b></span>';
+                } else {
+                    badge.style.background = 'rgba(2, 132, 199, 0.15)';
+                    badge.style.color = '#0369a1';
+                    badge.style.border = '1.5px solid #0284c7';
+                    badge.innerHTML = '<i class="pi pi-percentage" style="font-size: 0.95rem;"></i><span>ESTRATEGIA ACTIVA: <b>RATIOS</b></span>';
+                }
+            }
+
+            if (typeof showActiveModule === 'function') {
+                if (isCart) {
+                    showActiveModule('RIDER (1 Par)', 'pi pi-chart-line');
+                } else if (isSniper) {
+                    showActiveModule('SNIPER (1 Par · 15m)', 'pi pi-crosshair');
+                } else {
+                    showActiveModule('RATIOS (2 Pares)', 'pi pi-percentage');
+                }
+            }
+
             if (rWrap && cWrap) {
-                if (s === 'CART') {
+                if (isCart) {
                     rWrap.style.display = 'none';
+                    if (sWrap) sWrap.style.display = 'none';
                     cWrap.style.display = 'flex';
                     setTimeout(function () {
                         renderCartChart();
                         renderCartBtPriceChart();
                         renderCartBtEquityChart();
                     }, 80);
+                } else if (isSniper) {
+                    rWrap.style.display = 'none';
+                    cWrap.style.display = 'none';
+                    if (sWrap) sWrap.style.display = 'flex';
+                    setTimeout(function () {
+                        if (typeof renderSniperChart === 'function') renderSniperChart();
+                    }, 80);
                 } else {
                     cWrap.style.display = 'none';
+                    if (sWrap) sWrap.style.display = 'none';
                     rWrap.style.display = 'flex';
                     setTimeout(function () {
                         if (typeof renderAetherChart === 'function') renderAetherChart();
@@ -1451,20 +1551,10 @@
         }
 
         function getCartVolumeColor(volRatio) {
-            var ratio = Math.max(0.0, Math.min(1.0, Number(volRatio) || 0.0));
-            var r, g, b;
-            if (ratio <= 0.5) {
-                var localT = ratio / 0.5;
-                r = Math.round(22 + (234 - 22) * localT);
-                g = Math.round(163 + (179 - 163) * localT);
-                b = Math.round(74 + (8 - 74) * localT);
-            } else {
-                var localT2 = (ratio - 0.5) / 0.5;
-                r = Math.round(234 + (220 - 234) * localT2);
-                g = Math.round(179 + (38 - 179) * localT2);
-                b = Math.round(8 + (38 - 8) * localT2);
+            if (typeof window.getPriceTemperatureColor === 'function') {
+                return window.getPriceTemperatureColor(volRatio);
             }
-            return 'rgb(' + r + ',' + g + ',' + b + ')';
+            return 'rgb(34, 197, 94)';
         }
 
         function renderSinglePairCartCanvas(canvasId, historyInputSuffix, tradesInputSuffix, activeTradesInputSuffix) {
@@ -1685,9 +1775,16 @@
                     }
                 }
 
-                // Helper: Determinar si un trade corresponde estrictamente a la sesión de HOY
+                // Helper: Determinar si un trade corresponde a la sesión de HOY o está activo en curso
                 function isTradeFromToday(tr) {
                     if (!tr) return false;
+
+                    // Si la posición está abierta en curso en vivo (status OPEN, isOpen true o sin closeTime):
+                    var clTime = String(tr.closeTime || tr.exitDate || '').trim();
+                    if (tr.status === 'OPEN' || tr.isOpen === true || clTime === 'EN CURSO' || !clTime) {
+                        return true;
+                    }
+
                     var now = new Date();
                     var y = now.getFullYear();
                     var m = String(now.getMonth() + 1).padStart(2, '0');
@@ -1701,17 +1798,11 @@
                     }
 
                     var opTime = String(tr.openTime || tr.entryDate || '').trim();
-                    var clTime = String(tr.closeTime || tr.exitDate || '').trim();
                     var opDate = opTime.substring(0, 10);
                     var clDate = clTime.substring(0, 10);
 
                     // Si abrió hoy o cerró hoy:
                     if (opDate === todayYmd || opDate === lastCandleYmd || clDate === todayYmd || clDate === lastCandleYmd) {
-                        return true;
-                    }
-
-                    // Si la posición está abierta en curso en vivo (status OPEN):
-                    if (tr.status === 'OPEN' || tr.isOpen === true || clTime === 'EN CURSO') {
                         return true;
                     }
 
@@ -1722,13 +1813,14 @@
                 tradesToRender = [];
 
                 if (isMainChart) {
-                    // GRÁFICA PRINCIPAL RIDER: Mostrar ÚNICAMENTE los hechos de hoy
-                    // 1) Trades activos en curso hoy
+                    // GRÁFICA PRINCIPAL RIDER:
+                    // 1) Trades activos en curso (SIEMPRE visibles en vivo porque están actualmente abiertos)
                     if (activeTradesList && activeTradesList.length > 0) {
                         for (var ai = 0; ai < activeTradesList.length; ai++) {
                             var at = activeTradesList[ai];
-                            if (at && isTradeFromToday(at)) {
+                            if (at) {
                                 at.isOpen = true;
+                                at.status = at.status || 'OPEN';
                                 tradesToRender.push(at);
                             }
                         }
@@ -1745,7 +1837,7 @@
                             if (isTradeFromToday(rto)) {
                                 var already = tradesToRender.some(function (item) {
                                     return (item.idTrade && rto.idTrade && item.idTrade === rto.idTrade) ||
-                                           (item.ticketId && rto.ticketId && item.ticketId === rto.ticketId);
+                                        (item.ticketId && rto.ticketId && item.ticketId === rto.ticketId);
                                 });
                                 if (!already) {
                                     tradesToRender.push(rto);
@@ -1754,12 +1846,13 @@
                         }
                     }
                 } else if (isHechosChart) {
-                    // GRÁFICA DE HECHOS RIDER: Mostrar ÚNICAMENTE los hechos de hoy
+                    // GRÁFICA DE HECHOS RIDER: Mostrar trades activos y movimientos históricos filtrados
                     if (activeTradesList && activeTradesList.length > 0) {
                         for (var ai = 0; ai < activeTradesList.length; ai++) {
                             var at = activeTradesList[ai];
-                            if (at && isTradeFromToday(at)) {
+                            if (at) {
                                 at.isOpen = true;
+                                at.status = at.status || 'OPEN';
                                 tradesToRender.push(at);
                             }
                         }
@@ -1772,14 +1865,12 @@
                             var cleanRt = String(rtSym).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
                             if (cleanPair && cleanRt && cleanRt !== cleanPair) continue;
 
-                            if (isTradeFromToday(rt)) {
-                                var already = tradesToRender.some(function (item) {
-                                    return (item.idTrade && rt.idTrade && item.idTrade === rt.idTrade) ||
-                                           (item.ticketId && rt.ticketId && item.ticketId === rt.ticketId);
-                                });
-                                if (!already) {
-                                    tradesToRender.push(rt);
-                                }
+                            var already = tradesToRender.some(function (item) {
+                                return (item.idTrade && rt.idTrade && item.idTrade === rt.idTrade) ||
+                                    (item.ticketId && rt.ticketId && item.ticketId === rt.ticketId);
+                            });
+                            if (!already) {
+                                tradesToRender.push(rt);
                             }
                         }
                     }
@@ -1806,7 +1897,7 @@
                         if (cycleData && (cycleData.hasActiveCycle === true || Number(cycleData.totalOpenTrades) > 0)) {
                             hasActivePosition = true;
                         }
-                    } catch (eC) {}
+                    } catch (eC) { }
                 }
 
                 // 2) Verificar si hay trades activos en activeTradesList para este símbolo
@@ -2861,8 +2952,11 @@
             }
         }
 
-        // Renderizar la gráfica en cuanto la página esté lista
+        // Inicializar vista y renderizar gráfica en cuanto la página esté lista
         setTimeout(function () {
+            var actStratEl = document.querySelector("[id$='activeStrategyHidden']");
+            var actStrat = actStratEl ? actStratEl.value : 'RATIOS';
+            switchStrategyView(actStrat);
             renderCartChart();
             updateCartLiveTimestamp();
         }, 150);

@@ -75,10 +75,28 @@ class SniperBot:
             return default
 
     def _get_ml_thresholds(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> Tuple[float, float]:
-        proba_threshold_long = float(strat_config.get("probaThresholdLong") or strat_config.get("proba_threshold_long") or config.PROBA_THRESHOLD_LONG)
-        proba_threshold_short = float(strat_config.get("probaThresholdShort") or strat_config.get("proba_threshold_short") or config.PROBA_THRESHOLD_SHORT)
-        base_long = max(0.60, proba_threshold_long)
-        base_short = min(0.40, proba_threshold_short)
+        min_conf = None
+        if symbolInfo and symbolInfo.get("minConfidence"):
+            try:
+                min_conf = float(symbolInfo["minConfidence"])
+            except Exception:
+                pass
+        if not min_conf and strat_config and strat_config.get("minConfidence"):
+            try:
+                min_conf = float(strat_config["minConfidence"])
+            except Exception:
+                pass
+
+        if min_conf and 50.0 <= min_conf <= 99.0:
+            target_long = min_conf / 100.0
+            target_short = 1.0 - target_long
+            base_long = target_long
+            base_short = target_short
+        else:
+            proba_threshold_long = float(strat_config.get("probaThresholdLong") or strat_config.get("proba_threshold_long") or config.PROBA_THRESHOLD_LONG)
+            proba_threshold_short = float(strat_config.get("probaThresholdShort") or strat_config.get("proba_threshold_short") or config.PROBA_THRESHOLD_SHORT)
+            base_long = max(0.50, proba_threshold_long)
+            base_short = min(0.50, proba_threshold_short)
 
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
             jpy_threshold_adjust_pct = float(strat_config.get("jpyThresholdAdjustPct") or strat_config.get("jpy_threshold_adjust_pct") or 0.0)
@@ -87,10 +105,29 @@ class SniperBot:
             base_long = 0.5 + ((base_long - 0.5) * (1 + adjust_pct))
             base_short = 0.5 - ((0.5 - base_short) * (1 + adjust_pct))
 
-        return min(0.99, max(0.5, base_long)), max(0.01, min(0.5, base_short))
+        return min(0.99, max(0.50, base_long)), max(0.01, min(0.50, base_short))
 
     def _get_min_confidence(self, strat_config: Dict, symbol: str, symbolInfo: Dict = None) -> float:
-        min_confidence = float(strat_config.get("minConfidence") or strat_config.get("min_confidence") or 70.0)
+        min_conf = None
+        if symbolInfo and symbolInfo.get("minConfidence"):
+            try:
+                min_conf = float(symbolInfo["minConfidence"])
+            except Exception:
+                pass
+        if not min_conf and strat_config:
+            try:
+                min_conf = float(strat_config.get("minConfidence") or strat_config.get("min_confidence") or 0.0)
+            except Exception:
+                pass
+            if not min_conf and "parametersJson" in strat_config:
+                try:
+                    import json
+                    p = json.loads(strat_config["parametersJson"]) if isinstance(strat_config["parametersJson"], str) else strat_config["parametersJson"]
+                    min_conf = float(p.get("minConfidence") or 0.0)
+                except Exception:
+                    pass
+        min_confidence = min_conf if (min_conf and min_conf > 0) else 70.0
+
         if self._is_jpy_symbol(symbol, symbolInfo) or self._is_exotic_symbol(symbolInfo):
             jpy_min_confidence_adjust_pct = float(strat_config.get("jpyMinConfidenceAdjustPct") or strat_config.get("jpy_min_confidence_adjust_pct") or 0.0)
             default_adjust = jpy_min_confidence_adjust_pct

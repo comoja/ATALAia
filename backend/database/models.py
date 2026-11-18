@@ -217,6 +217,35 @@ class UserCart(Base):
     horaFin = Column(String(5), default="16:00")
     usarTSL = Column(Boolean, default=True)
 
+class UserSniper(Base):
+    """
+    Tabla de relación entre usuario, cuenta y pares guardados para la estrategia SNIPER
+    (Smart Order Block, Momentum & Machine Learning Precision).
+    """
+    __tablename__ = "userSNIPER"
+    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "symbol", name="ukUserSniperSymbol"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
+    symbol = Column(String(20), nullable=False)
+    Temporalidad = Column(String(20), nullable=False, default="15min")
+    periodo = Column(Integer, default=180)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    minConfidence = Column(Float, nullable=True)
+    minRr = Column(Float, nullable=True)
+    maxRr = Column(Float, nullable=True)
+    operar = Column(Boolean, default=False)
+    borrado = Column(Boolean, default=False, nullable=False)
+    accionCierre = Column(String(20), default="Continua")
+    tipoCierre = Column(String(20), default="Estructural")
+    usarBreakEven = Column(Boolean, default=True)
+    usarTSL = Column(Boolean, default=False)
+    filtroHorario = Column(Boolean, default=True)
+    horaInicio = Column(String(5), default="08:00")
+    horaFin = Column(String(5), default="16:00")
+    multiplicadorRiesgo = Column(Float, default=1.0, nullable=False)
+
 class UsuarioCuenta(Base):
     """
     Tabla de relación entre usuarios y cuentas de trading (1 usuario administra N cuentas).

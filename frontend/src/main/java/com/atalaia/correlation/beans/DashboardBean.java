@@ -442,6 +442,7 @@ public class DashboardBean implements Serializable {
         private double margin;
         private double pnl;
         private String openTime;
+        private String status = "OPEN";
 
         public int getIdTrade() { return idTrade; }
         public void setIdTrade(int idTrade) { this.idTrade = idTrade; }
@@ -461,6 +462,8 @@ public class DashboardBean implements Serializable {
         public void setPnl(double pnl) { this.pnl = pnl; }
         public String getOpenTime() { return openTime; }
         public void setOpenTime(String openTime) { this.openTime = openTime; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
         private String strategy = "RATIO ATALAia";
         public String getStrategy() { return strategy; }
         public void setStrategy(String strategy) { this.strategy = strategy; }
@@ -2041,6 +2044,10 @@ public class DashboardBean implements Serializable {
         private Boolean activo;
         private Double comision = 0.0;
         private Double indicadorMargen = 200.0;
+        private Double riesgoPorOperacion = 1.0;
+
+        public Double getRiesgoPorOperacion() { return riesgoPorOperacion != null && riesgoPorOperacion > 0 ? riesgoPorOperacion : 1.0; }
+        public void setRiesgoPorOperacion(Double riesgoPorOperacion) { this.riesgoPorOperacion = riesgoPorOperacion; }
 
         public Double getComision() { return comision; }
         public void setComision(Double comision) { this.comision = comision; }
@@ -2782,6 +2789,26 @@ public class DashboardBean implements Serializable {
         public Boolean isUsarTsl() { return isUsarTSL(); }
         public void setUsarTsl(Boolean usarTsl) { setUsarTSL(usarTsl); }
 
+        private Double minConfidence = 75.0;
+        private Double minRr = 1.2;
+        private Double maxRr = 1.5;
+        private Boolean usarBreakEven = true;
+
+        private Double multiplicadorRiesgo = 1.0;
+
+        public Double getMultiplicadorRiesgo() { return multiplicadorRiesgo != null ? multiplicadorRiesgo : 1.0; }
+        public void setMultiplicadorRiesgo(Double multiplicadorRiesgo) { this.multiplicadorRiesgo = multiplicadorRiesgo; }
+
+        public Double getMinConfidence() { return minConfidence != null ? minConfidence : 75.0; }
+        public void setMinConfidence(Double minConfidence) { this.minConfidence = minConfidence; }
+        public Double getMinRr() { return minRr != null ? minRr : 1.2; }
+        public void setMinRr(Double minRr) { this.minRr = minRr; }
+        public Double getMaxRr() { return maxRr != null ? maxRr : 1.5; }
+        public void setMaxRr(Double maxRr) { this.maxRr = maxRr; }
+        public Boolean getUsarBreakEven() { return usarBreakEven != null ? usarBreakEven : true; }
+        public Boolean isUsarBreakEven() { return usarBreakEven != null ? usarBreakEven : true; }
+        public void setUsarBreakEven(Boolean usarBreakEven) { this.usarBreakEven = usarBreakEven; }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -3194,6 +3221,7 @@ public class DashboardBean implements Serializable {
             analyzePair();
         }
         initCartState();
+        initSniperState();
     }
 
     public void refreshDashboard() {
@@ -3246,6 +3274,7 @@ public class DashboardBean implements Serializable {
             analyzePair();
         }
         initCartState();
+        initSniperState();
     }
 
     public void loadAllActiveCycles() {
@@ -3483,6 +3512,26 @@ public class DashboardBean implements Serializable {
             log.error("Error al cargar el catálogo de símbolos desde el backend", e);
             this.availablePairs = new ArrayList<>();
         }
+    }
+
+    public List<RatioSymbolDto> getAvailablePairs() {
+        return availablePairs;
+    }
+
+    public void setAvailablePairs(List<RatioSymbolDto> availablePairs) {
+        this.availablePairs = availablePairs;
+    }
+
+    public List<String> getSymbolList() {
+        List<String> list = new ArrayList<>();
+        if (availablePairs != null) {
+            for (RatioSymbolDto p : availablePairs) {
+                if (p != null && p.getPairName() != null && !p.getPairName().trim().isEmpty()) {
+                    list.add(p.getPairName());
+                }
+            }
+        }
+        return list;
     }
 
     
@@ -4436,6 +4485,7 @@ public class DashboardBean implements Serializable {
                         if (item.has("correo") && !item.get("correo").isNull()) dto.setCorreo(item.get("correo").asText());
                         if (item.has("capital") && !item.get("capital").isNull()) dto.setCapital(item.get("capital").asDouble());
                         if (item.has("comision") && !item.get("comision").isNull()) dto.setComision(item.get("comision").asDouble(0.0));
+                        if (item.has("riesgoPorOperacion") && !item.get("riesgoPorOperacion").isNull()) dto.setRiesgoPorOperacion(item.get("riesgoPorOperacion").asDouble(1.0));
                         if (item.has("activo") && !item.get("activo").isNull()) dto.setActivo(item.get("activo").asBoolean());
                         list.add(dto);
                     }
@@ -4497,6 +4547,7 @@ public class DashboardBean implements Serializable {
             }
         } catch (Exception ignored) {}
         initCartState();
+        initSniperState();
     }
 
     public void onUsuarioChange() {
@@ -4534,6 +4585,7 @@ public class DashboardBean implements Serializable {
             }
         } catch (Exception ignored) {}
         initCartState();
+        initSniperState();
     }
 
     public void onOperarToggle() {
@@ -6691,11 +6743,65 @@ public class DashboardBean implements Serializable {
     private RealTradesSummaryDto cartRealTradesSummary = new RealTradesSummaryDto();
     private String cartRealTradesEquityCurveJson = "[]";
     private String cartRealTradesJson = "[]";
-    private java.util.Date cartRealTradesStartDate = new java.util.Date();
+    private java.util.Date cartRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
     private java.util.Date cartRealTradesEndDate = new java.util.Date();
 
     private List<ActiveCycleSummaryDto> cartActiveCycles = new ArrayList<>();
     private ActiveCycleSummaryDto cartActiveCycleSummary = new ActiveCycleSummaryDto();
+
+    // =========================================================================
+    // ESTRATEGIA SNIPER (Smart Order Block, Momentum & ML Precision) - 1 SOLO PAR
+    // =========================================================================
+    private int activeSniperTabIndex = 0;
+    private String activeSniperAccordionIndex = "0";
+
+    private List<UserRatioDto> userSniperList = new ArrayList<>();
+    private UserRatioDto selectedUserSniper = null;
+    private Integer currentSniperId = null;
+    private boolean sniperExistsInDb = false;
+    private boolean sniperHasActiveTradesInDb = false;
+
+    private String selectedSniperPair = "EUR/USD";
+    private String sniperTimeframe = "15min";
+    private Integer sniperDaysBack = 180;
+    private Double sniperMinConfidence = 75.0;
+    private Double sniperMinRr = 1.2;
+    private Double sniperMaxRr = 1.5;
+    private boolean sniperOperar = false;
+    private String sniperAccionCierre = "Continua";
+    private String sniperTipoCierre = "Estructural";
+    private boolean sniperUsarBreakEven = true;
+    private boolean sniperUsarTSL = false;
+    private boolean sniperFiltroHorario = true;
+    private String sniperHoraInicio = "08:00";
+    private String sniperHoraFin = "16:00";
+    private Double sniperMultiplicadorRiesgo = 1.0;
+
+    private String sniperHistoryJson = "[]";
+    private String sniperActiveTradesJson = "[]";
+    private String sniperActiveCycleSummaryJson = "{}";
+    private List<ActiveCycleSummaryDto> sniperActiveCycles = new ArrayList<>();
+    private ActiveCycleSummaryDto sniperActiveCycleSummary = new ActiveCycleSummaryDto();
+
+    private List<RealTradeItemDto> sniperRealTradesList = new ArrayList<>();
+    private RealTradesSummaryDto sniperRealTradesSummary = new RealTradesSummaryDto();
+    private String sniperRealTradesEquityCurveJson = "[]";
+    private String sniperRealTradesJson = "[]";
+    private java.util.Date sniperRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
+    private java.util.Date sniperRealTradesEndDate = new java.util.Date();
+
+    // SNIPER Backtest fields
+    private String sniperBtHistoryJson = "[]";
+    private String sniperBtTradesJson = "[]";
+    private String sniperBtEquityCurveJson = "[]";
+    private List<SignalTradeDto> sniperBtTradesList = new ArrayList<>();
+    private SignalBacktestMetricsDto sniperBtMetrics = new SignalBacktestMetricsDto();
+    private String sniperBtStartDate = "-";
+    private String sniperBtEndDate = "-";
+    private Integer sniperBtTotalBars = 0;
+    private Integer sniperBtTotalDays = 0;
+    private Double sniperBtInitialCapital = 1000.0;
+    private Double sniperBtAllocationPct = 1.0;
 
     public String getActiveStrategy() { return activeStrategy != null ? activeStrategy : "RATIOS"; }
     public void setActiveStrategy(String activeStrategy) { this.activeStrategy = activeStrategy; }
@@ -6711,6 +6817,16 @@ public class DashboardBean implements Serializable {
                 onSelectUserCart(this.userCartList.get(0));
             } else {
                 initCartState();
+            }
+        } else if ("SNIPER".equals(this.activeStrategy)) {
+            loadUserSniperList();
+            loadSniperActiveCycles();
+            if (this.selectedUserSniper != null) {
+                onSelectUserSniper(this.selectedUserSniper);
+            } else if (this.userSniperList != null && !this.userSniperList.isEmpty()) {
+                onSelectUserSniper(this.userSniperList.get(0));
+            } else {
+                initSniperState();
             }
         }
     }
@@ -7403,6 +7519,7 @@ public class DashboardBean implements Serializable {
                                 ti.setMargin(trNode.path("margin").asDouble(0.0));
                                 ti.setPnl(trNode.path("pnl").asDouble(0.0));
                                 ti.setOpenTime(trNode.path("openTime").asText(""));
+                                ti.setStatus(trNode.path("status").asText("OPEN"));
                                 tList.add(ti);
                             }
                         }
@@ -7441,7 +7558,7 @@ public class DashboardBean implements Serializable {
                 this.selectedCartPair = "EUR/USD";
             }
             if (this.cartRealTradesStartDate == null) {
-                this.cartRealTradesStartDate = new java.util.Date();
+                this.cartRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
             }
             if (this.cartRealTradesEndDate == null) {
                 this.cartRealTradesEndDate = new java.util.Date();
@@ -7593,6 +7710,1176 @@ public class DashboardBean implements Serializable {
             }
         } catch (Exception e) {
             log.warn("Error cargando movimientos reales de CART: {}", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // ALIASES RIDER (Mapeo a estrategia RIDER para compatibilidad y semántica)
+    // =========================================================================
+    public void guardarRider() { guardarCart(); }
+    public void borrarRider() { borrarCart(); }
+    public void analyzeRiderPair() { analyzeCartPair(); }
+    public void onRiderOperarToggle() { onCartOperarToggle(); }
+    public void onRiderSymbolChange() { onCartSymbolChange(); }
+    public void onSelectUserRider(UserRatioDto riderDto) { onSelectUserCart(riderDto); }
+    public void onSelectUserRiderBySymbol(String symbol) { onSelectUserCartBySymbol(symbol); }
+    public void applyOptimalRiderHours() { applyOptimalCartHours(); }
+    public void loadRiderActiveCycles() { loadCartActiveCycles(); }
+    public void closeRiderPosition(String symbol) { closeCartPosition(symbol); }
+    public String getRiderCalibrationTabTitle() { return getCartCalibrationTabTitle(); }
+    public boolean isRiderEditBlocked() { return isCartEditBlocked(); }
+    public List<UserRatioDto> getUserRiderList() { return getUserCartList(); }
+    public void setUserRiderList(List<UserRatioDto> list) { setUserCartList(list); }
+    public UserRatioDto getSelectedUserRider() { return getSelectedUserCart(); }
+    public void setSelectedUserRider(UserRatioDto selected) { setSelectedUserCart(selected); }
+    public Integer getCurrentRiderId() { return getCurrentCartId(); }
+    public void setCurrentRiderId(Integer id) { setCurrentCartId(id); }
+    public String getSelectedRiderPair() { return getSelectedCartPair(); }
+    public void setSelectedRiderPair(String pair) { setSelectedCartPair(pair); }
+    public List<ActiveCycleSummaryDto> getRiderActiveCycles() { return getCartActiveCycles(); }
+    public ActiveCycleSummaryDto getRiderActiveCycleSummary() { return getCartActiveCycleSummary(); }
+
+    // =========================================================================
+    // METODOS Y GETTERS/SETTERS PARA ESTRATEGIA SNIPER
+    // =========================================================================
+
+    public int getActiveSniperTabIndex() { return activeSniperTabIndex; }
+    public void setActiveSniperTabIndex(int activeSniperTabIndex) { this.activeSniperTabIndex = activeSniperTabIndex; }
+    public String getActiveSniperAccordionIndex() { return activeSniperAccordionIndex; }
+    public void setActiveSniperAccordionIndex(String activeSniperAccordionIndex) { this.activeSniperAccordionIndex = activeSniperAccordionIndex; }
+
+    public void onSniperTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.tabview.TabView) {
+            org.primefaces.component.tabview.TabView tv = (org.primefaces.component.tabview.TabView) event.getComponent();
+            this.activeSniperTabIndex = tv.getActiveIndex();
+            if (this.activeSniperTabIndex == 1) {
+                loadSniperRealTradesMovimientos();
+            }
+        }
+    }
+
+    public List<UserRatioDto> getUserSniperList() { return userSniperList; }
+    public void setUserSniperList(List<UserRatioDto> userSniperList) { this.userSniperList = userSniperList; }
+    public UserRatioDto getSelectedUserSniper() { return selectedUserSniper; }
+    public void setSelectedUserSniper(UserRatioDto selectedUserSniper) { this.selectedUserSniper = selectedUserSniper; }
+    public Integer getCurrentSniperId() { return currentSniperId; }
+    public void setCurrentSniperId(Integer currentSniperId) { this.currentSniperId = currentSniperId; }
+    public boolean isSniperExistsInDb() { return sniperExistsInDb; }
+    public void setSniperExistsInDb(boolean sniperExistsInDb) { this.sniperExistsInDb = sniperExistsInDb; }
+    public boolean isSniperHasActiveTradesInDb() { return sniperHasActiveTradesInDb; }
+    public void setSniperHasActiveTradesInDb(boolean sniperHasActiveTradesInDb) { this.sniperHasActiveTradesInDb = sniperHasActiveTradesInDb; }
+
+    public String getSniperCalibrationTabTitle() {
+        return (currentSniperId != null && currentSniperId > 0)
+                ? ("2. Calibración SNIPER " + currentSniperId + " (" + selectedSniperPair + ")")
+                : ("2. Calibración SNIPER (" + selectedSniperPair + ")");
+    }
+
+    public String getSelectedSniperPair() { return selectedSniperPair; }
+    public void setSelectedSniperPair(String selectedSniperPair) { this.selectedSniperPair = selectedSniperPair; }
+    public String getSniperTimeframe() { return sniperTimeframe != null ? sniperTimeframe.trim().toLowerCase() : "15min"; }
+    public void setSniperTimeframe(String sniperTimeframe) { this.sniperTimeframe = (sniperTimeframe != null) ? sniperTimeframe.trim().toLowerCase() : "15min"; }
+    public String getSniperTimeframeLabel() {
+        if (sniperTimeframe == null || sniperTimeframe.trim().isEmpty()) {
+            return "15 Minutos";
+        }
+        String tf = sniperTimeframe.trim().toLowerCase();
+        if ("1min".equals(tf) || "1m".equals(tf)) return "1 Minuto";
+        if ("5min".equals(tf) || "5m".equals(tf)) return "5 Minutos";
+        if ("15min".equals(tf) || "15m".equals(tf)) return "15 Minutos";
+        if ("30min".equals(tf) || "30m".equals(tf)) return "30 Minutos";
+        if ("1h".equals(tf) || "60min".equals(tf)) return "1 Hora";
+        if ("2h".equals(tf)) return "2 Horas";
+        if ("4h".equals(tf)) return "4 Horas";
+        if ("1d".equals(tf) || "d".equals(tf)) return "1 Día";
+        return sniperTimeframe;
+    }
+    public Integer getSniperDaysBack() { return sniperDaysBack != null ? sniperDaysBack : 180; }
+    public void setSniperDaysBack(Integer sniperDaysBack) { this.sniperDaysBack = sniperDaysBack; }
+    public Double getSniperMinConfidence() { return sniperMinConfidence != null ? sniperMinConfidence : 75.0; }
+    public void setSniperMinConfidence(Double sniperMinConfidence) { this.sniperMinConfidence = sniperMinConfidence; }
+    public Double getSniperMinRr() { return sniperMinRr != null ? sniperMinRr : 1.2; }
+    public void setSniperMinRr(Double sniperMinRr) { this.sniperMinRr = sniperMinRr; }
+    public Double getSniperMaxRr() { return sniperMaxRr != null ? sniperMaxRr : 1.5; }
+    public void setSniperMaxRr(Double sniperMaxRr) { this.sniperMaxRr = sniperMaxRr; }
+    public boolean isSniperOperar() { return sniperOperar; }
+    public void setSniperOperar(boolean sniperOperar) { this.sniperOperar = sniperOperar; }
+    public String getSniperAccionCierre() { return sniperAccionCierre != null ? sniperAccionCierre : "Continua"; }
+    public void setSniperAccionCierre(String sniperAccionCierre) { this.sniperAccionCierre = sniperAccionCierre; }
+    public String getSniperTipoCierre() { return sniperTipoCierre != null ? sniperTipoCierre : "Estructural"; }
+    public void setSniperTipoCierre(String sniperTipoCierre) { this.sniperTipoCierre = sniperTipoCierre; }
+    public boolean isSniperUsarBreakEven() { return sniperUsarBreakEven; }
+    public void setSniperUsarBreakEven(boolean sniperUsarBreakEven) { this.sniperUsarBreakEven = sniperUsarBreakEven; }
+    public boolean isSniperUsarTSL() { return sniperUsarTSL; }
+    public void setSniperUsarTSL(boolean sniperUsarTSL) { this.sniperUsarTSL = sniperUsarTSL; }
+    public boolean isSniperFiltroHorario() { return sniperFiltroHorario; }
+    public void setSniperFiltroHorario(boolean sniperFiltroHorario) { this.sniperFiltroHorario = sniperFiltroHorario; }
+    public String getSniperHoraInicio() { return sniperHoraInicio != null ? sniperHoraInicio : "08:00"; }
+    public void setSniperHoraInicio(String sniperHoraInicio) { this.sniperHoraInicio = sniperHoraInicio; }
+    public String getSniperHoraFin() { return sniperHoraFin != null ? sniperHoraFin : "16:00"; }
+    public void setSniperHoraFin(String sniperHoraFin) { this.sniperHoraFin = sniperHoraFin; }
+
+    public Double getSniperMultiplicadorRiesgo() { return sniperMultiplicadorRiesgo != null ? sniperMultiplicadorRiesgo : 1.0; }
+    public void setSniperMultiplicadorRiesgo(Double sniperMultiplicadorRiesgo) { this.sniperMultiplicadorRiesgo = sniperMultiplicadorRiesgo; }
+
+    public Double getSelectedAccountRiesgoPorOperacion() {
+        if (selectedAccountId != null && userAccountsCombo != null) {
+            for (UserAccountDto acc : userAccountsCombo) {
+                if (acc.getIdCuenta() != null && acc.getIdCuenta().equals(selectedAccountId)) {
+                    if (acc.getRiesgoPorOperacion() != null && acc.getRiesgoPorOperacion() > 0) {
+                        return acc.getRiesgoPorOperacion();
+                    }
+                }
+            }
+        }
+        return 1.0;
+    }
+
+    public Double getSniperRiesgoEfectivoPct() {
+        double base = getSelectedAccountRiesgoPorOperacion();
+        double mult = this.sniperMultiplicadorRiesgo != null ? this.sniperMultiplicadorRiesgo : 1.0;
+        return Math.round(base * mult * 100.0) / 100.0;
+    }
+
+    public String getFormattedSniperRiesgoEfectivoPct() {
+        return String.format(java.util.Locale.US, "%.2f", getSniperRiesgoEfectivoPct());
+    }
+
+    public String getSniperHistoryJson() { return sniperHistoryJson != null ? sniperHistoryJson : "[]"; }
+    public void setSniperHistoryJson(String sniperHistoryJson) { this.sniperHistoryJson = sniperHistoryJson; }
+    public String getSniperActiveTradesJson() {
+        if (sniperActiveCycleSummary != null && sniperActiveCycleSummary.getTradesJson() != null && !sniperActiveCycleSummary.getTradesJson().equals("[]")) {
+            return sniperActiveCycleSummary.getTradesJson();
+        }
+        return sniperActiveTradesJson != null ? sniperActiveTradesJson : "[]";
+    }
+    public void setSniperActiveTradesJson(String sniperActiveTradesJson) { this.sniperActiveTradesJson = sniperActiveTradesJson; }
+    public String getSniperActiveCycleSummaryJson() { return sniperActiveCycleSummaryJson != null ? sniperActiveCycleSummaryJson : "{}"; }
+    public void setSniperActiveCycleSummaryJson(String sniperActiveCycleSummaryJson) { this.sniperActiveCycleSummaryJson = sniperActiveCycleSummaryJson; }
+
+    public List<ActiveCycleSummaryDto> getSniperActiveCycles() { return sniperActiveCycles; }
+    public ActiveCycleSummaryDto getSniperActiveCycleSummary() { return sniperActiveCycleSummary; }
+
+    public List<RealTradeItemDto> getSniperRealTradesList() { return sniperRealTradesList; }
+    public RealTradesSummaryDto getSniperRealTradesSummary() { return sniperRealTradesSummary; }
+    public String getSniperRealTradesEquityCurveJson() { return sniperRealTradesEquityCurveJson; }
+    public String getSniperRealTradesJson() { return sniperRealTradesJson != null ? sniperRealTradesJson : "[]"; }
+    public void setSniperRealTradesJson(String sniperRealTradesJson) { this.sniperRealTradesJson = sniperRealTradesJson; }
+    public java.util.Date getSniperRealTradesStartDate() { return sniperRealTradesStartDate; }
+    public void setSniperRealTradesStartDate(java.util.Date sniperRealTradesStartDate) { this.sniperRealTradesStartDate = sniperRealTradesStartDate; }
+    public java.util.Date getSniperRealTradesEndDate() { return sniperRealTradesEndDate; }
+    public void setSniperRealTradesEndDate(java.util.Date sniperRealTradesEndDate) { this.sniperRealTradesEndDate = sniperRealTradesEndDate; }
+
+    public String getSniperBtHistoryJson() { return sniperBtHistoryJson != null ? sniperBtHistoryJson : "[]"; }
+    public void setSniperBtHistoryJson(String sniperBtHistoryJson) { this.sniperBtHistoryJson = sniperBtHistoryJson; }
+    public String getSniperBtTradesJson() { return sniperBtTradesJson != null ? sniperBtTradesJson : "[]"; }
+    public void setSniperBtTradesJson(String sniperBtTradesJson) { this.sniperBtTradesJson = sniperBtTradesJson; }
+    public String getSniperBtEquityCurveJson() { return sniperBtEquityCurveJson != null ? sniperBtEquityCurveJson : "[]"; }
+    public void setSniperBtEquityCurveJson(String sniperBtEquityCurveJson) { this.sniperBtEquityCurveJson = sniperBtEquityCurveJson; }
+    public List<SignalTradeDto> getSniperBtTradesList() { return sniperBtTradesList; }
+    public void setSniperBtTradesList(List<SignalTradeDto> sniperBtTradesList) { this.sniperBtTradesList = sniperBtTradesList; }
+    public SignalBacktestMetricsDto getSniperBtMetrics() { return sniperBtMetrics; }
+    public void setSniperBtMetrics(SignalBacktestMetricsDto sniperBtMetrics) { this.sniperBtMetrics = sniperBtMetrics; }
+    public String getSniperBtStartDate() { return sniperBtStartDate; }
+    public void setSniperBtStartDate(String sniperBtStartDate) { this.sniperBtStartDate = sniperBtStartDate; }
+    public String getSniperBtEndDate() { return sniperBtEndDate; }
+    public void setSniperBtEndDate(String sniperBtEndDate) { this.sniperBtEndDate = sniperBtEndDate; }
+    public Integer getSniperBtTotalBars() { return sniperBtTotalBars; }
+    public void setSniperBtTotalBars(Integer sniperBtTotalBars) { this.sniperBtTotalBars = sniperBtTotalBars; }
+    public Integer getSniperBtTotalDays() { return sniperBtTotalDays; }
+    public void setSniperBtTotalDays(Integer sniperBtTotalDays) { this.sniperBtTotalDays = sniperBtTotalDays; }
+    public Double getSniperBtInitialCapital() { return sniperBtInitialCapital; }
+    public void setSniperBtInitialCapital(Double sniperBtInitialCapital) { this.sniperBtInitialCapital = sniperBtInitialCapital; }
+    public Double getSniperBtAllocationPct() { return sniperBtAllocationPct; }
+    public void setSniperBtAllocationPct(Double sniperBtAllocationPct) { this.sniperBtAllocationPct = sniperBtAllocationPct; }
+
+    public String getFormattedSniperBtTotalBars() { return String.format(java.util.Locale.US, "%,d", sniperBtTotalBars != null ? sniperBtTotalBars : 0); }
+    public String getFormattedSniperBtTotalDays() { return String.format(java.util.Locale.US, "%,d", sniperBtTotalDays != null ? sniperBtTotalDays : 0); }
+    public String getFormattedSniperBtInitialCapital() { return String.format(java.util.Locale.US, "%,.2f", sniperBtInitialCapital != null ? sniperBtInitialCapital : 1000.0); }
+    public String getFormattedSniperBtAllocationPct() { return String.format(java.util.Locale.US, "%.1f", sniperBtAllocationPct != null ? sniperBtAllocationPct : 1.0); }
+    public String getFormattedSniperBtFinalCapital() { return String.format(java.util.Locale.US, "%,.2f", sniperBtMetrics != null ? sniperBtMetrics.getFinalCapital() : 1000.0); }
+    public String getFormattedSniperBtTotalPnl() { return String.format(java.util.Locale.US, "%,.2f", sniperBtMetrics != null ? sniperBtMetrics.getNetProfit() : 0.0); }
+
+    public void initSniperState() {
+        try {
+            String prevAccordion = this.activeSniperAccordionIndex;
+            Integer prevSniperId = (this.selectedUserSniper != null && this.selectedUserSniper.getId() != null)
+                    ? this.selectedUserSniper.getId()
+                    : this.currentSniperId;
+            String prevSymbol = this.selectedSniperPair;
+
+            loadUserSniperList();
+            loadSniperActiveCycles();
+
+            if (this.userSniperList != null && !this.userSniperList.isEmpty()) {
+                UserRatioDto targetSniper = null;
+                if (prevSniperId != null) {
+                    for (UserRatioDto u : this.userSniperList) {
+                        if (prevSniperId.equals(u.getId())) {
+                            targetSniper = u;
+                            break;
+                        }
+                    }
+                }
+                if (targetSniper == null && prevSymbol != null && !prevSymbol.trim().isEmpty()) {
+                    for (UserRatioDto u : this.userSniperList) {
+                        if (prevSymbol.equalsIgnoreCase(u.getNumerador())) {
+                            targetSniper = u;
+                            break;
+                        }
+                    }
+                }
+                if (targetSniper == null) {
+                    targetSniper = this.userSniperList.get(0);
+                }
+                onSelectUserSniper(targetSniper);
+                if (prevAccordion != null && !prevAccordion.trim().isEmpty()) {
+                    this.activeSniperAccordionIndex = prevAccordion;
+                }
+            } else {
+                if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
+                    this.selectedSniperPair = (this.selectedPair != null && !this.selectedPair.isEmpty()) ? this.selectedPair : "EUR/USD";
+                }
+                this.sniperExistsInDb = false;
+                this.currentSniperId = null;
+                this.sniperOperar = false;
+                analyzeSniperPair();
+                loadSniperRealTradesMovimientos();
+            }
+        } catch (Exception e) {
+            log.warn("Error inicializando estado de SNIPER: {}", e.getMessage());
+        }
+    }
+
+    public void loadUserSniperList() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/user-sniper/" + userId + (selectedAccountId != null ? "?idCuenta=" + selectedAccountId : "");
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UserRatioDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UserRatioDto dto = new UserRatioDto();
+                        dto.setId(item.path("id").asInt(0));
+                        dto.setIdUsuario(item.path("idUsuario").asInt(userId));
+                        dto.setIdCuenta(item.path("idCuenta").asInt(selectedAccountId != null ? selectedAccountId : 1));
+                        String sym = item.path("symbol").asText(item.path("numerador").asText("EUR/USD"));
+                        dto.setNumerador(sym);
+                        dto.setDenominador("");
+                        dto.setTemporalidad(item.path("Temporalidad").asText("15min"));
+                        dto.setPeriodo(item.path("periodo").asInt(180));
+                        dto.setMinConfidence(item.path("minConfidence").asDouble(75.0));
+                        dto.setMinRr(item.path("minRr").asDouble(1.2));
+                        dto.setMaxRr(item.path("maxRr").asDouble(1.5));
+                        dto.setOperar(item.path("operar").asBoolean(false));
+                        dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
+                        dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
+                        dto.setTipoCierre(item.path("tipoCierre").asText("Estructural"));
+                        dto.setUsarBreakEven(item.path("usarBreakEven").asBoolean(true));
+                        dto.setUsarTSL(item.path("usarTSL").asBoolean(false));
+                        dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
+                        dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
+                        dto.setHoraFin(item.path("horaFin").asText("16:00"));
+                        dto.setMultiplicadorRiesgo(item.path("multiplicadorRiesgo").asDouble(1.0));
+                        dto.setCreatedAt(item.path("createdAt").asText(""));
+                        list.add(dto);
+                    }
+                }
+            }
+            this.userSniperList = list;
+        } catch (Exception e) {
+            log.error("Error cargando userSNIPER list: {}", e.getMessage());
+            this.userSniperList = new ArrayList<>();
+        }
+    }
+
+    public void onSniperRowSelect(org.primefaces.event.SelectEvent<UserRatioDto> event) {
+        if (event != null && event.getObject() != null) {
+            onSelectUserSniper(event.getObject());
+        }
+    }
+
+    public void onSelectUserSniper(UserRatioDto dto) {
+        if (dto == null) return;
+        this.selectedUserSniper = dto;
+        this.currentSniperId = dto.getId();
+        this.selectedSniperPair = dto.getNumerador();
+        this.sniperTimeframe = dto.getTemporalidad() != null ? dto.getTemporalidad() : "15min";
+        this.sniperDaysBack = dto.getPeriodo() != null ? dto.getPeriodo() : 180;
+        this.sniperMinConfidence = dto.getMinConfidence() != null ? dto.getMinConfidence() : 75.0;
+        this.sniperMinRr = dto.getMinRr() != null ? dto.getMinRr() : 1.2;
+        this.sniperMaxRr = dto.getMaxRr() != null ? dto.getMaxRr() : 1.5;
+        this.sniperOperar = Boolean.TRUE.equals(dto.getOperar());
+        this.sniperAccionCierre = dto.getAccionCierre() != null ? dto.getAccionCierre() : "Continua";
+        this.sniperTipoCierre = dto.getTipoCierre() != null ? dto.getTipoCierre() : "Estructural";
+        this.sniperUsarBreakEven = dto.getUsarBreakEven() != null ? dto.getUsarBreakEven() : true;
+        this.sniperUsarTSL = dto.getUsarTSL() != null ? dto.getUsarTSL() : false;
+        this.sniperFiltroHorario = dto.getFiltroHorario() != null ? dto.getFiltroHorario() : true;
+        this.sniperHoraInicio = dto.getHoraInicio() != null ? dto.getHoraInicio() : "08:00";
+        this.sniperHoraFin = dto.getHoraFin() != null ? dto.getHoraFin() : "16:00";
+        this.sniperMultiplicadorRiesgo = dto.getMultiplicadorRiesgo() != null ? dto.getMultiplicadorRiesgo() : 1.0;
+        this.sniperExistsInDb = true;
+        this.sniperHasActiveTradesInDb = Boolean.TRUE.equals(dto.getHasOpenTrades());
+        this.activeSniperAccordionIndex = "1";
+        loadSniperActiveCycles();
+        analyzeSniperPair();
+        loadSniperRealTradesMovimientos();
+    }
+
+    public void onSelectUserSniperBySymbol(String symbol) {
+        if (symbol == null || symbol.trim().isEmpty()) return;
+        if (this.userSniperList != null) {
+            for (UserRatioDto u : this.userSniperList) {
+                if (symbol.equalsIgnoreCase(u.getNumerador()) || symbol.equalsIgnoreCase(u.getDenominador())) {
+                    onSelectUserSniper(u);
+                    return;
+                }
+            }
+        }
+        this.selectedSniperPair = symbol;
+        this.sniperExistsInDb = false;
+        analyzeSniperPair();
+        loadSniperRealTradesMovimientos();
+    }
+
+    public void onSniperSymbolChange() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            String encSym = java.net.URLEncoder.encode(this.selectedSniperPair != null ? this.selectedSniperPair : "EUR/USD", "UTF-8");
+            String url = backendUrl + "/api/v1/user-sniper/buscar?symbol=" + encSym
+                    + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "&idUsuario=" + userId);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(resp);
+                this.sniperExistsInDb = node.path("found").asBoolean(false);
+                this.currentSniperId = node.has("id") ? node.path("id").asInt() : null;
+                this.sniperTimeframe = node.path("Temporalidad").asText("15min");
+                this.sniperDaysBack = node.path("periodo").asInt(180);
+                this.sniperMinConfidence = node.path("minConfidence").asDouble(75.0);
+                this.sniperMinRr = node.path("minRr").asDouble(1.2);
+                this.sniperMaxRr = node.path("maxRr").asDouble(1.5);
+                this.sniperOperar = node.path("operar").asBoolean(false);
+                this.sniperAccionCierre = node.path("accionCierre").asText("Continua");
+                this.sniperTipoCierre = node.path("tipoCierre").asText("Estructural");
+                this.sniperUsarBreakEven = node.path("usarBreakEven").asBoolean(true);
+                this.sniperUsarTSL = node.path("usarTSL").asBoolean(false);
+                this.sniperFiltroHorario = node.path("filtroHorario").asBoolean(true);
+                this.sniperHoraInicio = node.path("horaInicio").asText("08:00");
+                this.sniperHoraFin = node.path("horaFin").asText("16:00");
+                this.sniperMultiplicadorRiesgo = node.path("multiplicadorRiesgo").asDouble(1.0);
+                this.sniperHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
+            }
+        } catch (Exception e) {
+            log.warn("Error buscando par SNIPER: {}", e.getMessage());
+        }
+        analyzeSniperPair();
+        loadSniperRealTradesMovimientos();
+    }
+
+    public void analyzeSniperPair() {
+        try {
+            if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
+                this.selectedSniperPair = "EUR/USD";
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedSniperPair, "UTF-8");
+            String url = String.format(java.util.Locale.US,
+                    "%s/api/v1/sniper/analysis/%s?timeframe=%s&days=%d%s%s",
+                    backendUrl,
+                    encSym,
+                    this.sniperTimeframe != null ? this.sniperTimeframe : "15min",
+                    this.sniperDaysBack != null ? this.sniperDaysBack : 180,
+                    this.selectedAccountId != null ? ("&idCuenta=" + this.selectedAccountId) : "",
+                    this.sniperMultiplicadorRiesgo != null ? ("&multiplicadorRiesgo=" + this.sniperMultiplicadorRiesgo) : ""
+            );
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+
+                JsonNode hist = root.path("history");
+                this.sniperHistoryJson = hist.isArray() ? mapper.writeValueAsString(hist) : "[]";
+
+                this.sniperBtInitialCapital = root.path("initialCapital").asDouble(1000.0);
+                this.sniperBtAllocationPct = root.path("allocationPct").asDouble(1.0);
+
+                JsonNode bt = root.path("backtest");
+                if (!bt.isMissingNode() && !bt.isNull()) {
+                    this.sniperBtStartDate = bt.path("startDate").asText("-");
+                    this.sniperBtEndDate = bt.path("endDate").asText("-");
+                    this.sniperBtTotalBars = bt.path("totalBars").asInt(0);
+                    this.sniperBtTotalDays = bt.path("totalDays").asInt(0);
+
+                    JsonNode btHist = bt.path("history");
+                    this.sniperBtHistoryJson = btHist.isArray() ? mapper.writeValueAsString(btHist) : "[]";
+
+                    JsonNode btEq = bt.path("equityCurve");
+                    this.sniperBtEquityCurveJson = btEq.isArray() ? mapper.writeValueAsString(btEq) : "[]";
+
+                    JsonNode btTrades = bt.path("trades");
+                    this.sniperBtTradesJson = btTrades.isArray() ? mapper.writeValueAsString(btTrades) : "[]";
+
+                    List<SignalTradeDto> tList = new ArrayList<>();
+                    if (btTrades.isArray()) {
+                        for (JsonNode tn : btTrades) {
+                            SignalTradeDto st = new SignalTradeDto();
+                            st.setTradeNum(tn.path("tradeNum").asInt());
+                            st.setSignalType(tn.path("signalType").asText("SNIPER ML"));
+                            st.setDirection(tn.path("direction").asText(""));
+                            st.setAllocatedCapital(tn.path("allocatedCapital").asDouble(0.0));
+                            st.setEntryDate(tn.path("entryDate").asText("-"));
+                            st.setExitDate(tn.path("exitDate").asText("-"));
+                            st.setEntryPriceA(tn.path("entryPriceA").asDouble(tn.path("entryPrice").asDouble(0.0)));
+                            st.setExitPriceA(tn.path("exitPriceA").asDouble(tn.path("exitPrice").asDouble(0.0)));
+                            st.setDurationBars(tn.path("durationBars").asInt(0));
+                            st.setReturnPct(tn.path("returnPct").asDouble(0.0));
+                            st.setPnl(tn.path("pnl").asDouble(0.0));
+                            st.setPnlA(tn.path("pnlA").asDouble(0.0));
+                            st.setPipsA(tn.path("pipsA").asDouble(tn.path("pips").asDouble(0.0)));
+                            st.setIsWin(tn.path("isWin").asBoolean(true));
+                            st.setExitReason(tn.path("exitReason").asText(""));
+                            st.setAccumCapital(tn.path("accumCapital").asDouble(this.sniperBtInitialCapital));
+                            tList.add(st);
+                        }
+                    }
+                    this.sniperBtTradesList = tList;
+
+                    JsonNode mNode = bt.path("metrics");
+                    SignalBacktestMetricsDto mDto = new SignalBacktestMetricsDto();
+                    mDto.setTotalTrades(mNode.path("totalTrades").asInt(0));
+                    mDto.setWinningTrades(mNode.path("winningTrades").asInt(0));
+                    mDto.setLosingTrades(mNode.path("losingTrades").asInt(0));
+                    mDto.setWinRate(mNode.path("winRate").asDouble(0.0));
+                    mDto.setNetProfit(mNode.path("netProfit").asDouble(0.0));
+                    mDto.setTotalReturnPct(mNode.path("totalReturnPct").asDouble(0.0));
+                    mDto.setProfitFactor(mNode.path("profitFactor").asDouble(0.0));
+                    mDto.setSharpeRatio(mNode.path("sharpeRatio").asDouble(0.0));
+                    mDto.setMaxDrawdown(mNode.path("maxDrawdown").asDouble(0.0));
+                    mDto.setFinalCapital(mNode.path("finalCapital").asDouble(this.sniperBtInitialCapital));
+                    this.sniperBtMetrics = mDto;
+                }
+
+                JsonNode actTr = root.path("activeTrade");
+                if (!actTr.isMissingNode() && !actTr.isNull()) {
+                    this.sniperActiveTradesJson = mapper.writeValueAsString(actTr);
+                } else {
+                    this.sniperActiveTradesJson = "null";
+                }
+            }
+            loadSniperActiveCycles();
+        } catch (Exception e) {
+            log.error("Error en analyzeSniperPair: {}", e.getMessage());
+        }
+    }
+
+    public void optimizarSniperPair() {
+        if (isReadOnly()) return;
+        try {
+            if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
+                this.selectedSniperPair = "EUR/USD";
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedSniperPair, "UTF-8");
+            String url = String.format(java.util.Locale.US,
+                    "%s/api/v1/sniper/optimize/%s%s",
+                    backendUrl,
+                    encSym,
+                    this.selectedAccountId != null ? ("?idCuenta=" + this.selectedAccountId) : ""
+            );
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>("{}", headers);
+
+            org.springframework.http.ResponseEntity<String> respEntity = restTemplate.postForEntity(url, entity, String.class);
+            String resp = respEntity.getBody();
+
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode opt = root.path("optimal");
+                if (!opt.isMissingNode() && !opt.isNull()) {
+                    if (opt.has("timeframe") && !opt.path("timeframe").asText().isEmpty()) {
+                        this.sniperTimeframe = opt.path("timeframe").asText();
+                    }
+                    if (opt.has("minConfidence")) {
+                        this.sniperMinConfidence = opt.path("minConfidence").asDouble(this.sniperMinConfidence != null ? this.sniperMinConfidence : 65.0);
+                    }
+                    if (opt.has("minRr")) {
+                        this.sniperMinRr = opt.path("minRr").asDouble(this.sniperMinRr != null ? this.sniperMinRr : 1.5);
+                    }
+                    if (opt.has("maxRr")) {
+                        this.sniperMaxRr = opt.path("maxRr").asDouble(this.sniperMaxRr != null ? this.sniperMaxRr : 2.5);
+                    }
+                    if (opt.has("usarBreakEven")) {
+                        this.sniperUsarBreakEven = opt.path("usarBreakEven").asBoolean(true);
+                    }
+                    if (opt.has("usarTSL")) {
+                        this.sniperUsarTSL = opt.path("usarTSL").asBoolean(false);
+                    }
+                    if (opt.has("optimalStartHour") && !opt.path("optimalStartHour").asText().isEmpty()) {
+                        this.sniperHoraInicio = opt.path("optimalStartHour").asText();
+                        this.sniperFiltroHorario = true;
+                    }
+                    if (opt.has("optimalEndHour") && !opt.path("optimalEndHour").asText().isEmpty()) {
+                        this.sniperHoraFin = opt.path("optimalEndHour").asText();
+                    }
+
+                    JsonNode m = opt.path("metrics");
+                    double wr = m.path("winRate").asDouble(0.0);
+                    double pf = m.path("profitFactor").asDouble(0.0);
+                    double pnl = m.path("netProfit").asDouble(0.0);
+
+                    loadUserSniperList();
+                    analyzeSniperPair();
+
+                    String msgDetail = String.format(java.util.Locale.US,
+                            "TF: %s | Conf: %.0f%% | R:R: %.1f:1 | Horario: %s-%s | WinRate: %.1f%% | PF: %.2f | PnL: $%.2f USD",
+                            this.sniperTimeframe, this.sniperMinConfidence, this.sniperMinRr,
+                            this.sniperHoraInicio, this.sniperHoraFin, wr, pf, pnl);
+
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                    "Auto-Calibración SNIPER Exitosa", msgDetail));
+                    return;
+                }
+            }
+
+            analyzeSniperPair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Calibración Finalizada", "No se encontraron mejoras adicionales para " + this.selectedSniperPair));
+        } catch (Exception e) {
+            log.error("Error en optimizarSniperPair: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Calibrar SNIPER", e.getMessage()));
+        }
+    }
+
+    public void guardarSniper() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedSniperPair);
+            payload.put("Temporalidad", this.sniperTimeframe != null ? this.sniperTimeframe : "15min");
+            payload.put("periodo", this.sniperDaysBack != null ? this.sniperDaysBack : 180);
+            payload.put("minConfidence", this.sniperMinConfidence != null ? this.sniperMinConfidence : 75.0);
+            payload.put("minRr", this.sniperMinRr != null ? this.sniperMinRr : 1.2);
+            payload.put("maxRr", this.sniperMaxRr != null ? this.sniperMaxRr : 1.5);
+            payload.put("operar", this.sniperOperar);
+            payload.put("accionCierre", this.sniperAccionCierre != null ? this.sniperAccionCierre : "Continua");
+            payload.put("tipoCierre", this.sniperTipoCierre != null ? this.sniperTipoCierre : "Estructural");
+            payload.put("usarBreakEven", this.sniperUsarBreakEven);
+            payload.put("usarTSL", this.sniperUsarTSL);
+            payload.put("filtroHorario", this.sniperFiltroHorario);
+            payload.put("horaInicio", this.sniperHoraInicio != null ? this.sniperHoraInicio : "08:00");
+            payload.put("horaFin", this.sniperHoraFin != null ? this.sniperHoraFin : "16:00");
+            payload.put("multiplicadorRiesgo", this.sniperMultiplicadorRiesgo != null ? this.sniperMultiplicadorRiesgo : 1.0);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-sniper/guardar", entity, String.class);
+            this.sniperExistsInDb = true;
+            loadUserSniperList();
+            analyzeSniperPair();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "SNIPER Guardado", "Se guardó la configuración SNIPER para " + this.selectedSniperPair));
+        } catch (Exception e) {
+            log.error("Error guardando SNIPER: {}", e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Guardar SNIPER", e.getMessage()));
+        }
+    }
+
+    public void borrarSniper() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedSniperPair);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-sniper/borrar", entity, String.class);
+            this.sniperExistsInDb = false;
+            this.currentSniperId = null;
+            this.sniperOperar = false;
+            loadUserSniperList();
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "SNIPER Eliminado", "Se eliminó el par " + this.selectedSniperPair + " de SNIPER."));
+        } catch (Exception e) {
+            log.error("Error borrando SNIPER: {}", e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Borrar SNIPER", e.getMessage()));
+        }
+    }
+
+    public void onSniperOperarToggle() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId != null ? userId : 1);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedSniperPair);
+            payload.put("operar", this.sniperOperar);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/user-sniper/update-operar", entity, String.class);
+            loadUserSniperList();
+            String estado = this.sniperOperar ? "ACTIVADA" : "DESACTIVADA";
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Generar Órdenes SNIPER", "Generación de órdenes " + estado + " para " + this.selectedSniperPair));
+        } catch (Exception e) {
+            log.error("Error actualizando operar en SNIPER: {}", e.getMessage());
+        }
+    }
+
+    public void loadSniperActiveCycles() {
+        this.sniperActiveCycles = new ArrayList<>();
+        if (this.selectedAccountId == null) return;
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = backendUrl + "/api/v1/trades/active-summary-sniper/" + this.selectedAccountId;
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode arr = mapper.readTree(resp);
+                if (arr.isArray()) {
+                    for (JsonNode n : arr) {
+                        ActiveCycleSummaryDto dto = new ActiveCycleSummaryDto();
+                        dto.setHasActiveCycle(true);
+                        dto.setSetup(n.path("setup").asText(""));
+                        dto.setPairA(n.path("pairA").asText(""));
+                        dto.setPairB("");
+                        dto.setTotalOpenTrades(n.path("totalOpenTrades").asInt(0));
+                        dto.setTotalPnl(n.path("totalPnl").asDouble(0.0));
+                        dto.setTotalMargin(n.path("totalMargin").asDouble(0.0));
+                        dto.setReturnPct(n.path("returnPct").asDouble(0.0));
+                        dto.setAvgEntryPriceA(n.path("avgEntryPriceA").asDouble(0.0));
+                        dto.setCurrentPriceA(n.path("currentPriceA").asDouble(0.0));
+                        dto.setSizeA(n.path("sizeA").asDouble(0.0));
+                        dto.setMarginA(n.path("marginA").asDouble(0.0));
+                        dto.setPnlA(n.path("pnlA").asDouble(0.0));
+                        dto.setDirA(n.path("dirA").asText("LARGO"));
+                        dto.setFirstEntryDate(n.path("firstEntryDate").asText(""));
+                        dto.setLastEntryDate(n.path("lastEntryDate").asText(""));
+
+                        List<ActiveTradeItemDto> tList = new ArrayList<>();
+                        if (n.has("trades") && n.path("trades").isArray()) {
+                            for (JsonNode trNode : n.path("trades")) {
+                                ActiveTradeItemDto ti = new ActiveTradeItemDto();
+                                ti.setIdTrade(trNode.path("idTrade").asInt(0));
+                                ti.setSymbol(trNode.path("symbol").asText(""));
+                                ti.setDirection(trNode.path("direction").asText(""));
+                                ti.setSize(trNode.path("size").asDouble(0.0));
+                                ti.setEntryPrice(trNode.path("entryPrice").asDouble(0.0));
+                                ti.setCurrentPrice(trNode.path("currentPrice").asDouble(0.0));
+                                ti.setMargin(trNode.path("margin").asDouble(0.0));
+                                ti.setPnl(trNode.path("pnl").asDouble(0.0));
+                                ti.setOpenTime(trNode.path("openTime").asText(""));
+                                ti.setStatus(trNode.path("status").asText("OPEN"));
+                                tList.add(ti);
+                            }
+                        }
+                        dto.setTrades(tList);
+                        this.sniperActiveCycles.add(dto);
+                    }
+                }
+            }
+            updateSniperActiveCycleSummaryForSelectedPair();
+        } catch (Exception e) {
+            log.warn("Error cargando posiciones activas SNIPER: {}", e.getMessage());
+        }
+    }
+
+    private void updateSniperActiveCycleSummaryForSelectedPair() {
+        this.sniperActiveCycleSummary = new ActiveCycleSummaryDto();
+        if (this.sniperActiveCycles != null && this.selectedSniperPair != null) {
+            String selClean = this.selectedSniperPair.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+            for (ActiveCycleSummaryDto c : this.sniperActiveCycles) {
+                String pairClean = c.getPairA() != null ? c.getPairA().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                String setupClean = c.getSetup() != null ? c.getSetup().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                if (selClean.equals(pairClean) || selClean.equals(setupClean)
+                        || this.selectedSniperPair.equalsIgnoreCase(c.getPairA())
+                        || this.selectedSniperPair.equalsIgnoreCase(c.getSetup())) {
+                    this.sniperActiveCycleSummary = c;
+                    break;
+                }
+            }
+        }
+    }
+
+    public void cerrarPosicionSniper(String symbol) {
+        if (isReadOnly()) return;
+        try {
+            if (symbol == null || symbol.trim().isEmpty()) {
+                symbol = this.selectedSniperPair;
+            }
+            if (symbol == null || symbol.trim().isEmpty()) return;
+            if (this.selectedAccountId == null) return;
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("symbol", symbol);
+            payload.put("operar", 0);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/trades/close-sniper/" + this.selectedAccountId;
+            restTemplate.postForEntity(url, entity, String.class);
+
+            this.sniperOperar = false;
+            loadSniperActiveCycles();
+            loadUserSniperList();
+            analyzeSniperPair();
+            loadSniperRealTradesMovimientos();
+
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Cierre SNIPER", "Posición cerrada exitosamente para " + symbol));
+        } catch (Exception e) {
+            log.error("Error cerrando posición SNIPER para {}: {}", symbol, e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error Cierre", "No se pudo cerrar la posición SNIPER: " + e.getMessage()));
+        }
+    }
+
+    public void loadSniperRealTradesMovimientos() {
+        try {
+            if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
+                this.selectedSniperPair = "EUR/USD";
+            }
+            if (this.sniperRealTradesStartDate == null) {
+                this.sniperRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
+            }
+            if (this.sniperRealTradesEndDate == null) {
+                this.sniperRealTradesEndDate = new java.util.Date();
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedSniperPair, "UTF-8");
+            String encStrat = java.net.URLEncoder.encode("SNIPER", "UTF-8");
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startParam = (this.sniperRealTradesStartDate != null) ? ("&startDate=" + sdf.format(this.sniperRealTradesStartDate)) : "";
+            String endParam = (this.sniperRealTradesEndDate != null) ? ("&endDate=" + sdf.format(this.sniperRealTradesEndDate)) : "";
+            String accParam = (this.selectedAccountId != null) ? ("&idCuenta=" + this.selectedAccountId) : "";
+
+            String url = String.format("%s/api/v1/trades/movimientos/%s?pairB=%s&strategy=%s%s%s%s",
+                    backendUrl, encSym, encSym, encStrat, accParam, startParam, endParam);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode sNode = root.path("summary");
+                RealTradesSummaryDto sum = new RealTradesSummaryDto();
+                sum.setTotalTrades(sNode.path("totalTrades").asInt(0));
+                sum.setOpenTrades(sNode.path("openTrades").asInt(0));
+                sum.setClosedTrades(sNode.path("closedTrades").asInt(0));
+                sum.setWinningTrades(sNode.path("winningTrades").asInt(0));
+                sum.setLosingTrades(sNode.path("losingTrades").asInt(0));
+                sum.setWinRate(sNode.path("winRate").asDouble(0.0));
+                sum.setProfitFactor(sNode.path("profitFactor").asDouble(0.0));
+                sum.setTotalPnl(sNode.path("totalPnl").asDouble(0.0));
+                sum.setTotalCommission(sNode.path("totalCommission").asDouble(0.0));
+                sum.setNetProfit(sNode.path("netProfit").asDouble(0.0));
+                sum.setTotalReturnPct(sNode.path("totalReturnPct").asDouble(0.0));
+                sum.setInitialCapital(sNode.path("initialCapital").asDouble(1000.0));
+                sum.setCurrentCapital(sNode.path("currentCapital").asDouble(1000.0));
+                sum.setTotalMarginUsed(sNode.path("totalMarginUsed").asDouble(0.0));
+                sum.setAccountName(sNode.path("accountName").asText(""));
+                sum.setTotalCycles(sNode.path("totalCycles").asInt(0));
+                sum.setStartDate(sNode.path("startDate").asText("-"));
+                sum.setEndDate(sNode.path("endDate").asText("-"));
+                sum.setTotalDays(sNode.path("totalDays").asInt(0));
+                sum.setAvgCycleHours(sNode.path("avgCycleHours").asDouble(0.0));
+                sum.setAvgCycleDays(sNode.path("avgCycleDays").asDouble(0.0));
+                sum.setRatioTimeframe(sNode.path("ratioTimeframe").asText(this.sniperTimeframe));
+                sum.setRatioOperar(sNode.path("ratioOperar").asBoolean(this.sniperOperar));
+                this.sniperRealTradesSummary = sum;
+
+                JsonNode eqNode = root.path("equityCurve");
+                this.sniperRealTradesEquityCurveJson = eqNode.isArray() ? mapper.writeValueAsString(eqNode) : "[]";
+
+                List<RealTradeItemDto> items = new ArrayList<>();
+                JsonNode tArr = root.path("trades");
+                this.sniperRealTradesJson = (tArr != null && tArr.isArray()) ? mapper.writeValueAsString(tArr) : "[]";
+                int realEntryCounter = 1;
+                double totalRealSize = 0.0;
+                double totalRealCommission = 0.0;
+                double totalRealPnl = 0.0;
+                double totalRealNetPnl = 0.0;
+
+                if (tArr != null && tArr.isArray()) {
+                    for (JsonNode tn : tArr) {
+                        if (tn.path("isSubtotal").asBoolean(false)) {
+                            continue;
+                        }
+                        RealTradeItemDto it = new RealTradeItemDto();
+                        it.setIdTrade(tn.path("idTrade").asInt(0));
+                        it.setTicketId(tn.path("ticketId").asText(""));
+                        it.setSymbol(tn.path("symbol").asText(this.selectedSniperPair));
+                        it.setDirection(tn.path("direction").asText("LARGO"));
+                        it.setStatus(tn.path("status").asText("CLOSED"));
+                        double sz = tn.path("size").asDouble(0.0);
+                        it.setSize(sz);
+                        totalRealSize += sz;
+                        if (!tn.path("entryPrice").isNull()) it.setEntryPrice(tn.path("entryPrice").asDouble());
+                        if (!tn.path("exitPrice").isNull()) it.setExitPrice(tn.path("exitPrice").asDouble());
+                        it.setOpenTime(tn.path("openTime").asText(""));
+                        it.setCloseTime(tn.path("closeTime").asText(""));
+                        double comm = tn.path("commission").asDouble(0.0);
+                        it.setCommission(comm);
+                        totalRealCommission += comm;
+                        double pnl = tn.path("pnl").asDouble(0.0);
+                        it.setPnl(pnl);
+                        totalRealPnl += pnl;
+                        double netPnl = tn.path("netPnl").asDouble(0.0);
+                        it.setNetPnl(netPnl);
+                        totalRealNetPnl += netPnl;
+                        it.setCycleNum(realEntryCounter++);
+                        it.setIsSubtotal(false);
+                        items.add(it);
+                    }
+                }
+
+                if (!items.isEmpty()) {
+                    RealTradeItemDto totalRow = new RealTradeItemDto();
+                    totalRow.setIsSubtotal(true);
+                    totalRow.setStrategy("TOTAL");
+                    totalRow.setTicketId("TOTAL");
+                    totalRow.setSymbol("TOTAL");
+                    totalRow.setDirection("");
+                    totalRow.setStatus("");
+                    totalRow.setSize(totalRealSize);
+                    totalRow.setTradeCount(items.size());
+                    totalRow.setCommission(totalRealCommission);
+                    totalRow.setPnl(totalRealPnl);
+                    totalRow.setNetPnl(totalRealNetPnl);
+                    totalRow.setCycleNum(0);
+                    items.add(totalRow);
+                }
+
+                this.sniperRealTradesList = items;
+            }
+        } catch (Exception e) {
+            log.warn("Error cargando movimientos reales de SNIPER: {}", e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // --- ENTRADA MANUAL POR CANTIDAD (MODAL RATIO - SECCIÓN 2) ---
+    // =========================================================================
+    private String entradaManualRatioSetup = "";
+    private String entradaManualNumerador = "";
+    private String entradaManualDenominador = "";
+    private Integer entradaManualRatioId = null;
+    private String entradaManualDireccion = "LARGO"; // "LARGO" (Compra A / Venta B) o "CORTO" (Venta A / Compra B)
+    private Double entradaManualCantidadA = 3000.0;
+    private Double entradaManualCantidadB = 3000.0;
+    private Double entradaManualEquivalentUnitsB = 3000.0;
+    private boolean entradaManualAutoEquivalencia = true;
+
+    private Double entradaManualPriceA = 0.0;
+    private Double entradaManualPriceB = 0.0;
+    private Double entradaManualNotionalA = 0.0;
+    private Double entradaManualNotionalB = 0.0;
+    private Double entradaManualNotionalDiffPct = 0.0;
+    private boolean entradaManualEquallyBalanced = true;
+
+    private Double entradaManualMargenA = 0.0;
+    private Double entradaManualMargenB = 0.0;
+    private Double entradaManualTotalMargin = 0.0;
+
+    private Double entradaManualAccountCapital = 0.0;
+    private Double entradaManualAccountEquity = 0.0;
+    private Double entradaManualCurrentMargin = 0.0;
+    private Double entradaManualCurrentIndicator = 0.0;
+    private Double entradaManualProjectedMargin = 0.0;
+    private Double entradaManualProjectedIndicator = 0.0;
+    private Double entradaManualMinMarginRequired = 200.0;
+    private boolean entradaManualAllowed = false;
+    private boolean entradaManualCanOperate = true;
+    private String entradaManualWarningMessage = null;
+
+    public String getEntradaManualRatioSetup() { return entradaManualRatioSetup; }
+    public void setEntradaManualRatioSetup(String entradaManualRatioSetup) { this.entradaManualRatioSetup = entradaManualRatioSetup; }
+    public String getEntradaManualNumerador() { return entradaManualNumerador; }
+    public void setEntradaManualNumerador(String entradaManualNumerador) { this.entradaManualNumerador = entradaManualNumerador; }
+    public String getEntradaManualDenominador() { return entradaManualDenominador; }
+    public void setEntradaManualDenominador(String entradaManualDenominador) { this.entradaManualDenominador = entradaManualDenominador; }
+    public Integer getEntradaManualRatioId() { return entradaManualRatioId; }
+    public void setEntradaManualRatioId(Integer entradaManualRatioId) { this.entradaManualRatioId = entradaManualRatioId; }
+    public String getEntradaManualDireccion() { return entradaManualDireccion; }
+    public void setEntradaManualDireccion(String entradaManualDireccion) { this.entradaManualDireccion = entradaManualDireccion; }
+    public Double getEntradaManualCantidadA() { return entradaManualCantidadA; }
+    public void setEntradaManualCantidadA(Double entradaManualCantidadA) { this.entradaManualCantidadA = entradaManualCantidadA; }
+    public Double getEntradaManualCantidadB() { return entradaManualCantidadB; }
+    public void setEntradaManualCantidadB(Double entradaManualCantidadB) { this.entradaManualCantidadB = entradaManualCantidadB; }
+    public Double getEntradaManualEquivalentUnitsB() { return entradaManualEquivalentUnitsB; }
+    public void setEntradaManualEquivalentUnitsB(Double entradaManualEquivalentUnitsB) { this.entradaManualEquivalentUnitsB = entradaManualEquivalentUnitsB; }
+    public boolean isEntradaManualAutoEquivalencia() { return entradaManualAutoEquivalencia; }
+    public void setEntradaManualAutoEquivalencia(boolean entradaManualAutoEquivalencia) { this.entradaManualAutoEquivalencia = entradaManualAutoEquivalencia; }
+    public Double getEntradaManualPriceA() { return entradaManualPriceA; }
+    public Double getEntradaManualPriceB() { return entradaManualPriceB; }
+    public Double getEntradaManualNotionalA() { return entradaManualNotionalA; }
+    public Double getEntradaManualNotionalB() { return entradaManualNotionalB; }
+    public Double getEntradaManualNotionalDiffPct() { return entradaManualNotionalDiffPct; }
+    public boolean isEntradaManualEquallyBalanced() { return entradaManualEquallyBalanced; }
+    public Double getEntradaManualMargenA() { return entradaManualMargenA; }
+    public Double getEntradaManualMargenB() { return entradaManualMargenB; }
+    public Double getEntradaManualTotalMargin() { return entradaManualTotalMargin; }
+    public Double getEntradaManualAccountCapital() { return entradaManualAccountCapital; }
+    public Double getEntradaManualAccountEquity() { return entradaManualAccountEquity; }
+    public Double getEntradaManualCurrentMargin() { return entradaManualCurrentMargin; }
+    public Double getEntradaManualCurrentIndicator() { return entradaManualCurrentIndicator; }
+    public Double getEntradaManualProjectedMargin() { return entradaManualProjectedMargin; }
+    public Double getEntradaManualProjectedIndicator() { return entradaManualProjectedIndicator; }
+    public Double getEntradaManualMinMarginRequired() { return entradaManualMinMarginRequired; }
+    public boolean isEntradaManualAllowed() { return entradaManualAllowed; }
+    public boolean isEntradaManualCanOperate() { return entradaManualCanOperate; }
+    public String getEntradaManualWarningMessage() { return entradaManualWarningMessage; }
+
+    public String getFormattedEntradaManualNotionalA() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualNotionalA != null ? entradaManualNotionalA : 0.0);
+    }
+    public String getFormattedEntradaManualNotionalB() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualNotionalB != null ? entradaManualNotionalB : 0.0);
+    }
+    public String getFormattedEntradaManualMargenA() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualMargenA != null ? entradaManualMargenA : 0.0);
+    }
+    public String getFormattedEntradaManualMargenB() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualMargenB != null ? entradaManualMargenB : 0.0);
+    }
+    public String getFormattedEntradaManualTotalMargin() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualTotalMargin != null ? entradaManualTotalMargin : 0.0);
+    }
+    public String getFormattedEntradaManualCurrentIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f%%", entradaManualCurrentIndicator != null ? entradaManualCurrentIndicator : 0.0);
+    }
+    public String getFormattedEntradaManualProjectedIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f%%", entradaManualProjectedIndicator != null ? entradaManualProjectedIndicator : 0.0);
+    }
+    public String getFormattedEntradaManualMinMargin() {
+        return String.format(java.util.Locale.US, "%,.0f%%", entradaManualMinMarginRequired != null ? entradaManualMinMarginRequired : 200.0);
+    }
+    public String getFormattedEntradaManualDiffPct() {
+        return String.format(java.util.Locale.US, "%,.1f%%", entradaManualNotionalDiffPct != null ? entradaManualNotionalDiffPct : 0.0);
+    }
+
+    public void abrirEntradaManualRatio() {
+        this.entradaManualNumerador = this.selectedPair != null && !this.selectedPair.isEmpty() ? this.selectedPair : "EUR/USD";
+        this.entradaManualDenominador = this.selectedPair2 != null && !this.selectedPair2.isEmpty() ? this.selectedPair2 : "USD/CAD";
+        if (this.selectedUserRatio != null && this.selectedUserRatio.getNumerador() != null && this.selectedUserRatio.getDenominador() != null) {
+            this.entradaManualRatioSetup = this.selectedUserRatio.getNumerador() + " - " + this.selectedUserRatio.getDenominador();
+            this.entradaManualRatioId = this.selectedUserRatio.getId();
+        } else {
+            this.entradaManualRatioSetup = this.entradaManualNumerador + " - " + this.entradaManualDenominador;
+            this.entradaManualRatioId = null;
+        }
+        this.entradaManualDireccion = "LARGO";
+        this.entradaManualCantidadA = 3000.0;
+        this.entradaManualAutoEquivalencia = true;
+        actualizarPreviewEntradaManual();
+    }
+
+    public void onEntradaManualCantidadAChange() {
+        actualizarPreviewEntradaManual();
+    }
+
+    public void onEntradaManualCantidadBChange() {
+        this.entradaManualAutoEquivalencia = false;
+        actualizarPreviewEntradaManual();
+    }
+
+    public void onEntradaManualDireccionChange() {
+        actualizarPreviewEntradaManual();
+    }
+
+    public void onEntradaManualAutoEquivalenciaToggle() {
+        actualizarPreviewEntradaManual();
+    }
+
+    public void aplicarEquivalenciaAutomatica() {
+        this.entradaManualAutoEquivalencia = true;
+        actualizarPreviewEntradaManual();
+    }
+
+    public void actualizarPreviewEntradaManual() {
+        Integer accId = selectedAccountId;
+        if (accId == null || accId == 0) {
+            accId = 2;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idCuenta", accId);
+            payload.put("numerador", this.entradaManualNumerador);
+            payload.put("denominador", this.entradaManualDenominador);
+            payload.put("directionRatio", this.entradaManualDireccion);
+            payload.put("unitsA", this.entradaManualCantidadA != null && this.entradaManualCantidadA > 0 ? this.entradaManualCantidadA : 1000.0);
+            payload.put("autoEquivalence", this.entradaManualAutoEquivalencia);
+            if (!this.entradaManualAutoEquivalencia && this.entradaManualCantidadB != null && this.entradaManualCantidadB > 0) {
+                payload.put("unitsB", this.entradaManualCantidadB);
+            }
+
+            String url = backendUrl + "/api/v1/trades/preview-manual-ratio";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(response.getBody());
+
+                this.entradaManualPriceA = root.path("priceA").asDouble(0.0);
+                this.entradaManualPriceB = root.path("priceB").asDouble(0.0);
+                this.entradaManualEquivalentUnitsB = root.path("equivalentUnitsB").asDouble(3000.0);
+                if (this.entradaManualAutoEquivalencia || this.entradaManualCantidadB == null || this.entradaManualCantidadB <= 0) {
+                    this.entradaManualCantidadB = this.entradaManualEquivalentUnitsB;
+                }
+                this.entradaManualNotionalA = root.path("notionalA").asDouble(0.0);
+                this.entradaManualNotionalB = root.path("notionalB").asDouble(0.0);
+                this.entradaManualNotionalDiffPct = root.path("notionalDiffPct").asDouble(0.0);
+                this.entradaManualEquallyBalanced = root.path("isEquallyBalanced").asBoolean(true);
+
+                this.entradaManualMargenA = root.path("margenA").asDouble(0.0);
+                this.entradaManualMargenB = root.path("margenB").asDouble(0.0);
+                this.entradaManualTotalMargin = root.path("totalPlannedMargin").asDouble(0.0);
+
+                this.entradaManualAccountCapital = root.path("accountCapital").asDouble(0.0);
+                this.entradaManualAccountEquity = root.path("accountEquity").asDouble(0.0);
+                this.entradaManualCurrentMargin = root.path("currentMargin").asDouble(0.0);
+                this.entradaManualCurrentIndicator = root.path("currentMarginIndicator").asDouble(0.0);
+                this.entradaManualProjectedMargin = root.path("projectedMargin").asDouble(0.0);
+                this.entradaManualProjectedIndicator = root.path("projectedMarginIndicator").asDouble(0.0);
+                this.entradaManualMinMarginRequired = root.path("minMarginRequired").asDouble(200.0);
+                this.entradaManualCanOperate = root.path("canOperate").asBoolean(true);
+                this.entradaManualAllowed = root.path("isAllowed").asBoolean(false);
+                this.entradaManualWarningMessage = root.hasNonNull("warningMessage") ? root.path("warningMessage").asText() : null;
+            }
+        } catch (Exception ex) {
+            log.error("Error al actualizar preview de entrada manual: {}", ex.getMessage(), ex);
+            this.entradaManualAllowed = false;
+            this.entradaManualWarningMessage = "Error al calcular margen: " + ex.getMessage();
+        }
+    }
+
+    public void ejecutarEntradaManualRatio() {
+        if (!this.entradaManualAllowed) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Orden Bloqueada",
+                            this.entradaManualWarningMessage != null ? this.entradaManualWarningMessage : "La orden rebasa el Indicador de Margen Mínimo permitido."));
+            return;
+        }
+
+        Integer accId = selectedAccountId;
+        if (accId == null || accId == 0) {
+            accId = 2;
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idCuenta", accId);
+            payload.put("numerador", this.entradaManualNumerador);
+            payload.put("denominador", this.entradaManualDenominador);
+            payload.put("directionRatio", this.entradaManualDireccion);
+            payload.put("unitsA", this.entradaManualCantidadA);
+            payload.put("unitsB", this.entradaManualCantidadB);
+            payload.put("setup", this.entradaManualRatioSetup);
+
+            String url = backendUrl + "/api/v1/trades/open-manual-ratio";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(
+                                javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Entrada Ejecutada con Éxito",
+                                "Se han enviado y confirmado las órdenes de " + this.entradaManualRatioSetup + " en FOREX.com."));
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('entradaManualRatioDlg').hide();");
+                loadAllActiveCycles();
+                analyzePair();
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(
+                                javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Ejecutar Orden",
+                                "El servidor devolvió estado " + response.getStatusCodeValue()));
+            }
+        } catch (org.springframework.web.client.HttpStatusCodeException httpEx) {
+            log.error("Error HTTP al ejecutar entrada manual: {}", httpEx.getResponseBodyAsString());
+            String errDetail = httpEx.getResponseBodyAsString();
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode errNode = mapper.readTree(errDetail);
+                if (errNode.has("detail")) {
+                    errDetail = errNode.path("detail").asText();
+                }
+            } catch (Exception eJson) {}
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Orden Rechazada",
+                            errDetail));
+        } catch (Exception ex) {
+            log.error("Excepción al ejecutar entrada manual: {}", ex.getMessage(), ex);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error del Sistema",
+                            ex.getMessage()));
         }
     }
 
