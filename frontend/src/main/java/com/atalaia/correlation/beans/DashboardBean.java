@@ -443,6 +443,13 @@ public class DashboardBean implements Serializable {
         private double pnl;
         private String openTime;
         private String status = "OPEN";
+        private Double takeProfit;
+        private Double stopLoss;
+        private boolean breakEven;
+        private boolean hasBe;
+        private Double bePrice;
+        private boolean hasTsl;
+        private Double tslPrice;
 
         public int getIdTrade() { return idTrade; }
         public void setIdTrade(int idTrade) { this.idTrade = idTrade; }
@@ -464,6 +471,20 @@ public class DashboardBean implements Serializable {
         public void setOpenTime(String openTime) { this.openTime = openTime; }
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
+        public Double getTakeProfit() { return takeProfit; }
+        public void setTakeProfit(Double takeProfit) { this.takeProfit = takeProfit; }
+        public Double getStopLoss() { return stopLoss; }
+        public void setStopLoss(Double stopLoss) { this.stopLoss = stopLoss; }
+        public boolean isBreakEven() { return breakEven; }
+        public void setBreakEven(boolean breakEven) { this.breakEven = breakEven; }
+        public boolean isHasBe() { return hasBe; }
+        public void setHasBe(boolean hasBe) { this.hasBe = hasBe; }
+        public Double getBePrice() { return bePrice; }
+        public void setBePrice(Double bePrice) { this.bePrice = bePrice; }
+        public boolean isHasTsl() { return hasTsl; }
+        public void setHasTsl(boolean hasTsl) { this.hasTsl = hasTsl; }
+        public Double getTslPrice() { return tslPrice; }
+        public void setTslPrice(Double tslPrice) { this.tslPrice = tslPrice; }
         private String strategy = "RATIO ATALAia";
         public String getStrategy() { return strategy; }
         public void setStrategy(String strategy) { this.strategy = strategy; }
@@ -7520,6 +7541,13 @@ public class DashboardBean implements Serializable {
                                 ti.setPnl(trNode.path("pnl").asDouble(0.0));
                                 ti.setOpenTime(trNode.path("openTime").asText(""));
                                 ti.setStatus(trNode.path("status").asText("OPEN"));
+                                if (trNode.hasNonNull("takeProfit")) ti.setTakeProfit(trNode.path("takeProfit").asDouble());
+                                if (trNode.hasNonNull("stopLoss")) ti.setStopLoss(trNode.path("stopLoss").asDouble());
+                                ti.setBreakEven(trNode.path("isBreakEven").asBoolean(false));
+                                ti.setHasBe(trNode.path("hasBe").asBoolean(false));
+                                if (trNode.hasNonNull("bePrice")) ti.setBePrice(trNode.path("bePrice").asDouble());
+                                ti.setHasTsl(trNode.path("hasTsl").asBoolean(false));
+                                if (trNode.hasNonNull("tslPrice")) ti.setTslPrice(trNode.path("tslPrice").asDouble());
                                 tList.add(ti);
                             }
                         }
@@ -7769,6 +7797,18 @@ public class DashboardBean implements Serializable {
     public boolean isSniperHasActiveTradesInDb() { return sniperHasActiveTradesInDb; }
     public void setSniperHasActiveTradesInDb(boolean sniperHasActiveTradesInDb) { this.sniperHasActiveTradesInDb = sniperHasActiveTradesInDb; }
 
+    public boolean isSniperEditBlocked() {
+        if (isReadOnly()) {
+            return true;
+        }
+        return this.sniperHasActiveTradesInDb
+                || (this.selectedUserSniper != null && Boolean.TRUE.equals(this.selectedUserSniper.getHasOpenTrades()));
+    }
+
+    public boolean getSniperEditBlocked() {
+        return isSniperEditBlocked();
+    }
+
     public String getSniperCalibrationTabTitle() {
         return (currentSniperId != null && currentSniperId > 0)
                 ? ("2. Calibración SNIPER " + currentSniperId + " (" + selectedSniperPair + ")")
@@ -7848,10 +7888,14 @@ public class DashboardBean implements Serializable {
     public String getSniperHistoryJson() { return sniperHistoryJson != null ? sniperHistoryJson : "[]"; }
     public void setSniperHistoryJson(String sniperHistoryJson) { this.sniperHistoryJson = sniperHistoryJson; }
     public String getSniperActiveTradesJson() {
+        if (sniperActiveTradesJson != null && !sniperActiveTradesJson.trim().isEmpty()
+                && !sniperActiveTradesJson.equals("null") && !sniperActiveTradesJson.equals("[]")) {
+            return sniperActiveTradesJson;
+        }
         if (sniperActiveCycleSummary != null && sniperActiveCycleSummary.getTradesJson() != null && !sniperActiveCycleSummary.getTradesJson().equals("[]")) {
             return sniperActiveCycleSummary.getTradesJson();
         }
-        return sniperActiveTradesJson != null ? sniperActiveTradesJson : "[]";
+        return "[]";
     }
     public void setSniperActiveTradesJson(String sniperActiveTradesJson) { this.sniperActiveTradesJson = sniperActiveTradesJson; }
     public String getSniperActiveCycleSummaryJson() { return sniperActiveCycleSummaryJson != null ? sniperActiveCycleSummaryJson : "{}"; }
@@ -8011,6 +8055,9 @@ public class DashboardBean implements Serializable {
         if (dto == null) return;
         this.selectedUserSniper = dto;
         this.currentSniperId = dto.getId();
+        if (dto.getIdCuenta() != null) {
+            this.selectedAccountId = dto.getIdCuenta();
+        }
         this.selectedSniperPair = dto.getNumerador();
         this.sniperTimeframe = dto.getTemporalidad() != null ? dto.getTemporalidad() : "15min";
         this.sniperDaysBack = dto.getPeriodo() != null ? dto.getPeriodo() : 180;
@@ -8093,6 +8140,8 @@ public class DashboardBean implements Serializable {
             if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
                 this.selectedSniperPair = "EUR/USD";
             }
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserSniper != null ? this.selectedUserSniper.getIdCuenta() : null);
             String encSym = java.net.URLEncoder.encode(this.selectedSniperPair, "UTF-8");
             String url = String.format(java.util.Locale.US,
                     "%s/api/v1/sniper/analysis/%s?timeframe=%s&days=%d%s%s",
@@ -8100,7 +8149,7 @@ public class DashboardBean implements Serializable {
                     encSym,
                     this.sniperTimeframe != null ? this.sniperTimeframe : "15min",
                     this.sniperDaysBack != null ? this.sniperDaysBack : 180,
-                    this.selectedAccountId != null ? ("&idCuenta=" + this.selectedAccountId) : "",
+                    effAccId != null ? ("&idCuenta=" + effAccId) : "",
                     this.sniperMultiplicadorRiesgo != null ? ("&multiplicadorRiesgo=" + this.sniperMultiplicadorRiesgo) : ""
             );
             RestTemplate restTemplate = new RestTemplate();
@@ -8174,8 +8223,14 @@ public class DashboardBean implements Serializable {
                 JsonNode actTr = root.path("activeTrade");
                 if (!actTr.isMissingNode() && !actTr.isNull()) {
                     this.sniperActiveTradesJson = mapper.writeValueAsString(actTr);
+                    this.sniperHasActiveTradesInDb = true;
                 } else {
                     this.sniperActiveTradesJson = "null";
+                    if (this.selectedUserSniper != null && Boolean.TRUE.equals(this.selectedUserSniper.getHasOpenTrades())) {
+                        this.sniperHasActiveTradesInDb = true;
+                    } else {
+                        this.sniperHasActiveTradesInDb = false;
+                    }
                 }
             }
             loadSniperActiveCycles();
@@ -8185,17 +8240,26 @@ public class DashboardBean implements Serializable {
     }
 
     public void optimizarSniperPair() {
-        if (isReadOnly()) return;
+        if (isReadOnly() || isSniperEditBlocked()) {
+            if (isSniperEditBlocked() && !isReadOnly()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Modificación Bloqueada", "No se puede calibrar: Existe una posición activa en mercado para este par."));
+            }
+            return;
+        }
         try {
             if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) {
                 this.selectedSniperPair = "EUR/USD";
             }
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserSniper != null ? this.selectedUserSniper.getIdCuenta() : null);
             String encSym = java.net.URLEncoder.encode(this.selectedSniperPair, "UTF-8");
             String url = String.format(java.util.Locale.US,
                     "%s/api/v1/sniper/optimize/%s%s",
                     backendUrl,
                     encSym,
-                    this.selectedAccountId != null ? ("?idCuenta=" + this.selectedAccountId) : ""
+                    effAccId != null ? ("?idCuenta=" + effAccId) : ""
             );
             RestTemplate restTemplate = new RestTemplate();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -8269,18 +8333,27 @@ public class DashboardBean implements Serializable {
     }
 
     public void guardarSniper() {
-        if (isReadOnly()) return;
+        if (isReadOnly() || isSniperEditBlocked()) {
+            if (isSniperEditBlocked() && !isReadOnly()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Modificación Bloqueada", "No se puede guardar: Existe una posición activa en mercado para este par."));
+            }
+            return;
+        }
         try {
             Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
                     ? securityBean.getSelectedUserId()
                     : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserSniper != null ? this.selectedUserSniper.getIdCuenta() : null);
             RestTemplate restTemplate = new RestTemplate();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idUsuario", userId != null ? userId : 1);
-            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("idCuenta", effAccId);
             payload.put("symbol", this.selectedSniperPair);
             payload.put("Temporalidad", this.sniperTimeframe != null ? this.sniperTimeframe : "15min");
             payload.put("periodo", this.sniperDaysBack != null ? this.sniperDaysBack : 180);
@@ -8314,18 +8387,27 @@ public class DashboardBean implements Serializable {
     }
 
     public void borrarSniper() {
-        if (isReadOnly()) return;
+        if (isReadOnly() || isSniperEditBlocked()) {
+            if (isSniperEditBlocked() && !isReadOnly()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Modificación Bloqueada", "No se puede borrar: Existe una posición activa en mercado para este par."));
+            }
+            return;
+        }
         try {
             Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
                     ? securityBean.getSelectedUserId()
                     : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserSniper != null ? this.selectedUserSniper.getIdCuenta() : null);
             RestTemplate restTemplate = new RestTemplate();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             payload.put("idUsuario", userId != null ? userId : 1);
-            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("idCuenta", effAccId);
             payload.put("symbol", this.selectedSniperPair);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
@@ -8417,6 +8499,13 @@ public class DashboardBean implements Serializable {
                                 ti.setPnl(trNode.path("pnl").asDouble(0.0));
                                 ti.setOpenTime(trNode.path("openTime").asText(""));
                                 ti.setStatus(trNode.path("status").asText("OPEN"));
+                                if (trNode.hasNonNull("takeProfit")) ti.setTakeProfit(trNode.path("takeProfit").asDouble());
+                                if (trNode.hasNonNull("stopLoss")) ti.setStopLoss(trNode.path("stopLoss").asDouble());
+                                ti.setBreakEven(trNode.path("isBreakEven").asBoolean(false));
+                                ti.setHasBe(trNode.path("hasBe").asBoolean(false));
+                                if (trNode.hasNonNull("bePrice")) ti.setBePrice(trNode.path("bePrice").asDouble());
+                                ti.setHasTsl(trNode.path("hasTsl").asBoolean(false));
+                                if (trNode.hasNonNull("tslPrice")) ti.setTslPrice(trNode.path("tslPrice").asDouble());
                                 tList.add(ti);
                             }
                         }
@@ -8614,7 +8703,7 @@ public class DashboardBean implements Serializable {
     private String entradaManualNumerador = "";
     private String entradaManualDenominador = "";
     private Integer entradaManualRatioId = null;
-    private String entradaManualDireccion = "LARGO"; // "LARGO" (Compra A / Venta B) o "CORTO" (Venta A / Compra B)
+    private String entradaManualDireccion = "CORTO"; // Fijo: Par A (arriba) en Venta / Par B (abajo) en Compra
     private Double entradaManualCantidadA = 3000.0;
     private Double entradaManualCantidadB = 3000.0;
     private Double entradaManualEquivalentUnitsB = 3000.0;
@@ -8718,26 +8807,29 @@ public class DashboardBean implements Serializable {
             this.entradaManualRatioSetup = this.entradaManualNumerador + " - " + this.entradaManualDenominador;
             this.entradaManualRatioId = null;
         }
-        this.entradaManualDireccion = "LARGO";
+        this.entradaManualDireccion = "CORTO"; // Par A (arriba) en Venta / Par B (abajo) en Compra
         this.entradaManualCantidadA = 3000.0;
         this.entradaManualAutoEquivalencia = true;
         actualizarPreviewEntradaManual();
     }
 
     public void onEntradaManualCantidadAChange() {
+        this.entradaManualAutoEquivalencia = true;
         actualizarPreviewEntradaManual();
     }
 
     public void onEntradaManualCantidadBChange() {
-        this.entradaManualAutoEquivalencia = false;
+        this.entradaManualAutoEquivalencia = true;
         actualizarPreviewEntradaManual();
     }
 
     public void onEntradaManualDireccionChange() {
+        this.entradaManualDireccion = "CORTO";
         actualizarPreviewEntradaManual();
     }
 
     public void onEntradaManualAutoEquivalenciaToggle() {
+        this.entradaManualAutoEquivalencia = true;
         actualizarPreviewEntradaManual();
     }
 
@@ -8747,6 +8839,8 @@ public class DashboardBean implements Serializable {
     }
 
     public void actualizarPreviewEntradaManual() {
+        this.entradaManualDireccion = "CORTO";
+        this.entradaManualAutoEquivalencia = true;
         Integer accId = selectedAccountId;
         if (accId == null || accId == 0) {
             accId = 2;
@@ -8760,12 +8854,9 @@ public class DashboardBean implements Serializable {
             payload.put("idCuenta", accId);
             payload.put("numerador", this.entradaManualNumerador);
             payload.put("denominador", this.entradaManualDenominador);
-            payload.put("directionRatio", this.entradaManualDireccion);
+            payload.put("directionRatio", "CORTO");
             payload.put("unitsA", this.entradaManualCantidadA != null && this.entradaManualCantidadA > 0 ? this.entradaManualCantidadA : 1000.0);
-            payload.put("autoEquivalence", this.entradaManualAutoEquivalencia);
-            if (!this.entradaManualAutoEquivalencia && this.entradaManualCantidadB != null && this.entradaManualCantidadB > 0) {
-                payload.put("unitsB", this.entradaManualCantidadB);
-            }
+            payload.put("autoEquivalence", true);
 
             String url = backendUrl + "/api/v1/trades/preview-manual-ratio";
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);

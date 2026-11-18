@@ -29,8 +29,10 @@ async def lifespan(app: FastAPI):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, init_db)
         logger.info("Database schemas verified successfully.")
+        from backend.services.avatarService import ensure_all_user_avatars
+        await loop.run_in_executor(None, ensure_all_user_avatars)
     except Exception as e:
-        logger.warning(f"Could not verify DB schemas during startup: {e}")
+        logger.warning(f"Could not verify DB schemas or avatars during startup: {e}")
     # scheduler.start() # TODO: Lo encederemos después cuando el cronjob esté 100% definido
     logger.info("Scheduler ready (paused).")
     yield

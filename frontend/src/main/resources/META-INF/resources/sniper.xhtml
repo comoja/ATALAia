@@ -167,7 +167,6 @@
                             <!-- SECCIÓN 2: CALIBRACIÓN Y PARÁMETROS ADAPTATIVOS SNIPER -->
                             <p:tab id="tabCalibSniper" title="#{dashboardBean.sniperCalibrationTabTitle}">
                                 <div style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;">
-                                    
                                     <!-- Selector de Emisora y Multiplicador de Riesgo (Lado a Lado) -->
                                     <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; align-items: end;">
                                         <!-- Columna Izquierda: Emisora -->
@@ -181,7 +180,7 @@
                                                 </h:panelGroup>
                                             </div>
                                             <p:selectOneMenu id="sniperSymbolSelect" value="#{dashboardBean.selectedSniperPair}"
-                                                disabled="#{dashboardBean.readOnly}" styleClass="aether-input" filter="true"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input" filter="true"
                                                 filterMatchMode="contains" style="width: 100%; font-weight: 800;">
                                                 <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
                                                     itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
@@ -206,6 +205,7 @@
                                             <p:inputNumber id="sniperMultRiesgoInput" value="#{dashboardBean.sniperMultiplicadorRiesgo}"
                                                 decimalPlaces="2" minValue="0.10" maxValue="10.00"
                                                 symbol="x" symbolPosition="s"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 style="width: 100%;" inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update="pnlRiesgoSniper"
@@ -219,7 +219,7 @@
                                         <div>
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Temporalidad:</label>
                                             <p:selectOneMenu id="sniperTimeframeSelect" value="#{dashboardBean.sniperTimeframe}"
-                                                disabled="#{dashboardBean.readOnly}" styleClass="aether-input"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
                                                 style="width: 100%; font-weight: 800;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update=":aetherForm"
@@ -236,6 +236,7 @@
                                         <div>
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días Historial:</label>
                                             <p:spinner id="sniperDaysBackSpinner" value="#{dashboardBean.sniperDaysBack}" min="30" max="365" stepFactor="30"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="width: 100%;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update=":aetherForm" oncomplete="handleUserSniperSelected();" />
@@ -248,11 +249,13 @@
                                         <div>
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza Mín ML (%):</label>
                                             <p:spinner value="#{dashboardBean.sniperMinConfidence}" min="50.0" max="95.0" stepFactor="5.0"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="width: 100%;" />
                                         </div>
                                         <div>
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R Mínimo:</label>
                                             <p:spinner value="#{dashboardBean.sniperMinRr}" min="1.0" max="5.0" stepFactor="0.1"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="width: 100%;" />
                                         </div>
                                     </div>
@@ -261,11 +264,11 @@
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(180, 123, 43, 0.06); padding: 8px; border-radius: 8px; border: 1px solid rgba(180, 123, 43, 0.2);">
                                         <div style="display: flex; align-items: center; justify-content: space-between;">
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit">BreakEven (50%):</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}" />
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}" disabled="#{dashboardBean.sniperEditBlocked}" />
                                         </div>
                                         <div style="display: flex; align-items: center; justify-content: space-between;">
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Activa Trailing Stop Loss una vez asegurado el BreakEven">Trailing SL:</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}" />
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}" disabled="#{dashboardBean.sniperEditBlocked}" />
                                         </div>
                                     </div>
 
@@ -273,14 +276,16 @@
                                     <h:panelGroup layout="block" id="pnlHorarioSniper" style="background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
                                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Filtro Horario (CST):</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperFiltroHorario}">
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperFiltroHorario}" disabled="#{dashboardBean.sniperEditBlocked}">
                                                 <p:ajax process="@this" update="pnlHorarioSniper" />
                                             </p:selectBooleanCheckbox>
                                         </div>
                                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                             <p:inputText value="#{dashboardBean.sniperHoraInicio}" placeholder="08:00"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
                                             <p:inputText value="#{dashboardBean.sniperHoraFin}" placeholder="16:00"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
                                         </div>
                                     </h:panelGroup>
@@ -304,6 +309,7 @@
                                     <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 8px;">
                                         <p:commandButton value="Auto-Calibrar Parámetros y Horario" icon="pi pi-sliders-h"
                                             action="#{dashboardBean.optimizarSniperPair}"
+                                            disabled="#{dashboardBean.sniperEditBlocked}"
                                             process="@this"
                                             update=":aetherForm :aetherForm:growl"
                                             oncomplete="handleUserSniperSelected();"
@@ -314,6 +320,7 @@
                                         <div style="display: flex; gap: 8px;">
                                             <p:commandButton value="Guardar" icon="pi pi-check"
                                                 action="#{dashboardBean.guardarSniper}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 process="@form"
                                                 update=":aetherForm :aetherForm:growl"
                                                 oncomplete="handleUserSniperSelected();"
@@ -322,6 +329,7 @@
                                             
                                             <p:commandButton value="Borrar" icon="pi pi-trash"
                                                 action="#{dashboardBean.borrarSniper}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
                                                 rendered="#{dashboardBean.sniperExistsInDb}"
                                                 process="@this"
                                                 update=":aetherForm"
@@ -379,12 +387,13 @@
 
                             <div
                                 style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: nowrap;">
-                                <div id="sniperLiveIndicator"
-                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #047857; transition: all 0.2s ease;">
+                                <button id="btnSniperAutoLive" type="button" onclick="toggleSniperAutoLive();"
+                                    title="Alternar Auto-Actualización en Vivo de SNIPER"
+                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #047857; cursor: pointer; transition: all 0.2s ease;">
                                     <span id="sniperLivePulseDot"
                                         style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);"></span>
                                     <span id="sniperLiveText" style="font-size: 1.22rem;">En Vivo (10s)</span>
-                                </div>
+                                </button>
                                 <p:commandButton icon="pi pi-refresh" title="Refrescar gráfica en vivo"
                                     action="#{dashboardBean.analyzeSniperPair}" process="@this"
                                     update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
@@ -403,31 +412,49 @@
                             style="flex: 1; position: relative; width: 100%; min-height: 500px; background: #ffffff; border-radius: 12px; padding: 10px; border: 1px solid var(--border-soft); display: flex; flex-direction: column;">
 
                             <!-- BANNER DE POSICIÓN ACTIVA EN CURSO (SI EXISTE TRADE OPEN EN SNIPER) -->
-                            <div id="sniperActiveTradeBanner" style="display: none; margin-bottom: 10px; padding: 10px 14px; border-radius: 10px; background: rgba(180, 123, 43, 0.08); border: 1.5px solid #b47b2b; justify-content: space-between; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-                                    <span id="sniperBannerDirBadge" style="font-weight: 900; font-size: 0.85rem; padding: 3px 10px; border-radius: 6px; color: #ffffff;"></span>
-                                    <span style="font-size: 0.88rem; color: #334155;">
-                                        Entrada: <b id="sniperBannerEntry" style="color: #0f172a;">—</b>
-                                    </span>
-                                    <span style="font-size: 0.88rem; color: #334155;">
-                                        Stop Loss: <b id="sniperBannerSl" style="color: #dc2626;">—</b>
-                                    </span>
-                                    <span style="font-size: 0.88rem; color: #334155;">
-                                        Take Profit: <b id="sniperBannerTp" style="color: #16a34a;">—</b>
-                                    </span>
-                                    <span style="font-size: 0.88rem; color: #334155;">
-                                        BreakEven: <b id="sniperBannerBe" style="color: #0284c7;">—</b>
-                                    </span>
-                                    <span style="font-size: 0.88rem; color: #334155;">
-                                        PnL Flotante: <b id="sniperBannerPnl" style="font-size: 1.0rem;">$0.00</b>
-                                    </span>
+                            <div id="sniperActiveTradeBanner"
+                                style="display: none; margin-bottom: 6px; padding: 3px 12px; border-radius: 8px; background: rgba(180, 123, 43, 0.08); border: 1.5px solid #b47b2b; justify-content: space-between; align-items: center; min-height: 36px; box-sizing: border-box; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; overflow-x: auto; font-size: 1.15rem;">
+                                    <span id="sniperBannerDirBadge"
+                                        style="font-weight: 900; font-size: 1.15rem; padding: 2px 10px; border-radius: 6px; color: #ffffff; letter-spacing: 0.5px; white-space: nowrap; line-height: 1.2;"></span>
+                                    
+                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">Entrada:</span>
+                                        <b id="sniperBannerEntry" style="color: #0f172a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    
+                                    <div id="sniperBannerSlContainer" style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #ef4444; text-transform: uppercase;">SL:</span>
+                                        <b id="sniperBannerSl" style="color: #dc2626; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    
+                                    <div id="sniperBannerTpContainer" style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #10b981; text-transform: uppercase;">TP:</span>
+                                        <b id="sniperBannerTp" style="color: #16a34a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    
+                                    <div id="sniperBannerBeContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #0284c7; text-transform: uppercase;">BE:</span>
+                                        <b id="sniperBannerBe" style="color: #0284c7; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+
+                                    <div id="sniperBannerTslContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #d97706; text-transform: uppercase;">TSL:</span>
+                                        <b id="sniperBannerTsl" style="color: #d97706; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    
+                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">PnL:</span>
+                                        <b id="sniperBannerPnl" style="font-size: 1.15rem; font-weight: 900; line-height: 1;">$0.00</b>
+                                    </div>
                                 </div>
-                                <p:commandButton value="Cerrar Posición" icon="pi pi-times"
+                                <p:commandButton icon="pi pi-times"
+                                    title="Cerrar Posición Activa de #{dashboardBean.selectedSniperPair}"
                                     action="#{dashboardBean.cerrarPosicionSniper(dashboardBean.selectedSniperPair)}"
                                     process="@this" update=":aetherForm"
                                     oncomplete="handleUserSniperSelected();"
                                     styleClass="aether-btn-secondary"
-                                    style="color: #dc2626 !important; border-color: #ef4444 !important; font-weight: 800; font-size: 0.85rem;" />
+                                    style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; color: #dc2626 !important; border-color: #ef4444 !important; font-size: 0.95rem !important; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px !important;" />
                             </div>
 
                             <!-- LEYENDA TÁCTICA DE ELEMENTOS DIBUJADOS -->
@@ -435,27 +462,27 @@
                                 <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
                                         <span style="width: 12px; height: 3px; background: #b47b2b; display: inline-block;"></span>
-                                        <b>Precio (Cierre)</b>
+                                        <b>Precio</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
                                         <span style="width: 12px; height: 3px; background: #16a34a; display: inline-block;"></span>
-                                        <b>Precio Entrada</b>
+                                        <b>Entrada</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #10b981; display: inline-block;"></span>
-                                        <b style="color: #059669;">Take Profit (TP)</b>
+                                        <span style="width: 12px; height: 10px; background: rgba(16, 185, 129, 0.25); border: 1.5px dashed #10b981; display: inline-block; border-radius: 2px;"></span>
+                                        <b style="color: #059669;">Zona TP</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #ef4444; display: inline-block;"></span>
-                                        <b style="color: #dc2626;">Stop Loss (SL)</b>
+                                        <span style="width: 12px; height: 10px; background: rgba(239, 68, 68, 0.25); border: 1.5px dashed #ef4444; display: inline-block; border-radius: 2px;"></span>
+                                        <b style="color: #dc2626;">Zona SL</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
                                         <span style="width: 12px; height: 2px; border-top: 2px dashed #3b82f6; display: inline-block;"></span>
                                         <b style="color: #2563eb;">BreakEven (BE)</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #f59e0b; display: inline-block;"></span>
-                                        <b style="color: #d97706;">TSL</b>
+                                        <span style="width: 12px; height: 10px; background: rgba(217, 119, 6, 0.25); border: 1.5px dashed #d97706; display: inline-block; border-radius: 2px;"></span>
+                                        <b style="color: #d97706;">Zona TSL</b>
                                     </span>
                                 </div>
                                 <span id="sniperLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
@@ -833,6 +860,51 @@
             }
         }
 
+        var sniperAutoLiveEnabled = true;
+
+        function toggleSniperAutoLive() {
+            sniperAutoLiveEnabled = !sniperAutoLiveEnabled;
+            var btn = document.getElementById('btnSniperAutoLive');
+            var dot = document.getElementById('sniperLivePulseDot');
+            var txt = document.getElementById('sniperLiveText');
+            if (sniperAutoLiveEnabled) {
+                if (btn) {
+                    btn.style.background = '#ecfdf5';
+                    btn.style.borderColor = '#10b981';
+                    btn.style.color = '#047857';
+                }
+                if (dot) {
+                    dot.style.background = '#10b981';
+                    dot.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.35)';
+                }
+                if (txt) txt.textContent = 'En Vivo (10s)';
+                if (typeof PF !== 'undefined' && PF('sniperLivePollWidget')) {
+                    PF('sniperLivePollWidget').start();
+                }
+                triggerSniperInstantRefresh();
+            } else {
+                if (btn) {
+                    btn.style.background = '#f8fafc';
+                    btn.style.borderColor = '#cbd5e1';
+                    btn.style.color = '#64748b';
+                }
+                if (dot) {
+                    dot.style.background = '#94a3b8';
+                    dot.style.boxShadow = 'none';
+                }
+                if (txt) txt.textContent = 'Pausado';
+                if (typeof PF !== 'undefined' && PF('sniperLivePollWidget')) {
+                    PF('sniperLivePollWidget').stop();
+                }
+            }
+        }
+
+        function triggerSniperInstantRefresh() {
+            if (typeof rcRefreshSniperChart === 'function') {
+                rcRefreshSniperChart();
+            }
+        }
+
         function parseSniperDateMs(dateStr) {
             if (!dateStr) return null;
             if (typeof dateStr === 'number') return dateStr;
@@ -882,7 +954,14 @@
                 var actTrStr = actTradesEl ? actTradesEl.value : 'null';
                 var activeTrade = null;
                 if (actTrStr && actTrStr !== 'null' && actTrStr !== '[]') {
-                    try { activeTrade = JSON.parse(actTrStr); } catch(e) {}
+                    try {
+                        var parsed = JSON.parse(actTrStr);
+                        if (Array.isArray(parsed)) {
+                            activeTrade = parsed.length > 0 ? parsed[0] : null;
+                        } else {
+                            activeTrade = parsed;
+                        }
+                    } catch(e) {}
                 }
 
                 var banner = document.getElementById('sniperActiveTradeBanner');
@@ -892,17 +971,59 @@
                         var dirBadge = document.getElementById('sniperBannerDirBadge');
                         if (dirBadge) {
                             var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
-                            dirBadge.textContent = isBuy ? 'COMPRA (BUY)' : 'VENTA (SELL)';
+                            dirBadge.textContent = isBuy ? 'COMPRA' : 'VENTA';
                             dirBadge.style.background = isBuy ? '#16a34a' : '#dc2626';
                         }
                         var setTxt = function(id, val) {
                             var el = document.getElementById(id);
-                            if (el) el.textContent = val !== null && val !== undefined ? Number(val).toFixed(5) : '—';
+                            if (el) {
+                                if (val !== null && val !== undefined && !isNaN(Number(val))) {
+                                    var num = Number(val);
+                                    el.textContent = num > 100 ? num.toFixed(2) : num.toFixed(5);
+                                } else {
+                                    el.textContent = '—';
+                                }
+                            }
                         };
                         setTxt('sniperBannerEntry', activeTrade.entryPrice);
-                        setTxt('sniperBannerSl', activeTrade.stopLoss);
-                        setTxt('sniperBannerTp', activeTrade.takeProfit);
-                        setTxt('sniperBannerBe', activeTrade.bePrice);
+
+                        // Stop Loss (SL)
+                        var slCont = document.getElementById('sniperBannerSlContainer');
+                        if (activeTrade.stopLoss) {
+                            if (slCont) slCont.style.display = 'inline-flex';
+                            setTxt('sniperBannerSl', activeTrade.stopLoss);
+                        } else {
+                            if (slCont) slCont.style.display = 'none';
+                        }
+
+                        // Take Profit (TP)
+                        var tpCont = document.getElementById('sniperBannerTpContainer');
+                        if (activeTrade.takeProfit) {
+                            if (tpCont) tpCont.style.display = 'inline-flex';
+                            setTxt('sniperBannerTp', activeTrade.takeProfit);
+                        } else {
+                            if (tpCont) tpCont.style.display = 'none';
+                        }
+
+                        // BreakEven (BE) - si tiene
+                        var beCont = document.getElementById('sniperBannerBeContainer');
+                        if (activeTrade.hasBe && activeTrade.bePrice) {
+                            if (beCont) beCont.style.display = 'inline-flex';
+                            setTxt('sniperBannerBe', activeTrade.bePrice);
+                        } else {
+                            if (beCont) beCont.style.display = 'none';
+                        }
+
+                        // Trailing Stop Loss (TSL) - si tiene
+                        var tslCont = document.getElementById('sniperBannerTslContainer');
+                        if (activeTrade.hasTsl && activeTrade.tslPrice) {
+                            if (tslCont) tslCont.style.display = 'inline-flex';
+                            setTxt('sniperBannerTsl', activeTrade.tslPrice);
+                        } else {
+                            if (tslCont) tslCont.style.display = 'none';
+                        }
+
+                        // PnL Flotante
                         var pnlEl = document.getElementById('sniperBannerPnl');
                         if (pnlEl) {
                             var pnl = Number(activeTrade.pnl || 0);
@@ -973,7 +1094,8 @@
                     }
                 ];
 
-                // Si hay trade activo, graficar líneas horizontales de Entrada, TP, SL, BE
+                // Si hay trade activo, graficar líneas horizontales y recuadro dinámico (TP verde, SL roja o TSL ámbar)
+                var pluginsList = [];
                 if (activeTrade && minTs !== null && maxTs !== null) {
                     if (activeTrade.entryPrice) {
                         var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
@@ -1009,7 +1131,8 @@
                             fill: false
                         });
                     }
-                    if (activeTrade.bePrice) {
+                    // BreakEven (si tiene)
+                    if (activeTrade.hasBe && activeTrade.bePrice) {
                         datasets.push({
                             label: activeTrade.isBreakEven ? 'BreakEven (Asegurado)' : 'Trigger BreakEven (50%)',
                             data: [{ x: minTs, y: activeTrade.bePrice }, { x: maxTs, y: activeTrade.bePrice }],
@@ -1020,6 +1143,156 @@
                             fill: false
                         });
                     }
+                    // Trailing Stop Loss (si tiene)
+                    if (activeTrade.hasTsl && activeTrade.tslPrice) {
+                        datasets.push({
+                            label: 'Trailing Stop Loss (TSL)',
+                            data: [{ x: minTs, y: activeTrade.tslPrice }, { x: maxTs, y: activeTrade.tslPrice }],
+                            borderColor: '#d97706',
+                            borderWidth: 2,
+                            borderDash: [3, 3],
+                            pointRadius: 0,
+                            fill: false
+                        });
+                    }
+
+                    // Plugin de recuadro dinámico (Zona TP verde, Zona SL roja o TSL ámbar)
+                    var tradeBoxPlugin = {
+                        id: 'sniperTradeBoxPlugin',
+                        afterDatasetsDraw: function(chart) {
+                            if (!activeTrade || !activeTrade.entryPrice) return;
+                            var ctx = chart.ctx;
+                            var xScale = chart.scales.x;
+                            var yScale = chart.scales.y;
+                            if (!xScale || !yScale) return;
+                            var chartArea = chart.chartArea;
+                            if (!chartArea) return;
+
+                            var openTs = parseSniperDateMs(activeTrade.openTime);
+                            var x0;
+                            if (openTs && !isNaN(openTs) && openTs >= minTs && openTs <= maxTs) {
+                                x0 = xScale.getPixelForValue(openTs);
+                            } else {
+                                x0 = xScale.getPixelForValue(maxTs - (maxTs - minTs) * 0.25);
+                            }
+                            x0 = Math.max(chartArea.left, Math.min(chartArea.right - 100, x0));
+                            var x1 = chartArea.right;
+
+                            // Asegurar ancho generoso (mínimo 220px) para que el recuadro sea completo y perfectamente visible
+                            if (x1 - x0 < 220) {
+                                x0 = Math.max(chartArea.left, x1 - 250);
+                            }
+
+                            var yEntry = yScale.getPixelForValue(activeTrade.entryPrice);
+                            var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
+                            var boxWidth = x1 - x0;
+
+                            ctx.save();
+                            try {
+                                ctx.beginPath();
+                                ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+                                ctx.clip();
+
+                                // =========================================================
+                                // 1. ZONA VERDE: DE LA ENTRADA AL TAKE PROFIT (TP)
+                                // =========================================================
+                                if (activeTrade.takeProfit) {
+                                    var yTp = yScale.getPixelForValue(activeTrade.takeProfit);
+                                    var topTp = Math.min(yEntry, yTp);
+                                    var hTp = Math.max(4, Math.abs(yEntry - yTp));
+
+                                    var gradTp = ctx.createLinearGradient(0, topTp, 0, topTp + hTp);
+                                    gradTp.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+                                    gradTp.addColorStop(1, 'rgba(16, 185, 129, 0.08)');
+                                    ctx.fillStyle = gradTp;
+                                    ctx.fillRect(x0, topTp, boxWidth, hTp);
+
+                                    ctx.strokeStyle = '#10b981';
+                                    ctx.lineWidth = 1.8;
+                                    ctx.setLineDash([5, 4]);
+                                    ctx.strokeRect(x0, topTp, boxWidth, hTp);
+
+                                    ctx.setLineDash([]);
+                                    ctx.fillStyle = '#059669';
+                                    ctx.font = 'bold 11px sans-serif';
+                                    var tpValStr = activeTrade.takeProfit > 100 ? activeTrade.takeProfit.toFixed(2) : activeTrade.takeProfit.toFixed(5);
+                                    ctx.fillText('Zona TP (' + tpValStr + ')', x0 + 10, topTp + 16);
+                                }
+
+                                // =========================================================
+                                // 2. ZONA ROJA / ÁMBAR: DE LA ENTRADA AL TSL O SL
+                                // =========================================================
+                                var isTsl = (activeTrade.hasTsl && activeTrade.tslPrice);
+                                var stopTarget = isTsl ? activeTrade.tslPrice : activeTrade.stopLoss;
+
+                                if (stopTarget) {
+                                    var yStop = yScale.getPixelForValue(stopTarget);
+                                    var topStop = Math.min(yEntry, yStop);
+                                    var hStop = Math.max(4, Math.abs(yEntry - yStop));
+
+                                    var gradStop = ctx.createLinearGradient(0, topStop, 0, topStop + hStop);
+                                    if (isTsl) {
+                                        gradStop.addColorStop(0, 'rgba(217, 119, 6, 0.22)');
+                                        gradStop.addColorStop(1, 'rgba(217, 119, 6, 0.08)');
+                                        ctx.fillStyle = gradStop;
+                                        ctx.strokeStyle = '#d97706';
+                                    } else {
+                                        gradStop.addColorStop(0, 'rgba(239, 68, 68, 0.22)');
+                                        gradStop.addColorStop(1, 'rgba(239, 68, 68, 0.08)');
+                                        ctx.fillStyle = gradStop;
+                                        ctx.strokeStyle = '#ef4444';
+                                    }
+                                    ctx.fillRect(x0, topStop, boxWidth, hStop);
+
+                                    ctx.lineWidth = 1.8;
+                                    ctx.setLineDash([5, 4]);
+                                    ctx.strokeRect(x0, topStop, boxWidth, hStop);
+
+                                    ctx.setLineDash([]);
+                                    ctx.fillStyle = isTsl ? '#b45309' : '#dc2626';
+                                    ctx.font = 'bold 11px sans-serif';
+                                    var stopValStr = stopTarget > 100 ? Number(stopTarget).toFixed(2) : Number(stopTarget).toFixed(5);
+                                    var stopLabel = (isTsl ? 'Zona TSL (' : 'Zona SL (') + stopValStr + ')';
+                                    ctx.fillText(stopLabel, x0 + 10, topStop + 16);
+                                }
+
+                                // =========================================================
+                                // 3. LÍNEA DIVISORIA DE ENTRADA (CENTRO DEL RECUADRO)
+                                // =========================================================
+                                ctx.strokeStyle = isBuy ? '#16a34a' : '#dc2626';
+                                ctx.lineWidth = 2.5;
+                                ctx.setLineDash([]);
+                                ctx.beginPath();
+                                ctx.moveTo(x0, yEntry);
+                                ctx.lineTo(x1, yEntry);
+                                ctx.stroke();
+
+                                ctx.fillStyle = isBuy ? '#16a34a' : '#dc2626';
+                                ctx.font = 'bold 11px sans-serif';
+                                var entryValStr = activeTrade.entryPrice > 100 ? activeTrade.entryPrice.toFixed(2) : activeTrade.entryPrice.toFixed(5);
+                                ctx.fillText('Entrada: ' + entryValStr, x0 + 10, yEntry - 4);
+
+                                // Línea vertical izquierda (origen de la posición)
+                                ctx.strokeStyle = isBuy ? '#16a34a' : '#dc2626';
+                                ctx.lineWidth = 2;
+                                ctx.setLineDash([3, 3]);
+                                ctx.beginPath();
+                                var allY = [yEntry];
+                                if (activeTrade.takeProfit) allY.push(yScale.getPixelForValue(activeTrade.takeProfit));
+                                if (stopTarget) allY.push(yScale.getPixelForValue(stopTarget));
+                                var bTop = Math.min.apply(null, allY);
+                                var bBottom = Math.max.apply(null, allY);
+                                ctx.moveTo(x0, bTop);
+                                ctx.lineTo(x0, bBottom);
+                                ctx.stroke();
+                            } finally {
+                                ctx.restore();
+                            }
+                        }
+                    };
+                        }
+                    };
+                    pluginsList.push(tradeBoxPlugin);
                 }
 
                 if (sniperChartInstance) {
@@ -1030,6 +1303,7 @@
                 sniperChartInstance = new Chart(ctx, {
                     type: 'line',
                     data: { datasets: datasets },
+                    plugins: pluginsList,
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,

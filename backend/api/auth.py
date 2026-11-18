@@ -50,6 +50,19 @@ class UserResponse(BaseModel):
     daysSincePasswordUpdate: int = 0
     mustChangePassword: bool = False
 
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+    nombre: Optional[str] = None
+    apellidoPaterno: Optional[str] = None
+    apellidoMaterno: Optional[str] = None
+    idRole: int = 3
+    photoBase64: Optional[str] = None
+
+class AvatarUploadRequest(BaseModel):
+    photoBase64: Optional[str] = None # Si es None o vacío, restablece al icono de ajedrez según rol
+
 class UsuarioComboItem(BaseModel):
     """DTO liviano para el combo selector de usuarios en el dashboard."""
     idUsuario: int
@@ -261,3 +274,115 @@ def getUsuariosCombo(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error cargando usuarios para combo: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno al cargar la lista de usuarios")
+
+@router.post("/usuarios", response_model=UserResponse)
+def crearUsuario(payload: CreateUserRequest, db: Session = Depends(get_db)):
+    """
+    Crea un nuevo usuario corporativo.
+    Genera automáticamente el archivo <username>.png en los directorios de imágenes.
+    Si se adjunta una foto (photoBase64), se almacena dicha imagen.
+    De lo contrario, se genera por defecto con el icono de ajedrez correspondiente:
+      - Administrador (idRole=1): Alfil de ajedrez (Bishop ♝)
+      - Analista (idRole=2):      Torre de ajedrez (Rook ♜)
+      - Trader (idRole=3):        Caballo de ajedrez (Knight ♞)
+    """
+    import os
+    import base64
+    from backend.services.security_service import hashPassword
+    from backend.services.avatarService import ensure_user_avatar, USER_AVATAR_DIRS
+
+    clean_user = (payload.username or "").strip().lower()
+    if not clean_user:
+        raise HTTPException(status_code=400, detail="El nombre de usuario es obligatorio")
+
+    existente = db.query(Usuario).filter(Usuario.username == clean_user).first()
+    if existente:
+        raise HTTPException(status_code=400, detail=f"El usuario '{clean_user}' ya existe")
+
+    roleInfo = db.query(Role).filter(Role.idRole == payload.idRole).first()
+    nameRole = roleInfo.nameRole if roleInfo else "Trader"
+
+    now = datetime.now()
+    new_user = Usuario(
+        username=clean_user,
+        passwordHash=hashPassword(payload.password),
+        passwordUpdatedAt=now,
+        mustChangePassword=0,
+        email=payload.email,
+        nombre=payload.nombre,
+        apellidoPaterno=payload.apellidoPaterno,
+        apellidoMaterno=payload.apellidoMaterno,
+        idRole=payload.idRole,
+        status=1
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Generación y almacenamiento de foto o avatar ajedrez
+    if payload.photoBase64 and payload.photoBase64.strip():
+        try:
+            raw_b64 = payload.photoBase64.strip()
+            if "," in raw_b64:
+                raw_b64 = raw_b64.split(",")[1]
+            img_data = base64.b64decode(raw_b64)
+            for udir in USER_AVATAR_DIRS:
+                os.makedirs(udir, exist_ok=True)
+                with open(os.path.join(udir, f"{clean_user}.png"), "wb") as f:
+                    f.write(img_data)
+            logger.info(f"📸 [AVATAR] Foto personalizada guardada para {clean_user}.png")
+        except Exception as e_img:
+            logger.warning(f"Error procesando foto adjunta para {clean_user}: {e_img}. Usando icono ajedrez.")
+            ensure_user_avatar(clean_user, nameRole, force=True)
+    else:
+        ensure_user_avatar(clean_user, nameRole, force=True)
+
+    logger.info(f"✅ Usuario creado exitosamente: {clean_user} (Rol: {nameRole})")
+    return UserResponse(
+        idUsuario=new_user.idUsuario,
+        username=new_user.username,
+        email=new_user.email,
+        nombre=new_user.nombre,
+        apellidoPaterno=new_user.apellidoPaterno,
+        apellidoMaterno=new_user.apellidoMaterno,
+        idRole=new_user.idRole,
+        nameRole=nameRole,
+        status=new_user.status,
+        passwordExpired=False,
+        daysSincePasswordUpdate=0,
+        mustChangePassword=False
+    )
+
+@router.post("/usuarios/{username}/avatar", response_model=ActionResponse)
+def actualizarAvatarUsuario(username: str, payload: AvatarUploadRequest, db: Session = Depends(get_db)):
+    """
+    Actualiza la foto del usuario o la restablece al icono de ajedrez según su rol.
+    """
+    import os
+    import base64
+    from backend.services.avatarService import ensure_user_avatar, USER_AVATAR_DIRS
+
+    clean_user = username.strip().lower()
+    usuario = db.query(Usuario).filter(Usuario.username == clean_user).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    roleInfo = db.query(Role).filter(Role.idRole == usuario.idRole).first()
+    nameRole = roleInfo.nameRole if roleInfo else "Trader"
+
+    if payload.photoBase64 and payload.photoBase64.strip():
+        try:
+            raw_b64 = payload.photoBase64.strip()
+            if "," in raw_b64:
+                raw_b64 = raw_b64.split(",")[1]
+            img_data = base64.b64decode(raw_b64)
+            for udir in USER_AVATAR_DIRS:
+                os.makedirs(udir, exist_ok=True)
+                with open(os.path.join(udir, f"{clean_user}.png"), "wb") as f:
+                    f.write(img_data)
+            return ActionResponse(success=True, message=f"Foto personalizada actualizada para {clean_user}.png")
+        except Exception as e_img:
+            raise HTTPException(status_code=400, detail=f"Error procesando imagen: {e_img}")
+    else:
+        ensure_user_avatar(clean_user, nameRole, force=True)
+        return ActionResponse(success=True, message=f"Avatar restablecido al icono de ajedrez ({nameRole}) para {clean_user}.png")

@@ -3509,16 +3509,16 @@ class RatioManualPreviewRequest(BaseModel):
     idCuenta: int
     numerador: str
     denominador: str
-    directionRatio: str = "LARGO"  # "LARGO" (Buy A, Sell B) or "CORTO" (Sell A, Buy B)
+    directionRatio: str = "CORTO"  # "CORTO" (Venta A, Compra B)
     unitsA: float = 1000.0
     unitsB: Optional[float] = None
-    autoEquivalence: bool = False
+    autoEquivalence: bool = True
 
 class RatioManualOpenRequest(BaseModel):
     idCuenta: int
     numerador: str
     denominador: str
-    directionRatio: str = "LARGO"
+    directionRatio: str = "CORTO"
     unitsA: float
     unitsB: float
     setup: Optional[str] = None
@@ -3793,7 +3793,7 @@ def preview_manual_ratio(
     from backend.core.pnl_calculator import calculate_margin
     from backend.services.trade_executor import check_account_margin_health, check_projected_margin
 
-    dirRatio = (req.directionRatio or "LARGO").strip().upper()
+    dirRatio = (req.directionRatio or "CORTO").strip().upper()
     dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
     dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
 
@@ -3890,7 +3890,7 @@ def open_manual_ratio(
     if req.unitsA <= 0 or req.unitsB <= 0:
         raise HTTPException(status_code=400, detail="Las cantidades de ambas patas deben ser mayores a 0")
 
-    dirRatio = (req.directionRatio or "LARGO").strip().upper()
+    dirRatio = (req.directionRatio or "CORTO").strip().upper()
     dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
     dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
 
@@ -6595,6 +6595,7 @@ async def getSniperAnalysis(
         # 7. Consultar trade activo en trades para esta cuenta y símbolo
         activeTrade = None
         currentPx = float(df["close"].iloc[-1])
+        openTradeRow = None
         if idCuenta:
             openTradeRow = db.execute(text("""
                 SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
@@ -6602,53 +6603,98 @@ async def getSniperAnalysis(
                 FROM trades
                 WHERE idCuenta = :idc
                   AND strategy = 'SNIPER'
-                  AND (symbol = :sym OR setup = :sym)
+                  AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR setup = :sym)
                   AND status = 'OPEN'
                 ORDER BY idTrade DESC
                 LIMIT 1
             """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
 
-            if openTradeRow:
-                dirStr = str(openTradeRow["direction"] or "LARGO").upper()
-                isLong = "LARG" in dirStr or "BUY" in dirStr
-                entryPx = float(openTradeRow["entryPrice"] or currentPx)
-                slVal = float(openTradeRow["stopLoss"]) if openTradeRow.get("stopLoss") is not None else None
-                tpVal = float(openTradeRow["takeProfit"]) if openTradeRow.get("takeProfit") is not None else None
-                isBe = bool(openTradeRow.get("isBreakEven", 0))
+        if not openTradeRow:
+            openTradeRow = db.execute(text("""
+                SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
+                       margin_used, pnl, openTime, candleTime, status, ticketId
+                FROM trades
+                WHERE strategy = 'SNIPER'
+                  AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR setup = :sym)
+                  AND status = 'OPEN'
+                ORDER BY idTrade DESC
+                LIMIT 1
+            """), {"sym": symbol}).mappings().fetchone()
 
-                pnlFloat, pipsVal, _, _ = calculate_unrealized_pnl(
-                    symbol=symbol,
-                    direction=dirStr,
-                    entry_price=entryPx,
-                    current_price=currentPx,
-                    size=float(openTradeRow["size"] or 1000.0),
-                    pip_size=pipSz
-                )
+        if openTradeRow:
+            dirStr = str(openTradeRow["direction"] or "LARGO").upper()
+            isLong = "LARG" in dirStr or "BUY" in dirStr
+            entryPx = float(openTradeRow["entryPrice"] or currentPx)
+            slVal = float(openTradeRow["stopLoss"]) if openTradeRow.get("stopLoss") is not None else None
+            tpVal = float(openTradeRow["takeProfit"]) if openTradeRow.get("takeProfit") is not None else None
+            isBe = bool(openTradeRow.get("isBreakEven", 0))
 
-                beTrigger = None
-                if tpVal and entryPx:
-                    beTrigger = entryPx + (tpVal - entryPx) * 0.50 if isLong else entryPx - (entryPx - tpVal) * 0.50
+            pnlFloat, pipsVal, _, _ = calculate_unrealized_pnl(
+                symbol=symbol,
+                direction=dirStr,
+                entry_price=entryPx,
+                current_price=currentPx,
+                size=float(openTradeRow["size"] or 1000.0),
+                pip_size=pipSz
+            )
 
-                dt_val = openTradeRow["openTime"] or openTradeRow["candleTime"]
-                activeTrade = {
-                    "idTrade": openTradeRow["idTrade"],
-                    "symbol": symbol,
-                    "direction": dirStr,
-                    "isLong": isLong,
-                    "entryPrice": entryPx,
-                    "currentPrice": currentPx,
-                    "stopLoss": slVal,
-                    "takeProfit": tpVal,
-                    "isBreakEven": isBe,
-                    "bePrice": entryPx if isBe else beTrigger,
-                    "beTrigger": beTrigger,
-                    "size": float(openTradeRow["size"] or 1000.0),
-                    "margin": float(openTradeRow["margin_used"] or 0.0),
-                    "pnl": round(pnlFloat, 2),
-                    "pips": round(pipsVal, 1),
-                    "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
-                    "ticketId": str(openTradeRow.get("ticketId") or "")
-                }
+            # Consultar configuración de userSNIPER para BreakEven y TSL
+            tradeAccId = openTradeRow.get("idCuenta") or idCuenta
+            uRow = None
+            if tradeAccId:
+                uRow = db.execute(text("""
+                    SELECT usarBreakEven, usarTSL FROM userSNIPER
+                    WHERE idCuenta = :idc AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR symbol = :sym) AND borrado = 0
+                    LIMIT 1
+                """), {"idc": tradeAccId, "sym": symbol}).mappings().fetchone()
+            if not uRow:
+                uRow = db.execute(text("""
+                    SELECT usarBreakEven, usarTSL FROM userSNIPER
+                    WHERE (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR symbol = :sym) AND borrado = 0
+                    ORDER BY id DESC LIMIT 1
+                """), {"sym": symbol}).mappings().fetchone()
+
+            hasBeCfg = bool(uRow["usarBreakEven"]) if (uRow and uRow.get("usarBreakEven") is not None) else False
+            hasTslCfg = bool(uRow["usarTSL"]) if (uRow and uRow.get("usarTSL") is not None) else False
+
+            # BreakEven (si tiene configurado o ya fue asegurado)
+            hasBe = hasBeCfg or isBe
+            beTrigger = None
+            if hasBe and tpVal and entryPx:
+                beTrigger = entryPx + (tpVal - entryPx) * 0.50 if isLong else entryPx - (entryPx - tpVal) * 0.50
+            bePrice = (entryPx if isBe else beTrigger) if hasBe else None
+
+            # Trailing Stop Loss (si tiene configurado)
+            hasTsl = hasTslCfg
+            tslVal = None
+            if hasTsl:
+                atrVal = float((df["high"].tail(14) - df["low"].tail(14)).mean()) if len(df) >= 14 else (entryPx * 0.005)
+                slDist = atrVal * float(adaptiveCfg.get("slAtrMult", 1.5) if adaptiveCfg else 1.5)
+                tslVal = round(currentPx - slDist if isLong else currentPx + slDist, 5)
+
+            dt_val = openTradeRow["openTime"] or openTradeRow["candleTime"]
+            activeTrade = {
+                "idTrade": openTradeRow["idTrade"],
+                "symbol": symbol,
+                "direction": dirStr,
+                "isLong": isLong,
+                "entryPrice": entryPx,
+                "currentPrice": currentPx,
+                "stopLoss": slVal,
+                "takeProfit": tpVal,
+                "isBreakEven": isBe,
+                "hasBe": hasBe,
+                "bePrice": bePrice,
+                "beTrigger": beTrigger,
+                "hasTsl": hasTsl,
+                "tslPrice": tslVal,
+                "size": float(openTradeRow["size"] or 1000.0),
+                "margin": float(openTradeRow["margin_used"] or 0.0),
+                "pnl": round(pnlFloat, 2),
+                "pips": round(pipsVal, 1),
+                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
+                "ticketId": str(openTradeRow.get("ticketId") or "")
+            }
 
         return {
             "status": "success",
