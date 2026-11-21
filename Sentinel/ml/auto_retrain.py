@@ -33,7 +33,7 @@ async def should_retrain(force: bool = False):
     now = datetime.now()
     
     # Forzar reentrenamiento si se pide explícitamente
-    if force or len(sys.argv) > 1 and sys.argv[1] == '--force':
+    if force or "--force" in sys.argv or "-f" in sys.argv:
         return True
     
     # Verificar si es el día configurado (si está configurado)

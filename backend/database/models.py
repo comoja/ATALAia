@@ -244,6 +244,8 @@ class UserSniper(Base):
     filtroHorario = Column(Boolean, default=True)
     horaInicio = Column(String(5), default="08:00")
     horaFin = Column(String(5), default="16:00")
+    horaInicio2 = Column(String(5), nullable=True, default=None)
+    horaFin2 = Column(String(5), nullable=True, default=None)
     multiplicadorRiesgo = Column(Float, default=1.0, nullable=False)
 
 class UsuarioCuenta(Base):

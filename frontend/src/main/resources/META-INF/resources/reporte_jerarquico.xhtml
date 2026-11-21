@@ -1,0 +1,655 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="http://xmlns.jcp.org/jsf/html"
+                xmlns:f="http://xmlns.jcp.org/jsf/core"
+                xmlns:p="http://primefaces.org/ui"
+                xmlns:ui="http://xmlns.jcp.org/jsf/facelets"
+                template="/templates/layout.xhtml">
+
+<ui:define name="title">ATALAia - Reporte Jerárquico de Rendimiento</ui:define>
+
+<ui:define name="head">
+    <style>
+        /* Encabezado: escalado 1.5x */
+        .report-header {
+            margin-bottom: 22px;
+        }
+        .report-header h2 {
+            margin: 0;
+            color: #0f172a;
+            font-size: 3.15rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .report-header p {
+            margin: 6px 0 0 0;
+            color: #64748b;
+            font-size: 1.55rem;
+            font-weight: 500;
+        }
+
+        /* Panel de Filtros: escalado 1.5x */
+        .filter-panel {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 20px 22px;
+            margin-bottom: 22px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 18px;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .filter-item label {
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .filter-panel .ui-inputfield,
+        .filter-panel .ui-selectonemenu,
+        .filter-panel .ui-selectonemenu-label {
+            font-size: 1.25rem !important;
+        }
+        .quick-btn-group {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .quick-btn {
+            background: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+            font-size: 1.22rem !important;
+            font-weight: 700 !important;
+            padding: 6px 14px !important;
+            border-radius: 6px !important;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .quick-btn:hover {
+            background: #e2e8f0 !important;
+            color: #0f172a !important;
+            border-color: #94a3b8 !important;
+        }
+
+        /* Tarjetas KPI de Resumen */
+        .report-kpis {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        @media (max-width: 1400px) {
+            .report-kpis {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        @media (max-width: 768px) {
+            .report-kpis {
+                grid-template-columns: repeat(1, 1fr);
+            }
+        }
+        .kpi-report-card {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+            border-left: 4px solid #3b82f6;
+        }
+        .kpi-report-card.kpi-profit { border-left-color: #059669; }
+        .kpi-report-card.kpi-loss { border-left-color: #dc2626; }
+        .kpi-report-card.kpi-winrate { border-left-color: #f59e0b; }
+        .kpi-report-card.kpi-trades { border-left-color: #8b5cf6; }
+        .kpi-report-card.kpi-volumen { border-left-color: #0284c7; }
+        .kpi-report-card.kpi-comm { border-left-color: #b45309; }
+
+        .kpi-label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 2px;
+        }
+        .kpi-value {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.4px;
+            line-height: 1.2;
+        }
+        .kpi-sub {
+            font-size: 0.80rem;
+            font-weight: 600;
+            color: #475569;
+            margin-top: 2px;
+        }
+
+        /* Barra de Herramientas del Árbol */
+        .tree-toolbar {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px 8px 0 0;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            border-bottom: 2px solid #0f172a;
+        }
+        .tree-toolbar .ui-button {
+            font-size: 1.05rem !important;
+            padding: 5px 12px !important;
+            font-weight: 700 !important;
+        }
+        .tree-legend {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .legend-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+
+        /* Contenedor del TreeTable */
+        .treetable-container {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+            border-top: none;
+        }
+
+        /* Estilo para el TreeTable PrimeFaces: dinámica 100% */
+        .aether-treetable.ui-treetable {
+            border: none !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            table-layout: auto !important;
+        }
+        .aether-treetable thead th {
+            background: #0f172a !important;
+            color: #ffffff !important;
+            font-weight: 800 !important;
+            font-size: 1.05rem !important;
+            padding: 10px 6px !important;
+            border: 1px solid #1e293b !important;
+        }
+        .aether-treetable tbody tr.ui-widget-content {
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        .aether-treetable tbody td {
+            padding: 8px 6px !important;
+            font-size: 1.05rem !important;
+        }
+
+        /* SOMBREADO DE RENGLONES: TOTALES Y SUBTOTALES */
+
+        /* Nivel 1: RENGLÓN DE TOTAL POR USUARIO (Sombreado sólido y destacado) */
+        .aether-treetable tbody tr.node-usuario > td {
+            background-color: #cbd5e1 !important; /* Slate 300: Sombreado firme y distinguido */
+            border-top: 2px solid #475569 !important;
+            border-bottom: 2px solid #64748b !important;
+            color: #0f172a !important;
+            font-weight: 800 !important;
+        }
+        .aether-treetable tbody tr.node-usuario:hover > td {
+            background-color: #b0bec5 !important;
+        }
+
+        /* Nivel 2: RENGLÓN DE SUBTOTAL POR CUENTA (Sombreado medio elegante) */
+        .aether-treetable tbody tr.node-cuenta > td {
+            background-color: #dbe2ea !important; /* Slate 250: Sombreado claro pero visible */
+            border-top: 1px solid #94a3b8 !important;
+            border-bottom: 1px solid #94a3b8 !important;
+            color: #0f172a !important;
+            font-weight: 750 !important;
+        }
+        .aether-treetable tbody tr.node-cuenta:hover > td {
+            background-color: #cbd5e1 !important;
+        }
+
+        /* Nivel 3: RENGLÓN DE SUBTOTAL POR ESTRATEGIA (Sombreado definido) */
+        .aether-treetable tbody tr.node-estrategia > td {
+            background-color: #e8edf3 !important; /* Slate 150: Sombreado perfectamente perceptible */
+            border-top: 1px solid #cbd5e1 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            color: #1e293b !important;
+            font-weight: 700 !important;
+        }
+        .aether-treetable tbody tr.node-estrategia:hover > td {
+            background-color: #dbe2ea !important;
+        }
+
+        /* Nivel 4: RENGLÓN DE SUBTOTAL POR INSTRUMENTO (Sombreado perceptible contra fondo blanco) */
+        .aether-treetable tbody tr.node-instrumento > td {
+            background-color: #f1f5f9 !important; /* Slate 100: Sombreado claro y nítido */
+            border-top: 1px solid #e2e8f0 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+            font-weight: 650 !important;
+        }
+        .aether-treetable tbody tr.node-instrumento:hover > td {
+            background-color: #e2e8f0 !important;
+        }
+
+        /* Nivel 5: RENGLÓN DE DETALLE INDIVIDUAL (HECHO) - Fondo limpio blanco sin sombreado */
+        .aether-treetable tbody tr.node-hecho > td {
+            background-color: #ffffff !important; /* Sin sombreado: Fondo blanco para las operaciones */
+            border-bottom: 1px solid #f1f5f9 !important;
+            color: #334155 !important;
+            font-weight: 400 !important;
+        }
+        .aether-treetable tbody tr.node-hecho:hover > td {
+            background-color: #f8fafc !important;
+        }
+
+        /* PIE DE TABLA: RENGLÓN DE TOTAL GENERAL CONSOLIDADO */
+        .aether-treetable tfoot td,
+        .aether-treetable tfoot th {
+            background-color: #0f172a !important; /* Sombreado oscuro Gran Total */
+            color: #ffffff !important;
+            font-weight: 800 !important;
+            font-size: 1.05rem !important;
+            padding: 10px 6px !important;
+            border: 1px solid #1e293b !important;
+            border-top: 3px double #38bdf8 !important;
+        }
+        .aether-treetable tfoot .footer-pnl-pos {
+            color: #34d399 !important;
+            font-weight: 900 !important;
+        }
+        .aether-treetable tfoot .footer-pnl-neg {
+            color: #f87171 !important;
+            font-weight: 900 !important;
+        }
+
+        /* Etiquetas visuales TOTAL y SUBTOTAL */
+        .tag-total {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            background: #0f172a;
+            color: #f8fafc;
+            margin-left: 8px;
+            vertical-align: middle;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
+        .tag-subtotal {
+            display: inline-block;
+            font-size: 0.70rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #475569;
+            color: #ffffff;
+            border: 1px solid #334155;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        .badge-nivel {
+            font-size: 0.85rem;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .badge-dir {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 800;
+            font-size: 0.95rem;
+        }
+        .badge-largo { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .badge-corto { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+        .ui-treetable-toggler {
+            font-size: 1.15rem !important;
+            margin-right: 5px !important;
+        }
+
+        .pnl-cell-pos { color: #059669 !important; font-weight: 800 !important; }
+        .pnl-cell-neg { color: #dc2626 !important; font-weight: 800 !important; }
+    </style>
+</ui:define>
+
+<ui:define name="content">
+    <!-- BARRA DE SUBNAVEGACIÓN REPORTES -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <a href="#{request.contextPath}/reportes.xhtml"
+           style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 1.05rem; background: #ffffff; color: #475569; border: 1px solid #cbd5e1; transition: all 0.2s ease;">
+            <i class="pi pi-file-excel" style="font-size: 1.15rem; color: #059669;"></i>
+            <span>Reportes - Estado de Cuenta</span>
+        </a>
+        <a href="#{request.contextPath}/reporte_jerarquico.xhtml"
+           style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 1.05rem; background: linear-gradient(135deg, #dfa877 0%, #b47b2b 100%); color: #ffffff; box-shadow: 0 3px 8px rgba(223, 168, 119, 0.4);">
+            <i class="pi pi-sitemap" style="font-size: 1.15rem;"></i>
+            <span>Reportes - Reporte Jerárquico</span>
+        </a>
+    </div>
+
+    <div class="report-header">
+        <h2>
+            <i class="pi pi-sitemap" style="color: #dfa877; font-size: 2.2rem;"></i>
+            Reportes - Reporte Jerárquico
+        </h2>
+        <p>Desglose financiero multinivel: <b>Usuario ➔ Cuenta ➔ Estrategia ➔ Instrumento ➔ Hecho</b> (De lo General a lo Particular)</p>
+    </div>
+
+    <!-- FORMULARIO DE FILTROS Y ACCIONES RÁPIDAS -->
+    <h:form id="filterForm">
+        <p:growl id="growl" showDetail="true" life="4000" />
+
+        <div class="filter-panel">
+            <div class="filter-group">
+                <!-- Rango de Fechas -->
+                <div class="filter-item">
+                    <label>Fecha Desde</label>
+                    <p:datePicker id="dateDesde" value="#{reporteJerarquicoBean.fechaInicio}"
+                                  pattern="yyyy-MM-dd" showIcon="true" style="width: 175px;" />
+                </div>
+                <div class="filter-item">
+                    <label>Fecha Hasta</label>
+                    <p:datePicker id="dateHasta" value="#{reporteJerarquicoBean.fechaFin}"
+                                  pattern="yyyy-MM-dd" showIcon="true" style="width: 175px;" />
+                </div>
+
+                <!-- Botones Rápidos de Periodo -->
+                <div class="filter-item">
+                    <label>Periodo Rápido</label>
+                    <div class="quick-btn-group">
+                        <p:commandButton value="Hoy" actionListener="#{reporteJerarquicoBean.filtrarHoy}"
+                                         process="@this" update=":filterForm :kpiPanel :treeForm" styleClass="quick-btn" />
+                        <p:commandButton value="Esta Semana" actionListener="#{reporteJerarquicoBean.filtrarEstaSemana}"
+                                         process="@this" update=":filterForm :kpiPanel :treeForm" styleClass="quick-btn" />
+                        <p:commandButton value="Este Mes" actionListener="#{reporteJerarquicoBean.filtrarEsteMes}"
+                                         process="@this" update=":filterForm :kpiPanel :treeForm" styleClass="quick-btn" />
+                        <p:commandButton value="Año Actual" actionListener="#{reporteJerarquicoBean.filtrarAnioActual}"
+                                         process="@this" update=":filterForm :kpiPanel :treeForm" styleClass="quick-btn" />
+                    </div>
+                </div>
+
+                <!-- Filtros Opcionales de Usuario, Cuenta y Estrategia -->
+                <div class="filter-item">
+                    <label>Usuario</label>
+                    <p:selectOneMenu value="#{reporteJerarquicoBean.selectedUsuarioId}" style="min-width: 180px;">
+                        <f:selectItems value="#{reporteJerarquicoBean.usuariosCombo}" />
+                        <p:ajax listener="#{reporteJerarquicoBean.consultarReporte}" update=":kpiPanel :treeForm" />
+                    </p:selectOneMenu>
+                </div>
+
+                <div class="filter-item">
+                    <label>Cuenta</label>
+                    <p:selectOneMenu value="#{reporteJerarquicoBean.selectedAccountId}" style="min-width: 190px;">
+                        <f:selectItems value="#{reporteJerarquicoBean.cuentasCombo}" />
+                        <p:ajax listener="#{reporteJerarquicoBean.consultarReporte}" update=":kpiPanel :treeForm" />
+                    </p:selectOneMenu>
+                </div>
+
+                <div class="filter-item">
+                    <label>Estrategia</label>
+                    <p:selectOneMenu value="#{reporteJerarquicoBean.selectedEstrategia}" style="min-width: 190px;">
+                        <f:selectItems value="#{reporteJerarquicoBean.estrategiasCombo}" />
+                        <p:ajax listener="#{reporteJerarquicoBean.consultarReporte}" update=":kpiPanel :treeForm" />
+                    </p:selectOneMenu>
+                </div>
+            </div>
+
+            <!-- Botones Principales de Búsqueda y Exportación -->
+            <div class="filter-group">
+                <p:commandButton value="Consultar" icon="pi pi-search"
+                                 actionListener="#{reporteJerarquicoBean.consultarReporte}"
+                                 process="@form" update=":kpiPanel :treeForm"
+                                 styleClass="ui-button-success" style="font-size: 1.25rem !important; font-weight: 700; padding: 8px 20px;" />
+
+                <p:commandButton value="Exportar Excel" icon="pi pi-file-excel" ajax="false"
+                                 styleClass="ui-button-outlined ui-button-success" style="font-size: 1.25rem !important; font-weight: 700; padding: 8px 18px;">
+                    <p:fileDownload value="#{reporteJerarquicoBean.excelFile}" />
+                </p:commandButton>
+            </div>
+        </div>
+    </h:form>
+
+    <!-- PANELES KPI DE RESUMEN GLOBAL -->
+    <h:panelGroup id="kpiPanel" layout="block">
+        <div class="report-kpis">
+            <!-- KPI 1: PnL Neto Total -->
+            <div class="kpi-report-card #{reporteJerarquicoBean.kpiPnlNeto >= 0 ? 'kpi-profit' : 'kpi-loss'}">
+                <div class="kpi-label">PnL Neto Total</div>
+                <div class="kpi-value #{reporteJerarquicoBean.kpiPnlNeto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}">
+                    #{reporteJerarquicoBean.formattedKpiPnlNeto}
+                </div>
+                <div class="kpi-sub">Ganancia / Pérdida en el periodo</div>
+            </div>
+
+            <!-- KPI 2: PnL Bruto Total -->
+            <div class="kpi-report-card #{reporteJerarquicoBean.kpiPnlBruto >= 0 ? 'kpi-profit' : 'kpi-loss'}">
+                <div class="kpi-label">PnL Bruto Total</div>
+                <div class="kpi-value #{reporteJerarquicoBean.kpiPnlBruto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}">
+                    #{reporteJerarquicoBean.formattedKpiPnlBruto}
+                </div>
+                <div class="kpi-sub">Antes de comisiones broker</div>
+            </div>
+
+            <!-- KPI 3: Comisiones Broker -->
+            <div class="kpi-report-card kpi-comm">
+                <div class="kpi-label">Comisiones Broker</div>
+                <div class="kpi-value" style="color: #b45309;">
+                    #{reporteJerarquicoBean.formattedKpiComisiones}
+                </div>
+                <div class="kpi-sub">Costo de intermediación</div>
+            </div>
+
+            <!-- KPI 4: Win Rate -->
+            <div class="kpi-report-card kpi-winrate">
+                <div class="kpi-label">Efectividad (Win Rate)</div>
+                <div class="kpi-value" style="color: #d97706;">
+                    #{reporteJerarquicoBean.kpiWinRate}%
+                </div>
+                <div class="kpi-sub">#{reporteJerarquicoBean.kpiTradesGanadores} Ganadas / #{reporteJerarquicoBean.kpiTradesPerdedores} Perdidas</div>
+            </div>
+
+            <!-- KPI 5: Volumen Total -->
+            <div class="kpi-report-card kpi-volumen">
+                <div class="kpi-label">Volumen Operado</div>
+                <div class="kpi-value" style="color: #0284c7;">
+                    #{reporteJerarquicoBean.formattedKpiVolumen}
+                </div>
+                <div class="kpi-sub">Lotes / Contratos totales</div>
+            </div>
+
+            <!-- KPI 6: Total Operaciones -->
+            <div class="kpi-report-card kpi-trades">
+                <div class="kpi-label">Total Operaciones</div>
+                <div class="kpi-value" style="color: #7c3aed;">
+                    #{reporteJerarquicoBean.formattedKpiTotalTrades}
+                </div>
+                <div class="kpi-sub">#{reporteJerarquicoBean.kpiTotalUsuarios} usuarios · #{reporteJerarquicoBean.kpiTotalCuentas} cuentas</div>
+            </div>
+        </div>
+    </h:panelGroup>
+
+    <!-- ÁRBOL JERÁRQUICO INTERACTIVO TREETABLE -->
+    <h:form id="treeForm">
+        <!-- BARRA SUPERIOR DE HERRAMIENTAS Y LEYENDA -->
+        <div class="tree-toolbar">
+            <div class="filter-group">
+                <p:commandButton value="Expandir Todo" icon="pi pi-plus-circle"
+                                 actionListener="#{reporteJerarquicoBean.expandAll}"
+                                 process="@this" update=":treeForm:treeTableJerarquico"
+                                 styleClass="ui-button-outlined" />
+
+                <p:commandButton value="Colapsar Todo" icon="pi pi-minus-circle"
+                                 actionListener="#{reporteJerarquicoBean.collapseAll}"
+                                 process="@this" update=":treeForm:treeTableJerarquico"
+                                 styleClass="ui-button-outlined" />
+            </div>
+
+            <!-- Leyenda de Niveles -->
+            <div class="tree-legend">
+                <span>Niveles:</span>
+                <span class="legend-tag" style="background: #e0f2fe; color: #0284c7;"><i class="pi pi-user"></i> 1. Usuario</span>
+                <span class="legend-tag" style="background: #ecfdf5; color: #059669;"><i class="pi pi-wallet"></i> 2. Cuenta</span>
+                <span class="legend-tag" style="background: #fef3c7; color: #d97706;"><i class="pi pi-compass"></i> 3. Estrategia</span>
+                <span class="legend-tag" style="background: #f3e8ff; color: #7e22ce;"><i class="pi pi-chart-line"></i> 4. Instrumento</span>
+                <span class="legend-tag" style="background: #f1f5f9; color: #475569;"><i class="pi pi-tag"></i> 5. Hecho</span>
+            </div>
+        </div>
+
+        <div class="treetable-container">
+            <p:treeTable id="treeTableJerarquico" value="#{reporteJerarquicoBean.rootNode}" var="item"
+                         styleClass="aether-treetable"
+                         rowStyleClass="#{reporteJerarquicoBean.getRowStyleClass(item)}"
+                         emptyMessage="No se encontraron operaciones registradas en el periodo seleccionado."
+                         tableStyle="width: 100%;">
+
+                <!-- COLUMNA 1: JERARQUÍA / CONCEPTO -->
+                <p:column headerText="Estructura Jerárquica" style="width: 27%; text-align: left;">
+                    <span class="badge-nivel" style="background: #{item.badgeBgColor}; color: #{item.badgeTextColor}; margin-right: 6px;">
+                        #{item.tipo}
+                    </span>
+                    <i class="#{item.icono}" style="color: #{item.iconoColor}; margin-right: 6px; font-size: 1.15rem; vertical-align: middle;"></i>
+                    <span style="font-weight: #{item.tipo eq 'HECHO' ? 'normal' : '800'}; font-size: #{item.tipo eq 'USUARIO' ? '1.18rem' : (item.tipo eq 'CUENTA' ? '1.12rem' : '1.05rem')}; color: #0f172a;">
+                        #{item.concepto}
+                    </span>
+                    <span style="font-size: 0.92rem; color: #64748b; margin-left: 6px;" rendered="#{not empty item.subtitulo}">
+                        (#{item.subtitulo})
+                    </span>
+                    <h:panelGroup rendered="#{item.total}">
+                        <span class="tag-total">TOTAL</span>
+                    </h:panelGroup>
+                    <h:panelGroup rendered="#{item.subtotal}">
+                        <span class="tag-subtotal">SUBTOTAL</span>
+                    </h:panelGroup>
+                </p:column>
+
+                <!-- COLUMNA 2: TIPO / DIRECCIÓN -->
+                <p:column headerText="Dirección" style="width: 7%; text-align: center;">
+                    <h:panelGroup rendered="#{item.tipo eq 'HECHO'}">
+                        <span class="badge-dir #{item.direccion eq 'COMPRA' or item.direccion eq 'LARGO' ? 'badge-largo' : 'badge-corto'}">
+                            #{item.direccion}
+                        </span>
+                    </h:panelGroup>
+                    <h:panelGroup rendered="#{item.tipo ne 'HECHO'}">
+                        <span style="color: #94a3b8;">—</span>
+                    </h:panelGroup>
+                </p:column>
+
+                <!-- COLUMNA 3: VOLUMEN -->
+                <p:column headerText="Volumen" style="width: 6%; text-align: right;">
+                    <span style="font-weight: 700;">#{item.formattedVolumen}</span>
+                </p:column>
+
+                <!-- COLUMNA 4: PRECIO ENTRADA -->
+                <p:column headerText="Px Entrada" style="width: 7%; text-align: right;">
+                    <span>#{item.tipo eq 'HECHO' ? item.entryPrice : '—'}</span>
+                </p:column>
+
+                <!-- COLUMNA 5: PRECIO SALIDA -->
+                <p:column headerText="Px Salida" style="width: 7%; text-align: right;">
+                    <span>#{item.tipo eq 'HECHO' ? item.exitPrice : '—'}</span>
+                </p:column>
+
+                <!-- COLUMNA 6: APERTURA -->
+                <p:column headerText="Apertura" style="width: 10%; text-align: center;">
+                    <span>#{item.tipo eq 'HECHO' ? item.openTime : '—'}</span>
+                </p:column>
+
+                <!-- COLUMNA 7: CIERRE -->
+                <p:column headerText="Cierre" style="width: 10%; text-align: center;">
+                    <span>#{item.tipo eq 'HECHO' ? item.closeTime : '—'}</span>
+                </p:column>
+
+                <!-- COLUMNA 8: TRADES / WIN RATE -->
+                <p:column headerText="Trades / WR" style="width: 8%; text-align: center;">
+                    <h:panelGroup rendered="#{item.tipo ne 'HECHO'}">
+                        <span style="font-weight: 800; color: #334155;">#{item.totalTrades} ops</span>
+                        <span style="font-size: 0.95rem; color: #d97706; font-weight: 700; margin-left: 4px;">(#{item.winRate}%)</span>
+                    </h:panelGroup>
+                    <h:panelGroup rendered="#{item.tipo eq 'HECHO'}">
+                        <span style="font-weight: 700; color: #{item.status eq 'OPEN' ? '#059669' : '#64748b'};">
+                            #{item.status}
+                        </span>
+                    </h:panelGroup>
+                </p:column>
+
+                <!-- COLUMNA 9: PNL BRUTO -->
+                <p:column headerText="PnL Bruto ($)" style="width: 7%; text-align: right;">
+                    <span class="#{item.pnlBruto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}" style="font-weight: #{item.tipo eq 'HECHO' ? '500' : '800'};">
+                        #{item.formattedPnlBruto}
+                    </span>
+                </p:column>
+
+                <!-- COLUMNA 10: COMISIONES -->
+                <p:column headerText="Comisión ($)" style="width: 5%; text-align: right;">
+                    <span style="color: #b45309; font-weight: #{item.tipo eq 'HECHO' ? '500' : '750'};">#{item.formattedComisiones}</span>
+                </p:column>
+
+                <!-- COLUMNA 11: PNL NETO -->
+                <p:column headerText="PnL Neto ($ USD)" style="width: 6%; text-align: right;">
+                    <span class="#{item.pnlNeto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}" style="font-weight: #{item.tipo eq 'HECHO' ? '600' : '900'}; font-size: #{item.tipo eq 'USUARIO' ? '1.10rem' : '1.02rem'};">
+                        #{item.formattedPnlNeto}
+                    </span>
+                </p:column>
+
+                <!-- RENGLÓN DE TOTALES GENERAL CONSOLIDADO (PIE DE TABLA) -->
+                <p:columnGroup type="footer">
+                    <p:row>
+                        <p:column footerText="★ TOTAL GENERAL CONSOLIDADO" style="text-align: left; font-weight: 900; font-size: 1.05rem;" />
+                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiVolumen}" style="text-align: right; font-weight: 800;" />
+                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiTotalTrades} (#{reporteJerarquicoBean.kpiWinRate}%)" style="text-align: center; font-weight: 800;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiPnlBruto}" style="text-align: right; font-weight: 900;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiComisiones}" style="text-align: right; font-weight: 800; color: #f59e0b;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiPnlNeto}"
+                                  styleClass="#{reporteJerarquicoBean.kpiPnlNeto >= 0 ? 'footer-pnl-pos' : 'footer-pnl-neg'}"
+                                  style="text-align: right; font-weight: 900; font-size: 1.10rem;" />
+                    </p:row>
+                </p:columnGroup>
+
+            </p:treeTable>
+        </div>
+    </h:form>
+</ui:define>
+</ui:composition>

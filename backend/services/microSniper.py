@@ -104,13 +104,25 @@ def isMarketOpenForSymbol(symbol: Optional[str] = None) -> bool:
     weekday = nowUtc.weekday()
     hour = nowUtc.hour
     minute = nowUtc.minute
-    # Cierre de mercado Forex viernes 21:00 UTC a domingo 21:00 UTC
+    # Cierre de mercado Forex fin de semana: viernes 21:00 UTC a domingo 21:00 UTC
     if weekday == 4 and (hour > 21 or (hour == 21 and minute >= 0)):
         return False
     if weekday == 5:
         return False
     if weekday == 6 and (hour < 21):
         return False
+
+    sym = (symbol or "").upper().replace("/", "").replace("_", "")
+    # Receso diario de mantenimiento Petróleo / Energías (XTI, XBR, OIL, BRENT): 23:00 a 00:00 UTC (17:00 - 18:00 CST)
+    if any(k in sym for k in ["XBR", "XTI", "BRENT", "CRUDE", "OIL"]):
+        if weekday in [0, 1, 2, 3, 4] and hour == 23:
+            return False
+
+    # Receso diario de mantenimiento Metales (XAU, XAG, GOLD, SILVER): 22:00 a 23:00 UTC (16:00 - 17:00 CST)
+    if any(k in sym for k in ["XAU", "XAG", "GOLD", "SILVER"]):
+        if weekday in [0, 1, 2, 3, 4] and hour == 22:
+            return False
+
     return True
 
 
@@ -151,22 +163,65 @@ def isDividendShortRestricted(dbSession, symbol: str) -> Tuple[bool, str]:
     return False, ""
 
 
-def isWithinOperatingHours(hInicioStr: str = "08:00", hFinStr: str = "16:00") -> bool:
+def isWithinOperatingHours(
+    hInicioStr: str = "08:00",
+    hFinStr: str = "16:00",
+    currentDt: Optional[datetime] = None,
+    hInicio2Str: Optional[str] = None,
+    hFin2Str: Optional[str] = None
+) -> bool:
     try:
-        nowLocal = datetime.now()
+        nowLocal = currentDt if currentDt is not None else datetime.now()
         currentMinutes = nowLocal.hour * 60 + nowLocal.minute
+
+        def sanitizeTime(t: Any) -> Optional[str]:
+            if t is None:
+                return None
+            s = str(t).strip().lower()
+            if s in ["", "null", "none", "nan", "undefined"]:
+                return None
+            if ":" not in s:
+                return None
+            return str(t).strip()
+
         def parseMinutes(hhmm: str) -> int:
-            parts = hhmm.strip().split(":")
+            parts = str(hhmm).strip().split(":")
             return int(parts[0]) * 60 + int(parts[1])
-        startMinutes = parseMinutes(hInicioStr)
-        endMinutes = parseMinutes(hFinStr)
-        if startMinutes <= endMinutes:
-            return startMinutes <= currentMinutes <= endMinutes
-        else:
-            return currentMinutes >= startMinutes or currentMinutes <= endMinutes
+
+        def checkWindow(startStr: Optional[str], endStr: Optional[str]) -> bool:
+            cleanStart = sanitizeTime(startStr)
+            cleanEnd = sanitizeTime(endStr)
+            if not cleanStart or not cleanEnd:
+                return False
+            startM = parseMinutes(cleanStart)
+            endM = parseMinutes(cleanEnd)
+            if startM <= endM:
+                return startM <= currentMinutes <= endM
+            else:
+                # Cruza la medianoche (ej. 23:00 a 10:00)
+                return currentMinutes >= startM or currentMinutes <= endM
+
+        # Si viene en formato con comas en una sola cadena
+        cleanH1 = sanitizeTime(hInicioStr)
+        cleanH2 = sanitizeTime(hFinStr)
+        if cleanH1 and cleanH2 and "," in cleanH1 and "," in cleanH2:
+            sParts = cleanH1.split(",")
+            eParts = cleanH2.split(",")
+            if len(sParts) >= 2 and len(eParts) >= 2:
+                return checkWindow(sParts[0], eParts[0]) or checkWindow(sParts[1], eParts[1])
+
+        if checkWindow(hInicioStr, hFinStr):
+            return True
+
+        cleanS2 = sanitizeTime(hInicio2Str)
+        cleanE2 = sanitizeTime(hFin2Str)
+        if cleanS2 and cleanE2:
+            return checkWindow(cleanS2, cleanE2)
+
+        return False
     except Exception as ex:
-        logger.warning(f"Error parseando horario ({hInicioStr} - {hFinStr}): {ex}")
-        return True
+        logger.warning(f"Error parseando horario ({hInicioStr}-{hFinStr} / {hInicio2Str}-{hFin2Str}): {ex}")
+        return False
 
 
 def getSniperBotInstance() -> SniperBot:
@@ -295,7 +350,17 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
                         dfExact = pd.concat([dfExact, dfRecentRes])
                         dfExact = dfExact[~dfExact.index.duplicated(keep="last")].sort_index()
 
-            return dfExact.dropna(subset=["close"]).tail(limitBars)
+            dfRes = dfExact.dropna(subset=["close"]).tail(limitBars)
+            try:
+                rowOffset = db.execute(text("SELECT priceOffset FROM symbols WHERE symbol = :s OR REPLACE(symbol, '/', '') = REPLACE(:s, '/', '') LIMIT 1"), {"s": symbol}).fetchone()
+                if rowOffset and rowOffset[0] is not None and float(rowOffset[0]) != 0.0:
+                    offset = float(rowOffset[0])
+                    for col in ["close", "high", "low", "open"]:
+                        if col in dfRes.columns:
+                            dfRes[col] = dfRes[col] + offset
+            except Exception as eOffset:
+                logger.warning(f"Error aplicando priceOffset para {symbol} en fetchSniperCandlesHistory: {eOffset}")
+            return dfRes
 
         # Fallback resampleando de 1min/5min
         sqlFallback = """
@@ -313,9 +378,19 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
             dfFb[c] = pd.to_numeric(dfFb[c], errors="coerce")
         ruleMap = {"15min": "15min", "15m": "15min", "5min": "5min", "5m": "5min", "1h": "1h", "1d": "1D"}
         rule = ruleMap.get(tfLower, "15min")
-        return dfFb.resample(rule).agg({
+        dfRes = dfFb.resample(rule).agg({
             "close": "last", "high": "max", "low": "min", "open": "first", "volume": "sum"
         }).dropna(subset=["close"]).tail(limitBars)
+        try:
+            rowOffset = db.execute(text("SELECT priceOffset FROM symbols WHERE symbol = :s OR REPLACE(symbol, '/', '') = REPLACE(:s, '/', '') LIMIT 1"), {"s": symbol}).fetchone()
+            if rowOffset and rowOffset[0] is not None and float(rowOffset[0]) != 0.0:
+                offset = float(rowOffset[0])
+                for col in ["close", "high", "low", "open"]:
+                    if col in dfRes.columns:
+                        dfRes[col] = dfRes[col] + offset
+        except Exception:
+            pass
+        return dfRes
     except Exception as e:
         logger.error(f"Error en fetchSniperCandlesHistory para {symbol}: {e}")
         return pd.DataFrame()
@@ -350,7 +425,12 @@ def runSniperBacktest(
     timeframe: str = "15min",
     adaptiveCfg: Optional[Dict[str, Any]] = None,
     precomputedProbas: Optional[np.ndarray] = None,
-    precomputedDfOp: Optional[pd.DataFrame] = None
+    precomputedDfOp: Optional[pd.DataFrame] = None,
+    filtroHorario: bool = False,
+    horaInicio: str = "08:00",
+    horaFin: str = "16:00",
+    horaInicio2: Optional[str] = None,
+    horaFin2: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta el BackTest táctico para la estrategia SNIPER (15min) sobre un par:
@@ -461,6 +541,7 @@ def runSniperBacktest(
             h = high_arr[i]
             l = low_arr[i]
             d = trade_entry["direction"]
+            isLong = (d in ["LARGO", "COMPRA", "BUY"])
             ep = trade_entry["entryPrice"]
             sl = trade_entry["stopLoss"]
             tp = trade_entry["takeProfit"]
@@ -469,16 +550,16 @@ def runSniperBacktest(
             # Break-Even Adaptativo
             if usarBreakEven and not trade_entry["isBreakEven"]:
                 dist_half = abs(tp - ep) * 0.50
-                if d == "LARGO" and h >= ep + dist_half:
+                if isLong and h >= ep + dist_half:
                     trade_entry["stopLoss"] = ep
                     trade_entry["isBreakEven"] = True
-                elif d == "CORTO" and l <= ep - dist_half:
+                elif (not isLong) and l <= ep - dist_half:
                     trade_entry["stopLoss"] = ep
                     trade_entry["isBreakEven"] = True
 
             # Trailing Stop Loss Adaptativo
             if usarTSL:
-                if d == "LARGO":
+                if isLong:
                     if h > trade_entry["peakPx"]:
                         trade_entry["peakPx"] = h
                         cand_sl = h - (atr_v * sl_mult)
@@ -495,7 +576,7 @@ def runSniperBacktest(
             exit_px = None
             exit_reason = None
 
-            if d == "LARGO":
+            if isLong:
                 if l <= sl:
                     exit_px = sl
                     exit_reason = "Break-Even" if (trade_entry["isBreakEven"] and abs(sl - ep) < pipSize * 5) else ("Trailing SL" if sl > ep else "Stop Loss")
@@ -511,12 +592,12 @@ def runSniperBacktest(
                     exit_reason = "Take Profit"
 
             if exit_px is not None:
-                ret_pct = ((exit_px - ep) / ep * 100.0) if d == "LARGO" else ((ep - exit_px) / ep * 100.0)
-                pips = ((exit_px - ep) / pipSize) if d == "LARGO" else ((ep - exit_px) / pipSize)
+                ret_pct = ((exit_px - ep) / ep * 100.0) if isLong else ((ep - exit_px) / ep * 100.0)
+                pips = ((exit_px - ep) / pipSize) if isLong else ((ep - exit_px) / pipSize)
                 alloc_cap = currentCap * (allocPct / 100.0)
                 # Tamaño en unidades con apalancamiento institucional 30x (margen 3.33%)
                 units = alloc_cap / (ep * 0.0333) if (ep * 0.0333) > 0 else 1000.0
-                pnl = (exit_px - ep) * units if d == "LARGO" else (ep - exit_px) * units
+                pnl = (exit_px - ep) * units if isLong else (ep - exit_px) * units
                 currentCap += pnl
 
                 if currentCap > peak_cap:
@@ -548,21 +629,27 @@ def runSniperBacktest(
         # Evaluación de nueva entrada
         is_l = False
         is_s = False
-        if probas is not None and i - 1 < len(probas):
-            pr = float(probas[i - 1])
-            is_l = pr >= thresh_long
-            is_s = pr <= thresh_short
-            conf = (pr * 100.0) if is_l else ((1.0 - pr) * 100.0 if is_s else 0.0)
-            if conf < min_conf:
-                is_l = False
-                is_s = False
-        else:
-            # Fallback técnico (RSI + Momentum)
-            if i >= 14:
-                curr_c = float(close_arr[i - 1])
-                prev_c = float(close_arr[i - 14])
-                if curr_c > prev_c * 1.002: is_l = True
-                elif curr_c < prev_c * 0.998: is_s = True
+        bar_allowed = True
+        if filtroHorario:
+            bar_dt = df_op.index[i - 1] if hasattr(df_op.index[i - 1], "hour") else pd.to_datetime(times_arr[i - 1])
+            bar_allowed = isWithinOperatingHours(horaInicio, horaFin, bar_dt, horaInicio2, horaFin2)
+
+        if bar_allowed:
+            if probas is not None and i - 1 < len(probas):
+                pr = float(probas[i - 1])
+                is_l = pr >= thresh_long
+                is_s = pr <= thresh_short
+                conf = (pr * 100.0) if is_l else ((1.0 - pr) * 100.0 if is_s else 0.0)
+                if conf < min_conf:
+                    is_l = False
+                    is_s = False
+            else:
+                # Fallback técnico (RSI + Momentum)
+                if i >= 14:
+                    curr_c = float(close_arr[i - 1])
+                    prev_c = float(close_arr[i - 14])
+                    if curr_c > prev_c * 1.002: is_l = True
+                    elif curr_c < prev_c * 0.998: is_s = True
 
         if is_l or is_s:
             ep = float(close_arr[i - 1])
@@ -718,6 +805,15 @@ def evaluateSingleSniper(dbSession, sniperRecord: Dict[str, Any], botInstance: S
     if not openTrades and not operar:
         return
 
+    if not isMarketOpenForSymbol(symbol):
+        if openTrades:
+            if shouldLogStatus(idCuenta, symbol, 300.0):
+                logger.info(f"⏸️ [SNIPER] Mercado cerrado o en receso diario para {symbol}. Posición #{openTrades[0]['idTrade']} en pausa hasta reapertura.")
+        else:
+            if shouldLogStatus(idCuenta, symbol, 300.0):
+                logger.info(f"⏸️ [SNIPER] Mercado cerrado o en receso diario para {symbol}.")
+        return
+
     df = fetchSniperCandlesHistory(symbol, timeframe=timeframe, days=90)
     if df.empty or len(df) < 50:
         if shouldLogStatus(idCuenta, symbol, 60.0):
@@ -842,9 +938,14 @@ def evaluateSingleSniper(dbSession, sniperRecord: Dict[str, Any], botInstance: S
         useHourFilter = bool(sniperRecord.get("filtroHorario", True))
         hInicio = str(sniperRecord.get("horaInicio") or "08:00")
         hFin = str(sniperRecord.get("horaFin") or "16:00")
-        if useHourFilter and not isWithinOperatingHours(hInicio, hFin):
+        hInicio2 = sniperRecord.get("horaInicio2")
+        hFin2 = sniperRecord.get("horaFin2")
+        hInicio2Str = str(hInicio2) if hInicio2 else None
+        hFin2Str = str(hFin2) if hFin2 else None
+        if useHourFilter and not isWithinOperatingHours(hInicio, hFin, None, hInicio2Str, hFin2Str):
             if shouldLogStatus(idCuenta, symbol, 60.0):
-                logger.info(f"⏳ [SNIPER] [{symbol}] Fuera de horario operativo configurado ({hInicio} - {hFin} CST).")
+                horarioDesc = f"{hInicio}-{hFin}" + (f" y {hInicio2Str}-{hFin2Str}" if hInicio2Str and hFin2Str else "")
+                logger.info(f"⏳ [SNIPER] [{symbol}] Fuera de horario operativo configurado ({horarioDesc} CST).")
             return
 
         # Consultar configuración adaptativa jerárquica
@@ -995,7 +1096,8 @@ def main() -> None:
             sqlActive = text("""
                 SELECT s.id, s.idUsuario, s.idCuenta, s.symbol, s.Temporalidad, s.periodo,
                        s.minConfidence, s.minRr, s.maxRr, s.operar, s.accionCierre, s.tipoCierre,
-                       s.usarBreakEven, s.usarTSL, s.filtroHorario, s.horaInicio, s.horaFin
+                       s.usarBreakEven, s.usarTSL, s.filtroHorario, s.horaInicio, s.horaFin,
+                       s.horaInicio2, s.horaFin2
                 FROM userSNIPER s
                 JOIN cuenta c ON s.idCuenta = c.idCuenta
                 WHERE s.borrado = 0 AND c.Activo = 1

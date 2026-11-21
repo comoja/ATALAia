@@ -20,6 +20,9 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Collections;
 
 @Named("securityBean")
 @SessionScoped
@@ -436,6 +439,36 @@ public class SecurityBean implements Serializable {
         return "Usuario #" + selectedUserId;
     }
 
+    public String getActiveUserAvatar() {
+        if (this.selectedUserId != null) {
+            if (Integer.valueOf(1).equals(this.selectedUserId)) return "jcolin";
+            if (Integer.valueOf(2).equals(this.selectedUserId)) return "rortiz";
+            if (Integer.valueOf(3).equals(this.selectedUserId)) return "rcolin";
+            return "role_" + this.selectedUserId;
+        }
+        return this.username != null ? this.username : "role_" + (this.idRole != null ? this.idRole : 1);
+    }
+
+    public String getActiveUserRole() {
+        if (this.selectedUserId != null) {
+            if (Integer.valueOf(1).equals(this.selectedUserId)) return "Administrador";
+            if (Integer.valueOf(2).equals(this.selectedUserId)) return "Analista";
+            if (Integer.valueOf(3).equals(this.selectedUserId)) return "Trader";
+        }
+        return this.nameRole != null ? this.nameRole : "";
+    }
+
+    public Integer getActiveUserRoleId() {
+        if (this.selectedUserId != null) {
+            return this.selectedUserId;
+        }
+        return this.idRole != null ? this.idRole : 1;
+    }
+
+    public long getCacheBuster() {
+        return System.currentTimeMillis();
+    }
+
     // --- DTOs estáticos ---
 
     @Getter
@@ -499,6 +532,43 @@ public class SecurityBean implements Serializable {
         private Boolean mustChangePassword;
     }
 
+    public List<MenuDto> getMenuTree() {
+        if (authorizedMenus == null || authorizedMenus.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<Integer, MenuDto> map = new LinkedHashMap<>();
+        List<MenuDto> roots = new ArrayList<>();
+
+        for (MenuDto m : authorizedMenus) {
+            m.setSubMenus(new ArrayList<>());
+            map.put(m.getIdMenu(), m);
+        }
+
+        for (MenuDto m : authorizedMenus) {
+            if (m.getParentId() != null && map.containsKey(m.getParentId())) {
+                map.get(m.getParentId()).getSubMenus().add(m);
+            } else if (m.getParentId() == null) {
+                roots.add(m);
+            }
+        }
+        return roots;
+    }
+
+    public boolean isMenuGroupActive(MenuDto menu, String currentViewId) {
+        if (menu == null || currentViewId == null) return false;
+        if (menu.getUrl() != null && !menu.getUrl().equals("#") && currentViewId.contains(menu.getUrl())) {
+            return true;
+        }
+        if (menu.isHasSubMenus()) {
+            for (MenuDto sub : menu.getSubMenus()) {
+                if (sub.getUrl() != null && currentViewId.contains(sub.getUrl())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @Getter
     @Setter
     public static class UsuarioComboItem implements Serializable {
@@ -516,5 +586,10 @@ public class SecurityBean implements Serializable {
         private String  url;
         private String  icon;
         private Integer parentId;
+        private List<MenuDto> subMenus = new ArrayList<>();
+
+        public boolean isHasSubMenus() {
+            return subMenus != null && !subMenus.isEmpty();
+        }
     }
 }

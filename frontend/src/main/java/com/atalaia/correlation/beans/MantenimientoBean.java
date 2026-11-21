@@ -42,6 +42,10 @@ public class MantenimientoBean implements Serializable {
     private int pollInterval = 4; // segundos
     private String lastUpdatedStr = "-";
 
+    private String sniperMlLastTrained = "-";
+    private String sniperMlSizeMb = "-";
+    private String sniperMlCron = "Domingos 05:00 AM CST";
+
     @PostConstruct
     public void init() {
         log.info("Inicializando MantenimientoBean...");
@@ -112,6 +116,18 @@ public class MantenimientoBean implements Serializable {
             this.summary.setListening(sumNode.path("listening").asInt(0));
             this.summary.setHealthy(sumNode.path("healthy").asBoolean(false));
             this.summary.setTimestamp(sumNode.path("timestamp").asText(new SimpleDateFormat("HH:mm:ss").format(new Date())));
+
+            // Metadatos de SNIPER ML
+            try {
+                String mlUrl = backendApiUrl + "/system/sniper-ml-info";
+                String mlJson = getRestTemplate().getForObject(mlUrl, String.class);
+                JsonNode mlNode = getObjectMapper().readTree(mlJson);
+                this.sniperMlLastTrained = mlNode.path("last_trained").asText("-");
+                this.sniperMlSizeMb = mlNode.path("model_size_mb").asText("0.0") + " MB";
+                this.sniperMlCron = mlNode.path("cron_schedule").asText("Domingos 05:00 AM CST");
+            } catch (Exception eMl) {
+                log.debug("Error obteniendo metadatos de SNIPER ML: {}", eMl.getMessage());
+            }
 
         } catch (Exception e) {
             log.warn("Fallo conectando con FastAPI para /system/services, aplicando sondeo local de emergencia: {}", e.getMessage());
@@ -187,6 +203,22 @@ public class MantenimientoBean implements Serializable {
         } catch (Exception e) {
             FacesContext.getCurrentInstance().addMessage(null, 
                 new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error de Optimización", "Fallo al ejecutar la optimización: " + e.getMessage()));
+        }
+    }
+
+    public void runSniperMlRetrain() {
+        try {
+            String url = backendApiUrl + "/system/actions/retrain-sniper-ml";
+            getRestTemplate().postForObject(url, null, String.class);
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_INFO, "Reentrenamiento ML SNIPER", 
+                    "Auto-reentrenamiento de RandomForest iniciado en segundo plano. Sigue la bitácora en la terminal filtrando 'SNIPER ML'."));
+            this.selectedServiceFilter = "sniper_ml";
+            refreshAll();
+        } catch (Exception e) {
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error de Reentrenamiento", 
+                    "Fallo al iniciar reentrenamiento: " + e.getMessage()));
         }
     }
 

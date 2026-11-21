@@ -443,19 +443,23 @@ def execute_single_asset_entry(
         )
     """)
 
-    if raw_sub_orders and len(raw_sub_orders) > 1:
+    unique_sub_tickets = {str(sub.get("order_id") or "").strip() for sub in raw_sub_orders if str(sub.get("order_id") or "").strip()}
+    dbStrat = "RIDER" if ("CART" in strategy.upper() or "RIDER" in strategy.upper()) else strategy
+    if len(unique_sub_tickets) > 1:
+        seen_tickets = set()
         for sub in raw_sub_orders:
             subTicket = str(sub.get("order_id") or "").strip()
-            if not subTicket:
+            if not subTicket or subTicket in seen_tickets:
                 continue
+            seen_tickets.add(subTicket)
             subPx = float(sub.get("fill_price") or primaryFillPx)
-            subQty = float(sub.get("quantity") or (size / len(raw_sub_orders)))
-            subMrg = float(sub.get("margin") or (plannedMargin / len(raw_sub_orders)))
+            subQty = float(sub.get("quantity") or (size / len(unique_sub_tickets)))
+            subMrg = float(sub.get("margin") or (plannedMargin / len(unique_sub_tickets)))
             totalRealMargin += subMrg
 
             resIns = dbSession.execute(insertSql, {
                 "idc": idCuenta,
-                "strat": strategy,
+                "strat": dbStrat,
                 "setup": setup,
                 "sym": symbol,
                 "dir": direction.upper(),
@@ -469,7 +473,7 @@ def execute_single_asset_entry(
                 "tid": subTicket
             })
             insertedTradeIds.append(resIns.lastrowid)
-            logger.info(f"✅ [{strategy}] Sub-orden guardada: Trade #{resIns.lastrowid}, Ticket={subTicket}, {subQty:g} u @ {subPx:.5f}, Margen=${subMrg:.2f}")
+            logger.info(f"✅ [{dbStrat}] Sub-orden guardada: Trade #{resIns.lastrowid}, Ticket={subTicket}, {subQty:g} u @ {subPx:.5f}, Margen=${subMrg:.2f}")
     else:
         orderId = str(whRes.get("order_id") or "")
         fillPx = primaryFillPx
@@ -479,7 +483,7 @@ def execute_single_asset_entry(
 
         resIns = dbSession.execute(insertSql, {
             "idc": idCuenta,
-            "strat": strategy,
+            "strat": dbStrat,
             "setup": setup,
             "sym": symbol,
             "dir": direction.upper(),
@@ -493,7 +497,7 @@ def execute_single_asset_entry(
             "tid": orderId
         })
         insertedTradeIds.append(resIns.lastrowid)
-        logger.info(f"✅ [{strategy}] Trade guardado: Trade #{resIns.lastrowid}, Ticket={orderId}, {confQty:g} u @ {fillPx:.5f}, Margen=${confMrg:.2f}")
+        logger.info(f"✅ [{dbStrat}] Trade guardado: Trade #{resIns.lastrowid}, Ticket={orderId}, {confQty:g} u @ {fillPx:.5f}, Margen=${confMrg:.2f}")
 
     # 5. Descontar margen retenido de cuenta.Capital
     dbSession.execute(text("""
@@ -505,8 +509,9 @@ def execute_single_asset_entry(
 
     # 6. Alerta de Telegram enriquecida
     dirEmoji = "🟢 COMPRA" if action == "buy" else "🔴 VENTA"
+    stratDisplay = "RIDER" if ("CART" in strategy.upper() or "RIDER" in strategy.upper()) else strategy
     alertMsg = (
-        f"🎯 <b>[{strategy} - ENTRADA CONFIRMADA]</b>\n\n"
+        f"🎯 <b>[{stratDisplay} - ENTRADA CONFIRMADA]</b>\n\n"
         f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
         f"Activo: <b>{symbol}</b> ({timeframe})\n"
         f"Operación: <b>{dirEmoji}</b> ({size:g} unidades)\n"
@@ -641,9 +646,10 @@ def execute_single_asset_close(
     # Alerta de Telegram
     accRow = dbSession.execute(text("SELECT Nombre FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).fetchone()
     accountName = accRow[0] if accRow else f"Cuenta #{idCuenta}"
+    stratDisplay = "RIDER" if ("CART" in strategy.upper() or "RIDER" in strategy.upper()) else strategy
     pnlColor = "🟢" if pnlVal >= 0 else "🔴"
     alertMsg = (
-        f"🏁 <b>[{strategy} - CIERRE DE POSICIÓN]</b>\n\n"
+        f"🏁 <b>[{stratDisplay} - CIERRE DE POSICIÓN]</b>\n\n"
         f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
         f"Activo: <b>{symbol}</b>\n"
         f"Ticket Bróker: <code>{tId}</code>\n"

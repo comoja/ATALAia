@@ -16,6 +16,8 @@
     <h:inputHidden id="sniperFiltroHorarioHidden" value="#{dashboardBean.sniperFiltroHorario}" />
     <h:inputHidden id="sniperHoraInicioHidden" value="#{dashboardBean.sniperHoraInicio}" />
     <h:inputHidden id="sniperHoraFinHidden" value="#{dashboardBean.sniperHoraFin}" />
+    <h:inputHidden id="sniperHoraInicio2Hidden" value="#{dashboardBean.sniperHoraInicio2}" />
+    <h:inputHidden id="sniperHoraFin2Hidden" value="#{dashboardBean.sniperHoraFin2}" />
     <h:inputHidden id="sniperMinConfHidden" value="#{dashboardBean.sniperMinConfidence}" />
     <h:inputHidden id="sniperMinRrHidden" value="#{dashboardBean.sniperMinRr}" />
     <h:inputHidden id="sniperMaxRrHidden" value="#{dashboardBean.sniperMaxRr}" />
@@ -46,7 +48,15 @@
             <!-- ===================================================================== -->
             <!-- PESTAÑA 1: CALIBRACIÓN Y MONITOREO EN VIVO SNIPER                     -->
             <!-- ===================================================================== -->
-            <p:tab title="SNIPER">
+            <p:tab>
+                <f:facet name="title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="38" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;" title="SNIPER">
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="6.5" />
+                        <circle cx="12" cy="12" r="3.2" />
+                        <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+                    </svg>
+                </f:facet>
                 <div class="dashboard-grid">
 
                     <!-- COLUMNA IZQUIERDA: CONTROLES DE CALIBRACIÓN SNIPER -->
@@ -79,6 +89,8 @@
                         <p:accordionPanel id="sniperLeftAccordion" multiple="false"
                             activeIndex="#{dashboardBean.activeSniperAccordionIndex}" styleClass="aether-accordion"
                             style="margin-top: 4px;">
+                            <p:ajax event="tabChange" listener="#{dashboardBean.onSniperAccordionTabChange}"
+                                update="@this" />
 
                             <!-- SECCIÓN 1: PARES SNIPER CONFIGURADOS DEL USUARIO -->
                             <p:tab id="tabUserSniper">
@@ -280,11 +292,21 @@
                                                 <p:ajax process="@this" update="pnlHorarioSniper" />
                                             </p:selectBooleanCheckbox>
                                         </div>
-                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">Horario 1 (Principal):</div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px;">
                                             <p:inputText value="#{dashboardBean.sniperHoraInicio}" placeholder="08:00"
                                                 disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
                                             <p:inputText value="#{dashboardBean.sniperHoraFin}" placeholder="16:00"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                        </div>
+                                        <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">Horario 2 (Opcional / Split):</div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                            <p:inputText value="#{dashboardBean.sniperHoraInicio2}" placeholder="Ej. 16:00"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                            <p:inputText value="#{dashboardBean.sniperHoraFin2}" placeholder="Ej. 19:00"
                                                 disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
                                         </div>
@@ -328,21 +350,235 @@
                                                 style="flex: 2; background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
                                             
                                             <p:commandButton value="Borrar" icon="pi pi-trash"
-                                                action="#{dashboardBean.borrarSniper}"
                                                 disabled="#{dashboardBean.sniperEditBlocked}"
                                                 rendered="#{dashboardBean.sniperExistsInDb}"
                                                 process="@this"
-                                                update=":aetherForm"
-                                                oncomplete="handleUserSniperSelected();"
+                                                update=":borrarSniperForm:borrarSniperDlg"
+                                                oncomplete="PF('borrarSniperDlg').show();"
                                                 styleClass="aether-btn-secondary"
-                                                style="flex: 1; color: #dc2626 !important; border-color: #f87171 !important;">
-                                                <p:confirm header="Confirmar Eliminación"
-                                                    message="¿Deseas eliminar el par #{dashboardBean.selectedSniperPair} de la estrategia SNIPER?"
-                                                    icon="pi pi-exclamation-triangle" />
-                                            </p:commandButton>
+                                                style="flex: 1; color: #dc2626 !important; border-color: #f87171 !important;"
+                                                title="#{dashboardBean.readOnly ? 'Modo solo lectura' : (dashboardBean.sniperEditBlocked ? 'Bloqueado: Existe una posición activa en mercado' : 'Eliminar par de SNIPER')}" />
                                         </div>
                                     </div>
 
+                                    <!-- RESUMEN DE POSICIÓN EN CURSO SNIPER -->
+                                    <h:panelGroup id="sniperActiveCycleSummaryCard" layout="block" style="margin-top: 14px;">
+                                        <h:panelGroup rendered="#{dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
+                                            <div
+                                                style="background: #ffffff; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                                                <div
+                                                    style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px;">
+                                                    <div
+                                                        style="font-weight: 800; font-size: 0.88rem; color: #8c5d1e; display: flex; align-items: center; gap: 6px;">
+                                                        <span
+                                                            style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                                                        <span>POSICIÓN SNIPER EN CURSO
+                                                            (#{dashboardBean.sniperActiveCycleSummary.pairA})</span>
+                                                    </div>
+                                                    <span
+                                                        style="font-weight: 800; font-size: 0.95rem; color: #{dashboardBean.sniperActiveCycleSummary.pnlColor};">
+                                                        #{dashboardBean.sniperActiveCycleSummary.pnlSign}$#{dashboardBean.sniperActiveCycleSummary.formattedTotalPnl}
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    style="display: flex; justify-content: space-between; font-size: 0.82rem; color: #334155;">
+                                                    <span>Dir: <b>#{dashboardBean.sniperActiveCycleSummary.dirA}</b>
+                                                        (#{dashboardBean.sniperActiveCycleSummary.totalOpenTrades} ops)</span>
+                                                    <span>Cant:
+                                                        <b>#{dashboardBean.sniperActiveCycleSummary.formattedSizeA}</b></span>
+                                                    <span>Px Ent:
+                                                        <b>#{dashboardBean.sniperActiveCycleSummary.formattedAvgEntryPriceA}</b></span>
+                                                </div>
+                                            </div>
+                                        </h:panelGroup>
+                                        <h:panelGroup rendered="#{!dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
+                                            <div
+                                                style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; text-align: center;">
+                                                <div style="font-weight: 700; font-size: 0.80rem; color: #64748b;">
+                                                    <i class="pi pi-info-circle" style="margin-right: 4px;"></i>Sin
+                                                    operaciones SNIPER en curso para #{dashboardBean.selectedSniperPair}
+                                                </div>
+                                            </div>
+                                        </h:panelGroup>
+                                    </h:panelGroup>
+
+                                </div>
+                            </p:tab>
+
+                            <!-- PARTE 3: POSICIONES EN CURSO SNIPER -->
+                            <p:tab id="tabSniperActivePositions"
+                                title="3. Posiciones en Curso (#{dashboardBean.sniperActiveCycles.size()})">
+                                <div
+                                    style="height: 100%; min-height: 0; display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding-right: 4px;">
+                                    <!-- TARJETA GLOBAL DE SALUD DE MARGEN DE LA CUENTA (SNIPER) -->
+                                    <div
+                                        style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                                            <div
+                                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; text-align: center;">
+                                                <div
+                                                    style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                    Margen Retenido</div>
+                                                <div style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">
+                                                    $#{dashboardBean.formattedSniperTotalActiveMargin}</div>
+                                            </div>
+                                            <div
+                                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; text-align: center;">
+                                                <div
+                                                    style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                    PnL Flotante</div>
+                                                <div
+                                                    style="font-size: 0.95rem; font-weight: 900; color: #{dashboardBean.sniperTotalActivePnlColor};">
+                                                    #{dashboardBean.sniperTotalActivePnlSign}$#{dashboardBean.formattedSniperTotalActivePnl}
+                                                </div>
+                                            </div>
+                                            <div
+                                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; text-align: center;">
+                                                <div
+                                                    style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                    Equidad Cuenta</div>
+                                                <div style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">
+                                                    $#{dashboardBean.formattedAccountRealEquity}</div>
+                                            </div>
+                                            <div style="background: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#f0fdf4' : '#fef2f2'}; border: 1px solid #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#86efac' : '#fca5a5'}; border-radius: 8px; padding: 6px 8px; text-align: center;"
+                                                title="Indicador de Margen Real Global de la Cuenta (Equidad / Margen Retenido Total). Mínimo requerido: #{dashboardBean.accountRealMinMargin}%">
+                                                <div
+                                                    style="font-size: 0.62rem; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#166534' : '#991b1b'}; font-weight: 700; text-transform: uppercase;">
+                                                    Ind. Margen</div>
+                                                <div style="font-size: 0.95rem; font-weight: 900; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#15803d' : '#dc2626'};">
+                                                    #{dashboardBean.formattedAccountRealMarginIndicator}%</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <h:panelGroup layout="block" rendered="#{!empty dashboardBean.sniperActiveCycles}">
+                                        <ui:repeat value="#{dashboardBean.sniperActiveCycles}" var="sniperCycle">
+                                            <div
+                                                style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 5px solid #{sniperCycle.dirA eq 'CORTO' ? '#ef4444' : '#10b981'}; border-radius: 8px; padding: 10px; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                                                <div
+                                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px;">
+                                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                                        <p:commandButton icon="pi pi-times"
+                                                            action="#{dashboardBean.cerrarPosicionSniper(sniperCycle.pairA)}"
+                                                            process="@this" disabled="#{dashboardBean.readOnly}"
+                                                            update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                                            styleClass="aether-btn-danger"
+                                                            title="#{dashboardBean.readOnly ? 'Modo solo lectura' : 'Cerrar Posición SNIPER en FOREX.com y BD'}" />
+                                                        <p:commandLink
+                                                            action="#{dashboardBean.onSelectUserSniperBySymbol(sniperCycle.pairA)}"
+                                                            process="@this" update=":aetherForm"
+                                                            oncomplete="handleUserSniperSelected();"
+                                                            style="font-weight: 900; font-size: 1.05rem; color: #8c5d1e; text-decoration: none; cursor: pointer;"
+                                                            title="Clic para ver datos en Calibración y desplegar gráfica">
+                                                            #{sniperCycle.pairA}
+                                                        </p:commandLink>
+                                                        <p:commandButton icon="pi pi-arrow-right"
+                                                            action="#{dashboardBean.onSelectUserSniperBySymbol(sniperCycle.pairA)}"
+                                                            process="@this" update=":aetherForm"
+                                                            oncomplete="handleUserSniperSelected();"
+                                                            styleClass="aether-btn-primary"
+                                                            style="background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important; width: 26px !important; height: 26px !important; min-width: 26px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
+                                                            title="Ver en Calibración (Sección 2) y desplegar gráfica" />
+                                                        <span
+                                                            style="font-weight: 800; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; #{sniperCycle.dirA eq 'CORTO' ? 'background: #fee2e2; color: #991b1b;' : 'background: #dcfce7; color: #166534;'}">
+                                                            #{sniperCycle.dirA} · #{sniperCycle.totalOpenTrades} op(s)
+                                                        </span>
+                                                    </div>
+                                                    <span
+                                                        style="font-weight: 900; font-size: 1.05rem; color: #{sniperCycle.pnlColor};">
+                                                        #{sniperCycle.pnlSign}$#{sniperCycle.formattedTotalPnl}
+                                                        (#{sniperCycle.retSign}#{sniperCycle.formattedReturnPct}%)
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; font-size: 0.78rem; color: #475569; margin-bottom: 6px;">
+                                                    <div
+                                                        style="background: #f8fafc; padding: 4px 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                                        <span
+                                                            style="color: #64748b; font-size: 0.65rem; display: block; font-weight: 700;">PX
+                                                            ENTRADA</span>
+                                                        <b>#{sniperCycle.formattedAvgEntryPriceA}</b>
+                                                    </div>
+                                                    <div
+                                                        style="background: #f8fafc; padding: 4px 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                                        <span
+                                                            style="color: #64748b; font-size: 0.65rem; display: block; font-weight: 700;">PX
+                                                            ACTUAL</span>
+                                                        <b>#{sniperCycle.formattedCurrentPriceA}</b>
+                                                    </div>
+                                                    <div
+                                                        style="background: #f8fafc; padding: 4px 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                                        <span
+                                                            style="color: #64748b; font-size: 0.65rem; display: block; font-weight: 700;">MARGEN
+                                                            RETENIDO</span>
+                                                        <b>$#{sniperCycle.formattedTotalMargin}</b>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Detalle individual de Trades / Sub-órdenes -->
+                                                <h:panelGroup layout="block" rendered="#{!empty sniperCycle.trades}">
+                                                    <div
+                                                        style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed #e2e8f0;">
+                                                        <ui:repeat value="#{sniperCycle.trades}" var="tr">
+                                                            <div
+                                                                style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px 6px; margin-bottom: 3px; font-size: 0.74rem;">
+                                                                <span style="color: #334155; font-weight: 700;">
+                                                                    <i class="pi pi-tag"
+                                                                        style="font-size: 0.68rem; margin-right: 3px; color: #{tr.direction eq 'CORTO' ? '#ef4444' : '#10b981'};"></i>
+                                                                    Entrada #{tr.idTrade} (#{tr.direction}
+                                                                    #{tr.formattedSize} u @ #{tr.entryPrice})
+                                                                </span>
+                                                                <span
+                                                                    style="font-weight: 800; color: #{tr.pnl >= 0 ? '#15803d' : '#b91c1c'};">
+                                                                    #{tr.pnl >= 0 ? '+' : ''}$#{tr.pnl} USD <small
+                                                                        style="color: #64748b; font-weight: 600;">(#{tr.openTime})</small>
+                                                                </span>
+                                                            </div>
+                                                        </ui:repeat>
+                                                    </div>
+                                                </h:panelGroup>
+                                            </div>
+                                        </ui:repeat>
+                                    </h:panelGroup>
+                                    <h:panelGroup layout="block" rendered="#{empty dashboardBean.sniperActiveCycles}">
+                                        <div
+                                            style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; text-align: center; color: #64748b; font-weight: 700; font-size: 0.82rem; margin-bottom: 8px;">
+                                            <i class="pi pi-check-circle"
+                                                style="color: #10b981; margin-right: 4px;"></i>Sin posiciones SNIPER
+                                            abiertas actualmente
+                                        </div>
+
+                                        <!-- Resumen de última posición ejecutada si existe -->
+                                        <h:panelGroup layout="block"
+                                            rendered="#{!empty dashboardBean.sniperRealTradesList}">
+                                            <div
+                                                style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #b47b2b; border-radius: 8px; padding: 10px; margin-top: 4px;">
+                                                <div
+                                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                                        <span
+                                                            style="font-weight: 800; font-size: 0.88rem; color: #0f172a;">
+                                                            Última Op: #{dashboardBean.sniperRealTradesList.get(0).symbol}
+                                                        </span>
+                                                        <p:commandButton icon="pi pi-arrow-right"
+                                                            action="#{dashboardBean.onSelectUserSniperBySymbol(dashboardBean.sniperRealTradesList.get(0).symbol)}"
+                                                            process="@this" update=":aetherForm"
+                                                            oncomplete="handleUserSniperSelected();"
+                                                            styleClass="aether-btn-primary"
+                                                            style="background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important; width: 24px !important; height: 24px !important; min-width: 24px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
+                                                            title="Ver en Calibración (Sección 2) y desplegar gráfica" />
+                                                    </div>
+                                                    <span
+                                                        style="font-weight: 800; font-size: 0.82rem; color: #{dashboardBean.sniperRealTradesList.get(0).pnl >= 0 ? '#15803d' : '#b91c1c'};">
+                                                        #{dashboardBean.sniperRealTradesList.get(0).pnl >= 0 ? '+' : ''}$#{dashboardBean.sniperRealTradesList.get(0).pnl}
+                                                    </span>
+                                                </div>
+                                                <div style="font-size: 0.74rem; color: #64748b;">
+                                                    Cierre: #{dashboardBean.sniperRealTradesList.get(0).closeTime}
+                                                </div>
+                                            </div>
+                                        </h:panelGroup>
+                                    </h:panelGroup>
                                 </div>
                             </p:tab>
                         </p:accordionPanel>
@@ -498,9 +734,23 @@
             </p:tab>
 
             <!-- ===================================================================== -->
-            <!-- PESTAÑA 2: BACKTEST SNIPER (SIMULACIÓN HISTÓRICA CON MACHINE LEARNING) -->
+            <!-- PESTAÑA: GRÁFICA SNIPER                                               -->
             <!-- ===================================================================== -->
-            <p:tab title="BackTest">
+            <p:tab id="tabGraficaSniper" titletip="Grafica">
+                <f:facet name="title">
+                    <span class="grafica-tab-icon" title="Grafica" style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
+                <div id="mobileSniperChartMountPoint" style="padding: 8px 10px; height: 100%; box-sizing: border-box;">
+                </div>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA: BACKTEST SNIPER (SIMULACIÓN HISTÓRICA CON MACHINE LEARNING)   -->
+            <!-- ===================================================================== -->
+            <p:tab titletip="BackTesting">
+                <f:facet name="title">
+                    <span class="backtest-tab-icon" title="BackTesting" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
                 <p:outputPanel id="sniperBtWrapper" layout="block"
                     style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
 
@@ -517,7 +767,7 @@
                                     <i class="pi pi-clock" style="color: #b47b2b; margin-right: 4px;"></i>#{dashboardBean.sniperTimeframe} (#{dashboardBean.sniperDaysBack} periodos)
                                 </span>
                                 <span style="background: #ffffff; color: #8c5d1e; border: 1px solid #e7d8c0; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 800;">
-                                    Conf. Mín: #{dashboardBean.sniperMinConfidence}% | R:R #{dashboardBean.sniperMinRr}:1 | Horario: #{dashboardBean.sniperHoraInicio}-#{dashboardBean.sniperHoraFin} CST
+                                    Conf. Mín: #{dashboardBean.sniperMinConfidence}% | R:R #{dashboardBean.sniperMinRr}:1 | Horario: #{dashboardBean.sniperHoraInicio}-#{dashboardBean.sniperHoraFin}#{not empty dashboardBean.sniperHoraInicio2 ? ' y ' : ''}#{dashboardBean.sniperHoraInicio2}#{not empty dashboardBean.sniperHoraInicio2 ? '-' : ''}#{dashboardBean.sniperHoraFin2} CST
                                 </span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -590,49 +840,53 @@
                         <p:tab title="Bitácora detallada de Trades">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <p:dataTable id="sniperSignalTradesTable" value="#{dashboardBean.sniperBtTradesList}"
-                                    var="st" scrollable="true" scrollHeight="340px" styleClass="aether-table-compact"
+                                    var="st" scrollable="true" scrollHeight="340px" styleClass="aether-trades-table aether-table-compact"
                                     emptyMessage="Sin operaciones simuladas para este par en SNIPER"
-                                    style="width: 100%;">
-                                    <p:column headerText="Entrada" style="width: 50px; text-align: center;">
-                                        <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}" style="font-weight: 700;" />
+                                    tableStyle="width: 100%;">
+                                    <p:column headerText="Entrada" style="width: 5%; text-align: center;">
+                                        <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}" style="font-weight: 700; font-size: 0.95rem;" />
                                     </p:column>
-                                    <p:column headerText="Dirección / Señal" style="width: 140px; text-align: center;">
+                                    <p:column headerText="Dirección / Señal" style="width: 12%; text-align: center;">
                                         <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 800; font-size: 0.82rem; background: #{st.direction == 'COMPRA' ? '#dcfce7' : '#fee2e2'}; color: #{st.direction == 'COMPRA' ? '#15803d' : '#b91c1c'}; border: 1px solid #{st.direction == 'COMPRA' ? '#86efac' : '#fca5a5'};">
                                             #{st.direction == 'COMPRA' ? '▲ COMPRA' : '▼ VENTA'}
                                         </span>
                                         <div style="font-size: 0.75rem; color: #475569; margin-top: 2px; font-weight: 600;">#{st.signalType}</div>
                                     </p:column>
-                                    <p:column headerText="Fecha Entrada" style="width: 140px; text-align: center;">
-                                        <h:outputText value="#{st.entryDate}" style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                    <p:column headerText="Fecha Entrada" style="width: 12%; text-align: center;">
+                                        <h:outputText value="#{st.entryDate}" style="font-weight: 700; font-size: 0.95rem; color: #0f172a;" />
                                     </p:column>
-                                    <p:column headerText="Px Entrada" style="width: 95px; text-align: right;">
-                                        <h:outputText value="#{st.entryPriceA}" style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                    <p:column headerText="Px Entrada" style="width: 9%; text-align: right;">
+                                        <h:outputText value="#{st.entryPriceA}" style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
                                     </p:column>
-                                    <p:column headerText="Fecha Cierre" style="width: 140px; text-align: center;">
-                                        <h:outputText value="#{st.exitDate}" style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                    <p:column headerText="Fecha Cierre" style="width: 13%; text-align: center;">
+                                        <h:outputText value="#{st.exitDate}" style="font-weight: 700; font-size: 1.05rem; color: #0f172a;" />
                                         <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración: #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
                                     </p:column>
-                                    <p:column headerText="Px Cierre" style="width: 95px; text-align: right;">
-                                        <h:outputText value="#{st.exitPriceA}" style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                    <p:column headerText="Px Cierre" style="width: 9%; text-align: right;">
+                                        <h:outputText value="#{st.exitPriceA}" style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
                                     </p:column>
-                                    <p:column headerText="Motivo Cierre" style="width: 130px; text-align: center;">
+                                    <p:column headerText="Motivo Cierre" style="width: 12%; text-align: center;">
                                         <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-weight: 800; font-size: 0.76rem; background: #{st.exitReason.contains('Take Profit') ? '#dcfce7' : (st.exitReason.contains('Break-Even') ? '#e0f2fe' : (st.exitReason.contains('Trailing') ? '#fef3c7' : '#fee2e2'))}; color: #{st.exitReason.contains('Take Profit') ? '#15803d' : (st.exitReason.contains('Break-Even') ? '#0369a1' : (st.exitReason.contains('Trailing') ? '#b45309' : '#b91c1c'))};">
                                             #{st.exitReason}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Retorno %" style="width: 85px; text-align: right;">
-                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                    <p:column headerText="Retorno %" style="width: 9%; text-align: right;">
+                                        <span style="font-weight: 800; font-size: 1.05rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.returnPct > 0 ? '+' : ''}#{st.formattedReturnPct}%
                                         </span>
                                     </p:column>
-                                    <p:column headerText="PnL ($)" style="width: 110px; text-align: right;">
-                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                    <p:column headerText="PnL ($)" style="width: 10%; text-align: right;">
+                                        <span style="font-weight: 800; font-size: 1.08rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.pnl >= 0 ? '+' : ''}$#{st.formattedPnl}
                                         </span>
                                         <div style="font-size: 0.76rem; color: #64748b;">(#{st.formattedPipsAWithSign}p)</div>
                                     </p:column>
-                                    <p:column headerText="Capital Acum. ($)" style="width: 110px; text-align: right;">
-                                        <span style="font-weight: 800; color: #0f172a;">$#{st.formattedAccumCapital}</span>
+                                    <p:column headerText="Capital Acum. ($)" style="width: 9%; text-align: right;">
+                                        <span style="font-weight: 800; font-size: 0.95rem; color: #0f172a;">$#{st.formattedAccumCapital}</span>
                                     </p:column>
                                 </p:dataTable>
                             </div>
@@ -689,13 +943,17 @@
             </p:tab>
 
             <!-- ===================================================================== -->
-            <!-- PESTAÑA 3: HECHOS REALES SNIPER (EJECUCIONES EN TABLA TRADES)         -->
+            <!-- PESTAÑA: HECHOS REALES SNIPER (EJECUCIONES EN TABLA TRADES)           -->
             <!-- ===================================================================== -->
-            <p:tab title="Hechos Reales SNIPER">
-                <div style="display: flex; flex-direction: column; gap: 12px; padding: 4px;">
+            <p:tab titletip="Hechos">
+                <f:facet name="title">
+                    <span class="hechos-tab-icon" title="Hechos" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
+                <p:outputPanel id="sniperRealTradesWrapper" layout="block"
+                    style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
                     
                     <!-- Resumen Métricas SNIPER -->
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 10px;">
                         <div class="aether-card" style="padding: 12px; border-left: 4px solid #b47b2b;">
                             <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total Trades:</span>
                             <div style="font-size: 1.4rem; font-weight: 900; color: #0f172a;">
@@ -722,57 +980,113 @@
                         </div>
                     </div>
 
-                    <!-- Tabla de Operaciones Reales -->
-                    <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}" var="tr"
-                        emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true" scrollHeight="420px"
-                        styleClass="aether-table-compact" style="width: 100%;">
+                    <!-- Sub-Pestañas Internas de Hechos Reales SNIPER -->
+                    <p:tabView id="sniperRealInnerTabs" widgetVar="sniperRealInnerTabsWidget" styleClass="compact-inner-tabs"
+                        onTabShow="if (index === 1) setTimeout(renderSniperHechosChart, 50); else if (index === 2) setTimeout(renderSniperRealTradesEquityChart, 50);">
 
-                        <p:column headerText="#" style="width: 40px; text-align: center;">
-                            <h:outputText value="#{tr.tradeNum}" rendered="#{!tr.isSubtotal}" />
-                            <h:outputText value="TOTAL" rendered="#{tr.isSubtotal}" style="font-weight: 900;" />
-                        </p:column>
-                        <p:column headerText="Ticket" style="width: 80px; text-align: center;">
-                            <h:outputText value="#{tr.ticketId}" />
-                        </p:column>
-                        <p:column headerText="Símbolo" style="width: 90px; font-weight: 700;">
-                            <h:outputText value="#{tr.symbol}" />
-                        </p:column>
-                        <p:column headerText="Dirección" style="width: 80px; text-align: center;">
-                            <span class="badge"
-                                style="font-size: 0.80rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'LARGO'.equalsIgnoreCase(tr.direction) or 'BUY'.equalsIgnoreCase(tr.direction) ? 'background: rgba(22, 163, 74, 0.15); color: #15803d; border: 1px solid #22c55e;' : 'background: rgba(220, 38, 38, 0.15); color: #b91c1c; border: 1px solid #ef4444;'}">
-                                #{tr.direction}
-                            </span>
-                        </p:column>
-                        <p:column headerText="Apertura" style="width: 120px; font-size: 0.85rem;">
-                            <h:outputText value="#{tr.openTime}" />
-                        </p:column>
-                        <p:column headerText="Cierre" style="width: 120px; font-size: 0.85rem;">
-                            <h:outputText value="#{tr.closeTime}" />
-                        </p:column>
-                        <p:column headerText="Precio Entrada" style="width: 95px; text-align: right;">
-                            <h:outputText value="#{tr.entryPrice}">
-                                <f:convertNumber pattern="#,##0.00000" />
-                            </h:outputText>
-                        </p:column>
-                        <p:column headerText="Precio Salida" style="width: 95px; text-align: right;">
-                            <h:outputText value="#{tr.exitPrice}">
-                                <f:convertNumber pattern="#,##0.00000" />
-                            </h:outputText>
-                        </p:column>
-                        <p:column headerText="PnL ($)" style="width: 90px; text-align: right; font-weight: 800;">
-                            <h:outputText value="#{tr.pnl}"
-                                style="color: #{tr.pnl ge 0 ? '#16a34a' : '#dc2626'};">
-                                <f:convertNumber pattern="$#,##0.00" />
-                            </h:outputText>
-                        </p:column>
-                        <p:column headerText="Estado" style="width: 70px; text-align: center;">
-                            <span class="badge"
-                                style="font-size: 0.75rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'OPEN'.equalsIgnoreCase(tr.status) ? 'background: rgba(180, 123, 43, 0.2); color: #8c5d1e; border: 1px solid #b47b2b;' : 'background: #f1f5f9; color: #475569;'}">
-                                #{tr.status}
-                            </span>
-                        </p:column>
-                    </p:dataTable>
-                </div>
+                        <!-- SUB-PESTAÑA 1: BITÁCORA DE TRADES REALES -->
+                        <p:tab title="Bitácora de Trades Reales">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}" var="tr"
+                                    emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true" scrollHeight="380px"
+                                    styleClass="aether-trades-table aether-table-compact" tableStyle="width: 100%;">
+
+                                    <p:column headerText="#" style="width: 5%; text-align: center;">
+                                        <h:outputText value="#{tr.cycleNum != null and tr.cycleNum > 0 ? tr.cycleNum : tr.tradeNum}" rendered="#{!tr.isSubtotal}" style="font-weight: 700;" />
+                                        <h:outputText value="TOTAL" rendered="#{tr.isSubtotal}" style="font-weight: 900;" />
+                                    </p:column>
+                                    <p:column headerText="Ticket" style="width: 9%; text-align: center;">
+                                        <span style="font-weight: 700; color: #475569;">#{tr.ticketId}</span>
+                                    </p:column>
+                                    <p:column headerText="Símbolo" style="width: 9%; text-align: center;">
+                                        <span style="font-weight: 800; color: #8c5d1e;">#{tr.symbol}</span>
+                                    </p:column>
+                                    <p:column headerText="Dirección" style="width: 9%; text-align: center;">
+                                        <span class="badge"
+                                            style="font-size: 0.80rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'LARGO'.equalsIgnoreCase(tr.direction) or 'BUY'.equalsIgnoreCase(tr.direction) ? 'background: #dcfce7; color: #15803d; border: 1px solid #86efac;' : 'background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5;'}">
+                                            #{tr.direction}
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="Apertura" style="width: 14%; text-align: center;">
+                                        <h:outputText value="#{tr.openTime}" />
+                                    </p:column>
+                                    <p:column headerText="Cierre" style="width: 14%; text-align: center;">
+                                        <h:outputText value="#{tr.closeTime}" />
+                                    </p:column>
+                                    <p:column headerText="Precio Entrada" style="width: 10%; text-align: right;">
+                                        <h:outputText value="#{tr.entryPrice}" style="font-weight: 700;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
+                                    </p:column>
+                                    <p:column headerText="Precio Salida" style="width: 10%; text-align: right;">
+                                        <h:outputText value="#{tr.exitPrice}" style="font-weight: 700;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
+                                    </p:column>
+                                    <p:column headerText="PnL ($)" style="width: 11%; text-align: right;">
+                                        <h:outputText value="#{tr.pnl}"
+                                            style="font-weight: 900; color: #{tr.pnl ge 0 ? '#166534' : '#dc2626'};">
+                                            <f:convertNumber pattern="$#,##0.00" />
+                                        </h:outputText>
+                                    </p:column>
+                                    <p:column headerText="Estado" style="width: 9%; text-align: center;">
+                                        <span class="badge"
+                                            style="font-size: 0.75rem; padding: 2px 6px; font-weight: 800; border-radius: 4px; #{'OPEN'.equalsIgnoreCase(tr.status) ? 'background: rgba(180, 123, 43, 0.2); color: #8c5d1e; border: 1px solid #b47b2b;' : 'background: #f1f5f9; color: #475569;'}">
+                                            #{tr.status}
+                                        </span>
+                                    </p:column>
+                                </p:dataTable>
+                            </div>
+                        </p:tab>
+
+                        <!-- SUB-PESTAÑA 2: GRÁFICA DEL PAR Y OPERACIONES (HECHOS) -->
+                        <p:tab title="Gráfica del Par y Operaciones (Hechos)">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                        <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
+                                            Velas #{dashboardBean.sniperTimeframeLabel} + Hechos Reales Ejecutados (#{dashboardBean.selectedSniperPair})
+                                        </span>
+                                        <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ▲ Entrada Compra
+                                        </span>
+                                        <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ▼ Entrada Venta
+                                        </span>
+                                        <span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                            ◆ Cierre Posición
+                                        </span>
+                                    </div>
+                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperHechosChart');"
+                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
+                                        Reset Zoom
+                                    </button>
+                                </div>
+                                <div style="height: 460px; width: 100%; position: relative;">
+                                    <canvas id="sniperHechosChart"></canvas>
+                                </div>
+                            </div>
+                        </p:tab>
+
+                        <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD REAL SNIPER -->
+                        <p:tab title="Gráfica de Curva de Equidad Real">
+                            <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
+                                        Evolución de Capital Real SNIPER ($ USD)
+                                    </span>
+                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperRealTradesEquityChart');"
+                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
+                                        Reset Zoom
+                                    </button>
+                                </div>
+                                <div style="height: 440px; width: 100%; position: relative;">
+                                    <canvas id="sniperRealTradesEquityChart"></canvas>
+                                </div>
+                            </div>
+                        </p:tab>
+                    </p:tabView>
+                </p:outputPanel>
             </p:tab>
         </p:tabView>
     </div>
@@ -783,11 +1097,40 @@
     <script type="text/javascript">
         // <![CDATA[
         var sniperChartInstance = null;
+        var sniperHechosChartInstance = null;
+        var sniperRealTradesEquityChartInstance = null;
+
+        function syncSniperChartPlacement() {
+            var chartCol = document.getElementById("sniperRightChartColumn");
+            var mobileMount = document.getElementById("mobileSniperChartMountPoint");
+            var desktopGrid = document.querySelector("#strategySniperWrapper .dashboard-grid");
+
+            if (!chartCol || !mobileMount || !desktopGrid) return;
+
+            var isMobile = (window.ATALAIA_DEVICE === "mobile" || window.innerWidth < 768);
+            var currentSniperTab = (typeof PF !== 'undefined' && PF('sniperTabViewWidget')) ? PF('sniperTabViewWidget').getActiveIndex() : 0;
+
+            if (currentSniperTab === 1 || isMobile) {
+                if (!mobileMount.contains(chartCol)) {
+                    mobileMount.appendChild(chartCol);
+                    console.log("📱 Gráfico SNIPER montado en pestaña independiente.");
+                }
+            } else {
+                if (mobileMount.contains(chartCol)) {
+                    desktopGrid.appendChild(chartCol);
+                    console.log("💻 Gráfico SNIPER restaurado a cuadrícula de escritorio.");
+                }
+            }
+        }
 
         function handleSniperTabShow(index) {
-            if (index === 0) {
-                setTimeout(function() { renderSniperChart(); }, 60);
-            } else if (index === 1) {
+            syncSniperChartPlacement();
+            if (index === 0 || index === 1) {
+                setTimeout(function() {
+                    syncSniperChartPlacement();
+                    renderSniperChart();
+                }, 60);
+            } else if (index === 2) {
                 setTimeout(function() {
                     var innerWidget = (typeof PF !== 'undefined') ? PF('sniperBtInnerTabsWidget') : null;
                     var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
@@ -800,16 +1143,30 @@
                         renderSniperBtEquityChart();
                     }
                 }, 60);
+            } else if (index === 3) {
+                setTimeout(function() {
+                    var innerWidget = (typeof PF !== 'undefined') ? PF('sniperRealInnerTabsWidget') : null;
+                    var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
+                    if (innerIdx === 1) {
+                        renderSniperHechosChart();
+                    } else if (innerIdx === 2) {
+                        renderSniperRealTradesEquityChart();
+                    } else {
+                        renderSniperHechosChart();
+                        renderSniperRealTradesEquityChart();
+                    }
+                }, 60);
             }
         }
 
         function handleUserSniperSelected() {
             setTimeout(function() {
+                syncSniperChartPlacement();
                 var tabWidget = (typeof PF !== 'undefined') ? PF('sniperTabViewWidget') : null;
                 var curTab = tabWidget ? tabWidget.getActiveIndex() : 0;
-                if (curTab === 0) {
+                if (curTab === 0 || curTab === 1) {
                     renderSniperChart();
-                } else if (curTab === 1) {
+                } else if (curTab === 2) {
                     var innerWidget = (typeof PF !== 'undefined') ? PF('sniperBtInnerTabsWidget') : null;
                     var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
                     if (innerIdx === 1) {
@@ -819,6 +1176,17 @@
                     } else {
                         renderSniperBtPriceChart();
                         renderSniperBtEquityChart();
+                    }
+                } else if (curTab === 3) {
+                    var innerWidget = (typeof PF !== 'undefined') ? PF('sniperRealInnerTabsWidget') : null;
+                    var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
+                    if (innerIdx === 1) {
+                        renderSniperHechosChart();
+                    } else if (innerIdx === 2) {
+                        renderSniperRealTradesEquityChart();
+                    } else {
+                        renderSniperHechosChart();
+                        renderSniperRealTradesEquityChart();
                     }
                 } else {
                     renderSniperChart();
@@ -838,6 +1206,8 @@
                 if (!chart) {
                     if (id === 'sniperBtPriceChart') chart = sniperBtPriceChartInstance;
                     else if (id === 'sniperBtEquityChart') chart = sniperBtEquityChartInstance;
+                    else if (id === 'sniperHechosChart') chart = sniperHechosChartInstance;
+                    else if (id === 'sniperRealTradesEquityChart') chart = sniperRealTradesEquityChartInstance;
                     else if (id === 'sniperChart') chart = sniperChartInstance;
                 }
                 if (chart) {
@@ -940,6 +1310,22 @@
                 return window.getPriceTemperatureColor(volRatio);
             }
             return 'rgb(34, 197, 94)';
+        }
+
+        function findClosestSniperCandle(targetTs, pointsList) {
+            if (!targetTs || !pointsList || pointsList.length === 0) return null;
+            var minDiff = Infinity;
+            var best = null;
+            for (var ci = 0; ci < pointsList.length; ci++) {
+                var pt = pointsList[ci];
+                if (!pt || pt.x === null || pt.x === undefined) continue;
+                var diff = Math.abs(pt.x - targetTs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    best = pt;
+                }
+            }
+            return best;
         }
 
         function renderSniperChart() {
@@ -1098,12 +1484,203 @@
                         pointRadius: 0,
                         pointHoverRadius: 4,
                         fill: false,
-                        tension: 0.1
+                        tension: 0.1,
+                        order: 5
                     }
                 ];
 
+                // Cargar y graficar operaciones reales ejecutadas (Hechos) en la gráfica táctica
+                var realTradesEl = document.querySelector("[id$='sniperRealTradesJsonData']");
+                var realTradesStr = realTradesEl ? realTradesEl.value : '[]';
+                var rawRealTrades = [];
+                try {
+                    rawRealTrades = JSON.parse(realTradesStr) || [];
+                } catch (eRT) {}
+
+                var activePairEl = document.querySelector("[id$='activeSniperPair']");
+                var curPairVal = (activePairEl && activePairEl.value) ? activePairEl.value : '#{dashboardBean.selectedSniperPair}';
+                var cleanCurPair = String(curPairVal || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                var realBuyEntries = [];
+                var realSellEntries = [];
+                var realExits = [];
+                var realTradeConnectors = [];
+
+                if (Array.isArray(rawRealTrades) && rawRealTrades.length > 0) {
+                    for (var rIdx = 0; rIdx < rawRealTrades.length; rIdx++) {
+                        var rt = rawRealTrades[rIdx];
+                        if (!rt || rt.isSubtotal) continue;
+
+                        var rSym = rt.symbol || '';
+                        var cleanRSym = String(rSym).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                        if (cleanCurPair && cleanRSym && cleanRSym !== cleanCurPair) continue;
+
+                        var tOpen = parseSniperDateMs(rt.openTime);
+                        var tClose = (rt.closeTime && rt.closeTime !== 'EN CURSO' && rt.closeTime !== '-') ? parseSniperDateMs(rt.closeTime) : null;
+                        var rEp = (rt.entryPrice !== undefined && rt.entryPrice !== null) ? Number(rt.entryPrice) : null;
+                        var rXp = (rt.exitPrice !== undefined && rt.exitPrice !== null) ? Number(rt.exitPrice) : null;
+                        var rDir = String(rt.direction || '').toUpperCase();
+                        var isBuy = (rDir.indexOf('COMPRA') >= 0 || rDir.indexOf('LARG') >= 0 || rDir.indexOf('BUY') >= 0);
+                        var isOpen = (rt.status === 'OPEN' || !tClose);
+                        var pnlVal = Number(rt.netPnl !== undefined ? rt.netPnl : (rt.pnl || 0));
+                        var isWin = (rt.isWin !== undefined) ? rt.isWin : (pnlVal >= 0);
+
+                        var candleEntry = findClosestSniperCandle(tOpen, pricePoints);
+                        var candleExit = tClose ? findClosestSniperCandle(tClose, pricePoints) : null;
+
+                        var entryX = (candleEntry && candleEntry.x !== undefined) ? candleEntry.x : tOpen;
+                        var entryY = (candleEntry && candleEntry.y !== null && candleEntry.y !== undefined) ? Number(candleEntry.y) : rEp;
+
+                        var exitX = (candleExit && candleExit.x !== undefined) ? candleExit.x : tClose;
+                        var exitY = (candleExit && candleExit.y !== null && candleExit.y !== undefined) ? Number(candleExit.y) : rXp;
+
+                        if (entryX && !isNaN(entryY)) {
+                            var entryItem = {
+                                x: entryX,
+                                y: entryY,
+                                trade: rt,
+                                isBuy: isBuy,
+                                isOpen: isOpen,
+                                label: (isBuy ? '▲ COMPRA (Hechos)' : '▼ VENTA (Hechos)') + ' #' + (rt.ticketId || rt.idTrade || (rIdx + 1))
+                            };
+                            if (isBuy) realBuyEntries.push(entryItem);
+                            else realSellEntries.push(entryItem);
+                        }
+
+                        if (exitX && !isNaN(exitY)) {
+                            realExits.push({
+                                x: exitX,
+                                y: exitY,
+                                trade: rt,
+                                isWin: isWin,
+                                label: '◆ Cierre #' + (rt.ticketId || rt.idTrade || (rIdx + 1)) + ' (' + (pnlVal >= 0 ? '+$' : '-$') + Math.abs(pnlVal).toFixed(2) + ')'
+                            });
+
+                            if (entryX && !isNaN(entryY)) {
+                                realTradeConnectors.push({
+                                    x1: entryX,
+                                    y1: entryY,
+                                    x2: exitX,
+                                    y2: exitY,
+                                    isWin: isWin,
+                                    isBuy: isBuy
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (activeTrade && activeTrade.entryPrice) {
+                    var actIsBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
+                    var actOpenTs = parseSniperDateMs(activeTrade.openTime);
+                    var actCandle = findClosestSniperCandle(actOpenTs, pricePoints);
+                    var actX = (actCandle && actCandle.x !== undefined) ? actCandle.x : actOpenTs;
+                    var actY = (actCandle && actCandle.y !== null && actCandle.y !== undefined) ? Number(actCandle.y) : Number(activeTrade.entryPrice);
+
+                    var alreadyAdded = realBuyEntries.concat(realSellEntries).some(function(item) {
+                        return item.trade && ((activeTrade.idTrade && item.trade.idTrade === activeTrade.idTrade) ||
+                                              (activeTrade.ticketId && item.trade.ticketId === activeTrade.ticketId));
+                    });
+                    if (!alreadyAdded && actX && !isNaN(actY)) {
+                        var actEntryItem = {
+                            x: actX,
+                            y: actY,
+                            trade: activeTrade,
+                            isBuy: actIsBuy,
+                            isOpen: true,
+                            label: (actIsBuy ? '▲ COMPRA (Vigente)' : '▼ VENTA (Vigente)') + ' #' + (activeTrade.ticketId || activeTrade.idTrade || '')
+                        };
+                        if (actIsBuy) realBuyEntries.push(actEntryItem);
+                        else realSellEntries.push(actEntryItem);
+                    }
+                }
+
+                if (realBuyEntries.length > 0) {
+                    datasets.push({
+                        label: '▲ Entrada Compra (Hechos)',
+                        data: realBuyEntries,
+                        borderColor: '#15803d',
+                        backgroundColor: '#22c55e',
+                        pointStyle: 'triangle',
+                        pointRadius: 8.5,
+                        pointHoverRadius: 12,
+                        showLine: false,
+                        order: -5
+                    });
+                }
+                if (realSellEntries.length > 0) {
+                    datasets.push({
+                        label: '▼ Entrada Venta (Hechos)',
+                        data: realSellEntries,
+                        borderColor: '#b91c1c',
+                        backgroundColor: '#ef4444',
+                        pointStyle: 'triangle',
+                        pointRotation: 180,
+                        pointRadius: 8.5,
+                        pointHoverRadius: 12,
+                        showLine: false,
+                        order: -5
+                    });
+                }
+                if (realExits.length > 0) {
+                    datasets.push({
+                        label: '◆ Cierre Operación (Hechos)',
+                        data: realExits,
+                        borderColor: function(ctx) {
+                            var raw = ctx.raw;
+                            return (raw && raw.isWin) ? '#15803d' : '#b91c1c';
+                        },
+                        backgroundColor: function(ctx) {
+                            var raw = ctx.raw;
+                            return (raw && raw.isWin) ? '#22c55e' : '#ef4444';
+                        },
+                        pointStyle: 'rectRot',
+                        pointRadius: 7.5,
+                        pointHoverRadius: 11,
+                        showLine: false,
+                        order: -5
+                    });
+                }
+
                 // Si hay trade activo, graficar líneas horizontales y recuadro dinámico (TP verde, SL roja o TSL ámbar)
                 var pluginsList = [];
+                if (realTradeConnectors.length > 0) {
+                    var sniperTradeConnectorPlugin = {
+                        id: 'sniperTradeConnectorPlugin',
+                        afterDatasetsDraw: function(chart) {
+                            var xScale = chart.scales.x;
+                            var yScale = chart.scales.y;
+                            var chartArea = chart.chartArea;
+                            if (!xScale || !yScale || !chartArea) return;
+
+                            var ctx = chart.ctx;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+                            ctx.clip();
+
+                            for (var k = 0; k < realTradeConnectors.length; k++) {
+                                var conn = realTradeConnectors[k];
+                                var px1 = xScale.getPixelForValue(conn.x1);
+                                var py1 = yScale.getPixelForValue(conn.y1);
+                                var px2 = xScale.getPixelForValue(conn.x2);
+                                var py2 = yScale.getPixelForValue(conn.y2);
+
+                                if (isNaN(px1) || isNaN(py1) || isNaN(px2) || isNaN(py2)) continue;
+                                if (px2 < chartArea.left || px1 > chartArea.right) continue;
+
+                                ctx.beginPath();
+                                ctx.setLineDash([4, 3]);
+                                ctx.lineWidth = 1.8;
+                                ctx.strokeStyle = conn.isWin ? 'rgba(22, 163, 74, 0.85)' : 'rgba(220, 38, 38, 0.85)';
+                                ctx.moveTo(px1, py1);
+                                ctx.lineTo(px2, py2);
+                                ctx.stroke();
+                            }
+                            ctx.restore();
+                        }
+                    };
+                    pluginsList.push(sniperTradeConnectorPlugin);
+                }
                 var candleStep = 15 * 60 * 1000;
                 if (pricePoints.length > 1) {
                     var diff = pricePoints[pricePoints.length - 1].x - pricePoints[pricePoints.length - 2].x;
@@ -1112,11 +1689,16 @@
                 var lineExtendTs = (maxTs !== null) ? (maxTs + candleStep * 8) : maxTs;
 
                 if (activeTrade && minTs !== null && maxTs !== null) {
-                    if (activeTrade.entryPrice) {
+                    var openTs = parseSniperDateMs(activeTrade.openTime);
+                    var candleEntryActive = findClosestSniperCandle(openTs, pricePoints);
+                    var lineStartTs = (candleEntryActive && candleEntryActive.x !== undefined) ? candleEntryActive.x : (openTs || minTs);
+                    var effectiveEntryPx = (candleEntryActive && candleEntryActive.y !== null && candleEntryActive.y !== undefined) ? Number(candleEntryActive.y) : activeTrade.entryPrice;
+
+                    if (effectiveEntryPx) {
                         var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
                         datasets.push({
                             label: 'Entrada (' + (isBuy ? 'BUY' : 'SELL') + ')',
-                            data: [{ x: minTs, y: activeTrade.entryPrice }, { x: lineExtendTs, y: activeTrade.entryPrice }],
+                            data: [{ x: lineStartTs, y: effectiveEntryPx }, { x: lineExtendTs, y: effectiveEntryPx }],
                             borderColor: isBuy ? '#16a34a' : '#dc2626',
                             borderWidth: 2,
                             borderDash: [0, 0],
@@ -1127,7 +1709,7 @@
                     if (activeTrade.takeProfit) {
                         datasets.push({
                             label: 'Take Profit (TP)',
-                            data: [{ x: minTs, y: activeTrade.takeProfit }, { x: lineExtendTs, y: activeTrade.takeProfit }],
+                            data: [{ x: lineStartTs, y: activeTrade.takeProfit }, { x: lineExtendTs, y: activeTrade.takeProfit }],
                             borderColor: '#10b981',
                             borderWidth: 2,
                             borderDash: [6, 4],
@@ -1138,7 +1720,7 @@
                     if (activeTrade.stopLoss) {
                         datasets.push({
                             label: 'Stop Loss (SL)',
-                            data: [{ x: minTs, y: activeTrade.stopLoss }, { x: lineExtendTs, y: activeTrade.stopLoss }],
+                            data: [{ x: lineStartTs, y: activeTrade.stopLoss }, { x: lineExtendTs, y: activeTrade.stopLoss }],
                             borderColor: '#ef4444',
                             borderWidth: 2,
                             borderDash: [6, 4],
@@ -1150,7 +1732,7 @@
                     if (activeTrade.hasBe && activeTrade.bePrice) {
                         datasets.push({
                             label: activeTrade.isBreakEven ? 'BreakEven (Asegurado)' : 'Trigger BreakEven (50%)',
-                            data: [{ x: minTs, y: activeTrade.bePrice }, { x: lineExtendTs, y: activeTrade.bePrice }],
+                            data: [{ x: lineStartTs, y: activeTrade.bePrice }, { x: lineExtendTs, y: activeTrade.bePrice }],
                             borderColor: '#3b82f6',
                             borderWidth: 2,
                             borderDash: [4, 4],
@@ -1162,7 +1744,7 @@
                     if (activeTrade.hasTsl && activeTrade.tslPrice) {
                         datasets.push({
                             label: 'Trailing Stop Loss (TSL)',
-                            data: [{ x: minTs, y: activeTrade.tslPrice }, { x: lineExtendTs, y: activeTrade.tslPrice }],
+                            data: [{ x: lineStartTs, y: activeTrade.tslPrice }, { x: lineExtendTs, y: activeTrade.tslPrice }],
                             borderColor: '#d97706',
                             borderWidth: 2,
                             borderDash: [3, 3],
@@ -1175,7 +1757,7 @@
                     var tradeBoxPlugin = {
                         id: 'sniperTradeBoxPlugin',
                         afterDatasetsDraw: function(chart) {
-                            if (!activeTrade || !activeTrade.entryPrice) return;
+                            if (!activeTrade || !effectiveEntryPx) return;
                             var ctx = chart.ctx;
                             var xScale = chart.scales.x;
                             var yScale = chart.scales.y;
@@ -1183,24 +1765,18 @@
                             var chartArea = chart.chartArea;
                             if (!chartArea) return;
 
-                            var openTs = parseSniperDateMs(activeTrade.openTime);
                             var x0;
-                            if (openTs && !isNaN(openTs) && openTs >= minTs && openTs <= maxTs) {
-                                x0 = xScale.getPixelForValue(openTs);
+                            if (lineStartTs && !isNaN(lineStartTs) && lineStartTs >= minTs && lineStartTs <= maxTs) {
+                                x0 = xScale.getPixelForValue(lineStartTs);
                             } else {
                                 x0 = xScale.getPixelForValue(maxTs - (maxTs - minTs) * 0.25);
                             }
-                            x0 = Math.max(chartArea.left, Math.min(chartArea.right - 100, x0));
+                            x0 = Math.max(chartArea.left, Math.min(chartArea.right - 10, x0));
                             var x1 = chartArea.right;
 
-                            // Asegurar ancho generoso (mínimo 220px) para que el recuadro sea completo y perfectamente visible
-                            if (x1 - x0 < 220) {
-                                x0 = Math.max(chartArea.left, x1 - 250);
-                            }
-
-                            var yEntry = yScale.getPixelForValue(activeTrade.entryPrice);
+                            var yEntry = yScale.getPixelForValue(effectiveEntryPx);
                             var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
-                            var boxWidth = x1 - x0;
+                            var boxWidth = Math.max(10, x1 - x0);
 
                             ctx.save();
                             try {
@@ -1432,9 +2008,31 @@
                                 zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                             },
                             tooltip: {
+                                itemSort: function(a, b) {
+                                    var aIsTrade = (a.raw && (a.raw.trade || (a.dataset.label && (a.dataset.label.indexOf('Entrada') !== -1 || a.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
+                                    var bIsTrade = (b.raw && (b.raw.trade || (b.dataset.label && (b.dataset.label.indexOf('Entrada') !== -1 || b.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
+                                    return bIsTrade - aIsTrade;
+                                },
                                 callbacks: {
                                     label: function(ctx) {
                                         var raw = ctx.raw;
+                                        if (raw && raw.trade) {
+                                            var tr = raw.trade;
+                                            var dir = tr.direction || '';
+                                            var sz = tr.size ? Number(tr.size).toLocaleString() : '';
+                                            var pnl = Number(tr.netPnl !== undefined ? tr.netPnl : (tr.pnl || 0));
+                                            var pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+                                            var epStr = tr.entryPrice ? Number(tr.entryPrice).toFixed(5) : '';
+                                            var xpStr = tr.exitPrice ? Number(tr.exitPrice).toFixed(5) : 'EN CURSO';
+                                            var hechoLabel = tr.cycleNum ? ('[Entrada #' + tr.cycleNum + (tr.ticketId ? ' · ' + tr.ticketId : (tr.idTrade ? ' · ID ' + tr.idTrade : '')) + ']') :
+                                                             ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
+                                            return [
+                                                hechoLabel + ' (' + dir + ' ' + sz + ')',
+                                                'Entrada: ' + epStr + ' [' + (tr.openTime || '') + ']',
+                                                'Salida: ' + xpStr + (tr.closeTime ? ' [' + tr.closeTime + ']' : ''),
+                                                'PnL: ' + pnlStr + ' (' + (tr.status || 'CLOSED') + ')'
+                                            ];
+                                        }
                                         if (raw && raw.open !== undefined) {
                                             return [
                                                 'O: ' + raw.open.toFixed(5) + ' | H: ' + raw.high.toFixed(5),
@@ -1564,7 +2162,8 @@
                                 borderWidth: 3.2,
                                 pointRadius: 0,
                                 fill: false,
-                                tension: 0.1
+                                tension: 0.1,
+                                order: 5
                             },
                             {
                                 label: '▲ Entrada Compra',
@@ -1572,8 +2171,10 @@
                                 borderColor: '#15803d',
                                 backgroundColor: '#22c55e',
                                 pointStyle: 'triangle',
-                                pointRadius: 6,
-                                showLine: false
+                                pointRadius: 8,
+                                pointHoverRadius: 11,
+                                showLine: false,
+                                order: -5
                             },
                             {
                                 label: '▼ Entrada Venta',
@@ -1582,8 +2183,10 @@
                                 backgroundColor: '#ef4444',
                                 pointStyle: 'triangle',
                                 pointRotation: 180,
-                                pointRadius: 6,
-                                showLine: false
+                                pointRadius: 8,
+                                pointHoverRadius: 11,
+                                showLine: false,
+                                order: -5
                             },
                             {
                                 label: '◆ Cierre Posición',
@@ -1591,8 +2194,10 @@
                                 borderColor: '#d97706',
                                 backgroundColor: '#f59e0b',
                                 pointStyle: 'rectRot',
-                                pointRadius: 6,
-                                showLine: false
+                                pointRadius: 7,
+                                pointHoverRadius: 10,
+                                showLine: false,
+                                order: -5
                             }
                         ]
                     },
@@ -1704,6 +2309,388 @@
                 window['chart_sniperBtEquityChart'] = sniperBtEquityChartInstance;
             } catch (e) {
                 console.warn("Error en renderSniperBtEquityChart: ", e);
+            }
+        }
+
+        function renderSniperHechosChart() {
+            try {
+                var canvas = document.getElementById('sniperHechosChart');
+                if (!canvas) return;
+                if (canvas.offsetParent === null) return;
+
+                var histEl = document.querySelector("[id$='sniperHistoryJsonData']");
+                var histStr = histEl ? histEl.value : '[]';
+                if (!histStr || histStr === '[]') {
+                    histEl = document.querySelector("[id$='sniperBtHistoryJsonData']");
+                    histStr = histEl ? histEl.value : '[]';
+                }
+                if (!histStr || histStr === '[]') return;
+
+                var rawCandles = JSON.parse(histStr);
+                if (!rawCandles || rawCandles.length === 0) return;
+
+                var posVols = [];
+                for (var vIdx = 0; vIdx < rawCandles.length; vIdx++) {
+                    var vVal = Number(rawCandles[vIdx].volume || 0);
+                    if (vVal > 0) posVols.push(vVal);
+                }
+                posVols.sort(function(a, b) { return a - b; });
+
+                var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
+                var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
+                if (pMax <= pMin) pMax = pMin + 1;
+
+                var pricePoints = [];
+                for (var i = 0; i < rawCandles.length; i++) {
+                    var c = rawCandles[i];
+                    var t = parseSniperDateMs(c.datetime);
+                    if (t) {
+                        var volVal = Number(c.volume || 0);
+                        var normV = Math.max(0.0, Math.min(1.0, (volVal - pMin) / (pMax - pMin)));
+                        var volRatio = Math.sqrt(normV);
+                        var volColor = getSniperVolumeColor(volRatio);
+                        pricePoints.push({
+                            x: t,
+                            y: Number(c.close),
+                            open: Number(c.open),
+                            high: Number(c.high),
+                            low: Number(c.low),
+                            close: Number(c.close),
+                            volume: volVal,
+                            volRatio: volRatio,
+                            volColor: volColor
+                        });
+                    }
+                }
+
+                var realTradesEl = document.querySelector("[id$='sniperRealTradesJsonData']");
+                var realTradesStr = realTradesEl ? realTradesEl.value : '[]';
+                var rawRealTrades = [];
+                try { rawRealTrades = JSON.parse(realTradesStr) || []; } catch (e) {}
+
+                var activePairEl = document.querySelector("[id$='activeSniperPair']");
+                var curPairVal = (activePairEl && activePairEl.value) ? activePairEl.value : '#{dashboardBean.selectedSniperPair}';
+                var cleanCurPair = String(curPairVal || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                var buyEntries = [];
+                var sellEntries = [];
+                var tradeExits = [];
+                var tradeConnectors = [];
+
+                if (Array.isArray(rawRealTrades) && rawRealTrades.length > 0) {
+                    for (var j = 0; j < rawRealTrades.length; j++) {
+                        var tr = rawRealTrades[j];
+                        if (!tr || tr.isSubtotal) continue;
+
+                        var rSym = tr.symbol || '';
+                        var cleanRSym = String(rSym).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                        if (cleanCurPair && cleanRSym && cleanRSym !== cleanCurPair) continue;
+
+                        var tEntry = parseSniperDateMs(tr.openTime);
+                        var tExit = (tr.closeTime && tr.closeTime !== 'EN CURSO' && tr.closeTime !== '-') ? parseSniperDateMs(tr.closeTime) : null;
+                        var ep = (tr.entryPrice !== undefined && tr.entryPrice !== null) ? Number(tr.entryPrice) : null;
+                        var xp = (tr.exitPrice !== undefined && tr.exitPrice !== null) ? Number(tr.exitPrice) : null;
+                        var dir = String(tr.direction || '').toUpperCase();
+                        var isBuy = (dir.indexOf('COMPRA') >= 0 || dir.indexOf('LARG') >= 0 || dir.indexOf('BUY') >= 0);
+                        var pnlVal = Number(tr.netPnl !== undefined ? tr.netPnl : (tr.pnl || 0));
+                        var isWin = (tr.isWin !== undefined) ? tr.isWin : (pnlVal >= 0);
+
+                        var candleEntryH = findClosestSniperCandle(tEntry, pricePoints);
+                        var candleExitH = tExit ? findClosestSniperCandle(tExit, pricePoints) : null;
+
+                        var entryX = (candleEntryH && candleEntryH.x !== undefined) ? candleEntryH.x : tEntry;
+                        var entryY = (candleEntryH && candleEntryH.y !== null && candleEntryH.y !== undefined) ? Number(candleEntryH.y) : ep;
+
+                        var exitX = (candleExitH && candleExitH.x !== undefined) ? candleExitH.x : tExit;
+                        var exitY = (candleExitH && candleExitH.y !== null && candleExitH.y !== undefined) ? Number(candleExitH.y) : xp;
+
+                        if (entryX && !isNaN(entryY)) {
+                            var entryObj = {
+                                x: entryX,
+                                y: entryY,
+                                trade: tr,
+                                isBuy: isBuy,
+                                label: (isBuy ? '▲ COMPRA #' : '▼ VENTA #') + (tr.ticketId || tr.idTrade || (j + 1))
+                            };
+                            if (isBuy) buyEntries.push(entryObj);
+                            else sellEntries.push(entryObj);
+                        }
+
+                        if (exitX && !isNaN(exitY)) {
+                            tradeExits.push({
+                                x: exitX,
+                                y: exitY,
+                                trade: tr,
+                                isWin: isWin,
+                                label: '◆ Cierre #' + (tr.ticketId || tr.idTrade || (j + 1)) + ' (' + (pnlVal >= 0 ? '+$' : '-$') + Math.abs(pnlVal).toFixed(2) + ')'
+                            });
+
+                            if (entryX && !isNaN(entryY)) {
+                                tradeConnectors.push({
+                                    x1: entryX,
+                                    y1: entryY,
+                                    x2: exitX,
+                                    y2: exitY,
+                                    isWin: isWin
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (sniperHechosChartInstance) {
+                    try { sniperHechosChartInstance.destroy(); } catch (e) {}
+                }
+
+                var pluginsList = [];
+                if (tradeConnectors.length > 0) {
+                    pluginsList.push({
+                        id: 'sniperHechosConnectorPlugin',
+                        afterDatasetsDraw: function(chart) {
+                            var xScale = chart.scales.x;
+                            var yScale = chart.scales.y;
+                            var chartArea = chart.chartArea;
+                            if (!xScale || !yScale || !chartArea) return;
+
+                            var ctx = chart.ctx;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+                            ctx.clip();
+
+                            for (var k = 0; k < tradeConnectors.length; k++) {
+                                var conn = tradeConnectors[k];
+                                var px1 = xScale.getPixelForValue(conn.x1);
+                                var py1 = yScale.getPixelForValue(conn.y1);
+                                var px2 = xScale.getPixelForValue(conn.x2);
+                                var py2 = yScale.getPixelForValue(conn.y2);
+
+                                if (isNaN(px1) || isNaN(py1) || isNaN(px2) || isNaN(py2)) continue;
+                                if (px2 < chartArea.left || px1 > chartArea.right) continue;
+
+                                ctx.beginPath();
+                                ctx.setLineDash([4, 3]);
+                                ctx.lineWidth = 1.8;
+                                ctx.strokeStyle = conn.isWin ? 'rgba(22, 163, 74, 0.85)' : 'rgba(220, 38, 38, 0.85)';
+                                ctx.moveTo(px1, py1);
+                                ctx.lineTo(px2, py2);
+                                ctx.stroke();
+                            }
+                            ctx.restore();
+                        }
+                    });
+                }
+
+                var ctx = canvas.getContext('2d');
+                sniperHechosChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Precio Cierre (#{dashboardBean.sniperTimeframeLabel})',
+                                data: pricePoints,
+                                borderColor: '#8c5d1e',
+                                segment: {
+                                    borderColor: function (ctx) {
+                                        var idx = (ctx.p1DataIndex !== undefined) ? ctx.p1DataIndex : ctx.p0DataIndex;
+                                        var pt = pricePoints[idx];
+                                        return (pt && pt.volColor) ? pt.volColor : '#8c5d1e';
+                                    }
+                                },
+                                backgroundColor: 'transparent',
+                                borderWidth: 3.2,
+                                pointRadius: 0,
+                                fill: false,
+                                tension: 0.1,
+                                order: 5
+                            },
+                            {
+                                label: '▲ Entrada Compra (Hechos)',
+                                data: buyEntries,
+                                borderColor: '#15803d',
+                                backgroundColor: '#22c55e',
+                                pointStyle: 'triangle',
+                                pointRadius: 8.5,
+                                pointHoverRadius: 12,
+                                showLine: false,
+                                order: -5
+                            },
+                            {
+                                label: '▼ Entrada Venta (Hechos)',
+                                data: sellEntries,
+                                borderColor: '#b91c1c',
+                                backgroundColor: '#ef4444',
+                                pointStyle: 'triangle',
+                                pointRotation: 180,
+                                pointRadius: 8.5,
+                                pointHoverRadius: 12,
+                                showLine: false,
+                                order: -5
+                            },
+                            {
+                                label: '◆ Cierre Operación (Hechos)',
+                                data: tradeExits,
+                                borderColor: function(ctx) {
+                                    var raw = ctx.raw;
+                                    return (raw && raw.isWin) ? '#15803d' : '#b91c1c';
+                                },
+                                backgroundColor: function(ctx) {
+                                    var raw = ctx.raw;
+                                    return (raw && raw.isWin) ? '#22c55e' : '#ef4444';
+                                },
+                                pointStyle: 'rectRot',
+                                pointRadius: 7.5,
+                                pointHoverRadius: 11,
+                                showLine: false,
+                                order: -5
+                            }
+                        ]
+                    },
+                    plugins: pluginsList,
+                    options: {
+                        animation: false,
+                        animations: false,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                grid: { color: 'rgba(241, 245, 249, 0.7)' },
+                                ticks: { font: { size: 10 } }
+                            },
+                            y: {
+                                type: 'linear',
+                                grid: { color: 'rgba(241, 245, 249, 0.7)' },
+                                ticks: {
+                                    font: { size: 11, weight: '700' },
+                                    callback: function(v) { return Number(v).toFixed(5); }
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { boxWidth: 12, font: { size: 11, weight: '700' }, color: '#334155' }
+                            },
+                            zoom: {
+                                pan: { enabled: true, mode: 'x' },
+                                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                            },
+                            tooltip: {
+                                itemSort: function(a, b) {
+                                    var aIsTrade = (a.raw && (a.raw.trade || (a.dataset.label && (a.dataset.label.indexOf('Entrada') !== -1 || a.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
+                                    var bIsTrade = (b.raw && (b.raw.trade || (b.dataset.label && (b.dataset.label.indexOf('Entrada') !== -1 || b.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
+                                    return bIsTrade - aIsTrade;
+                                },
+                                callbacks: {
+                                    label: function(ctx) {
+                                        var raw = ctx.raw;
+                                        if (raw && raw.trade) {
+                                            var tr = raw.trade;
+                                            var dir = tr.direction || '';
+                                            var sz = tr.size ? Number(tr.size).toLocaleString() : '';
+                                            var pnl = Number(tr.netPnl !== undefined ? tr.netPnl : (tr.pnl || 0));
+                                            var pnlStr = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+                                            var epStr = tr.entryPrice ? Number(tr.entryPrice).toFixed(5) : '';
+                                            var xpStr = tr.exitPrice ? Number(tr.exitPrice).toFixed(5) : 'EN CURSO';
+                                            var hechoLabel = tr.cycleNum ? ('[Entrada #' + tr.cycleNum + (tr.ticketId ? ' · ' + tr.ticketId : (tr.idTrade ? ' · ID ' + tr.idTrade : '')) + ']') :
+                                                             ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
+                                            return [
+                                                hechoLabel + ' (' + dir + ' ' + sz + ')',
+                                                'Entrada: ' + epStr + ' [' + (tr.openTime || '') + ']',
+                                                'Salida: ' + xpStr + (tr.closeTime ? ' [' + tr.closeTime + ']' : ''),
+                                                'PnL: ' + pnlStr + ' (' + (tr.status || 'CLOSED') + ')'
+                                            ];
+                                        }
+                                        if (raw && raw.open !== undefined) {
+                                            return [
+                                                'O: ' + raw.open.toFixed(5) + ' | H: ' + raw.high.toFixed(5),
+                                                'L: ' + raw.low.toFixed(5) + ' | C: ' + raw.close.toFixed(5),
+                                                'Vol: ' + raw.volume.toLocaleString()
+                                            ];
+                                        }
+                                        return ctx.dataset.label + ': ' + Number(ctx.parsed.y).toFixed(5);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                window['chart_sniperHechosChart'] = sniperHechosChartInstance;
+            } catch (e) {
+                console.warn("Error en renderSniperHechosChart: ", e);
+            }
+        }
+
+        function renderSniperRealTradesEquityChart() {
+            try {
+                var canvas = document.getElementById('sniperRealTradesEquityChart');
+                if (!canvas) return;
+                if (canvas.offsetParent === null) return;
+
+                var eqEl = document.querySelector("[id$='sniperRealTradesEquityCurveJsonData']");
+                var eqStr = eqEl ? eqEl.value : '[]';
+                if (!eqStr || eqStr === '[]') return;
+
+                var rawEq = JSON.parse(eqStr);
+                if (!rawEq || rawEq.length === 0) return;
+
+                var eqPoints = [];
+                for (var i = 0; i < rawEq.length; i++) {
+                    var item = rawEq[i];
+                    var ts = parseSniperDateMs(item.datetime || item.x || item.date);
+                    var cap = item.equity !== undefined ? Number(item.equity) : (item.y !== undefined ? Number(item.y) : null);
+                    if (ts && cap !== null && !isNaN(cap)) {
+                        eqPoints.push({ x: ts, y: cap });
+                    }
+                }
+
+                if (sniperRealTradesEquityChartInstance) {
+                    try { sniperRealTradesEquityChartInstance.destroy(); } catch (e) {}
+                }
+
+                var ctx = canvas.getContext('2d');
+                sniperRealTradesEquityChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: [{
+                            label: 'Evolución de Capital Real SNIPER ($ USD)',
+                            data: eqPoints,
+                            borderColor: '#0284c7',
+                            backgroundColor: 'rgba(2, 132, 199, 0.12)',
+                            borderWidth: 2.5,
+                            pointRadius: 3,
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        animation: false,
+                        animations: false,
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { type: 'time', grid: { color: '#f1f5f9' } },
+                            y: {
+                                type: 'linear',
+                                grid: { color: '#f1f5f9' },
+                                ticks: { callback: function (v) { return '$' + Number(v).toFixed(2); } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { boxWidth: 12, font: { size: 11, weight: '700' }, color: '#334155' }
+                            },
+                            zoom: {
+                                pan: { enabled: true, mode: 'x' },
+                                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                            }
+                        }
+                    }
+                });
+                window['chart_sniperRealTradesEquityChart'] = sniperRealTradesEquityChartInstance;
+            } catch (e) {
+                console.warn("Error en renderSniperRealTradesEquityChart: ", e);
             }
         }
         // ]]>

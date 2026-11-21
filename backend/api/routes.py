@@ -54,7 +54,10 @@ def get_live_price_from_mt5(symbol: str, direction: Optional[str] = None):
             'ETH': 'Ethereum',
             'ETHEREUM': 'Ethereum',
             'COFFEE': 'Coffee C',
-            'COFFEEC': 'Coffee C'
+            'COFFEEC': 'Coffee C',
+            'XAGUSD01': 'XAGUSD',
+            'XAGUSD': 'XAGUSD',
+            'XAUUSD': 'XAUUSD'
         }
         mt5_sym = sym_map.get(clean_sym, clean_sym)
 
@@ -1439,6 +1442,31 @@ def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
         "comision": float(cuenta.comision or 0.0),
         "concentradora": bool(cuenta.Concentradora),
         "indicadorMargen": float(getattr(cuenta, "indicadorMargen", 200.0) or 200.0)
+    }
+
+@router.get("/cuentas/{idCuenta}/margin-health")
+def getCuentaMarginHealth(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene el estado de salud y métricas consolidadas de margen para la cuenta,
+    abarcando TODAS las operaciones abiertas (Ratios, Rider, Sniper, etc.).
+    """
+    from backend.services.trade_executor import check_account_margin_health
+    from backend.services.microRatio import fetchAccountData
+    accountData = fetchAccountData(db, idCuenta)
+    capital = float(accountData.get("capital", 0.0))
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(
+        db, idCuenta, capital
+    )
+    totalFloatingPnl = round(equity - capital, 2)
+    return {
+        "idCuenta": idCuenta,
+        "capital": capital,
+        "totalMargin": round(totalMargin, 2),
+        "equity": round(equity, 2),
+        "floatingPnl": totalFloatingPnl,
+        "marginIndicator": round(marginInd, 1),
+        "minMarginRequired": round(minMarginReq, 1),
+        "canOperate": canOperate
     }
 
 @router.post("/cuentas/editar")
@@ -3793,7 +3821,34 @@ def preview_manual_ratio(
     from backend.core.pnl_calculator import calculate_margin
     from backend.services.trade_executor import check_account_margin_health, check_projected_margin
 
-    dirRatio = (req.directionRatio or "CORTO").strip().upper()
+    dirReq = (req.directionRatio or "").strip().upper()
+    if dirReq in ["AUTO", ""]:
+        # Auto-detección inteligente según posición de precios normalizados actuales
+        ratioRow = db.execute(text("""
+            SELECT fixedMinA, fixedMaxA, fixedMinB, fixedMaxB
+            FROM user_ratios
+            WHERE idCuenta = :idc AND numerador = :num AND denominador = :den AND borrado = 0
+            ORDER BY id DESC LIMIT 1
+        """), {"idc": req.idCuenta, "num": req.numerador, "den": req.denominador}).fetchone()
+
+        pxRawA = _get_symbol_price_for_ratio(db, req.numerador, "LARGO")
+        pxRawB = _get_symbol_price_for_ratio(db, req.denominador, "LARGO")
+
+        if ratioRow and ratioRow[0] is not None and ratioRow[1] is not None and ratioRow[2] is not None and ratioRow[3] is not None:
+            minA, maxA = float(ratioRow[0]), float(ratioRow[1])
+            minB, maxB = float(ratioRow[2]), float(ratioRow[3])
+            rangeA = (maxA - minA) if (maxA - minA) > 0 else 1.0
+            rangeB = (maxB - minB) if (maxB - minB) > 0 else 1.0
+            normA = (pxRawA - minA) / rangeA
+            normB = (pxRawB - minB) / rangeB
+            # Si Par A está arriba de Par B -> Par A debe Venderse y Par B Comprarse -> CORTO
+            # Si Par A está abajo de Par B -> Par A debe Comprarse y Par B Venderse -> LARGO
+            dirRatio = "CORTO" if normA > normB else "LARGO"
+        else:
+            dirRatio = "CORTO"
+    else:
+        dirRatio = "LARGO" if dirReq == "LARGO" else "CORTO"
+
     dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
     dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
 
@@ -3890,7 +3945,34 @@ def open_manual_ratio(
     if req.unitsA <= 0 or req.unitsB <= 0:
         raise HTTPException(status_code=400, detail="Las cantidades de ambas patas deben ser mayores a 0")
 
-    dirRatio = (req.directionRatio or "CORTO").strip().upper()
+    dirReq = (req.directionRatio or "").strip().upper()
+    if dirReq in ["AUTO", ""]:
+        # Auto-detección inteligente según posición de precios normalizados actuales
+        ratioRow = db.execute(text("""
+            SELECT fixedMinA, fixedMaxA, fixedMinB, fixedMaxB
+            FROM user_ratios
+            WHERE idCuenta = :idc AND numerador = :num AND denominador = :den AND borrado = 0
+            ORDER BY id DESC LIMIT 1
+        """), {"idc": req.idCuenta, "num": req.numerador, "den": req.denominador}).fetchone()
+
+        pxRawA = _get_symbol_price_for_ratio(db, req.numerador, "LARGO")
+        pxRawB = _get_symbol_price_for_ratio(db, req.denominador, "LARGO")
+
+        if ratioRow and ratioRow[0] is not None and ratioRow[1] is not None and ratioRow[2] is not None and ratioRow[3] is not None:
+            minA, maxA = float(ratioRow[0]), float(ratioRow[1])
+            minB, maxB = float(ratioRow[2]), float(ratioRow[3])
+            rangeA = (maxA - minA) if (maxA - minA) > 0 else 1.0
+            rangeB = (maxB - minB) if (maxB - minB) > 0 else 1.0
+            normA = (pxRawA - minA) / rangeA
+            normB = (pxRawB - minB) / rangeB
+            # Si Par A está arriba de Par B -> Par A debe Venderse y Par B Comprarse -> CORTO
+            # Si Par A está abajo de Par B -> Par A debe Comprarse y Par B Venderse -> LARGO
+            dirRatio = "CORTO" if normA > normB else "LARGO"
+        else:
+            dirRatio = "CORTO"
+    else:
+        dirRatio = "LARGO" if dirReq == "LARGO" else "CORTO"
+
     dirA = "LARGO" if dirRatio == "LARGO" else "CORTO"
     dirB = "CORTO" if dirRatio == "LARGO" else "LARGO"
 
@@ -4086,7 +4168,9 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                 if row_acc[1] is not None:
                     account_name = str(row_acc[1])
 
-        is_cart_strategy = bool(strategy and "CART" in str(strategy).upper())
+        is_cart_strategy = bool(strategy and ("CART" in str(strategy).upper() or "RIDER" in str(strategy).upper()))
+        is_sniper_strategy = bool(strategy and "SNIPER" in str(strategy).upper())
+        clean_pA = pairA.replace("/", "").replace("_", "").upper()
         if is_cart_strategy:
             query = """
                 SELECT 
@@ -4095,10 +4179,28 @@ def _get_real_trades_movimientos_data(pairA: str, pairB: str, idCuenta: Optional
                     entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
                     commission, margin_used, ticketId
                 FROM trades
-                WHERE strategy LIKE '%%CART%%'
-                  AND (symbol = :pA OR setup = :pA)
+                WHERE (strategy = 'RIDER' OR strategy LIKE '%%CART%%' OR strategy LIKE '%%RIDER%%')
+                  AND (
+                      symbol = :pA OR setup = :pA
+                      OR UPPER(REPLACE(REPLACE(symbol, '/', ''), '_', '')) = :clean_pA
+                  )
             """
-            params = {"pA": pairA}
+            params = {"pA": pairA, "clean_pA": clean_pA}
+        elif is_sniper_strategy:
+            query = """
+                SELECT 
+                    idTrade, idCuenta, strategy, setup, symbol, status, direction,
+                    intervalo, pnl, candleTime, openTime, closeTime, size,
+                    entryPrice, exitPrice, stopLoss, takeProfit, isBreakEven,
+                    commission, margin_used, ticketId
+                FROM trades
+                WHERE strategy LIKE '%%SNIPER%%'
+                  AND (
+                      symbol = :pA OR setup = :pA
+                      OR UPPER(REPLACE(REPLACE(symbol, '/', ''), '_', '')) = :clean_pA
+                  )
+            """
+            params = {"pA": pairA, "clean_pA": clean_pA}
         else:
             query = """
                 SELECT 
@@ -4804,6 +4906,580 @@ def api_obtener_movimientos_capital(
     except Exception as e:
         logger.error(f"Error consultando movimientos de capital para #{idCuenta}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# REPORTE JERÁRQUICO MULTINIVEL (USUARIO -> CUENTA -> ESTRATEGIA -> INSTRUMENTO -> HECHO)
+# ==============================================================================
+
+def generarDatosReporteJerarquico(
+    db: Session,
+    fechaInicio: Optional[str] = None,
+    fechaFin: Optional[str] = None,
+    idUsuario: Optional[int] = None,
+    idCuenta: Optional[int] = None,
+    estrategia: Optional[str] = None
+) -> Dict[str, Any]:
+    now = datetime.now()
+    if not fechaInicio:
+        fechaInicio = now.replace(day=1).strftime("%Y-%m-%d")
+    if not fechaFin:
+        fechaFin = now.strftime("%Y-%m-%d")
+
+    dt_start = f"{fechaInicio} 00:00:00"
+    dt_end = f"{fechaFin} 23:59:59"
+
+    clauses = [
+        "t.status = 'CLOSED'",
+        "t.closeTime >= :dt_start",
+        "t.closeTime <= :dt_end",
+        # REGLA: Excluir movimientos de capital (depósitos y retiros) para no distorsionar métricas operativas de trading
+        "t.strategy NOT IN ('Depósito', 'DEPOSITO', 'Deposito', 'Retiro', 'RETIRO', 'DEPOSIT', 'WITHDRAW', 'WITHDRAWAL', 'BALANCE')",
+        "UPPER(COALESCE(t.strategy, '')) NOT LIKE '%DEP%'",
+        "UPPER(COALESCE(t.strategy, '')) NOT LIKE '%RET%'",
+        "UPPER(COALESCE(t.strategy, '')) NOT LIKE '%WITHDRAW%'",
+        "UPPER(COALESCE(t.symbol, '')) NOT IN ('CASH', 'DEPOSIT', 'WITHDRAW', 'WITHDRAWAL', 'BALANCE', 'CREDIT')",
+        "UPPER(COALESCE(t.direction, '')) NOT IN ('IN', 'OUT')",
+        "UPPER(COALESCE(t.ticketId, '')) NOT LIKE 'DEP-%'",
+        "UPPER(COALESCE(t.ticketId, '')) NOT LIKE 'RET-%'"
+    ]
+    params = {"dt_start": dt_start, "dt_end": dt_end}
+
+    if idCuenta:
+        clauses.append("t.idCuenta = :idCuenta")
+        params["idCuenta"] = idCuenta
+    if estrategia:
+        if estrategia.upper() in ["RIDER", "CART", "CART ATALAIA", "RIDER ATALAIA"]:
+            clauses.append("(t.strategy = 'RIDER' OR t.strategy LIKE '%CART%')")
+        else:
+            clauses.append("t.strategy = :estrategia")
+            params["estrategia"] = estrategia
+    if idUsuario:
+        clauses.append("uc.idUsuario = :idUsuario")
+        params["idUsuario"] = idUsuario
+
+    where_sql = " AND ".join(clauses)
+
+    sql = text(f"""
+        SELECT 
+            t.idTrade,
+            t.ticketId,
+            t.idCuenta,
+            c.Nombre AS nombreCuenta,
+            c.brokerType,
+            COALESCE(u.idUsuario, 0) AS idUsuario,
+            COALESCE(TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidoPaterno, ''))), 'Sin Asignar') AS nombreUsuario,
+            COALESCE(u.username, 'sin_usuario') AS username,
+            COALESCE(t.strategy, 'OTRA') AS estrategia,
+            t.symbol AS instrumento,
+            t.direction,
+            COALESCE(t.size, 0.0) AS size,
+            COALESCE(t.entryPrice, 0.0) AS entryPrice,
+            COALESCE(t.exitPrice, 0.0) AS exitPrice,
+            COALESCE(t.pnl, 0.0) AS pnl,
+            COALESCE(t.commission, 0.0) AS commission,
+            (COALESCE(t.pnl, 0.0) - COALESCE(t.commission, 0.0)) AS pnlNeto,
+            DATE_FORMAT(t.openTime, '%Y-%m-%d %H:%i:%s') AS openTime,
+            DATE_FORMAT(t.closeTime, '%Y-%m-%d %H:%i:%s') AS closeTime,
+            t.status
+        FROM trades t
+        JOIN cuenta c ON t.idCuenta = c.idCuenta
+        LEFT JOIN usuarioCuenta uc ON c.idCuenta = uc.idCuenta AND uc.activo = 1
+        LEFT JOIN usuario u ON uc.idUsuario = u.idUsuario
+        WHERE {where_sql}
+        ORDER BY nombreUsuario, c.Nombre, estrategia, instrumento, t.closeTime ASC
+    """)
+
+    result = db.execute(sql, params)
+    rows = result.fetchall()
+
+    users_map = {}
+    g_trades = 0
+    g_wins = 0
+    g_losses = 0
+    g_bruto = 0.0
+    g_comm = 0.0
+    g_neto = 0.0
+    g_vol = 0.0
+
+    for r in rows:
+        u_id = r.idUsuario
+        u_name = r.nombreUsuario if r.nombreUsuario.strip() else 'Sin Asignar'
+        c_id = r.idCuenta
+        c_name = f"{r.nombreCuenta} (#{r.idCuenta})"
+        st_name = r.estrategia
+        sym_name = r.instrumento
+
+        pnl = float(r.pnl or 0.0)
+        comm = float(r.commission or 0.0)
+        net = float(r.pnlNeto or 0.0)
+        vol = float(r.size or 0.0)
+        is_win = net > 0
+        is_loss = net < 0
+
+        g_trades += 1
+        g_bruto += pnl
+        g_comm += comm
+        g_neto += net
+        g_vol += vol
+        if is_win: g_wins += 1
+        elif is_loss: g_losses += 1
+
+        if u_id not in users_map:
+            users_map[u_id] = {
+                'idUsuario': u_id,
+                'nombreUsuario': u_name,
+                'username': r.username,
+                'totalTrades': 0, 'ganadores': 0, 'perdedores': 0,
+                'volumen': 0.0, 'pnlBruto': 0.0, 'comisiones': 0.0, 'pnlNeto': 0.0,
+                'cuentas': {}
+            }
+        u = users_map[u_id]
+        u['totalTrades'] += 1
+        u['volumen'] += vol
+        u['pnlBruto'] += pnl
+        u['comisiones'] += comm
+        u['pnlNeto'] += net
+        if is_win: u['ganadores'] += 1
+        elif is_loss: u['perdedores'] += 1
+
+        if c_id not in u['cuentas']:
+            u['cuentas'][c_id] = {
+                'idCuenta': c_id,
+                'nombreCuenta': c_name,
+                'brokerType': r.brokerType or 'FOREX.com',
+                'totalTrades': 0, 'ganadores': 0, 'perdedores': 0,
+                'volumen': 0.0, 'pnlBruto': 0.0, 'comisiones': 0.0, 'pnlNeto': 0.0,
+                'estrategias': {}
+            }
+        c = u['cuentas'][c_id]
+        c['totalTrades'] += 1
+        c['volumen'] += vol
+        c['pnlBruto'] += pnl
+        c['comisiones'] += comm
+        c['pnlNeto'] += net
+        if is_win: c['ganadores'] += 1
+        elif is_loss: c['perdedores'] += 1
+
+        if st_name not in c['estrategias']:
+            c['estrategias'][st_name] = {
+                'estrategia': st_name,
+                'totalTrades': 0, 'ganadores': 0, 'perdedores': 0,
+                'volumen': 0.0, 'pnlBruto': 0.0, 'comisiones': 0.0, 'pnlNeto': 0.0,
+                'instrumentos': {}
+            }
+        st = c['estrategias'][st_name]
+        st['totalTrades'] += 1
+        st['volumen'] += vol
+        st['pnlBruto'] += pnl
+        st['comisiones'] += comm
+        st['pnlNeto'] += net
+        if is_win: st['ganadores'] += 1
+        elif is_loss: st['perdedores'] += 1
+
+        if sym_name not in st['instrumentos']:
+            st['instrumentos'][sym_name] = {
+                'instrumento': sym_name,
+                'totalTrades': 0, 'ganadores': 0, 'perdedores': 0,
+                'volumen': 0.0, 'pnlBruto': 0.0, 'comisiones': 0.0, 'pnlNeto': 0.0,
+                'hechos': []
+            }
+        sym = st['instrumentos'][sym_name]
+        sym['totalTrades'] += 1
+        sym['volumen'] += vol
+        sym['pnlBruto'] += pnl
+        sym['comisiones'] += comm
+        sym['pnlNeto'] += net
+        if is_win: sym['ganadores'] += 1
+        elif is_loss: sym['perdedores'] += 1
+
+        sym['hechos'].append({
+            'idTrade': r.idTrade,
+            'ticketId': r.ticketId or str(r.idTrade),
+            'direction': r.direction,
+            'size': round(vol, 4),
+            'entryPrice': round(float(r.entryPrice), 5),
+            'exitPrice': round(float(r.exitPrice), 5),
+            'openTime': str(r.openTime or ''),
+            'closeTime': str(r.closeTime or ''),
+            'pnlBruto': round(pnl, 2),
+            'commission': round(comm, 2),
+            'pnlNeto': round(net, 2),
+            'status': r.status
+        })
+
+    usuarios_list = []
+    for u in users_map.values():
+        u['winRate'] = round((u['ganadores'] / u['totalTrades'] * 100), 1) if u['totalTrades'] else 0.0
+        u['pnlBruto'] = round(u['pnlBruto'], 2)
+        u['comisiones'] = round(u['comisiones'], 2)
+        u['pnlNeto'] = round(u['pnlNeto'], 2)
+        u['volumen'] = round(u['volumen'], 4)
+
+        cuentas_list = []
+        for c in u['cuentas'].values():
+            c['winRate'] = round((c['ganadores'] / c['totalTrades'] * 100), 1) if c['totalTrades'] else 0.0
+            c['pnlBruto'] = round(c['pnlBruto'], 2)
+            c['comisiones'] = round(c['comisiones'], 2)
+            c['pnlNeto'] = round(c['pnlNeto'], 2)
+            c['volumen'] = round(c['volumen'], 4)
+
+            strat_list = []
+            for st in c['estrategias'].values():
+                st['winRate'] = round((st['ganadores'] / st['totalTrades'] * 100), 1) if st['totalTrades'] else 0.0
+                st['pnlBruto'] = round(st['pnlBruto'], 2)
+                st['comisiones'] = round(st['comisiones'], 2)
+                st['pnlNeto'] = round(st['pnlNeto'], 2)
+                st['volumen'] = round(st['volumen'], 4)
+
+                inst_list = []
+                for ins in st['instrumentos'].values():
+                    ins['winRate'] = round((ins['ganadores'] / ins['totalTrades'] * 100), 1) if ins['totalTrades'] else 0.0
+                    ins['pnlBruto'] = round(ins['pnlBruto'], 2)
+                    ins['comisiones'] = round(ins['comisiones'], 2)
+                    ins['pnlNeto'] = round(ins['pnlNeto'], 2)
+                    ins['volumen'] = round(ins['volumen'], 4)
+                    inst_list.append(ins)
+
+                inst_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
+                st['instrumentos'] = inst_list
+                strat_list.append(st)
+
+            strat_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
+            c['estrategias'] = strat_list
+            cuentas_list.append(c)
+
+        cuentas_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
+        u['cuentas'] = cuentas_list
+        usuarios_list.append(u)
+
+    usuarios_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
+    g_wr = round((g_wins / g_trades * 100), 1) if g_trades else 0.0
+
+    return {
+        'periodo': {
+            'fechaInicio': fechaInicio,
+            'fechaFin': fechaFin
+        },
+        'resumenGeneral': {
+            'totalTrades': g_trades,
+            'ganadores': g_wins,
+            'perdedores': g_losses,
+            'winRate': g_wr,
+            'volumen': round(g_vol, 4),
+            'pnlBruto': round(g_bruto, 2),
+            'comisiones': round(g_comm, 2),
+            'pnlNeto': round(g_neto, 2)
+        },
+        'usuarios': usuarios_list
+    }
+
+
+@router.get("/reportes/jerarquico")
+def api_get_reporte_jerarquico(
+    fechaInicio: Optional[str] = None,
+    fechaFin: Optional[str] = None,
+    idUsuario: Optional[int] = None,
+    idCuenta: Optional[int] = None,
+    estrategia: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna el reporte de rendimiento jerárquico multinivel (de lo general a lo particular):
+    Nivel 1: Usuario -> Nivel 2: Cuenta -> Nivel 3: Estrategia -> Nivel 4: Instrumento -> Nivel 5: Hechos
+    """
+    try:
+        data = generarDatosReporteJerarquico(db, fechaInicio, fechaFin, idUsuario, idCuenta, estrategia)
+        return {"status": "success", "data": data}
+    except Exception as e:
+        logger.error(f"Error generando reporte jerárquico: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reportes/jerarquico/excel")
+def api_exportar_reporte_jerarquico_excel(
+    fechaInicio: Optional[str] = None,
+    fechaFin: Optional[str] = None,
+    idUsuario: Optional[int] = None,
+    idCuenta: Optional[int] = None,
+    estrategia: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Genera y descarga un archivo Excel (.xlsx) estructurado jerárquicamente de lo general a lo particular.
+    """
+    try:
+        import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        data = generarDatosReporteJerarquico(db, fechaInicio, fechaFin, idUsuario, idCuenta, estrategia)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Reporte Jerárquico"
+        ws.views.sheetView[0].showGridLines = True
+
+        # Paleta institucional ATALAia
+        c_navy = "0F172A"
+        c_user = "1E293B"
+        c_acc  = "334155"
+        c_strat= "475569"
+        c_sym  = "64748B"
+        c_odd  = "F8FAFC"
+        c_green= "059669"
+        c_red  = "DC2626"
+
+        font_title = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+        font_sub = Font(name="Calibri", size=11, italic=True, color="94A3B8")
+        font_hdr = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_u = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+        font_c = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_s = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_sym = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+        font_body = Font(name="Calibri", size=10)
+        font_bold = Font(name="Calibri", size=10, bold=True)
+
+        fill_hdr = PatternFill(start_color=c_navy, end_color=c_navy, fill_type="solid")
+        fill_u   = PatternFill(start_color=c_user, end_color=c_user, fill_type="solid")
+        fill_c   = PatternFill(start_color=c_acc, end_color=c_acc, fill_type="solid")
+        fill_s   = PatternFill(start_color=c_strat, end_color=c_strat, fill_type="solid")
+        fill_sym = PatternFill(start_color=c_sym, end_color=c_sym, fill_type="solid")
+        fill_odd = PatternFill(start_color=c_odd, end_color=c_odd, fill_type="solid")
+
+        border_thin = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1')
+        )
+
+        # Encabezado General
+        ws.merge_cells("A1:K1")
+        cell_t = ws["A1"]
+        cell_t.value = "ATALA.ia · Reporte Jerárquico de Rendimiento (De lo General a lo Particular)"
+        cell_t.font = font_title
+        cell_t.fill = fill_hdr
+        cell_t.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[1].height = 30
+
+        ws.merge_cells("A2:K2")
+        cell_sub = ws["A2"]
+        p_info = data["periodo"]
+        rg = data["resumenGeneral"]
+        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
+        cell_sub.font = font_sub
+        cell_sub.fill = fill_hdr
+        cell_sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[2].height = 20
+
+        # Renglón 4: Columnas de datos
+        headers = [
+            "Nivel / Jerarquía (Usuario ➔ Cuenta ➔ Estrategia ➔ Instrumento ➔ Hecho)",
+            "Tipo / Dir",
+            "Volumen",
+            "Px Entrada",
+            "Px Salida",
+            "Apertura",
+            "Cierre",
+            "Trades / WR",
+            "PnL Bruto ($)",
+            "Comisión ($)",
+            "PnL Neto ($ USD)"
+        ]
+        ws.row_dimensions[4].height = 24
+        for col_idx, h in enumerate(headers, 1):
+            c = ws.cell(row=4, column=col_idx, value=h)
+            c.font = font_hdr
+            c.fill = fill_hdr
+            c.alignment = Alignment(horizontal="center" if col_idx > 1 else "left", vertical="center")
+            c.border = border_thin
+
+        curr_r = 5
+
+        for u in data.get("usuarios", []):
+            # Nivel 1: Usuario (TOTAL USUARIO)
+            ws.row_dimensions[curr_r].height = 22
+            row_vals = [
+                f"👤 USUARIO: {u['nombreUsuario']} ({u['username']})   [TOTAL]",
+                "-",
+                u["volumen"],
+                "-", "-", "-", "-",
+                f"{u['totalTrades']} ops ({u['winRate']}%)",
+                u["pnlBruto"],
+                u["comisiones"],
+                u["pnlNeto"]
+            ]
+            for col_idx, val in enumerate(row_vals, 1):
+                cell = ws.cell(row=curr_r, column=col_idx, value=val)
+                cell.font = font_u
+                cell.fill = fill_u
+                cell.border = border_thin
+                if col_idx in [3, 9, 10, 11]:
+                    cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+            curr_r += 1
+
+            for c in u.get("cuentas", []):
+                # Nivel 2: Cuenta (SUBTOTAL CUENTA)
+                ws.row_dimensions[curr_r].height = 20
+                row_vals = [
+                    f"   💼 CUENTA: {c['nombreCuenta']} [{c['brokerType']}]   [SUBTOTAL]",
+                    "-",
+                    c["volumen"],
+                    "-", "-", "-", "-",
+                    f"{c['totalTrades']} ops ({c['winRate']}%)",
+                    c["pnlBruto"],
+                    c["comisiones"],
+                    c["pnlNeto"]
+                ]
+                for col_idx, val in enumerate(row_vals, 1):
+                    cell = ws.cell(row=curr_r, column=col_idx, value=val)
+                    cell.font = font_c
+                    cell.fill = fill_c
+                    cell.border = border_thin
+                    if col_idx in [3, 9, 10, 11]:
+                        cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                curr_r += 1
+
+                for st in c.get("estrategias", []):
+                    # Nivel 3: Estrategia (SUBTOTAL ESTRATEGIA)
+                    ws.row_dimensions[curr_r].height = 19
+                    row_vals = [
+                        f"      🎯 ESTRATEGIA: {st['estrategia']}   [SUBTOTAL]",
+                        "-",
+                        st["volumen"],
+                        "-", "-", "-", "-",
+                        f"{st['totalTrades']} ops ({st['winRate']}%)",
+                        st["pnlBruto"],
+                        st["comisiones"],
+                        st["pnlNeto"]
+                    ]
+                    for col_idx, val in enumerate(row_vals, 1):
+                        cell = ws.cell(row=curr_r, column=col_idx, value=val)
+                        cell.font = font_s
+                        cell.fill = fill_s
+                        cell.border = border_thin
+                        if col_idx in [3, 9, 10, 11]:
+                            cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                    curr_r += 1
+
+                    for ins in st.get("instrumentos", []):
+                        # Nivel 4: Instrumento (SUBTOTAL INSTRUMENTO)
+                        ws.row_dimensions[curr_r].height = 18
+                        row_vals = [
+                            f"         💱 INSTRUMENTO: {ins['instrumento']}   [SUBTOTAL]",
+                            "-",
+                            ins["volumen"],
+                            "-", "-", "-", "-",
+                            f"{ins['totalTrades']} ops ({ins['winRate']}%)",
+                            ins["pnlBruto"],
+                            ins["comisiones"],
+                            ins["pnlNeto"]
+                        ]
+                        for col_idx, val in enumerate(row_vals, 1):
+                            cell = ws.cell(row=curr_r, column=col_idx, value=val)
+                            cell.font = font_sym
+                            cell.fill = fill_sym
+                            cell.border = border_thin
+                            if col_idx in [3, 9, 10, 11]:
+                                cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                                cell.alignment = Alignment(horizontal="right", vertical="center")
+                        curr_r += 1
+
+                        # Nivel 5: Hechos individuales
+                        for h in ins.get("hechos", []):
+                            ws.row_dimensions[curr_r].height = 16
+                            pnl_val = h["pnlNeto"]
+                            font_pnl = Font(name="Calibri", size=9, bold=True, color=c_green if pnl_val >= 0 else c_red)
+                            row_vals = [
+                                f"            • Hecho #{h['idTrade']} (Ticket: {h['ticketId']})",
+                                h["direction"],
+                                h["size"],
+                                h["entryPrice"],
+                                h["exitPrice"],
+                                h["openTime"],
+                                h["closeTime"],
+                                h["status"],
+                                h["pnlBruto"],
+                                h["commission"],
+                                h["pnlNeto"]
+                            ]
+                            for col_idx, val in enumerate(row_vals, 1):
+                                cell = ws.cell(row=curr_r, column=col_idx, value=val)
+                                cell.font = font_pnl if col_idx == 11 else font_body
+                                cell.border = border_thin
+                                if curr_r % 2 == 0:
+                                    cell.fill = fill_odd
+                                if col_idx in [3, 4, 5, 9, 10, 11]:
+                                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                                    if col_idx in [9, 10, 11]:
+                                        cell.number_format = "$#,##0.00"
+                                    elif col_idx in [4, 5]:
+                                        cell.number_format = "#,##0.00000"
+                                    elif col_idx == 3:
+                                        cell.number_format = "#,##0.00"
+                                else:
+                                    cell.alignment = Alignment(horizontal="center" if col_idx in [2, 6, 7, 8] else "left", vertical="center")
+                            curr_r += 1
+
+        # Renglón Final: TOTAL GENERAL CONSOLIDADO
+        ws.row_dimensions[curr_r].height = 24
+        rg = data.get("resumenGeneral", {})
+        border_total = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='94A3B8'),
+            bottom=Side(style='double', color='0F172A')
+        )
+        row_total_vals = [
+            "★ TOTAL GENERAL CONSOLIDADO",
+            "-",
+            rg.get("volumen", 0.0),
+            "-", "-", "-", "-",
+            f"{rg.get('totalTrades', 0)} ops ({rg.get('winRate', 0.0)}%)",
+            rg.get("pnlBruto", 0.0),
+            rg.get("comisiones", 0.0),
+            rg.get("pnlNeto", 0.0)
+        ]
+        font_total = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        fill_total = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+        for col_idx, val in enumerate(row_total_vals, 1):
+            cell = ws.cell(row=curr_r, column=col_idx, value=val)
+            cell.font = font_total
+            cell.fill = fill_total
+            cell.border = border_total
+            if col_idx in [3, 9, 10, 11]:
+                cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="center" if col_idx > 1 else "left", vertical="center")
+        curr_r += 1
+
+        # Auto-anchura de columnas
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+        ws.column_dimensions["A"].width = 55
+
+        excel_buf = io.BytesIO()
+        wb.save(excel_buf)
+        excel_buf.seek(0)
+
+        filename = f"Reporte_Jerarquico_{data['periodo']['fechaInicio']}_{data['periodo']['fechaFin']}.xlsx"
+        return StreamingResponse(
+            excel_buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Error exportando reporte jerárquico a Excel: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==============================================================================
 # ENDPOINTS INSTITUCIONALES DE MONITOREO Y CONSOLA DE SERVICIOS
 # ==============================================================================
@@ -4903,6 +5579,80 @@ def api_run_cart_optimizer():
         }
     except Exception as e:
         logger.error(f"Error ejecutando optimizador manual: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/system/sniper-ml-info")
+def api_get_sniper_ml_info():
+    """
+    Retorna metadatos y estado del modelo ML de SNIPER (RandomForest).
+    """
+    try:
+        model_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/Sentinel/ml/trainedModel.joblib"
+        reg_model_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/Sentinel/ml/trainedRegModel.joblib"
+        log_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/logs/sniper_ml_retrain.log"
+        
+        info = {
+            "model_exists": os.path.exists(model_path),
+            "reg_model_exists": os.path.exists(reg_model_path),
+            "cron_schedule": "Domingos 05:00 AM CST",
+            "last_trained": "-",
+            "model_size_mb": 0.0,
+            "reg_model_size_mb": 0.0,
+            "last_log_snippet": ""
+        }
+        
+        if os.path.exists(model_path):
+            mtime = os.path.getmtime(model_path)
+            info["last_trained"] = datetime.fromtimestamp(mtime).strftime("%d/%m/%Y %H:%M:%S")
+            info["model_size_mb"] = round(os.path.getsize(model_path) / (1024 * 1024), 2)
+            
+        if os.path.exists(reg_model_path):
+            info["reg_model_size_mb"] = round(os.path.getsize(reg_model_path) / (1024 * 1024), 2)
+
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="ignore") as f_log:
+                    lines = [ln.strip() for ln in f_log.readlines() if ln.strip()]
+                    if lines:
+                        info["last_log_snippet"] = lines[-1]
+            except Exception:
+                pass
+            
+        return info
+    except Exception as e:
+        logger.error(f"Error consultando info de SNIPER ML: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/system/actions/retrain-sniper-ml")
+def api_run_sniper_ml_retrain():
+    """
+    Ejecuta el auto-reentrenamiento de los modelos ML de SNIPER (auto_retrain.py).
+    """
+    try:
+        import subprocess
+        python_bin = "/home/jcolinm/.venvs/Sistema/bin/python3"
+        script_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/Sentinel/ml/auto_retrain.py"
+        log_file = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/logs/sniper_ml_retrain.log"
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia"
+        
+        with open(log_file, "a") as f_out:
+            proc = subprocess.Popen(
+                [python_bin, script_path, "--force"],
+                stdout=f_out,
+                stderr=subprocess.STDOUT,
+                env=env
+            )
+            
+        return {
+            "status": "success",
+            "message": f"Auto-reentrenamiento de SNIPER ML iniciado en segundo plano (PID: {proc.pid}). Monitorea el progreso en la terminal.",
+            "pid": proc.pid
+        }
+    except Exception as e:
+        logger.error(f"Error iniciando reentrenamiento de SNIPER ML: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -5146,6 +5896,8 @@ class UserSniperCreate(BaseModel):
     filtroHorario: Optional[bool] = Field(True, description="Filtra horario operativo")
     horaInicio: Optional[str] = Field("08:00", description="Hora de inicio de operaciones (CST)")
     horaFin: Optional[str] = Field("16:00", description="Hora fin de operaciones (CST)")
+    horaInicio2: Optional[str] = Field(None, description="Segunda hora de inicio de operaciones (CST) opcional")
+    horaFin2: Optional[str] = Field(None, description="Segunda hora fin de operaciones (CST) opcional")
     multiplicadorRiesgo: Optional[float] = Field(1.0, description="Multiplicador de riesgo financiero por operación")
 
 
@@ -5153,6 +5905,7 @@ class UserSniperDelete(BaseModel):
     idUsuario: int = Field(..., description="ID del usuario")
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     symbol: str = Field(..., description="Símbolo a borrar de userSNIPER")
+    id: Optional[int] = Field(None, description="ID del registro en userSNIPER opcional")
 
 
 class UserSniperOperarUpdate(BaseModel):
@@ -5192,7 +5945,7 @@ def findUserCart(
         cnt = db.execute(text("""
             SELECT COUNT(*) FROM trades
             WHERE idCuenta = :idc
-              AND strategy LIKE '%CART%'
+              AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
               AND (symbol = :sym OR setup = :sym)
               AND status = 'OPEN'
         """), {"idc": item.idCuenta, "sym": item.symbol}).scalar()
@@ -5312,7 +6065,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
         cnt = db.execute(text("""
             SELECT COUNT(*) FROM trades
             WHERE idCuenta = :idc
-              AND strategy LIKE '%CART%'
+              AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
               AND (symbol = :sym OR setup = :sym)
               AND status = 'OPEN'
         """), {"idc": cuentaId, "sym": payload.symbol}).scalar()
@@ -5429,7 +6182,7 @@ def deleteUserCart(payload: UserCartDelete, db: Session = Depends(get_db)):
             open_cnt = db.execute(text("""
                 SELECT COUNT(*) FROM trades
                 WHERE idCuenta = :idc
-                  AND strategy LIKE '%CART%'
+                  AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
                   AND (symbol = :sym OR setup = :sym)
                   AND status = 'OPEN'
             """), {"idc": targetAccount, "sym": payload.symbol}).scalar()
@@ -5439,7 +6192,7 @@ def deleteUserCart(payload: UserCartDelete, db: Session = Depends(get_db)):
             total_trades = db.execute(text("""
                 SELECT COUNT(*) FROM trades
                 WHERE idCuenta = :idc
-                  AND strategy LIKE '%CART%'
+                  AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
                   AND (symbol = :sym OR setup = :sym)
             """), {"idc": targetAccount, "sym": payload.symbol}).scalar() or 0
         else:
@@ -5496,7 +6249,7 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         FROM trades
         WHERE idCuenta = :idc
           AND status = 'OPEN'
-          AND strategy LIKE '%CART%'
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
         ORDER BY symbol, openTime ASC, idTrade ASC
     """)
     rows = db.execute(sql, {"idc": idCuenta}).fetchall()
@@ -5623,7 +6376,7 @@ async def manual_close_cart(
         SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId
         FROM trades
         WHERE idCuenta = :idc
-          AND strategy LIKE '%CART%'
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
           AND (symbol = :sym OR setup = :sym)
           AND status = 'OPEN'
         ORDER BY idTrade ASC
@@ -6014,6 +6767,8 @@ def findUserSniper(
             "filtroHorario": True,
             "horaInicio": "08:00",
             "horaFin": "16:00",
+            "horaInicio2": None,
+            "horaFin2": None,
             "multiplicadorRiesgo": 1.0,
             "hasOpenTrades": has_open_trades,
             "openTradesCount": open_count
@@ -6040,6 +6795,8 @@ def findUserSniper(
         "filtroHorario": bool(item.filtroHorario if item.filtroHorario is not None else True),
         "horaInicio": str(item.horaInicio or "08:00"),
         "horaFin": str(item.horaFin or "16:00"),
+        "horaInicio2": str(item.horaInicio2).strip() if getattr(item, "horaInicio2", None) and str(item.horaInicio2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(item.horaInicio2) else None,
+        "horaFin2": str(item.horaFin2).strip() if getattr(item, "horaFin2", None) and str(item.horaFin2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(item.horaFin2) else None,
         "multiplicadorRiesgo": float(getattr(item, "multiplicadorRiesgo", 1.0) if getattr(item, "multiplicadorRiesgo", None) is not None else 1.0),
         "createdAt": item.createdAt,
         "hasOpenTrades": has_open_trades,
@@ -6100,6 +6857,8 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
             "filtroHorario": bool(r.filtroHorario if r.filtroHorario is not None else True),
             "horaInicio": str(r.horaInicio or "08:00"),
             "horaFin": str(r.horaFin or "16:00"),
+            "horaInicio2": str(r.horaInicio2).strip() if getattr(r, "horaInicio2", None) and str(r.horaInicio2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(r.horaInicio2) else None,
+            "horaFin2": str(r.horaFin2).strip() if getattr(r, "horaFin2", None) and str(r.horaFin2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(r.horaFin2) else None,
             "multiplicadorRiesgo": float(getattr(r, "multiplicadorRiesgo", 1.0) if getattr(r, "multiplicadorRiesgo", None) is not None else 1.0),
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
@@ -6139,9 +6898,19 @@ async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db
         tipo_cierre = str(payload.tipoCierre or "Estructural").strip()
         usar_be = bool(payload.usarBreakEven) if payload.usarBreakEven is not None else True
         usar_tsl = bool(payload.usarTSL) if payload.usarTSL is not None else False
+        def clean_hhmm(val: Any) -> Optional[str]:
+            if val is None:
+                return None
+            s = str(val).strip().lower()
+            if s in ["", "null", "none", "nan", "undefined"] or ":" not in s:
+                return None
+            return str(val).strip()
+
         filtro_horario = bool(payload.filtroHorario) if payload.filtroHorario is not None else True
         hora_inicio = str(payload.horaInicio or "08:00")
         hora_fin = str(payload.horaFin or "16:00")
+        hora_inicio2 = clean_hhmm(payload.horaInicio2)
+        hora_fin2 = clean_hhmm(payload.horaFin2)
         mult_riesgo = float(payload.multiplicadorRiesgo if payload.multiplicadorRiesgo is not None else 1.0)
 
         if existing:
@@ -6158,6 +6927,8 @@ async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db
             existing.filtroHorario = filtro_horario
             existing.horaInicio = hora_inicio
             existing.horaFin = hora_fin
+            existing.horaInicio2 = hora_inicio2
+            existing.horaFin2 = hora_fin2
             existing.multiplicadorRiesgo = mult_riesgo
             existing.borrado = False
             db.commit()
@@ -6181,6 +6952,8 @@ async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db
                 filtroHorario=filtro_horario,
                 horaInicio=hora_inicio,
                 horaFin=hora_fin,
+                horaInicio2=hora_inicio2,
+                horaFin2=hora_fin2,
                 multiplicadorRiesgo=mult_riesgo,
                 borrado=False,
                 createdAt=datetime.now().replace(microsecond=0)
@@ -6201,13 +6974,20 @@ def deleteUserSniper(payload: UserSniperDelete, db: Session = Depends(get_db)):
     Elimina lógica o físicamente un par de userSNIPER.
     """
     try:
-        query = db.query(UserSniper).filter(
-            UserSniper.idUsuario == payload.idUsuario,
-            UserSniper.symbol == payload.symbol
-        )
-        if payload.idCuenta:
-            query = query.filter(UserSniper.idCuenta == payload.idCuenta)
-        item = query.first()
+        item = None
+        if payload.id:
+            item = db.query(UserSniper).filter(UserSniper.id == payload.id).first()
+
+        if not item:
+            query = db.query(UserSniper).filter(
+                (UserSniper.symbol == payload.symbol) | (UserSniper.symbol == unquote(payload.symbol))
+            )
+            if payload.idCuenta:
+                query = query.filter(UserSniper.idCuenta == payload.idCuenta)
+            elif payload.idUsuario:
+                query = query.filter(UserSniper.idUsuario == payload.idUsuario)
+            item = query.first()
+
         if not item:
             raise HTTPException(status_code=404, detail="No se encontró el par en userSNIPER.")
 
@@ -6299,8 +7079,9 @@ def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     results = []
     for sym, t_list in by_symbol.items():
         clean = sym.replace("/", "").upper()
-        row_s = db.execute(text("SELECT quote_currency, pip FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        row_s = db.execute(text("SELECT quote_currency, pip, priceOffset FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
         pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+        p_offset = float(row_s[2]) if row_s and len(row_s) > 2 and row_s[2] is not None else 0.0
 
         tot_margin = 0.0
         tot_pnl = 0.0
@@ -6327,6 +7108,8 @@ def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             else:
                 row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
                 cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
+            if p_offset != 0.0:
+                cur_px = cur_px + p_offset
             last_px = cur_px
 
             item_pnl, _, _, _ = calculate_unrealized_pnl(
@@ -6524,6 +7307,11 @@ async def getSniperAnalysis(
         usarTslVal = False
 
         multRiesgoVal = 1.0
+        filtroHorarioVal = False
+        horaInicioVal = "08:00"
+        horaFinVal = "16:00"
+        horaInicio2Val = None
+        horaFin2Val = None
         if idCuenta:
             accRow = db.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).fetchone()
             baseRiesgo = 1.0
@@ -6534,9 +7322,10 @@ async def getSniperAnalysis(
                     baseRiesgo = float(accRow[1])
 
             userCfgRow = db.execute(text("""
-                SELECT minConfidence, minRr, maxRr, usarBreakEven, usarTSL, multiplicadorRiesgo
+                SELECT minConfidence, minRr, maxRr, usarBreakEven, usarTSL, multiplicadorRiesgo,
+                       filtroHorario, horaInicio, horaFin, horaInicio2, horaFin2
                 FROM userSNIPER
-                WHERE idCuenta = :idc AND symbol = :sym
+                WHERE idCuenta = :idc AND (symbol = :sym OR REPLACE(symbol, '/', '') = REPLACE(:sym, '/', ''))
                 LIMIT 1
             """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
 
@@ -6547,6 +7336,13 @@ async def getSniperAnalysis(
                 if userCfgRow.get("usarBreakEven") is not None: usarBeVal = bool(userCfgRow["usarBreakEven"])
                 if userCfgRow.get("usarTSL") is not None: usarTslVal = bool(userCfgRow["usarTSL"])
                 if userCfgRow.get("multiplicadorRiesgo") is not None: multRiesgoVal = float(userCfgRow["multiplicadorRiesgo"])
+                if userCfgRow.get("filtroHorario") is not None: filtroHorarioVal = bool(userCfgRow["filtroHorario"])
+                if userCfgRow.get("horaInicio"): horaInicioVal = str(userCfgRow["horaInicio"])
+                if userCfgRow.get("horaFin"): horaFinVal = str(userCfgRow["horaFin"])
+                hi2_raw = userCfgRow.get("horaInicio2")
+                hf2_raw = userCfgRow.get("horaFin2")
+                horaInicio2Val = str(hi2_raw).strip() if hi2_raw and str(hi2_raw).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(hi2_raw) else None
+                horaFin2Val = str(hf2_raw).strip() if hf2_raw and str(hf2_raw).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(hf2_raw) else None
 
             if multiplicadorRiesgo is not None:
                 try:
@@ -6570,7 +7366,12 @@ async def getSniperAnalysis(
             usarTSL=usarTslVal,
             pipSize=pipSz,
             timeframe=timeframe,
-            adaptiveCfg=adaptiveCfg
+            adaptiveCfg=adaptiveCfg,
+            filtroHorario=filtroHorarioVal,
+            horaInicio=horaInicioVal,
+            horaFin=horaFinVal,
+            horaInicio2=horaInicio2Val,
+            horaFin2=horaFin2Val
         )
 
         # 5. Niveles estructurales
@@ -6785,7 +7586,7 @@ async def getSniperOptimalConfigEndpoint(
         if idCuenta:
             row = db.execute(text("""
                 SELECT Temporalidad, minConfidence, minRr, maxRr, usarBreakEven, usarTSL,
-                       filtroHorario, horaInicio, horaFin, multiplicadorRiesgo
+                       filtroHorario, horaInicio, horaFin, horaInicio2, horaFin2, multiplicadorRiesgo
                 FROM userSNIPER
                 WHERE idCuenta = :idc AND symbol = :sym
                 LIMIT 1

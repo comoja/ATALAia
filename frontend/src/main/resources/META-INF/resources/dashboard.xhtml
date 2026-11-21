@@ -1257,6 +1257,89 @@
                 transition: all 0.25s ease !important;
             }
 
+            /* Barras de Pestañas de Estrategias: Misma altura de 48px que la barra superior y botones perfectamente centrados a 36px */
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav {
+                height: 48px !important;
+                min-height: 48px !important;
+                max-height: 48px !important;
+                box-sizing: border-box !important;
+                padding: 0 14px !important;
+                margin-bottom: 6px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                gap: 8px !important;
+                border-radius: 12px !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header {
+                height: 36px !important;
+                min-height: 36px !important;
+                max-height: 36px !important;
+                box-sizing: border-box !important;
+                margin: 0 !important;
+                top: 0 !important;
+                bottom: 0 !important;
+                float: none !important;
+                position: relative !important;
+                padding: 0 !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 8px !important;
+                vertical-align: middle !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a {
+                height: 100% !important;
+                min-height: 100% !important;
+                max-height: 100% !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+                padding: 0 10px !important;
+                margin: 0 !important;
+                float: none !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                line-height: 1 !important;
+                vertical-align: middle !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a {
+                height: 100% !important;
+                padding: 0 10px !important;
+            }
+
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .ratio-tab-icon,
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+            #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav svg,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+            #strategyCartWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav svg,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon {
+                width: 34px !important;
+                height: 30px !important;
+                object-fit: contain !important;
+                display: inline-block !important;
+                vertical-align: middle !important;
+                margin: 0 !important;
+                line-height: 1 !important;
+            }
+
             #strategyRatiosWrapper .ui-tabs .ui-tabs-nav {
                 border-left: 5px solid #0284c7 !important;
                 background: rgba(2, 132, 199, 0.04) !important;
@@ -1347,6 +1430,114 @@
             #strategySniperWrapper .ui-accordion .ui-accordion-header.ui-state-active {
                 border-left: 4px solid #b47b2b !important;
             }
+
+            /* ========================================================================= */
+            /* ESTILO DEDICADO UNIFICADO PARA TABLAS DE TRADES (BACKTEST Y HECHOS)      */
+            /* ========================================================================= */
+            .aether-trades-table {
+                width: 100% !important;
+            }
+
+            .aether-trades-table.ui-datatable .ui-datatable-tablewrapper,
+            .aether-trades-table.ui-datatable table,
+            .aether-trades-table .ui-datatable-scrollable-header table,
+            .aether-trades-table .ui-datatable-scrollable-body table {
+                width: 100% !important;
+                min-width: 100% !important;
+                table-layout: fixed !important;
+            }
+
+            /* Unificación de tipografía: Toda la tabla usa 'Inter', sans-serif */
+            .aether-trades-table,
+            .aether-trades-table th,
+            .aether-trades-table td,
+            .aether-trades-table span,
+            .aether-trades-table div,
+            .aether-trades-table input {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
+
+            /* Encabezados de tabla: Fondo oscuro corporativo #1e293b y texto blanco nítido */
+            .aether-trades-table .ui-datatable-scrollable-header th,
+            .aether-trades-table thead th,
+            .aether-trades-table > .ui-datatable-tablewrapper > table > thead > tr > th {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+                font-size: 1.05rem !important;
+                font-weight: 800 !important;
+                padding: 7px 5px !important;
+                background-color: #1e293b !important;
+                background: #1e293b !important;
+                color: #ffffff !important;
+                border: 1px solid #334155 !important;
+                border-bottom: 2px solid #0f172a !important;
+                white-space: nowrap !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-trades-table .ui-datatable-scrollable-header th *,
+            .aether-trades-table .ui-datatable-scrollable-header th span,
+            .aether-trades-table .ui-datatable-scrollable-header th .ui-column-title,
+            .aether-trades-table thead th *,
+            .aether-trades-table thead th span,
+            .aether-trades-table thead th .ui-column-title {
+                color: #ffffff !important;
+                font-size: 1.05rem !important;
+                font-weight: 800 !important;
+            }
+
+            /* Ocultar altura y visibilidad del clon thead dentro del body para evitar doble encabezado,
+               manteniendo los anchos de columnas para alineación 100% perfecta con la cabecera */
+            .aether-trades-table .ui-datatable-scrollable-body thead,
+            .aether-trades-table .ui-datatable-scrollable-body thead th,
+            .aether-trades-table .ui-datatable-scrollable-theadclone,
+            .aether-trades-table .ui-datatable-scrollable-theadclone th {
+                height: 0px !important;
+                max-height: 0px !important;
+                padding-top: 0px !important;
+                padding-bottom: 0px !important;
+                margin: 0px !important;
+                border-top: none !important;
+                border-bottom: none !important;
+                line-height: 0 !important;
+                font-size: 0px !important;
+                visibility: hidden !important;
+                overflow: hidden !important;
+                background: transparent !important;
+                color: transparent !important;
+                border-left: none !important;
+                border-right: none !important;
+            }
+
+            /* Celdas del cuerpo de la tabla */
+            .aether-trades-table .ui-datatable-scrollable-body td,
+            .aether-trades-table tbody td {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+                font-size: 1.05rem !important;
+                line-height: 1.35 !important;
+                padding: 6px 6px !important;
+                vertical-align: middle !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Hover de filas */
+            .aether-trades-table tbody tr:hover {
+                background: #f1f5f9 !important;
+            }
+
+            /* Tono de verde más oscuro y legible para valores positivos */
+            .aether-trades-table .color-win,
+            .aether-trades-table .pnl-positive,
+            .aether-trades-table [style*="#10b981"],
+            .aether-trades-table [style*="#16a34a"],
+            .aether-trades-table [style*="#15803d"] {
+                color: #166534 !important;
+                font-weight: 800 !important;
+            }
+
+            /* Forzar que monospace se elimine dentro de las tablas de trades */
+            .aether-trades-table [style*="monospace"] {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            }
         </style>
     </ui:define>
 
@@ -1360,10 +1551,10 @@
             <!-- BARRA SUPERIOR DE AGRUPACIÓN POR ESTRATEGIA (NIVEL 1: RATIOS | RIDER | SNIPER) -->
             <div id="strategySelectorBar"
                 class="#{dashboardBean.activeStrategy eq 'CART' ? 'strategy-bar-cart' : (dashboardBean.activeStrategy eq 'SNIPER' ? 'strategy-bar-sniper' : 'strategy-bar-ratios')}"
-                style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 14px; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0; transition: all 0.25s ease;">
-                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 14px; height: 48px; min-height: 48px; max-height: 48px; box-sizing: border-box; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0; transition: all 0.25s ease;">
+                <div style="display: flex; align-items: center; gap: 10px; height: 100%;">
                     <span
-                        style="font-size: 0.85rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; border-right: 1px solid #cbd5e1;">
+                        style="font-size: 0.85rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; border-right: 1px solid #cbd5e1; height: 24px;">
                         <i id="activeStrategyBarIcon" class="pi pi-compass"
                             style="color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : (dashboardBean.activeStrategy eq 'SNIPER' ? '#b47b2b' : '#0284c7')}; font-size: 1.05rem;"></i>
                         Estrategia:
@@ -1373,8 +1564,8 @@
                     <p:commandLink id="btnStratRatios" action="#{dashboardBean.selectStrategy('RATIOS')}"
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('RATIOS');"
                         title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 7px 20px; border-radius: 10px; font-weight: 800; font-size: 1.02rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45); border: 1px solid #0284c7;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
-                        <i class="pi pi-percentage" style="font-size: 1.35rem;"></i>
+                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 36px; box-sizing: border-box; gap: 7px; padding: 0 14px; border-radius: 8px; font-weight: 800; font-size: 0.90rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.45); border: 1px solid #0284c7;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        <span class="ratio-icon-btn" style="display: inline-block; width: 24px; height: 24px; -webkit-mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle; flex-shrink: 0;"></span>
                         <span>RATIOS</span>
                     </p:commandLink>
 
@@ -1382,7 +1573,7 @@
                     <p:commandLink id="btnStratCart" action="#{dashboardBean.selectStrategy('CART')}" process="@this"
                         update=":aetherForm" oncomplete="switchStrategyView('CART');"
                         title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 7px 20px; border-radius: 10px; font-weight: 800; font-size: 1.02rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45); border: 1px solid #0d9488;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 36px; box-sizing: border-box; gap: 7px; padding: 0 14px; border-radius: 8px; font-weight: 800; font-size: 0.90rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.45); border: 1px solid #0d9488;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="130 200 720 580" fill="currentColor" style="display: inline-block; vertical-align: middle; flex-shrink: 0;">
                             <path d="M148,390h21v88h-21Z M148,501h21v88h-21Z M192,345h21v133h-21Z M192,501h21v133h-21Z M236,257h21v221h-21Z M236,501h21v221h-21Z M280,368h21v110h-21Z M280,501h21v110h-21Z M324,345h21v133h-21Z M324,501h21v133h-21Z M369,290h21v188h-21Z M369,501h21v188h-21Z M413,312h21v166h-21Z M413,501h21v166h-21Z M457,345h21v133h-21Z M457,501h21v133h-21Z M501,224h21v254h-21Z M501,501h21v254h-21Z M545,323h21v155h-21Z M545,501h21v155h-21Z M589,345h21v133h-21Z M589,501h21v133h-21Z M633,423h21v55h-21Z M633,501h21v55h-21Z M677,401h21v77h-21Z M677,501h21v77h-21Z M722,345h21v133h-21Z M722,501h21v133h-21Z M766,323h21v155h-21Z M766,501h21v155h-21Z M810,368h21v110h-21Z M810,501h21v110h-21Z" />
                         </svg>
@@ -1393,7 +1584,7 @@
                     <p:commandLink id="btnStratSniper" action="#{dashboardBean.selectStrategy('SNIPER')}"
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('SNIPER');"
                         title="SNIPER: Smart Order Block, Momentum &amp; Machine Learning Precision (Camel Militar · 15min)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 7px 20px; border-radius: 10px; font-weight: 800; font-size: 1.02rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(180, 123, 43, 0.45); border: 1px solid #b47b2b;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
+                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; height: 36px; box-sizing: border-box; gap: 7px; padding: 0 14px; border-radius: 8px; font-weight: 800; font-size: 0.90rem; cursor: pointer; transition: all 0.2s ease; #{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 4px 12px rgba(180, 123, 43, 0.45); border: 1px solid #b47b2b;' : 'background: #f8fafc; color: #475569; border: 1px solid #cbd5e1;'}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle; flex-shrink: 0;">
                             <circle cx="12" cy="12" r="10" />
                             <circle cx="12" cy="12" r="6.5" />
@@ -1405,9 +1596,9 @@
                 </div>
 
                 <!-- Indicador de Cuenta Compartida y Microservicio Activo -->
-                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 8px; height: 100%;">
                     <span
-                        style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 4px 12px; border-radius: 8px; font-size: 0.82rem; font-weight: 800;">
+                        style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 0 12px; height: 32px; display: inline-flex; align-items: center; border-radius: 8px; font-size: 0.82rem; font-weight: 800; box-sizing: border-box;">
                         <i class="pi pi-server"
                             style="margin-right: 5px; color: #{dashboardBean.activeStrategy eq 'CART' ? '#0d9488' : (dashboardBean.activeStrategy eq 'SNIPER' ? '#b47b2b' : '#0284c7')};"></i>
                         Motor: <b>#{dashboardBean.activeStrategy eq 'CART' ? 'microRider.py (1 Par · Precios Reales · CAR)' : (dashboardBean.activeStrategy eq 'SNIPER' ? 'microSNIPER.py (1 Par · 15m · ML &amp; Order Blocks)' : 'microRatio.py (2 Pares Normalizados)')}</b>
@@ -1723,6 +1914,36 @@
             </p:dialog>
         </h:form>
 
+        <!-- DIÁLOGO MODAL: CONFIRMAR ELIMINACIÓN DE SNIPER -->
+        <h:form id="borrarSniperForm">
+            <p:dialog header="Confirmar Eliminación" widgetVar="borrarSniperDlg" id="borrarSniperDlg" modal="true"
+                responsive="true" width="550" showEffect="fade" hideEffect="fade" styleClass="aether-dialog">
+                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 10px;">
+                    <i class="pi pi-exclamation-triangle" style="font-size: 2.5rem; color: #ef4444;"></i>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <span style="font-size: 1.1rem; color: #1e293b; line-height: 1.5; font-weight: 600;">
+                            ¿Deseas eliminar el par <b style="color: #0f172a; font-weight: 900;">#{dashboardBean.selectedSniperPair}</b> de la estrategia SNIPER?
+                        </span>
+                        <span style="font-size: 0.92rem; color: #64748b; line-height: 1.4;">
+                            Esta acción eliminará la configuración para la cuenta <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b>.
+                        </span>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                        onclick="PF('borrarSniperDlg').hide();"
+                        style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                    <p:commandButton id="btnConfirmBorrarSniper" value="Sí, Eliminar"
+                        action="#{dashboardBean.borrarSniper}" process="@this"
+                        update=":aetherForm :aetherForm:growl"
+                        oncomplete="PF('borrarSniperDlg').hide(); handleUserSniperSelected();"
+                        styleClass="ui-button-danger"
+                        style="background-color: #ef4444; border-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;"
+                        title="Eliminar la configuración del par en SNIPER" />
+                </div>
+            </p:dialog>
+        </h:form>
+
         <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR CANTIDAD (RATIO) -->
         <h:form id="entradaManualRatioForm">
             <p:dialog id="entradaManualRatioDlg" widgetVar="entradaManualRatioDlg" modal="true" responsive="true"
@@ -1744,18 +1965,26 @@
                 </f:facet>
 
                 <h:panelGroup id="panelDetallesEntrada" layout="block" style="padding: 10px 4px;">
-                    <!-- BANNER DIRECCIÓN DEL RATIO (FIJA Y CALIBRADA: PAR A EN VENTA / PAR B EN COMPRA) -->
+                    <!-- BANNER DIRECCIÓN DEL RATIO (AUTODETECTADA / CONMUTABLE INTERACTIVAMENTE) -->
                     <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                        <div style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
-                            <i class="pi pi-sort-alt" style="color: #0284c7; font-size: 1.1rem;"></i>
-                            <span>Dirección de Operación:</span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-sort-alt" style="color: #0284c7; font-size: 1.1rem;"></i>
+                                Dirección Ratio:
+                            </span>
+                            <p:commandLink action="#{dashboardBean.toggleEntradaManualDireccion}" process="@this" update="panelDetallesEntrada"
+                                style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer; background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;"
+                                title="Clic para alternar la dirección (LARGO vs CORTO)">
+                                <i class="pi pi-sync"></i>
+                                <span>Invertir (#{dashboardBean.entradaManualDireccion})</span>
+                            </p:commandLink>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="badge" style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
-                                🔴 Par A (#{dashboardBean.entradaManualNumerador}): VENTA
+                            <span class="badge" style="background: #{dashboardBean.entradaManualLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#86efac' : '#fca5a5'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
+                                #{dashboardBean.entradaManualLargo ? '🟢' : '🔴'} Par A (#{dashboardBean.entradaManualNumerador}): #{dashboardBean.entradaManualDireccionA}
                             </span>
-                            <span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
-                                🟢 Par B (#{dashboardBean.entradaManualDenominador}): COMPRA
+                            <span class="badge" style="background: #{dashboardBean.entradaManualLargo ? '#fee2e2' : '#dcfce7'}; color: #{dashboardBean.entradaManualLargo ? '#b91c1c' : '#15803d'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#fca5a5' : '#86efac'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
+                                #{dashboardBean.entradaManualLargo ? '🔴' : '🟢'} Par B (#{dashboardBean.entradaManualDenominador}): #{dashboardBean.entradaManualDireccionB}
                             </span>
                         </div>
                     </div>
@@ -1764,7 +1993,7 @@
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
                         <div style="background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.35); border-radius: 8px; padding: 10px 14px;">
                             <div style="font-size: 0.90rem; color: #0284c7; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Pata A (Venta): #{dashboardBean.entradaManualNumerador}
+                                Pata A (#{dashboardBean.entradaManualDireccionA}): #{dashboardBean.entradaManualNumerador}
                             </div>
                             <div style="font-size: 1.30rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
                                 Px: #{dashboardBean.entradaManualPriceA}
@@ -1772,7 +2001,7 @@
                         </div>
                         <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 10px 14px;">
                             <div style="font-size: 0.90rem; color: #d97706; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Pata B (Compra): #{dashboardBean.entradaManualDenominador}
+                                Pata B (#{dashboardBean.entradaManualDireccionB}): #{dashboardBean.entradaManualDenominador}
                             </div>
                             <div style="font-size: 1.30rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
                                 Px: #{dashboardBean.entradaManualPriceB}
@@ -1883,7 +2112,8 @@
                             onclick="PF('entradaManualRatioDlg').hide();"
                             style="color: #64748b; font-weight: 700; font-size: 0.95rem; padding: 8px 16px;" />
 
-                        <p:commandButton id="btnConfirmarEntradaManual" value="Confirmar y Enviar Orden"
+                        <p:commandButton id="btnConfirmarEntradaManual"
+                            value="Confirmar y Enviar (#{dashboardBean.entradaManualDireccionA} #{dashboardBean.entradaManualNumerador} / #{dashboardBean.entradaManualDireccionB} #{dashboardBean.entradaManualDenominador})"
                             action="#{dashboardBean.ejecutarEntradaManualRatio}"
                             disabled="#{!dashboardBean.entradaManualAllowed}"
                             process="@form"

@@ -490,8 +490,8 @@ public class DashboardBean implements Serializable {
         public void setStrategy(String strategy) { this.strategy = strategy; }
         public boolean isCoverage() { return "COBERTURA".equalsIgnoreCase(strategy); }
 
-        public String getFormattedEntryPrice() { return String.format(java.util.Locale.US, "%,.5f", entryPrice); }
-        public String getFormattedCurrentPrice() { return String.format(java.util.Locale.US, "%,.5f", currentPrice); }
+        public String getFormattedEntryPrice() { return String.format(java.util.Locale.US, "%,.6f", entryPrice); }
+        public String getFormattedCurrentPrice() { return String.format(java.util.Locale.US, "%,.6f", currentPrice); }
         public String getFormattedMargin() { return String.format(java.util.Locale.US, "%,.2f", margin); }
         public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
         public String getFormattedUnits() { return ActiveCycleSummaryDto.formatSizeDisplay(size); }
@@ -1240,6 +1240,14 @@ public class DashboardBean implements Serializable {
         private boolean subtotal = false;
         private int tradeCount = 0;
         private boolean isCobertura = false;
+        private Integer tradeNum;
+
+        public Integer getTradeNum() {
+            return tradeNum != null ? tradeNum : (cycleNum > 0 ? cycleNum : null);
+        }
+        public void setTradeNum(Integer tradeNum) {
+            this.tradeNum = tradeNum;
+        }
 
         public boolean isCobertura() {
             return isCobertura || (strategy != null && strategy.toUpperCase().contains("COBERTURA"));
@@ -1285,12 +1293,12 @@ public class DashboardBean implements Serializable {
         public void setEntryPrice(Double entryPrice) { this.entryPrice = entryPrice; }
         public Double getCurrentPrice() { return currentPrice; }
         public void setCurrentPrice(Double currentPrice) { this.currentPrice = currentPrice; }
-        public String getFormattedCurrentPrice() { return currentPrice != null ? String.format(java.util.Locale.US, "%.5f", currentPrice) : "-"; }
+        public String getFormattedCurrentPrice() { return currentPrice != null ? String.format(java.util.Locale.US, "%,.6f", currentPrice) : "-"; }
         public String getFormattedPriceDisplay() {
             if (isOpen()) {
-                return currentPrice != null ? String.format(java.util.Locale.US, "%.5f", currentPrice) : getFormattedEntryPrice();
+                return currentPrice != null ? String.format(java.util.Locale.US, "%,.6f", currentPrice) : getFormattedEntryPrice();
             } else {
-                return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-";
+                return exitPrice != null ? String.format(java.util.Locale.US, "%,.6f", exitPrice) : "-";
             }
         }
         public Double getExitPrice() { return exitPrice; }
@@ -1330,18 +1338,18 @@ public class DashboardBean implements Serializable {
             return "CERRADO";
         }
         public String getPnlColor() {
-            return netPnl >= 0 ? "#15803d" : "#dc2626";
+            return netPnl >= 0 ? "#166534" : "#dc2626";
         }
 
         public String getFormattedSize() { return ActiveCycleSummaryDto.formatSizeDisplay(size); }
-        public String getFormattedEntryPrice() { return entryPrice != null ? String.format(java.util.Locale.US, "%.5f", entryPrice) : "-"; }
+        public String getFormattedEntryPrice() { return entryPrice != null ? String.format(java.util.Locale.US, "%,.6f", entryPrice) : "-"; }
         public String getFormattedExitPrice() {
             if (isOpen()) {
-                if (currentPrice != null) return String.format(java.util.Locale.US, "%.5f", currentPrice);
-                if (exitPrice != null) return String.format(java.util.Locale.US, "%.5f", exitPrice);
+                if (currentPrice != null) return String.format(java.util.Locale.US, "%,.6f", currentPrice);
+                if (exitPrice != null) return String.format(java.util.Locale.US, "%,.6f", exitPrice);
                 return "-";
             }
-            return exitPrice != null ? String.format(java.util.Locale.US, "%.5f", exitPrice) : "-";
+            return exitPrice != null ? String.format(java.util.Locale.US, "%,.6f", exitPrice) : "-";
         }
         public String getFormattedPnl() { return String.format(java.util.Locale.US, "%,.2f", pnl); }
         public String getFormattedNetPnl() { return String.format(java.util.Locale.US, "%,.2f", netPnl); }
@@ -1413,6 +1421,15 @@ public class DashboardBean implements Serializable {
     private String signalBtTradesJson = "[]";
     private List<ActiveCycleSummaryDto> allActiveCycles = new ArrayList<>();
 
+    // Estado real consolidado del Indicador de Margen de la cuenta en el broker
+    private Double accountRealCapital = 0.0;
+    private Double accountRealTotalMargin = 0.0;
+    private Double accountRealEquity = 0.0;
+    private Double accountRealFloatingPnl = 0.0;
+    private Double accountRealMarginIndicator = 0.0;
+    private Double accountRealMinMargin = 200.0;
+    private Boolean accountRealCanOperate = true;
+
     // Parámetros y periodo efectivo evaluados en el Backtest de Cruces EMA
     private String signalBtTimeframe = "1h";
     private Integer signalBtDays = 120;
@@ -1449,10 +1466,13 @@ public class DashboardBean implements Serializable {
     private RealTradesSummaryDto realTradesSummary = new RealTradesSummaryDto();
     private List<RealTradeItemDto> realTradesList = new ArrayList<>();
     private String realTradesEquityCurveJson = "[]";
+    private String realTradesJson = "[]";
 
     public RealTradesSummaryDto getRealTradesSummary() { return realTradesSummary; }
     public void setRealTradesSummary(RealTradesSummaryDto realTradesSummary) { this.realTradesSummary = realTradesSummary; }
     public List<RealTradeItemDto> getRealTradesList() { return realTradesList; }
+    public String getRealTradesJson() { return realTradesJson != null ? realTradesJson : "[]"; }
+    public void setRealTradesJson(String realTradesJson) { this.realTradesJson = realTradesJson; }
 
     private java.util.Date realTradesStartDate;
     private java.util.Date realTradesEndDate;
@@ -1640,6 +1660,9 @@ public class DashboardBean implements Serializable {
     }
 
     public Double getMarginIndicator() {
+        if (accountRealMarginIndicator != null && accountRealMarginIndicator > 0.0) {
+            return accountRealMarginIndicator;
+        }
         double margin = getTotalActiveMargin();
         if (margin > 0) {
             return (getTotalActiveEquity() / margin) * 100.0;
@@ -1678,6 +1701,9 @@ public class DashboardBean implements Serializable {
     }
 
     public Double getCartMarginIndicator() {
+        if (accountRealMarginIndicator != null && accountRealMarginIndicator > 0.0) {
+            return accountRealMarginIndicator;
+        }
         double margin = getCartTotalActiveMargin();
         if (margin > 0) {
             return (getCartTotalActiveEquity() / margin) * 100.0;
@@ -1739,6 +1765,32 @@ public class DashboardBean implements Serializable {
 
     public String getFormattedMarginIndicator() {
         return String.format(java.util.Locale.US, "%,.1f", getMarginIndicator());
+    }
+
+    public Double getAccountRealCapital() { return accountRealCapital != null ? accountRealCapital : 0.0; }
+    public Double getAccountRealTotalMargin() { return accountRealTotalMargin != null ? accountRealTotalMargin : 0.0; }
+    public Double getAccountRealEquity() { return accountRealEquity != null ? accountRealEquity : 0.0; }
+    public Double getAccountRealFloatingPnl() { return accountRealFloatingPnl != null ? accountRealFloatingPnl : 0.0; }
+    public Double getAccountRealMarginIndicator() {
+        if (accountRealMarginIndicator != null && accountRealMarginIndicator > 0.0) {
+            return accountRealMarginIndicator;
+        }
+        return getMarginIndicator();
+    }
+    public Double getAccountRealMinMargin() { return accountRealMinMargin != null ? accountRealMinMargin : 200.0; }
+    public Boolean getAccountRealCanOperate() { return accountRealCanOperate != null ? accountRealCanOperate : true; }
+
+    public String getFormattedAccountRealCapital() {
+        return String.format(java.util.Locale.US, "%,.2f", getAccountRealCapital());
+    }
+    public String getFormattedAccountRealTotalMargin() {
+        return String.format(java.util.Locale.US, "%,.2f", getAccountRealTotalMargin());
+    }
+    public String getFormattedAccountRealEquity() {
+        return String.format(java.util.Locale.US, "%,.2f", getAccountRealEquity());
+    }
+    public String getFormattedAccountRealMarginIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f", getAccountRealMarginIndicator());
     }
 
     public List<ActiveCycleSummaryDto> getAllActiveCycles() { return allActiveCycles; }
@@ -2794,6 +2846,8 @@ public class DashboardBean implements Serializable {
         private Boolean filtroHorario = true;
         private String horaInicio = "08:00";
         private String horaFin = "16:00";
+        private String horaInicio2 = "";
+        private String horaFin2 = "";
         public Boolean getFiltroHorario() { return filtroHorario != null ? filtroHorario : true; }
         public Boolean isFiltroHorario() { return filtroHorario != null ? filtroHorario : true; }
         public void setFiltroHorario(Boolean filtroHorario) { this.filtroHorario = filtroHorario; }
@@ -2801,6 +2855,10 @@ public class DashboardBean implements Serializable {
         public void setHoraInicio(String horaInicio) { this.horaInicio = horaInicio; }
         public String getHoraFin() { return horaFin != null && !horaFin.trim().isEmpty() ? horaFin : "16:00"; }
         public void setHoraFin(String horaFin) { this.horaFin = horaFin; }
+        public String getHoraInicio2() { return horaInicio2 != null ? horaInicio2 : ""; }
+        public void setHoraInicio2(String horaInicio2) { this.horaInicio2 = horaInicio2; }
+        public String getHoraFin2() { return horaFin2 != null ? horaFin2 : ""; }
+        public void setHoraFin2(String horaFin2) { this.horaFin2 = horaFin2; }
 
         private Boolean usarTSL = true;
         public Boolean getUsarTSL() { return usarTSL != null ? usarTSL : true; }
@@ -3298,12 +3356,35 @@ public class DashboardBean implements Serializable {
         initSniperState();
     }
 
+    public void loadAccountMarginHealth(Integer idCuenta) {
+        if (idCuenta == null || idCuenta <= 0) return;
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/cuentas/" + idCuenta + "/margin-health";
+            String respStr = restTemplate.getForObject(url, String.class);
+            if (respStr != null && !respStr.trim().isEmpty()) {
+                JsonNode n = mapper.readTree(respStr);
+                this.accountRealCapital = n.path("capital").asDouble(0.0);
+                this.accountRealTotalMargin = n.path("totalMargin").asDouble(0.0);
+                this.accountRealEquity = n.path("equity").asDouble(0.0);
+                this.accountRealFloatingPnl = n.path("floatingPnl").asDouble(0.0);
+                this.accountRealMarginIndicator = n.path("marginIndicator").asDouble(0.0);
+                this.accountRealMinMargin = n.path("minMarginRequired").asDouble(200.0);
+                this.accountRealCanOperate = n.path("canOperate").asBoolean(true);
+            }
+        } catch (Exception ex) {
+            log.error("Error al cargar margin-health de cuenta {}: {}", idCuenta, ex.getMessage());
+        }
+    }
+
     public void loadAllActiveCycles() {
         this.allActiveCycles = new ArrayList<>();
         Integer idCuenta = selectedAccountId;
         if (idCuenta == null) {
             return;
         }
+        loadAccountMarginHealth(idCuenta);
         try {
             RestTemplate restTemplate = new RestTemplate();
             ObjectMapper mapper = new ObjectMapper();
@@ -3693,6 +3774,12 @@ public class DashboardBean implements Serializable {
                     this.realTradesEquityCurveJson = mapper.writeValueAsString(root.get("equityCurve"));
                 } else {
                     this.realTradesEquityCurveJson = "[]";
+                }
+
+                if (root.has("trades") && root.get("trades").isArray()) {
+                    this.realTradesJson = mapper.writeValueAsString(root.get("trades"));
+                } else {
+                    this.realTradesJson = "[]";
                 }
             }
         } catch (Exception e) {
@@ -6796,6 +6883,8 @@ public class DashboardBean implements Serializable {
     private boolean sniperFiltroHorario = true;
     private String sniperHoraInicio = "08:00";
     private String sniperHoraFin = "16:00";
+    private String sniperHoraInicio2 = "";
+    private String sniperHoraFin2 = "";
     private Double sniperMultiplicadorRiesgo = 1.0;
 
     private String sniperHistoryJson = "[]";
@@ -7500,6 +7589,7 @@ public class DashboardBean implements Serializable {
     public void loadCartActiveCycles() {
         this.cartActiveCycles = new ArrayList<>();
         if (this.selectedAccountId == null) return;
+        loadAccountMarginHealth(this.selectedAccountId);
         try {
             RestTemplate restTemplate = new RestTemplate();
             String url = backendUrl + "/api/v1/trades/active-summary-cart/" + this.selectedAccountId;
@@ -7592,7 +7682,7 @@ public class DashboardBean implements Serializable {
                 this.cartRealTradesEndDate = new java.util.Date();
             }
             String encSym = java.net.URLEncoder.encode(this.selectedCartPair, "UTF-8");
-            String encStrat = java.net.URLEncoder.encode("CART ATALAia", "UTF-8");
+            String encStrat = java.net.URLEncoder.encode("RIDER", "UTF-8");
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
             String startParam = (this.cartRealTradesStartDate != null) ? ("&startDate=" + sdf.format(this.cartRealTradesStartDate)) : "";
             String endParam = (this.cartRealTradesEndDate != null) ? ("&endDate=" + sdf.format(this.cartRealTradesEndDate)) : "";
@@ -7780,8 +7870,18 @@ public class DashboardBean implements Serializable {
         if (event != null && event.getComponent() instanceof org.primefaces.component.tabview.TabView) {
             org.primefaces.component.tabview.TabView tv = (org.primefaces.component.tabview.TabView) event.getComponent();
             this.activeSniperTabIndex = tv.getActiveIndex();
-            if (this.activeSniperTabIndex == 1) {
+            if (this.activeSniperTabIndex == 3) {
                 loadSniperRealTradesMovimientos();
+            }
+        }
+    }
+
+    public void onSniperAccordionTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.accordionpanel.AccordionPanel) {
+            org.primefaces.component.accordionpanel.AccordionPanel ap = (org.primefaces.component.accordionpanel.AccordionPanel) event.getComponent();
+            this.activeSniperAccordionIndex = ap.getActiveIndex();
+            if ("2".equals(this.activeSniperAccordionIndex)) {
+                loadSniperActiveCycles();
             }
         }
     }
@@ -7858,6 +7958,10 @@ public class DashboardBean implements Serializable {
     public void setSniperHoraInicio(String sniperHoraInicio) { this.sniperHoraInicio = sniperHoraInicio; }
     public String getSniperHoraFin() { return sniperHoraFin != null ? sniperHoraFin : "16:00"; }
     public void setSniperHoraFin(String sniperHoraFin) { this.sniperHoraFin = sniperHoraFin; }
+    public String getSniperHoraInicio2() { return sniperHoraInicio2 != null ? sniperHoraInicio2 : ""; }
+    public void setSniperHoraInicio2(String sniperHoraInicio2) { this.sniperHoraInicio2 = sniperHoraInicio2; }
+    public String getSniperHoraFin2() { return sniperHoraFin2 != null ? sniperHoraFin2 : ""; }
+    public void setSniperHoraFin2(String sniperHoraFin2) { this.sniperHoraFin2 = sniperHoraFin2; }
 
     public Double getSniperMultiplicadorRiesgo() { return sniperMultiplicadorRiesgo != null ? sniperMultiplicadorRiesgo : 1.0; }
     public void setSniperMultiplicadorRiesgo(Double sniperMultiplicadorRiesgo) { this.sniperMultiplicadorRiesgo = sniperMultiplicadorRiesgo; }
@@ -8032,6 +8136,10 @@ public class DashboardBean implements Serializable {
                         dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
                         dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
                         dto.setHoraFin(item.path("horaFin").asText("16:00"));
+                        String rawH2 = item.path("horaInicio2").asText("");
+                        dto.setHoraInicio2("null".equalsIgnoreCase(rawH2) ? "" : rawH2);
+                        String rawHf2 = item.path("horaFin2").asText("");
+                        dto.setHoraFin2("null".equalsIgnoreCase(rawHf2) ? "" : rawHf2);
                         dto.setMultiplicadorRiesgo(item.path("multiplicadorRiesgo").asDouble(1.0));
                         dto.setCreatedAt(item.path("createdAt").asText(""));
                         list.add(dto);
@@ -8072,10 +8180,14 @@ public class DashboardBean implements Serializable {
         this.sniperFiltroHorario = dto.getFiltroHorario() != null ? dto.getFiltroHorario() : true;
         this.sniperHoraInicio = dto.getHoraInicio() != null ? dto.getHoraInicio() : "08:00";
         this.sniperHoraFin = dto.getHoraFin() != null ? dto.getHoraFin() : "16:00";
+        this.sniperHoraInicio2 = dto.getHoraInicio2() != null ? dto.getHoraInicio2() : "";
+        this.sniperHoraFin2 = dto.getHoraFin2() != null ? dto.getHoraFin2() : "";
         this.sniperMultiplicadorRiesgo = dto.getMultiplicadorRiesgo() != null ? dto.getMultiplicadorRiesgo() : 1.0;
         this.sniperExistsInDb = true;
         this.sniperHasActiveTradesInDb = Boolean.TRUE.equals(dto.getHasOpenTrades());
-        this.activeSniperAccordionIndex = "1";
+        if (this.activeSniperAccordionIndex == null) {
+            this.activeSniperAccordionIndex = "0";
+        }
         loadSniperActiveCycles();
         analyzeSniperPair();
         loadSniperRealTradesMovimientos();
@@ -8125,6 +8237,10 @@ public class DashboardBean implements Serializable {
                 this.sniperFiltroHorario = node.path("filtroHorario").asBoolean(true);
                 this.sniperHoraInicio = node.path("horaInicio").asText("08:00");
                 this.sniperHoraFin = node.path("horaFin").asText("16:00");
+                String rawSearchH2 = node.path("horaInicio2").asText("");
+                this.sniperHoraInicio2 = "null".equalsIgnoreCase(rawSearchH2) ? "" : rawSearchH2;
+                String rawSearchHf2 = node.path("horaFin2").asText("");
+                this.sniperHoraFin2 = "null".equalsIgnoreCase(rawSearchHf2) ? "" : rawSearchHf2;
                 this.sniperMultiplicadorRiesgo = node.path("multiplicadorRiesgo").asDouble(1.0);
                 this.sniperHasActiveTradesInDb = node.path("hasOpenTrades").asBoolean(false);
             }
@@ -8299,6 +8415,10 @@ public class DashboardBean implements Serializable {
                     if (opt.has("optimalEndHour") && !opt.path("optimalEndHour").asText().isEmpty()) {
                         this.sniperHoraFin = opt.path("optimalEndHour").asText();
                     }
+                    String optH2 = (opt.has("optimalStartHour2") && !opt.path("optimalStartHour2").isNull()) ? opt.path("optimalStartHour2").asText("") : "";
+                    this.sniperHoraInicio2 = ("null".equalsIgnoreCase(optH2) || !optH2.contains(":")) ? "" : optH2;
+                    String optHf2 = (opt.has("optimalEndHour2") && !opt.path("optimalEndHour2").isNull()) ? opt.path("optimalEndHour2").asText("") : "";
+                    this.sniperHoraFin2 = ("null".equalsIgnoreCase(optHf2) || !optHf2.contains(":")) ? "" : optHf2;
 
                     JsonNode m = opt.path("metrics");
                     double wr = m.path("winRate").asDouble(0.0);
@@ -8308,10 +8428,15 @@ public class DashboardBean implements Serializable {
                     loadUserSniperList();
                     analyzeSniperPair();
 
+                    String horarioMsg = this.sniperHoraInicio + "-" + this.sniperHoraFin;
+                    if (this.sniperHoraInicio2 != null && !this.sniperHoraInicio2.trim().isEmpty()) {
+                        horarioMsg += " y " + this.sniperHoraInicio2 + "-" + this.sniperHoraFin2;
+                    }
+
                     String msgDetail = String.format(java.util.Locale.US,
-                            "TF: %s | Conf: %.0f%% | R:R: %.1f:1 | Horario: %s-%s | WinRate: %.1f%% | PF: %.2f | PnL: $%.2f USD",
+                            "TF: %s | Conf: %.0f%% | R:R: %.1f:1 | Horario: %s | WinRate: %.1f%% | PF: %.2f | PnL: $%.2f USD",
                             this.sniperTimeframe, this.sniperMinConfidence, this.sniperMinRr,
-                            this.sniperHoraInicio, this.sniperHoraFin, wr, pf, pnl);
+                            horarioMsg, wr, pf, pnl);
 
                     javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                             new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
@@ -8368,6 +8493,10 @@ public class DashboardBean implements Serializable {
             payload.put("filtroHorario", this.sniperFiltroHorario);
             payload.put("horaInicio", this.sniperHoraInicio != null ? this.sniperHoraInicio : "08:00");
             payload.put("horaFin", this.sniperHoraFin != null ? this.sniperHoraFin : "16:00");
+            String h2Val = (this.sniperHoraInicio2 != null && !this.sniperHoraInicio2.trim().isEmpty() && !"null".equalsIgnoreCase(this.sniperHoraInicio2.trim()) && this.sniperHoraInicio2.contains(":")) ? this.sniperHoraInicio2.trim() : null;
+            String hf2Val = (this.sniperHoraFin2 != null && !this.sniperHoraFin2.trim().isEmpty() && !"null".equalsIgnoreCase(this.sniperHoraFin2.trim()) && this.sniperHoraFin2.contains(":")) ? this.sniperHoraFin2.trim() : null;
+            payload.put("horaInicio2", h2Val);
+            payload.put("horaFin2", hf2Val);
             payload.put("multiplicadorRiesgo", this.sniperMultiplicadorRiesgo != null ? this.sniperMultiplicadorRiesgo : 1.0);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
@@ -8409,13 +8538,22 @@ public class DashboardBean implements Serializable {
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", effAccId);
             payload.put("symbol", this.selectedSniperPair);
+            if (this.currentSniperId != null && this.currentSniperId > 0) {
+                payload.put("id", this.currentSniperId);
+            }
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
             restTemplate.postForEntity(backendUrl + "/api/v1/user-sniper/borrar", entity, String.class);
             this.sniperExistsInDb = false;
             this.currentSniperId = null;
             this.sniperOperar = false;
+            this.selectedUserSniper = null;
             loadUserSniperList();
+            if (this.userSniperList != null && !this.userSniperList.isEmpty()) {
+                onSelectUserSniper(this.userSniperList.get(0));
+            } else {
+                initSniperState();
+            }
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                     new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
                             "SNIPER Eliminado", "Se eliminó el par " + this.selectedSniperPair + " de SNIPER."));
@@ -8458,6 +8596,7 @@ public class DashboardBean implements Serializable {
     public void loadSniperActiveCycles() {
         this.sniperActiveCycles = new ArrayList<>();
         if (this.selectedAccountId == null) return;
+        loadAccountMarginHealth(this.selectedAccountId);
         try {
             RestTemplate restTemplate = new RestTemplate();
             String url = backendUrl + "/api/v1/trades/active-summary-sniper/" + this.selectedAccountId;
@@ -8518,6 +8657,75 @@ public class DashboardBean implements Serializable {
         } catch (Exception e) {
             log.warn("Error cargando posiciones activas SNIPER: {}", e.getMessage());
         }
+    }
+
+    public void closeSniperPosition(String symbol) {
+        if (isReadOnly()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Modo Solo Lectura", "No puedes cerrar operaciones de otro usuario."));
+            return;
+        }
+        try {
+            Integer accId = this.selectedAccountId != null ? this.selectedAccountId : 2;
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("symbol", symbol);
+            payload.put("operar", 0);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/trades/close-sniper/" + accId;
+            restTemplate.postForEntity(url, entity, String.class);
+            loadSniperActiveCycles();
+            analyzeSniperPair();
+            loadAccountMarginHealth(accId);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Cierre SNIPER", "Posición cerrada exitosamente para " + symbol));
+        } catch (Exception e) {
+            log.error("Error cerrando posición SNIPER para {}: {}", symbol, e.getMessage());
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Cerrar SNIPER", e.getMessage()));
+        }
+    }
+
+    // --- Sumatorias específicas de la Sección 3 para SNIPER ---
+    public Double getSniperTotalActiveMargin() {
+        double sum = 0.0;
+        if (sniperActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : sniperActiveCycles) {
+                sum += c.getTotalMargin();
+            }
+        }
+        return sum;
+    }
+
+    public Double getSniperTotalActivePnl() {
+        double sum = 0.0;
+        if (sniperActiveCycles != null) {
+            for (ActiveCycleSummaryDto c : sniperActiveCycles) {
+                sum += c.getTotalPnl();
+            }
+        }
+        return sum;
+    }
+
+    public String getFormattedSniperTotalActiveMargin() {
+        return String.format(java.util.Locale.US, "%,.2f", getSniperTotalActiveMargin());
+    }
+
+    public String getFormattedSniperTotalActivePnl() {
+        return String.format(java.util.Locale.US, "%,.2f", Math.abs(getSniperTotalActivePnl()));
+    }
+
+    public String getSniperTotalActivePnlSign() {
+        return (getSniperTotalActivePnl() >= 0) ? "+" : "-";
+    }
+
+    public String getSniperTotalActivePnlColor() {
+        return (getSniperTotalActivePnl() >= 0) ? "#15803d" : "#b91c1c";
     }
 
     private void updateSniperActiveCycleSummaryForSelectedPair() {
@@ -8666,7 +8874,8 @@ public class DashboardBean implements Serializable {
                         double netPnl = tn.path("netPnl").asDouble(0.0);
                         it.setNetPnl(netPnl);
                         totalRealNetPnl += netPnl;
-                        it.setCycleNum(realEntryCounter++);
+                        it.setCycleNum(realEntryCounter);
+                        it.setTradeNum(realEntryCounter++);
                         it.setIsSubtotal(false);
                         items.add(it);
                     }
@@ -8797,6 +9006,18 @@ public class DashboardBean implements Serializable {
         return String.format(java.util.Locale.US, "%,.1f%%", entradaManualNotionalDiffPct != null ? entradaManualNotionalDiffPct : 0.0);
     }
 
+    public String getEntradaManualDireccionA() {
+        return "LARGO".equalsIgnoreCase(this.entradaManualDireccion) ? "COMPRA" : "VENTA";
+    }
+
+    public String getEntradaManualDireccionB() {
+        return "LARGO".equalsIgnoreCase(this.entradaManualDireccion) ? "VENTA" : "COMPRA";
+    }
+
+    public boolean isEntradaManualLargo() {
+        return "LARGO".equalsIgnoreCase(this.entradaManualDireccion);
+    }
+
     public void abrirEntradaManualRatio() {
         this.entradaManualNumerador = this.selectedPair != null && !this.selectedPair.isEmpty() ? this.selectedPair : "EUR/USD";
         this.entradaManualDenominador = this.selectedPair2 != null && !this.selectedPair2.isEmpty() ? this.selectedPair2 : "USD/CAD";
@@ -8807,7 +9028,7 @@ public class DashboardBean implements Serializable {
             this.entradaManualRatioSetup = this.entradaManualNumerador + " - " + this.entradaManualDenominador;
             this.entradaManualRatioId = null;
         }
-        this.entradaManualDireccion = "CORTO"; // Par A (arriba) en Venta / Par B (abajo) en Compra
+        this.entradaManualDireccion = "AUTO"; // Se autodetecta desde precios normalizados
         this.entradaManualCantidadA = 3000.0;
         this.entradaManualAutoEquivalencia = true;
         actualizarPreviewEntradaManual();
@@ -8824,7 +9045,15 @@ public class DashboardBean implements Serializable {
     }
 
     public void onEntradaManualDireccionChange() {
-        this.entradaManualDireccion = "CORTO";
+        actualizarPreviewEntradaManual();
+    }
+
+    public void toggleEntradaManualDireccion() {
+        if ("LARGO".equalsIgnoreCase(this.entradaManualDireccion)) {
+            this.entradaManualDireccion = "CORTO";
+        } else {
+            this.entradaManualDireccion = "LARGO";
+        }
         actualizarPreviewEntradaManual();
     }
 
@@ -8839,7 +9068,6 @@ public class DashboardBean implements Serializable {
     }
 
     public void actualizarPreviewEntradaManual() {
-        this.entradaManualDireccion = "CORTO";
         this.entradaManualAutoEquivalencia = true;
         Integer accId = selectedAccountId;
         if (accId == null || accId == 0) {
@@ -8854,7 +9082,7 @@ public class DashboardBean implements Serializable {
             payload.put("idCuenta", accId);
             payload.put("numerador", this.entradaManualNumerador);
             payload.put("denominador", this.entradaManualDenominador);
-            payload.put("directionRatio", "CORTO");
+            payload.put("directionRatio", this.entradaManualDireccion != null ? this.entradaManualDireccion : "AUTO");
             payload.put("unitsA", this.entradaManualCantidadA != null && this.entradaManualCantidadA > 0 ? this.entradaManualCantidadA : 1000.0);
             payload.put("autoEquivalence", true);
 
@@ -8866,6 +9094,7 @@ public class DashboardBean implements Serializable {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode root = mapper.readTree(response.getBody());
 
+                this.entradaManualDireccion = root.path("directionRatio").asText("CORTO");
                 this.entradaManualPriceA = root.path("priceA").asDouble(0.0);
                 this.entradaManualPriceB = root.path("priceB").asDouble(0.0);
                 this.entradaManualEquivalentUnitsB = root.path("equivalentUnitsB").asDouble(3000.0);

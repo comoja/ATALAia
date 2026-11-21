@@ -147,8 +147,22 @@
 </ui:define>
 
 <ui:define name="content">
+    <!-- BARRA DE SUBNAVEGACIÓN REPORTES -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <a href="#{request.contextPath}/reportes.xhtml"
+           style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 1.05rem; background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #ffffff; box-shadow: 0 3px 8px rgba(5, 150, 105, 0.4);">
+            <i class="pi pi-file-excel" style="font-size: 1.15rem;"></i>
+            <span>Reportes - Estado de Cuenta</span>
+        </a>
+        <a href="#{request.contextPath}/reporte_jerarquico.xhtml"
+           style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 1.05rem; background: #ffffff; color: #475569; border: 1px solid #cbd5e1; transition: all 0.2s ease;">
+            <i class="pi pi-sitemap" style="font-size: 1.15rem; color: #dfa877;"></i>
+            <span>Reportes - Reporte Jerárquico</span>
+        </a>
+    </div>
+
     <div class="report-header">
-        <h2>Estado de Cuenta Mensual</h2>
+        <h2>Reportes - Estado de Cuenta</h2>
         <p>Bitácora oficial institucional de saldos, rendimientos, aportaciones de capital y operaciones conciliadas con FOREX.com</p>
     </div>
 

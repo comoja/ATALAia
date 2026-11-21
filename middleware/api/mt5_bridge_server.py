@@ -119,14 +119,23 @@ class MT5Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Symbol is required"}, 400)
                 return
 
-            mt5_tf = TIMEFRAME_MAP.get(interval, mt5.TIMEFRAME_M5)
-            rates = None
+            server_offset = 7200
             with mt5_lock:
                 mt5.symbol_select(symbol, True)
+                try:
+                    t = mt5.symbol_info_tick(symbol)
+                    if t and t.time:
+                        diff = t.time - datetime.now(pytz.utc).timestamp()
+                        server_offset = int(round(diff / 3600.0) * 3600)
+                except Exception:
+                    pass
+
+                mt5_tf = TIMEFRAME_MAP.get(interval, mt5.TIMEFRAME_M5)
+                rates = None
                 if ts_from and ts_to:
-                    rates = mt5.copy_rates_range(symbol, mt5_tf, int(ts_from), int(ts_to))
+                    rates = mt5.copy_rates_range(symbol, mt5_tf, int(ts_from) + server_offset, int(ts_to) + server_offset)
                 elif ts_from:
-                    rates = mt5.copy_rates_from(symbol, mt5_tf, int(ts_from), output_size)
+                    rates = mt5.copy_rates_from(symbol, mt5_tf, int(ts_from) + server_offset, output_size)
                 else:
                     rates = mt5.copy_rates_from_pos(symbol, mt5_tf, 0, output_size)
 
@@ -134,8 +143,9 @@ class MT5Handler(BaseHTTPRequestHandler):
                 self._send_json({"rates": []})
                 return
 
-            # Convert to list of dicts
+            # Convert to list of dicts with normalized UTC timestamps
             df = pd.DataFrame(rates)
+            df["time"] = df["time"] - server_offset
             records = df.to_dict(orient="records")
             self._send_json({"rates": records, "count": len(records)})
         elif self.path == "/tick":
@@ -153,13 +163,19 @@ class MT5Handler(BaseHTTPRequestHandler):
                 t = mt5.symbol_info_tick(symbol)
 
             if t:
+                server_offset = 7200
+                try:
+                    diff = t.time - datetime.now(pytz.utc).timestamp()
+                    server_offset = int(round(diff / 3600.0) * 3600)
+                except Exception:
+                    pass
                 self._send_json({
                     "symbol": symbol,
                     "bid": float(t.bid),
                     "ask": float(t.ask),
                     "last": float(t.last),
                     "spread": round(float(t.ask - t.bid), 6),
-                    "time": int(t.time)
+                    "time": int(t.time) - server_offset
                 })
             else:
                 self._send_json({"error": f"No tick for {symbol}"}, 404)

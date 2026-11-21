@@ -29,7 +29,18 @@ async def retrain():
     try:
         symbols_data = dbManager.getSentinelSymbols()
         symbols = [s['symbol'] for s in symbols_data if isinstance(s, dict) and 'symbol' in s]
-        print(f"Símbolos activos encontrados en ConnectionPool: {symbols}")
+        if not symbols:
+            try:
+                from backend.database.models import SessionLocal
+                from sqlalchemy import text
+                with SessionLocal() as db_s:
+                    rows_sym = db_s.execute(text("SELECT DISTINCT symbol FROM userSNIPER WHERE borrado = 0")).fetchall()
+                    symbols = [r[0] for r in rows_sym if r[0]]
+                print(f"Símbolos activos obtenidos de userSNIPER: {symbols}")
+            except Exception as e_sym:
+                print(f"Error obteniendo símbolos de userSNIPER: {e_sym}")
+        else:
+            print(f"Símbolos activos encontrados en ConnectionPool: {symbols}")
         
         all_data = []
         

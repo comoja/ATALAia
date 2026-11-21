@@ -49,38 +49,47 @@ def fetch_candles_for_symbol(symbol: str, timeframe: str = "1h", limit: int = 40
     conn = get_db_connection()
     try:
         tf_lower = str(timeframe).lower()
-        if "5m" in tf_lower:
-            sql = """
-                SELECT timestamp, close as closePrice 
-                FROM candles 
-                WHERE symbol = %s AND timeframe = "5min"
-                ORDER BY timestamp DESC 
-                LIMIT %s
-            """
-            df = pd.read_sql(sql, conn, params=(symbol, limit))
-            if not df.empty:
-                df["timestamp"] = pd.to_datetime(df["timestamp"])
-                df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-                df = df.sort_values("timestamp").reset_index(drop=True)
-                return df
-        
-        # Para 1h, 4h, 1d o fallback, consultar velas 5min y resamplear
-        sql = """
+        rule_map = {"1min": "1min", "1m": "1min", "5min": "5min", "5m": "5min", "1h": "1h", "4h": "4h", "15min": "15min", "30min": "30min", "1d": "1D"}
+        rule = rule_map.get(tf_lower, "1h")
+
+        # 1. Intentar consultar velas 1min (feed en tiempo real) y resamplear
+        sql_1m = """
+            SELECT timestamp, close as closePrice 
+            FROM candles 
+            WHERE symbol = %s AND timeframe = "1min"
+            ORDER BY timestamp DESC 
+            LIMIT %s
+        """
+        # Multiplicador según timeframe
+        mult = 60
+        if "4h" in tf_lower: mult = 240
+        elif "15m" in tf_lower: mult = 15
+        elif "30m" in tf_lower: mult = 30
+        elif "5m" in tf_lower: mult = 5
+        elif "1min" in tf_lower or "1m" in tf_lower: mult = 1
+
+        df = pd.read_sql(sql_1m, conn, params=(symbol, limit * mult))
+        if not df.empty and len(df) >= 10:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
+            df = df.set_index("timestamp").sort_index()
+            resampled = df.resample(rule).agg({"closePrice": "last"}).dropna().reset_index()
+            return resampled.tail(limit).reset_index(drop=True)
+
+        # 2. Fallback a 5min si 1min estuviera vacio
+        sql_5m = """
             SELECT timestamp, close as closePrice 
             FROM candles 
             WHERE symbol = %s AND timeframe = "5min"
             ORDER BY timestamp DESC 
             LIMIT %s
         """
-        df = pd.read_sql(sql, conn, params=(symbol, limit * 12))
-        if not df.empty:
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df["closePrice"] = pd.to_numeric(df["closePrice"], errors="coerce")
-            df = df.set_index("timestamp").sort_index()
-            
-            rule_map = {"1h": "1h", "4h": "4h", "15min": "15min", "30min": "30min", "1d": "1D"}
-            rule = rule_map.get(tf_lower, "1h")
-            resampled = df.resample(rule).agg({"closePrice": "last"}).dropna().reset_index()
+        df_5m = pd.read_sql(sql_5m, conn, params=(symbol, limit * 12))
+        if not df_5m.empty:
+            df_5m["timestamp"] = pd.to_datetime(df_5m["timestamp"])
+            df_5m["closePrice"] = pd.to_numeric(df_5m["closePrice"], errors="coerce")
+            df_5m = df_5m.set_index("timestamp").sort_index()
+            resampled = df_5m.resample(rule).agg({"closePrice": "last"}).dropna().reset_index()
             return resampled.tail(limit).reset_index(drop=True)
 
         # Fallback a stockprices si candles estuviera vacio

@@ -52,7 +52,7 @@ logging.basicConfig(
 logger = logging.getLogger("microCart")
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://127.0.0.1:8002/webhook/tradingview")
-STRATEGY_NAME = "CART ATALAia"
+STRATEGY_NAME = "RIDER"
 CART_STOP_LOSS_FALLBACK_PCT = 0.15  # Fallback de corte de pérdida si no hay velas para NATR
 CART_NATR_MULTIPLIER = 1.5          # Multiplicador k unificado con RATIO para Trailing Stop Loss
 CART_STOP_LOSS_PCT = 0.15           # Compatibilidad hacia atrás
@@ -1375,11 +1375,11 @@ def checkCartTradeExistsForCandle(dbSession, idCuenta: int, symbol: str, candleD
         SELECT COUNT(*)
         FROM trades
         WHERE idCuenta = :idc
-          AND strategy = :strat
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
           AND (symbol = :sym OR setup = :sym)
           AND status = 'OPEN'
     """)
-    cntOpen = dbSession.execute(sqlOpen, {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).scalar()
+    cntOpen = dbSession.execute(sqlOpen, {"idc": idCuenta, "sym": symbol}).scalar()
     if cntOpen and cntOpen > 0:
         return True
 
@@ -1497,11 +1497,11 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         SELECT idTrade, symbol, direction, size, entryPrice, margin_used, ticketId, openTime
         FROM trades
         WHERE idCuenta = :idc
-          AND strategy = :strat
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
           AND (symbol = :sym OR setup = :sym)
           AND status = 'OPEN'
         ORDER BY idTrade ASC
-    """), {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).mappings().fetchall()
+    """), {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
 
     if openTrades and px is not None and cMax is not None and cMin is not None:
         firstDir = str(openTrades[0]["direction"] or "LARGO").upper()
@@ -1639,19 +1639,19 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             elif hitWeekendClose:
                 closeReasonComment = f"Cierre preventivo RIDER por fin de semana (15:30 CDMX - 30min antes del cierre de mercado para {symbol})"
             elif hitCarReentry:
-                closeReasonComment = f"Cierre CART por reingreso al CAR (Px={px:.5f} vs Límite={cMax if isLong else cMin:.5f})"
+                closeReasonComment = f"Cierre RIDER por reingreso al CAR (Px={px:.5f} vs Límite={cMax if isLong else cMin:.5f})"
             elif hitBreakevenExit:
-                closeReasonComment = f"Cierre CART por piso de Breakeven en Entrada @ {avgEntryPx:.5f}"
+                closeReasonComment = f"Cierre RIDER por piso de Breakeven en Entrada @ {avgEntryPx:.5f}"
             elif hitTrailingSl:
                 isBeTriggered = bool(trailingSlPx >= avgEntryPx) if isLong else bool(trailingSlPx <= avgEntryPx)
                 if isBeTriggered:
-                    closeReasonComment = f"Cierre CART por BreakEven Adaptativo NATR ({'+' if isLong else '-'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
+                    closeReasonComment = f"Cierre RIDER por BreakEven Adaptativo NATR ({'+' if isLong else '-'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
                 else:
-                    closeReasonComment = f"Cierre CART por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
+                    closeReasonComment = f"Cierre RIDER por Trailing Stop Loss NATR ({'-' if isLong else '+'}{tslPct:.2f}% @ {trailingSlPx:.5f})"
             else:
-                closeReasonComment = "Cierre CART por Stop Catastrófico de Emergencia"
+                closeReasonComment = "Cierre RIDER por Stop Catastrófico de Emergencia"
             logger.info(
-                f"🎯 [CART] {closeReasonComment} para {symbol} en Cuenta {idCuenta} "
+                f"🎯 [RIDER] {closeReasonComment} para {symbol} en Cuenta {idCuenta} "
                 f"(Px={px:.5f}, Límite CAR={cMax if isLong else cMin:.5f}, TrailingSL={trailingSlPx:.5f}, NATR={tslPct:.2f}%). Cerrando {len(openTrades)} trade(s)..."
             )
             cleanSym = symbol.replace("/", "").upper()
@@ -1742,9 +1742,9 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             lastClosedTrade = dbSession.execute(text("""
                 SELECT direction, entryPrice, exitPrice, pnl, closeTime
                 FROM trades
-                WHERE idCuenta = :idc AND strategy = :strat AND (symbol = :sym OR setup = :sym) AND status = 'CLOSED'
+                WHERE idCuenta = :idc AND (strategy = 'RIDER' OR strategy LIKE '%CART%') AND (symbol = :sym OR setup = :sym) AND status = 'CLOSED'
                 ORDER BY idTrade DESC LIMIT 1
-            """), {"idc": idCuenta, "strat": STRATEGY_NAME, "sym": symbol}).mappings().fetchone()
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
 
             if lastClosedTrade and lastClosedTrade["pnl"] is not None and float(lastClosedTrade["pnl"]) < 0:
                 lastDir = str(lastClosedTrade["direction"] or "").upper()
@@ -1881,8 +1881,8 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             sl=None,
             tp=None,
             margenPct=margenPct,
-            comment=f"Entrada CART ({directionStr} RVOL={currentRvol:.2f})",
-            signalType=f"CART Ruptura (RVOL: {currentRvol:.2f})",
+            comment=f"Entrada RIDER ({directionStr} RVOL={currentRvol:.2f})",
+            signalType=f"RIDER Ruptura (RVOL: {currentRvol:.2f})",
             candleDt=candleDt
         )
         if not resEntry.get("success"):
@@ -1922,8 +1922,8 @@ def runCycle(isHourlyTick: bool = True) -> None:
                 # Si no es intradía ni tick horario, verificar si tiene trade OPEN para monitorear reingreso al CAR en vivo
                 cntOpen = dbSession.execute(text("""
                     SELECT COUNT(*) FROM trades
-                    WHERE idCuenta = :idc AND strategy = :strat AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
-                """), {"idc": rec["idCuenta"], "strat": STRATEGY_NAME, "sym": rec["symbol"]}).scalar()
+                    WHERE idCuenta = :idc AND (strategy = 'RIDER' OR strategy LIKE '%CART%') AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
+                """), {"idc": rec["idCuenta"], "sym": rec["symbol"]}).scalar()
                 dbSession.commit()
                 if not cntOpen or cntOpen == 0:
                     continue

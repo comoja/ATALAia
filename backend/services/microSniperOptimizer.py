@@ -37,7 +37,8 @@ from backend.database.models import SessionLocal
 from backend.services.microSniper import (
     fetchSniperCandlesHistory,
     runSniperBacktest,
-    getAdaptiveConfigForSymbol
+    getAdaptiveConfigForSymbol,
+    isWithinOperatingHours
 )
 from Sentinel.ml import model as mlModel
 from Sentinel.analysis import technical
@@ -105,8 +106,8 @@ def calculateSniperScore(metrics: Dict[str, Any]) -> float:
 def computeOptimalSniperHours(trades: List[Dict[str, Any]], symbol: str) -> Dict[str, Any]:
     """
     Deduce estadísticamente la ventana horaria intradía más favorable para el símbolo.
-    Evalúa ventanas continuas de 6 a 10 horas de duración y selecciona la que
-    maximiza el Win Rate y minimiza operaciones perdedoras en periodos de ruido/baja liquidez.
+    Evalúa tanto ventanas continuas como esquemas institucionales de Doble Horario (Split Sessions),
+    seleccionando la configuración que maximice el PnL neto y el Win Rate eliminando las horas de ruido.
     """
     valid_trades = [
         t for t in (trades or [])
@@ -115,58 +116,153 @@ def computeOptimalSniperHours(trades: List[Dict[str, Any]], symbol: str) -> Dict
 
     optimal_start = "08:00"
     optimal_end = "16:00"
+    optimal_start2 = None
+    optimal_end2 = None
     optimal_win_rate = 65.0
     optimal_pnl = 0.0
     optimal_label = "08:00 - 16:00 CST"
 
     if len(valid_trades) >= 8:
         best_score = -1e9
-        best_window = (8, 16)
+        best_window = (8, 16, None, None)
         best_wr = 50.0
         best_pnl_val = 0.0
 
-        for win_len in [6, 7, 8, 9, 10]:
+        # Helper para extraer hora de entrada de un trade
+        trade_hours = []
+        for tr in valid_trades:
+            try:
+                ed = str(tr.get("entryDate", "")).strip()
+                parts = ed.split(" ")
+                if len(parts) >= 2 and ":" in parts[1]:
+                    trade_hours.append((int(parts[1].split(":")[0]), tr))
+            except Exception:
+                continue
+
+        def eval_candidate(s1, e1, s2=None, e2=None):
+            matched = []
+            for h, tr in trade_hours:
+                in_w1 = (s1 <= h < e1) if s1 <= e1 else (h >= s1 or h < e1)
+                in_w2 = False
+                if s2 is not None and e2 is not None:
+                    in_w2 = (s2 <= h < e2) if s2 <= e2 else (h >= s2 or h < e2)
+                if in_w1 or in_w2:
+                    matched.append(tr)
+
+            if len(matched) >= max(4, int(len(valid_trades) * 0.18)):
+                wins = sum(1 for tr in matched if tr.get("isWin") or float(tr.get("pnl", 0)) > 0)
+                wr = (wins / len(matched)) * 100.0
+                tot_pnl = sum(float(tr.get("pnl", 0)) for tr in matched)
+                # Ponderación score: PnL positivo con premio a mayor tasa de acierto y consistencia
+                score = tot_pnl * (wr / 100.0)
+                return score, wr, tot_pnl, len(matched)
+            return -1e9, 0.0, 0.0, 0
+
+        # 1. Evaluar ventanas individuales (6 a 11 horas de duración)
+        for win_len in [6, 7, 8, 9, 10, 11]:
             for start_h in range(0, 24):
                 end_h = (start_h + win_len) % 24
-                in_trades = []
-                for tr in valid_trades:
-                    try:
-                        ed = str(tr.get("entryDate", "")).strip()
-                        parts = ed.split(" ")
-                        if len(parts) >= 2 and ":" in parts[1]:
-                            h = int(parts[1].split(":")[0])
-                        else:
-                            continue
+                sc, wr, pnl, cnt = eval_candidate(start_h, end_h)
+                if sc > best_score and wr >= 38.0:
+                    best_score = sc
+                    best_window = (start_h, end_h, None, None)
+                    best_wr = wr
+                    best_pnl_val = pnl
 
-                        if start_h < (start_h + win_len):
-                            if start_h <= h < (start_h + win_len):
-                                in_trades.append(tr)
-                        else:
-                            if h >= start_h or h < end_h:
-                                in_trades.append(tr)
-                    except Exception:
-                        continue
+        # 2. Búsqueda y Evaluación Exhaustiva de Doble Horario (Sesión 1: Madrugada/Londres + Sesión 2: Tarde/Asia)
+        is_metal = any(m in symbol.upper() for m in ["XAG", "XAU", "SILVER", "GOLD"])
 
-                if len(in_trades) >= max(4, int(len(valid_trades) * 0.20)):
-                    wins = sum(1 for tr in in_trades if tr.get("isWin") or float(tr.get("pnl", 0)) > 0)
-                    wr = (wins / len(in_trades)) * 100.0
-                    tot_pnl = sum(float(tr.get("pnl", 0)) for tr in in_trades)
-                    score = tot_pnl * (wr / 100.0)
-                    if score > best_score and wr >= 50.0:
-                        best_score = score
-                        best_window = (start_h, (start_h + win_len) % 24)
-                        best_wr = wr
-                        best_pnl_val = tot_pnl
+        # Identificar las mejores sub-sesiones en madrugada/mañana y tarde/noche
+        best_morn_candidates = []
+        for s in [23, 0, 1, 2, 3, 4, 5, 6, 7, 8]:
+            for wlen in [3, 4, 5, 6, 7]:
+                e = (s + wlen) % 24
+                sc, wr, pnl, cnt = eval_candidate(s, e)
+                if sc > 0 and wr >= 40.0 and pnl > 0:
+                    best_morn_candidates.append((sc, s, e, wr, pnl, cnt))
+        best_morn_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        best_aft_candidates = []
+        for s in [13, 14, 15, 16, 17, 18, 19]:
+            for wlen in [3, 4, 5, 6, 7]:
+                e = (s + wlen) % 24
+                sc, wr, pnl, cnt = eval_candidate(s, e)
+                if sc > 0 and wr >= 40.0 and pnl > 0:
+                    best_aft_candidates.append((sc, s, e, wr, pnl, cnt))
+        best_aft_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # Evaluar cruces sistemáticos de las mejores sub-sesiones matutinas y vespertinas
+        top_morn = best_morn_candidates[:5] if best_morn_candidates else []
+        top_aft = best_aft_candidates[:5] if best_aft_candidates else []
+
+        dual_candidates_set = set()
+        for _, s1, e1, _, _, _ in top_morn:
+            for _, s2, e2, _, _, _ in top_aft:
+                dual_candidates_set.add((s1, e1, s2, e2))
+
+        # Añadir candidatos institucionales fijos probados
+        fixed_dual = [
+            (2, 9, 14, 21),    # Londres/NY Open + CME Close/Asia Reopen
+            (2, 8, 14, 20),
+            (3, 8, 14, 20),
+            (7, 10, 14, 20),
+            (7, 10, 16, 19),   # Apertura NY + Apertura Asia
+            (7, 11, 16, 20),
+            (23, 10, 16, 19),  # Tokio-Londres-NY + Apertura Asia
+            (23, 8, 14, 20),
+        ]
+        for fd in fixed_dual:
+            dual_candidates_set.add(fd)
+
+        for s1, e1, s2, e2 in dual_candidates_set:
+            sc, wr, pnl, cnt = eval_candidate(s1, e1, s2, e2)
+            # Ponderación a favor de Doble Horario: evita la exposición a ruido de mediodía
+            dual_boost = 1.40 if is_metal else 1.20
+            effective_score = sc * dual_boost if sc > 0 else sc
+            if effective_score > best_score and wr >= 40.0 and pnl > 0:
+                best_score = effective_score
+                best_window = (s1, e1, s2, e2)
+                best_wr = wr
+                best_pnl_val = pnl
+
+        # Si tras evaluar todo, la mejor ventana siguió siendo solo una individual (s2 es None),
+        # pero existe una sub-sesión complementaria positiva, acoplar la segunda para garantizar el Doble Horario
+        if best_window[2] is None and best_window[3] is None:
+            s_single, e_single = best_window[0], best_window[1]
+            # Si la ventana única es vespertina (ej. 14:00-20:00), acoplar la mejor matutina
+            if s_single >= 12 and top_morn:
+                m_s, m_e = top_morn[0][1], top_morn[0][2]
+                sc_c, wr_c, pnl_c, cnt_c = eval_candidate(m_s, m_e, s_single, e_single)
+                if pnl_c > 0 and wr_c >= 40.0:
+                    best_window = (m_s, m_e, s_single, e_single)
+                    best_wr = wr_c
+                    best_pnl_val = pnl_c
+            # Si la ventana única es matutina (ej. 02:00-09:00), acoplar la mejor vespertina
+            elif s_single < 12 and top_aft:
+                a_s, a_e = top_aft[0][1], top_aft[0][2]
+                sc_c, wr_c, pnl_c, cnt_c = eval_candidate(s_single, e_single, a_s, a_e)
+                if pnl_c > 0 and wr_c >= 40.0:
+                    best_window = (s_single, e_single, a_s, a_e)
+                    best_wr = wr_c
+                    best_pnl_val = pnl_c
 
         if best_score > -1e8:
             optimal_start = f"{best_window[0]:02d}:00"
             optimal_end = f"{best_window[1]:02d}:00"
+            if best_window[2] is not None and best_window[3] is not None:
+                optimal_start2 = f"{best_window[2]:02d}:00"
+                optimal_end2 = f"{best_window[3]:02d}:00"
+                optimal_label = f"{optimal_start}-{optimal_end} y {optimal_start2}-{optimal_end2} CST ({round(best_wr, 1)}% Win Rate)"
+            else:
+                optimal_label = f"{optimal_start} - {optimal_end} CST ({round(best_wr, 1)}% Win Rate)"
+
             optimal_win_rate = round(best_wr, 1)
             optimal_pnl = round(best_pnl_val, 2)
-            optimal_label = f"{optimal_start} - {optimal_end} CST ({optimal_win_rate}% Win Rate)"
             return {
                 "optimalStartHour": optimal_start,
                 "optimalEndHour": optimal_end,
+                "optimalStartHour2": optimal_start2,
+                "optimalEndHour2": optimal_end2,
                 "optimalHoursLabel": optimal_label,
                 "optimalWinRate": optimal_win_rate,
                 "optimalPnl": optimal_pnl
@@ -178,6 +274,12 @@ def computeOptimalSniperHours(trades: List[Dict[str, Any]], symbol: str) -> Dict
         optimal_start = "08:30"
         optimal_end = "15:30"
         optimal_label = "08:30 - 15:30 CST (Sesión regular Wall Street)"
+    elif "XAG" in sym_upper or "SILVER" in sym_upper or "XAU" in sym_upper or "GOLD" in sym_upper:
+        optimal_start = "23:00"
+        optimal_end = "10:00"
+        optimal_start2 = "16:00"
+        optimal_end2 = "19:00"
+        optimal_label = "23:00-10:00 y 16:00-19:00 CST (Doble Horario Metales)"
     elif "JPY" in sym_upper or "AUD" in sym_upper or "NZD" in sym_upper:
         optimal_start = "07:00"
         optimal_end = "15:00"
@@ -190,6 +292,8 @@ def computeOptimalSniperHours(trades: List[Dict[str, Any]], symbol: str) -> Dict
     return {
         "optimalStartHour": optimal_start,
         "optimalEndHour": optimal_end,
+        "optimalStartHour2": optimal_start2,
+        "optimalEndHour2": optimal_end2,
         "optimalHoursLabel": optimal_label,
         "optimalWinRate": optimal_win_rate,
         "optimalPnl": optimal_pnl
@@ -346,14 +450,43 @@ def optimizeSingleSniperSymbol(
     # Calcular horario operativo óptimo para la mejor configuración
     hoursInfo = computeOptimalSniperHours(bestResult.get("tradesSample", []), symbol)
     bestResult.update(hoursInfo)
+
+    # Recalcular métricas de bestResult exclusivamente para la ventana horaria óptima (simple o doble)
+    opt_start = hoursInfo.get("optimalStartHour", "08:00")
+    opt_end = hoursInfo.get("optimalEndHour", "16:00")
+    opt_start2 = hoursInfo.get("optimalStartHour2")
+    opt_end2 = hoursInfo.get("optimalEndHour2")
+    filtered_trades = [
+        t for t in bestResult.get("tradesSample", [])
+        if isWithinOperatingHours(opt_start, opt_end, pd.to_datetime(t.get("entryDate")), opt_start2, opt_end2)
+    ]
+    if filtered_trades:
+        w_tr = [t for t in filtered_trades if t.get("isWin")]
+        l_tr = [t for t in filtered_trades if not t.get("isWin")]
+        net_pnl = sum(float(t.get("pnl", 0.0)) for t in filtered_trades)
+        w_pnl = sum(float(t.get("pnl", 0.0)) for t in w_tr)
+        l_pnl = abs(sum(float(t.get("pnl", 0.0)) for t in l_tr))
+        bestResult["metrics"].update({
+            "totalTrades": len(filtered_trades),
+            "winningTrades": len(w_tr),
+            "losingTrades": len(l_tr),
+            "winRate": round(len(w_tr) / len(filtered_trades) * 100.0, 1),
+            "netProfit": round(net_pnl, 2),
+            "profitFactor": round(w_pnl / l_pnl, 2) if l_pnl > 0 else (99.9 if w_pnl > 0 else 0.0)
+        })
+
     # Remover tradesSample del payload final para mantener respuesta ligera
     bestResult.pop("tradesSample", None)
+
+    horarioLog = f"{bestResult['optimalStartHour']}-{bestResult['optimalEndHour']}"
+    if bestResult.get("optimalStartHour2") and bestResult.get("optimalEndHour2"):
+        horarioLog += f" y {bestResult['optimalStartHour2']}-{bestResult['optimalEndHour2']}"
 
     logger.info(
         f"✨ [SNIPER OPT] {symbol} => Mejor TF: {bestResult['timeframe']} | "
         f"Conf: {bestResult['minConfidence']}% | R:R: {bestResult['minRr']}:1 | "
         f"BE: {bestResult['usarBreakEven']} | TSL: {bestResult['usarTSL']} | "
-        f"Horario: {bestResult['optimalStartHour']}-{bestResult['optimalEndHour']} | "
+        f"Horario: {horarioLog} | "
         f"WR: {bestResult['metrics']['winRate']}% | PF: {bestResult['metrics']['profitFactor']} | "
         f"Net PnL: ${bestResult['metrics']['netProfit']} USD"
     )
@@ -383,6 +516,8 @@ def persistOptimalSniperConfig(dbSession, symbol: str, optimal: Dict[str, Any], 
         tslVal = int(1 if optimal.get("usarTSL") else 0)
         hInicio = str(optimal.get("optimalStartHour", "08:00"))
         hFin = str(optimal.get("optimalEndHour", "16:00"))
+        hInicio2 = optimal.get("optimalStartHour2")
+        hFin2 = optimal.get("optimalEndHour2")
 
         # 1. Actualizar userSNIPER para la cuenta o todas las cuentas registradas
         whereAccount = "AND idCuenta = :idc" if idCuenta else ""
@@ -396,12 +531,15 @@ def persistOptimalSniperConfig(dbSession, symbol: str, optimal: Dict[str, Any], 
                 usarTSL = :tsl,
                 filtroHorario = 1,
                 horaInicio = :hi,
-                horaFin = :hf
+                horaFin = :hf,
+                horaInicio2 = :hi2,
+                horaFin2 = :hf2
             WHERE symbol = :sym {whereAccount}
         """
         paramsUser = {
             "tf": tfVal, "conf": confVal, "rr": rrVal, "maxrr": maxRrVal,
-            "be": beVal, "tsl": tslVal, "hi": hInicio, "hf": hFin, "sym": symbol
+            "be": beVal, "tsl": tslVal, "hi": hInicio, "hf": hFin,
+            "hi2": hInicio2, "hf2": hFin2, "sym": symbol
         }
         if idCuenta:
             paramsUser["idc"] = idCuenta
@@ -419,6 +557,8 @@ def persistOptimalSniperConfig(dbSession, symbol: str, optimal: Dict[str, Any], 
             "usarTSL": bool(tslVal),
             "horaInicio": hInicio,
             "horaFin": hFin,
+            "horaInicio2": hInicio2,
+            "horaFin2": hFin2,
             "score": optimal.get("score", 0.0),
             "winRate": optimal.get("metrics", {}).get("winRate", 0.0),
             "profitFactor": optimal.get("metrics", {}).get("profitFactor", 0.0)
@@ -495,39 +635,49 @@ def optimizeAllSniperSymbols(dbSession=None) -> Dict[str, Any]:
             dbSession.close()
 
 
-def runDaemonScheduler(intervalHours: float = 24.0) -> None:
+def runDaemonScheduler(targetWeekday: int = 5, targetHour: int = 3, targetMinute: int = 0) -> None:
     """
-    Ejecución continua del microservicio: ejecuta una optimización periódica
-    (por defecto cada 24 horas, o programada para fines de semana).
+    Ejecución continua del microservicio: optimización automática programada
+    exclusivamente los SÁBADOS EN LA MADRUGADA (por defecto 03:00 AM local).
+    targetWeekday: 5 = Sábado (0=Lunes, 6=Domingo).
     """
-    logger.info(f"🚀 Microservicio microSniperOptimizer iniciado en modo DAEMON (intervalo: {intervalHours}h).")
+    logger.info("🚀 Microservicio microSniperOptimizer iniciado en modo DAEMON (Sábados de madrugada).")
+    logger.info(f"📅 Horario automático programado: Sábados a las {targetHour:02d}:{targetMinute:02d} AM.")
+    lastRunDate = None
     while True:
         try:
-            logger.info("⏰ Ejecutando ciclo de optimización programado...")
-            optimizeAllSniperSymbols()
-            sleepSeconds = int(intervalHours * 3600)
-            logger.info(f"💤 Ciclo finalizado. Durmiendo {intervalHours} horas hasta el próximo análisis ({sleepSeconds}s)...")
-            time.sleep(sleepSeconds)
+            now = datetime.now()
+            # Verificar si es sábado (weekday 5) y la hora coincide con la madrugada
+            if now.weekday() == targetWeekday and now.hour == targetHour and now.minute >= targetMinute:
+                todayDate = now.date()
+                if lastRunDate != todayDate:
+                    logger.info("⏰ [AUTO-CALIBRACIÓN SABATINA] Iniciando ciclo de optimización profunda semanal para todos los símbolos...")
+                    optimizeAllSniperSymbols()
+                    lastRunDate = todayDate
+                    logger.info(f"✅ [AUTO-CALIBRACIÓN SABATINA] Calibración completada. Próxima ejecución: Sábado de la próxima semana a las {targetHour:02d}:{targetMinute:02d} AM.")
+            time.sleep(30)
         except KeyboardInterrupt:
             logger.info("🛑 Deteniendo microSniperOptimizer por señal de interrupción.")
             break
         except Exception as e:
-            logger.error(f"⚠️ Error no controlado en ciclo daemon: {e}", exc_info=True)
-            time.sleep(300)
+            logger.error(f"⚠️ Error no controlado en ciclo daemon sabatino: {e}", exc_info=True)
+            time.sleep(60)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Microservicio de Optimización Adaptativa de SNIPER")
-    parser.add_argument("--symbol", type=str, help="Símbolo a optimizar (ej. EUR/USD, SPX500)")
+    parser.add_argument("--symbol", type=str, help="Símbolo a optimizar bajo demanda (ej. EUR/USD, SPX500)")
     parser.add_argument("--account", type=int, help="ID de cuenta específica a actualizar")
-    parser.add_argument("--all", action="store_true", help="Optimizar todos los símbolos de userSNIPER")
-    parser.add_argument("--daemon", action="store_true", help="Ejecutar en modo daemon continuo (cada 24h)")
-    parser.add_argument("--interval", type=float, default=24.0, help="Intervalo en horas para modo daemon")
+    parser.add_argument("--all", action="store_true", help="Optimizar todos los símbolos explícitamente")
+    parser.add_argument("--daemon", action="store_true", help="Modo daemon (Auto-calibración los sábados en la madrugada)")
+    parser.add_argument("--interval", type=float, default=24.0, help="Intervalo en horas")
 
     args = parser.parse_args()
 
     if args.daemon:
-        runDaemonScheduler(intervalHours=args.interval)
+        logger.info("🚀 Iniciando auto-calibración en modo daemon programada para los sábados en la madrugada (03:00 AM)...")
+        print("INICIANDO: Auto-calibración en segundo plano programada para ejecutarse todos los sábados en la madrugada (03:00 AM).")
+        runDaemonScheduler(targetWeekday=5, targetHour=3, targetMinute=0)
     elif args.all:
         optimizeAllSniperSymbols()
     elif args.symbol:
@@ -538,8 +688,7 @@ def main() -> None:
         finally:
             db.close()
     else:
-        # Por defecto si se invoca sin argumentos: optimiza todas las emisoras
-        optimizeAllSniperSymbols()
+        parser.print_help()
 
 
 if __name__ == "__main__":

@@ -269,6 +269,48 @@
             font-size: 1.4rem;
         }
 
+        /* Grupos de Submenús (p.ej. Reportes) */
+        .menu-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .menu-parent {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .menu-arrow {
+            margin-left: auto;
+            font-size: 0.95rem;
+            transition: transform 0.25s ease;
+        }
+        .menu-group.open .menu-arrow {
+            transform: rotate(180deg);
+        }
+        .submenu-container {
+            display: none;
+            flex-direction: column;
+            gap: 6px;
+            padding-left: 14px;
+            margin-top: 4px;
+            border-left: 2px solid var(--border-soft);
+        }
+        .menu-group.open .submenu-container {
+            display: flex;
+        }
+        .submenu-item {
+            padding: 10px 14px !important;
+            font-size: 1.10rem !important;
+            gap: 10px !important;
+            border-radius: 10px !important;
+        }
+        .submenu-item .menu-icon {
+            font-size: 1.15rem !important;
+        }
+
         /* Contenido principal */
         .app-content {
             flex: 1;
@@ -700,6 +742,129 @@
         #btnBorrarRatio .ui-icon {
             font-size: 1.40rem !important;
         }
+
+        /* 10. Barras de Estrategias y Pestañas: Altura idéntica de 48px y botones perfectamente centrados a 36px */
+        #strategySelectorBar {
+            height: 48px !important;
+            min-height: 48px !important;
+            max-height: 48px !important;
+            box-sizing: border-box !important;
+            padding: 0 14px !important;
+        }
+
+        #strategySelectorBar p\:commandLink,
+        #strategySelectorBar a {
+            height: 36px !important;
+            box-sizing: border-box !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        #mainTabView > .ui-tabview-nav,
+        #cartTabView > .ui-tabview-nav,
+        #sniperTabView > .ui-tabview-nav,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav,
+        [id$=":mainTabView"] > .ui-tabview-nav,
+        [id$=":cartTabView"] > .ui-tabview-nav,
+        [id$=":sniperTabView"] > .ui-tabview-nav {
+            height: 48px !important;
+            min-height: 48px !important;
+            max-height: 48px !important;
+            box-sizing: border-box !important;
+            padding: 0 14px !important;
+            margin: 0 0 6px 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            gap: 8px !important;
+            border-radius: 12px !important;
+        }
+
+        #mainTabView > .ui-tabview-nav > li,
+        #cartTabView > .ui-tabview-nav > li,
+        #sniperTabView > .ui-tabview-nav > li,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+        [id$=":mainTabView"] > .ui-tabview-nav > li,
+        [id$=":cartTabView"] > .ui-tabview-nav > li,
+        [id$=":sniperTabView"] > .ui-tabview-nav > li {
+            height: 36px !important;
+            min-height: 36px !important;
+            max-height: 36px !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            float: none !important;
+            position: relative !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 8px !important;
+            vertical-align: middle !important;
+        }
+
+        #mainTabView > .ui-tabview-nav > li > a,
+        #cartTabView > .ui-tabview-nav > li > a,
+        #sniperTabView > .ui-tabview-nav > li > a,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+        [id$=":mainTabView"] > .ui-tabview-nav > li > a,
+        [id$=":cartTabView"] > .ui-tabview-nav > li > a,
+        [id$=":sniperTabView"] > .ui-tabview-nav > li > a {
+            height: 100% !important;
+            min-height: 100% !important;
+            max-height: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+            padding: 0 10px !important;
+            margin: 0 !important;
+            float: none !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+            vertical-align: middle !important;
+        }
+
+        #mainTabView > .ui-tabview-nav > li > a .ratio-tab-icon,
+        #mainTabView > .ui-tabview-nav > li > a .grafica-tab-icon,
+        #mainTabView > .ui-tabview-nav > li > a .backtest-tab-icon,
+        #mainTabView > .ui-tabview-nav > li > a .hechos-tab-icon,
+        #cartTabView > .ui-tabview-nav > li > a svg,
+        #cartTabView > .ui-tabview-nav > li > a .grafica-tab-icon,
+        #cartTabView > .ui-tabview-nav > li > a .backtest-tab-icon,
+        #cartTabView > .ui-tabview-nav > li > a .hechos-tab-icon,
+        #sniperTabView > .ui-tabview-nav > li > a svg,
+        #sniperTabView > .ui-tabview-nav > li > a .grafica-tab-icon,
+        #sniperTabView > .ui-tabview-nav > li > a .backtest-tab-icon,
+        #sniperTabView > .ui-tabview-nav > li > a .hechos-tab-icon,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .ratio-tab-icon,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav svg,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav svg,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon {
+            width: 34px !important;
+            height: 30px !important;
+            object-fit: contain !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+            margin: 0 !important;
+            line-height: 1 !important;
+        }
     </style>
     <ui:insert name="head"></ui:insert>
 </h:head>
@@ -838,22 +1003,22 @@
                     </button>
                 </div>
 
-                <!-- Perfil del usuario firmado -->
-                <div class="user-profile" style="padding: 4px 14px 4px 6px;">
-                    <div class="user-avatar" style="width: 46px; height: 46px; min-width: 46px; overflow: hidden; padding: 0; background: transparent; border: 2px solid rgba(255, 255, 255, 0.45); box-shadow: 0 3px 10px rgba(0,0,0,0.35);">
-                        <img src="#{request.contextPath}/resources/images/users/#{securityBean.username}.png"
-                             alt="#{securityBean.username}"
+                <!-- Perfil del usuario firmado / seleccionado -->
+                <h:panelGroup id="userProfileHeaderWrapper" layout="block" styleClass="user-profile" style="padding: 4px 14px 4px 6px;">
+                    <div class="user-avatar" style="width: 46px; height: 46px; min-width: 46px; overflow: hidden; padding: 0; background: #ffffff; border: 2px solid rgba(255, 255, 255, 0.55); box-shadow: 0 3px 10px rgba(0,0,0,0.35); border-radius: 50%;">
+                        <img src="#{request.contextPath}/resources/images/users/#{securityBean.activeUserAvatar}.png?v=#{securityBean.cacheBuster}"
+                             alt="#{securityBean.activeUserAvatar}"
                              style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block;"
-                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-                        <span style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center; font-weight: 700;">
-                            #{not empty securityBean.nombreCompleto ? securityBean.nombreCompleto.substring(0,1).toUpperCase() : ''}
+                             onerror="if (!this.src.includes('role_')) { this.src='#{request.contextPath}/resources/images/users/role_#{securityBean.activeUserRoleId}.png?v=#{securityBean.cacheBuster}'; } else { this.style.display='none'; this.nextElementSibling.style.display='flex'; }" />
+                        <span style="display: none; width: 100%; height: 100%; align-items: center; justify-content: center; font-weight: 700; color: #1e293b;">
+                            #{not empty securityBean.selectedUserName ? securityBean.selectedUserName.substring(0,1).toUpperCase() : (not empty securityBean.nombreCompleto ? securityBean.nombreCompleto.substring(0,1).toUpperCase() : '')}
                         </span>
                     </div>
                     <div class="user-info">
-                        <div class="user-name"><h:outputText value="#{securityBean.nombreCompleto}" /></div>
-                        <div class="user-role"><h:outputText value="#{securityBean.nameRole}" /></div>
+                        <div class="user-name"><h:outputText value="#{securityBean.admin and not empty securityBean.selectedUserName ? securityBean.selectedUserName : securityBean.nombreCompleto}" /></div>
+                        <div class="user-role"><h:outputText value="#{securityBean.activeUserRole}" /></div>
                     </div>
-                </div>
+                </h:panelGroup>
 
                 <!-- Botón Cambio de Contraseña -->
                 <h:form id="headerSecurityForm" style="display: inline-block;">
@@ -883,14 +1048,39 @@
             <aside class="app-sidebar">
                 <div class="sidebar-header">Navegación</div>
                 <nav class="menu-list">
-                    <ui:repeat value="#{securityBean.authorizedMenus}" var="menu">
-                        <a href="#{request.contextPath}/#{menu.url}"
-                           class="menu-item #{view.viewId.contains(menu.url) ? 'active' : ''}"
-                           data-menu-label="#{menu.nameMenu}"
-                           data-menu-icon="#{menu.icon}">
-                            <i class="#{menu.icon} menu-icon"></i>
-                            <span>#{menu.nameMenu}</span>
-                        </a>
+                    <ui:repeat value="#{securityBean.menuTree}" var="menu">
+                        <!-- Menú simple sin submenús -->
+                        <h:panelGroup rendered="#{!menu.hasSubMenus}">
+                            <a href="#{request.contextPath}/#{menu.url}"
+                               class="menu-item #{view.viewId.contains(menu.url) ? 'active' : ''}"
+                               data-menu-label="#{menu.nameMenu}"
+                               data-menu-icon="#{menu.icon}">
+                                <i class="#{menu.icon} menu-icon"></i>
+                                <span>#{menu.nameMenu}</span>
+                            </a>
+                        </h:panelGroup>
+
+                        <!-- Menú agrupador con submenús (Reportes -> Estado de Cuenta / Reporte Jerárquico) -->
+                        <h:panelGroup rendered="#{menu.hasSubMenus}">
+                            <div class="menu-group #{securityBean.isMenuGroupActive(menu, view.viewId) ? 'open' : ''}">
+                                <div class="menu-item menu-parent" onclick="toggleSidebarSubmenu(this)">
+                                    <i class="#{menu.icon} menu-icon"></i>
+                                    <span>#{menu.nameMenu}</span>
+                                    <i class="pi pi-chevron-down menu-arrow"></i>
+                                </div>
+                                <div class="submenu-container">
+                                    <ui:repeat value="#{menu.subMenus}" var="sub">
+                                        <a href="#{request.contextPath}/#{sub.url}"
+                                           class="menu-item submenu-item #{view.viewId.contains(sub.url) ? 'active' : ''}"
+                                           data-menu-label="#{sub.nameMenu}"
+                                           data-menu-icon="#{sub.icon}">
+                                            <i class="#{sub.icon} menu-icon"></i>
+                                            <span>#{sub.nameMenu}</span>
+                                        </a>
+                                    </ui:repeat>
+                                </div>
+                            </div>
+                        </h:panelGroup>
                     </ui:repeat>
                 </nav>
             </aside>
@@ -981,7 +1171,17 @@
         </h:form>
     </p:dialog>
 
-    <!-- Script del Sidebar + Módulo Activo en Header -->
+    <!-- DIÁLOGO GLOBAL DE CONFIRMACIÓN MODAL -->
+    <h:form id="globalConfirmForm">
+        <p:confirmDialog global="true" showEffect="fade" hideEffect="fade" responsive="true" width="460" styleClass="aether-dialog">
+            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px;">
+                <p:commandButton value="Cancelar" type="button" styleClass="ui-confirmdialog-no ui-button-flat ui-button-secondary"
+                                 style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                <p:commandButton value="Confirmar" type="button" styleClass="ui-confirmdialog-yes ui-button-danger"
+                                 style="background-color: #ef4444; border-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;" />
+            </div>
+        </p:confirmDialog>
+    </h:form>
     <script type="text/javascript">
     // <![CDATA[
         // ── Helpers badge globales ───────────────────────────────────────────
@@ -1331,8 +1531,15 @@
                 }
             }
 
+            window.toggleSidebarSubmenu = function(elem) {
+                var group = elem.closest('.menu-group');
+                if (group) {
+                    group.classList.toggle('open');
+                }
+            };
+
             // ── Click en item de menú: cerrar sidebar + guardar módulo elegido ───
-            document.querySelectorAll(".menu-item").forEach(function(item) {
+            document.querySelectorAll("a.menu-item").forEach(function(item) {
                 item.addEventListener("click", function() {
                     var label   = item.getAttribute("data-menu-label") || "";
                     var iconCls = item.getAttribute("data-menu-icon")  || "";

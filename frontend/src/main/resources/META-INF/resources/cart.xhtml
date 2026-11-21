@@ -41,7 +41,12 @@
             <!-- ========================================================================= -->
             <!-- PESTAÑA 1: RIDER (CALIBRACIÓN Y GRÁFICA DE 1 PAR CON PRECIOS REALES Y CAR) -->
             <!-- ========================================================================= -->
-            <p:tab title="RIDER">
+            <p:tab>
+                <f:facet name="title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="38" height="32" viewBox="130 200 720 580" fill="currentColor" style="display: inline-block; vertical-align: middle;" title="RIDER">
+                        <path d="M148,390h21v88h-21Z M148,501h21v88h-21Z M192,345h21v133h-21Z M192,501h21v133h-21Z M236,257h21v221h-21Z M236,501h21v221h-21Z M280,368h21v110h-21Z M280,501h21v110h-21Z M324,345h21v133h-21Z M324,501h21v133h-21Z M369,290h21v188h-21Z M369,501h21v188h-21Z M413,312h21v166h-21Z M413,501h21v166h-21Z M457,345h21v133h-21Z M457,501h21v133h-21Z M501,224h21v254h-21Z M501,501h21v254h-21Z M545,323h21v155h-21Z M545,501h21v155h-21Z M589,345h21v133h-21Z M589,501h21v133h-21Z M633,423h21v55h-21Z M633,501h21v55h-21Z M677,401h21v77h-21Z M677,501h21v77h-21Z M722,345h21v133h-21Z M722,501h21v133h-21Z M766,323h21v155h-21Z M766,501h21v155h-21Z M810,368h21v110h-21Z M810,501h21v110h-21Z" />
+                    </svg>
+                </f:facet>
                 <div class="dashboard-grid">
 
                     <!-- COLUMNA IZQUIERDA: CONTROLES DE CALIBRACIÓN RIDER -->
@@ -560,17 +565,17 @@
                                                 style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; text-align: center;">
                                                 <div
                                                     style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
-                                                    Equidad</div>
+                                                    Equidad Cuenta</div>
                                                 <div style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">
-                                                    $#{dashboardBean.formattedCartTotalActiveEquity}</div>
+                                                    $#{dashboardBean.formattedAccountRealEquity}</div>
                                             </div>
-                                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; text-align: center;"
-                                                title="Indicador de Margen (Equidad / Margen Retenido). Limita nuevas entradas si es menor al mínimo configurado en la cuenta.">
+                                            <div style="background: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#f0fdf4' : '#fef2f2'}; border: 1px solid #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#86efac' : '#fca5a5'}; border-radius: 8px; padding: 6px 8px; text-align: center;"
+                                                title="Indicador de Margen Real Global de la Cuenta (Equidad / Margen Retenido Total). Mínimo requerido: #{dashboardBean.accountRealMinMargin}%">
                                                 <div
-                                                    style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                    style="font-size: 0.62rem; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#166534' : '#991b1b'}; font-weight: 700; text-transform: uppercase;">
                                                     Ind. Margen</div>
-                                                <div style="font-size: 0.95rem; font-weight: 900; color: #0284c7;">
-                                                    #{dashboardBean.formattedCartMarginIndicator}%</div>
+                                                <div style="font-size: 0.95rem; font-weight: 900; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#15803d' : '#dc2626'};">
+                                                    #{dashboardBean.formattedAccountRealMarginIndicator}%</div>
                                             </div>
                                         </div>
                                     </div>
@@ -782,16 +787,22 @@
                 </div>
             </p:tab>
 
-            <!-- PESTAÑA MÓVIL: GRÁFICA RIDER -->
-            <p:tab id="tabGraficaCart" title="📈 Gráfica RIDER" titleStyleClass="mobile-chart-tab-header">
+            <!-- PESTAÑA: GRÁFICA RIDER -->
+            <p:tab id="tabGraficaCart" titletip="Grafica">
+                <f:facet name="title">
+                    <span class="grafica-tab-icon" title="Grafica" style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
                 <div id="mobileCartChartMountPoint" style="padding: 8px 10px; height: 100%; box-sizing: border-box;">
                 </div>
             </p:tab>
 
             <!-- ========================================================================= -->
-            <!-- PESTAÑA 3: BACKTEST RIDER (SALIDA Y REINGRESO AL CANAL CAR)               -->
+            <!-- PESTAÑA: BACKTEST RIDER (SALIDA Y REINGRESO AL CANAL CAR)                 -->
             <!-- ========================================================================= -->
-            <p:tab title="BackTest">
+            <p:tab titletip="BackTesting">
+                <f:facet name="title">
+                    <span class="backtest-tab-icon" title="BackTesting" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
                 <p:outputPanel id="cartBtWrapper" layout="block"
                     style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
 
@@ -921,16 +932,16 @@
                         <p:tab title="Bitácora detallada de Trades">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <p:dataTable id="cartSignalTradesTable" value="#{dashboardBean.cartBtTradesList}"
-                                    var="st" scrollable="true" scrollHeight="320px" styleClass="aether-table-compact"
+                                    var="st" scrollable="true" scrollHeight="320px" styleClass="aether-trades-table aether-table-compact"
                                     rowStyleClass="#{st.isSubtotal ? 'aether-subtotal-row' : ''}"
                                     emptyMessage="Sin operaciones simuladas para este par en RIDER"
-                                    style="width: 100%;">
-                                    <p:column headerText="Entrada" style="width: 50px; text-align: center;">
+                                    tableStyle="width: 100%;">
+                                    <p:column headerText="Entrada" style="width: 4%; text-align: center;">
                                         <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}"
-                                            style="font-weight: 700;" />
+                                            style="font-weight: 700; font-size: 1.05rem;" />
                                     </p:column>
                                     <p:column headerText="Dirección / Señal RIDER"
-                                        style="width: 175px; text-align: center;">
+                                        style="width: 13%; text-align: center;">
                                         <h:panelGroup rendered="#{!st.isSubtotal}">
                                             <span
                                                 style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 800; font-size: 0.82rem; background: #{st.direction == 'COMPRA' ? '#dcfce7' : '#fee2e2'}; color: #{st.direction == 'COMPRA' ? '#15803d' : '#b91c1c'}; border: 1px solid #{st.direction == 'COMPRA' ? '#86efac' : '#fca5a5'};">
@@ -942,31 +953,32 @@
                                         </h:panelGroup>
                                         <h:panelGroup rendered="#{st.isSubtotal}">
                                             <span
-                                                style="font-weight: 800; color: #{st.signalColor};">#{st.direction}</span>
+                                                style="font-weight: 800; font-size: 1.05rem; color: #{st.signalColor};">#{st.direction}</span>
                                             <div style="font-size: 0.78rem; color: #64748b;">#{st.signalType}</div>
                                         </h:panelGroup>
                                     </p:column>
                                     <p:column headerText="Entrada de Posición (Salida CAR)"
-                                        style="width: 150px; text-align: center;">
+                                        style="width: 11%; text-align: center;">
                                         <h:panelGroup rendered="#{!st.isSubtotal}">
                                             <span
                                                 style="display: block; font-size: 0.73rem; font-weight: 800; color: #{st.direction == 'COMPRA' ? '#16a34a' : '#dc2626'};">
-                                                #{st.direction == 'COMPRA' ? '▲ Sale Límite Sup. CAR' : '▼ Sale Límite
-                                                Inf. CAR'}
+                                                #{st.direction == 'COMPRA' ? '▲ Sale Límite Sup. CAR' : '▼ Sale Límite Inf. CAR'}
                                             </span>
                                             <h:outputText value="#{st.entryDate}"
-                                                style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                                style="font-weight: 700; font-size: 1.05rem; color: #0f172a;" />
                                         </h:panelGroup>
                                         <h:panelGroup rendered="#{st.isSubtotal}">
-                                            <h:outputText value="#{st.entryDate}" style="font-weight: 700;" />
+                                            <h:outputText value="#{st.entryDate}" style="font-weight: 700; font-size: 1.05rem;" />
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Px Entrada" style="width: 95px; text-align: right;">
+                                    <p:column headerText="Px Entrada" style="width: 8%; text-align: right;">
                                         <h:outputText value="#{st.entryPriceA}"
-                                            style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                            style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
                                     </p:column>
                                     <p:column headerText="Cierre de Posición (CAR / Trailing SL)"
-                                        style="width: 175px; text-align: center;">
+                                        style="width: 14%; text-align: center;">
                                         <h:panelGroup rendered="#{st.isOpen and !st.isSubtotal}">
                                             <span
                                                 style="background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 6px; font-weight: 800; font-size: 0.82rem;">●
@@ -984,29 +996,30 @@
                                                 rendered="#{st.exitReason == null or !st.exitReason.contains('Trailing')}">
                                                 <span
                                                     style="display: block; font-size: 0.73rem; font-weight: 800; color: #{st.direction == 'COMPRA' ? '#047857' : '#b91c1c'};">
-                                                    #{st.direction == 'COMPRA' ? '◆ Reingreso CAR Sup' : '◆ Reingreso
-                                                    CAR Inf'}
+                                                    #{st.direction == 'COMPRA' ? '◆ Reingreso CAR Sup' : '◆ Reingreso CAR Inf'}
                                                 </span>
                                             </h:panelGroup>
                                             <h:outputText value="#{st.exitDate}"
-                                                style="font-weight: 700; font-size: 0.84rem; color: #0f172a;" />
+                                                style="font-weight: 700; font-size: 1.05rem; color: #0f172a;" />
                                             <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración:
                                                 #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
                                         </h:panelGroup>
                                         <h:panelGroup rendered="#{st.isSubtotal}">
-                                            <h:outputText value="#{st.exitDate}" style="font-weight: 700;" />
+                                            <h:outputText value="#{st.exitDate}" style="font-weight: 700; font-size: 1.05rem;" />
                                             <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración:
                                                 #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Px Cierre" style="width: 95px; text-align: right;">
+                                    <p:column headerText="Px Cierre" style="width: 8%; text-align: right;">
                                         <h:outputText value="#{st.exitPriceA}"
-                                            style="font-family: monospace; font-weight: 800; color: #0f172a;" />
+                                            style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                            <f:convertNumber pattern="#,##0.000000" />
+                                        </h:outputText>
                                     </p:column>
-                                    <p:column headerText="Margen ($)" style="width: 110px; text-align: right;">
+                                    <p:column headerText="Margen ($)" style="width: 8%; text-align: right;">
                                         <h:panelGroup rendered="#{!st.isSkipped}">
                                             <span
-                                                style="font-weight: 800; color: #0f172a;">$#{st.formattedAllocatedCapital}</span>
+                                                style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">$#{st.formattedAllocatedCapital}</span>
                                             <div style="font-size: 0.76rem; color: #64748b;">#{st.formattedUnitsA} lotes
                                                 (#{st.multA}x)</div>
                                         </h:panelGroup>
@@ -1015,10 +1028,10 @@
                                                 Omitida</span>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Cap. Disminuido ($)" style="width: 105px; text-align: right;">
+                                    <p:column headerText="Cap. Disminuido ($)" style="width: 8%; text-align: right;">
                                         <h:panelGroup rendered="#{!st.isSubtotal and !st.isSkipped}">
                                             <span
-                                                style="font-weight: 800; color: #b45309;">$#{st.formattedAvailableCapital}</span>
+                                                style="font-weight: 800; font-size: 1.05rem; color: #b45309;">$#{st.formattedAvailableCapital}</span>
                                         </h:panelGroup>
                                         <h:panelGroup rendered="#{st.isSubtotal}">
                                             <span
@@ -1027,9 +1040,9 @@
                                             </span>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Ind. Margen" style="width: 85px; text-align: center;">
+                                    <p:column headerText="Ind. Margen" style="width: 7%; text-align: center;">
                                         <h:panelGroup rendered="#{!st.isSubtotal and !st.isSkipped}">
-                                            <span style="font-size: 0.90rem; font-weight: 800; color: #0284c7;"
+                                            <span style="font-size: 1.05rem; font-weight: 800; color: #0284c7;"
                                                 title="Indicador de Margen de la cuenta en esta entrada (Equidad / Margen)">
                                                 #{st.formattedMarginIndicator}
                                             </span>
@@ -1048,21 +1061,21 @@
                                             </span>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Retorno %" style="width: 85px; text-align: right;">
-                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                    <p:column headerText="Retorno %" style="width: 8%; text-align: right;">
+                                        <span style="font-weight: 800; font-size: 1.05rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.returnPct > 0 ? '+' : ''}#{st.formattedReturnPct}%
                                         </span>
                                     </p:column>
-                                    <p:column headerText="PnL ($)" style="width: 115px; text-align: right;">
-                                        <span style="font-weight: 800; color: #{st.isWin ? '#10b981' : '#ef4444'};">
+                                    <p:column headerText="PnL ($)" style="width: 10%; text-align: right;">
+                                        <span style="font-weight: 800; font-size: 1.08rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.pnl >= 0 ? '+' : ''}$#{st.formattedPnl}
                                         </span>
                                         <div style="font-size: 0.76rem; color: #64748b;">(#{st.formattedPipsAWithSign}p)
                                         </div>
                                     </p:column>
-                                    <p:column headerText="Capital Acum. ($)" style="width: 110px; text-align: right;">
+                                    <p:column headerText="Capital Acum. ($)" style="width: 9%; text-align: right;">
                                         <span
-                                            style="font-weight: 800; color: #0f172a;">$#{st.formattedAccumCapital}</span>
+                                            style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">$#{st.formattedAccumCapital}</span>
                                     </p:column>
                                 </p:dataTable>
                             </div>
@@ -1115,9 +1128,12 @@
             </p:tab>
 
             <!-- ========================================================================= -->
-            <!-- PESTAÑA 4: HECHOS CART (ÓRDENES REALES CON strategy = 'CART ATALAia')     -->
+            <!-- PESTAÑA: HECHOS RIDER (ÓRDENES REALES CON strategy = 'RIDER')              -->
             <!-- ========================================================================= -->
-            <p:tab title="Hechos">
+            <p:tab titletip="Hechos">
+                <f:facet name="title">
+                    <span class="hechos-tab-icon" title="Hechos" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
                 <p:outputPanel id="cartMovimientosWrapper" layout="block"
                     style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
 
@@ -1258,8 +1274,8 @@
                                     var="rt" scrollable="true" scrollHeight="290px" paginator="false"
                                     rowStyleClass="#{rt.isSubtotal ? 'aether-subtotal-row' : ''}"
                                     emptyMessage="No hay operaciones registradas en RIDER para este activo y cuenta."
-                                    styleClass="aether-datatable" tableStyle="min-width: 100%;">
-                                    <p:column headerText="Entrada" style="width: 70px; text-align: center;">
+                                    styleClass="aether-datatable aether-trades-table" tableStyle="width: 100%;">
+                                    <p:column headerText="Entrada" style="width: 6%; text-align: center;">
                                         <h:panelGroup rendered="#{not rt.isSubtotal}">
                                             <span
                                                 style="background: #f1f5f9; color: #0f766e; border: 1px solid #cbd5e1; font-weight: 700; padding: 2px 7px; border-radius: 10px; font-size: 0.85em;">
@@ -1271,25 +1287,25 @@
                                                 style="font-weight: 900; color: #0f172a; font-size: 0.9em;">TOTAL</span>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="ID / Ticket" style="width: 110px; text-align: center;">
+                                    <p:column headerText="ID / Ticket" style="width: 9%; text-align: center;">
                                         <span style="font-weight: 700; color: #475569;">
                                             #{rt.isSubtotal ? '' : (rt.ticketId != null and rt.ticketId ne '' ?
                                             rt.ticketId : rt.idTrade)}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Símbolo" style="width: 100px; text-align: center;">
+                                    <p:column headerText="Símbolo" style="width: 8%; text-align: center;">
                                         <span style="font-weight: 800; color: #0f766e;">#{rt.isSubtotal ? '' :
                                             rt.symbol}</span>
                                     </p:column>
-                                    <p:column headerText="Dirección" style="width: 90px; text-align: center;">
+                                    <p:column headerText="Dirección" style="width: 8%; text-align: center;">
                                         <span style="font-weight: 800; color: #{rt.directionColor};">#{rt.isSubtotal ?
                                             '' : rt.direction}</span>
                                     </p:column>
-                                    <p:column headerText="Estatus" style="width: 100px; text-align: center;">
+                                    <p:column headerText="Estatus" style="width: 8%; text-align: center;">
                                         <span style="font-weight: 700; color: #{rt.statusColor};">#{rt.isSubtotal ? '' :
                                             rt.statusLabel}</span>
                                     </p:column>
-                                    <p:column headerText="Volumen" style="text-align: right; width: 110px;">
+                                    <p:column headerText="Volumen" style="text-align: right; width: 9%;">
                                         <h:panelGroup rendered="#{not rt.isSubtotal}">
                                             <span
                                                 style="font-weight: 800; color: #{rt.volumeColor}; background: #{rt.volumeBgColor}; border: 1px solid #{rt.volumeBorderColor}; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; display: inline-block;">
@@ -1300,26 +1316,26 @@
                                             <span style="font-weight: 900; color: #0f172a;">#{rt.formattedSize}</span>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Px Entrada" style="text-align: right; width: 100px;">
-                                        <span style="font-family: monospace;">#{rt.isSubtotal ? '-' :
+                                    <p:column headerText="Px Entrada" style="text-align: right; width: 9%;">
+                                        <span>#{rt.isSubtotal ? '-' :
                                             rt.formattedEntryPrice}</span>
                                     </p:column>
-                                    <p:column headerText="Px Salida" style="text-align: right; width: 100px;">
-                                        <span style="font-family: monospace;">#{rt.isSubtotal ? '-' :
+                                    <p:column headerText="Px Salida" style="text-align: right; width: 9%;">
+                                        <span>#{rt.isSubtotal ? '-' :
                                             rt.formattedExitPrice}</span>
                                     </p:column>
-                                    <p:column headerText="Apertura" style="text-align: center; width: 130px;">
+                                    <p:column headerText="Apertura" style="text-align: center; width: 12%;">
                                         <span style="font-weight: #{rt.isSubtotal ? '800' : 'normal'};">#{rt.isSubtotal
                                             ? (rt.tradeCount += ' ops') : rt.openTime}</span>
                                     </p:column>
-                                    <p:column headerText="Cierre" style="text-align: center; width: 130px;">
+                                    <p:column headerText="Cierre" style="text-align: center; width: 12%;">
                                         <span>#{rt.isSubtotal ? '-' : (rt.closeTime != '' ? rt.closeTime : '-')}</span>
                                     </p:column>
-                                    <p:column headerText="Comisión" style="text-align: right; width: 85px;">
+                                    <p:column headerText="Comisión" style="text-align: right; width: 8%;">
                                         <span
                                             style="color: #b45309; font-weight: #{rt.isSubtotal ? '900' : '700'};">$#{rt.formattedCommission}</span>
                                     </p:column>
-                                    <p:column headerText="PnL Neto ($)" style="text-align: right; width: 115px;">
+                                    <p:column headerText="PnL Neto ($)" style="text-align: right; width: 11%;">
                                         <span
                                             style="font-weight: 900; color: #{rt.pnlColor}; font-size: #{rt.isSubtotal ? '1.08em' : '1em'};">
                                             #{rt.netPnl >= 0 ? '+' : ''}$#{rt.formattedNetPnl}
@@ -1399,7 +1415,7 @@
                     badge.style.background = 'rgba(2, 132, 199, 0.15)';
                     badge.style.color = '#0369a1';
                     badge.style.border = '1.5px solid #0284c7';
-                    badge.innerHTML = '<i class="pi pi-percentage" style="font-size: 0.95rem;"></i><span>ESTRATEGIA ACTIVA: <b>RATIOS</b></span>';
+                    badge.innerHTML = '<span style="display:inline-block;width:22px;height:16px;-webkit-mask:url(\'' + (window._atalaiaContextPath || '/ATALA.ia') + '/resources/images/ratio.png\') no-repeat center / contain;mask:url(\'' + (window._atalaiaContextPath || '/ATALA.ia') + '/resources/images/ratio.png\') no-repeat center / contain;background-color:currentColor;vertical-align:middle;margin-right:6px;"></span><span>ESTRATEGIA ACTIVA: <b>RATIOS</b></span>';
                 }
             }
 
@@ -1954,8 +1970,8 @@
                         var candleEntry = findClosestCandle(rawEntryTs);
                         var candleExit = rawExitTs ? findClosestCandle(rawExitTs) : null;
 
-                        var entryTs = candleEntry ? candleEntry.x : rawEntryTs;
-                        var exitTs = candleExit ? candleExit.x : rawExitTs;
+                        var entryTs = (candleEntry && candleEntry.x !== undefined) ? candleEntry.x : rawEntryTs;
+                        var exitTs = (candleExit && candleExit.x !== undefined) ? candleExit.x : rawExitTs;
 
                         var dirStr = String(tr.direction || 'CORTO').toUpperCase();
                         var isBuy = dirStr.indexOf('COMPRA') !== -1 || dirStr.indexOf('BUY') !== -1 || dirStr.indexOf('LARG') !== -1;
@@ -1966,19 +1982,9 @@
                             hasActivePosition = true;
                         }
 
-                        // Sincronizar precio de entrada y salida con la escala de la serie de velas para evitar distorsiones visuales por feeds desfasados
-                        var chartEntryPx = entryPx;
-                        if (candleEntry && candleEntry.y !== null && candleEntry.y !== undefined) {
-                            if (entryPx === null || Math.abs(entryPx - candleEntry.y) / candleEntry.y > 0.003) {
-                                chartEntryPx = Number(candleEntry.y);
-                            }
-                        }
-                        var chartExitPx = exitPx;
-                        if (candleExit && candleExit.y !== null && candleExit.y !== undefined) {
-                            if (exitPx === null || Math.abs(exitPx - candleExit.y) / candleExit.y > 0.003) {
-                                chartExitPx = Number(candleExit.y);
-                            }
-                        }
+                        // Coincidir puntos de entrada y salida exactamente con la gráfica del precio (priceSeries)
+                        var chartEntryPx = (candleEntry && candleEntry.y !== null && candleEntry.y !== undefined) ? Number(candleEntry.y) : entryPx;
+                        var chartExitPx = (candleExit && candleExit.y !== null && candleExit.y !== undefined) ? Number(candleExit.y) : exitPx;
 
                         if (entryTs && (minHistTs === null || entryTs >= minHistTs)) {
                             // LÍNEA VERTICAL PUNTEADA DE ENTRADA (SÓLO PARA ENTRADA VIGENTE)
@@ -2004,16 +2010,21 @@
                                 var trVolColor = getCartVolumeColor(trVolRatio);
                                 var trRvol = (tr.entryRvol !== undefined && tr.entryRvol !== null) ? Number(tr.entryRvol) : ((candleEntry && candleEntry.raw && candleEntry.raw.rvol) ? Number(candleEntry.raw.rvol) : null);
 
+                                var tradeEntryNum = (tr.cycleNum !== undefined && tr.cycleNum !== null) ? tr.cycleNum :
+                                                    ((tr.tradeNum !== undefined && tr.tradeNum !== null) ? tr.tradeNum : (tIdx + 1));
                                 var metaEntry = {
                                     x: entryTs,
                                     y: chartEntryPx,
-                                    tradeNum: tr.idTrade || tr.tradeNum || (tIdx + 1),
+                                    cycleNum: tradeEntryNum,
+                                    idTrade: tr.idTrade,
+                                    ticketId: tr.ticketId,
+                                    tradeNum: tradeEntryNum,
                                     direction: isBuy ? 'COMPRA' : 'VENTA',
                                     signalType: isOpen ? (isBuy ? 'LARGO ▲ (Límite Superior)' : 'CORTO ▼ (Límite Inferior)') : (tr.signalType || 'ENTRADA'),
                                     entryDate: trOpenTime,
                                     exitDate: trCloseTime || 'EN CURSO',
-                                    entryPrice: chartEntryPx,
-                                    exitPrice: chartExitPx,
+                                    entryPrice: (entryPx !== null && !isNaN(entryPx)) ? entryPx : chartEntryPx,
+                                    exitPrice: (exitPx !== null && !isNaN(exitPx)) ? exitPx : chartExitPx,
                                     volume: trVol,
                                     volumeRatio: trVolRatio,
                                     volumeColor: trVolColor,
@@ -2133,7 +2144,7 @@
                                 var slEndTs = isOpen ? (priceSeries.length > 0 ? priceSeries[priceSeries.length - 1].x : entryTs) : (exitTs || entryTs);
 
                                 // LÍNEA HORIZONTAL CONTINUA SÓLO PARA LA ENTRADA VIGENTE (ABIERTA / EN CURSO)
-                                if (!isBtChart && isOpen && entryTs && slEndTs) {
+                                if (!isBtChart && isOpen && entryTs && slEndTs && chartEntryPx !== null) {
                                     annotations['cartEntryHorizontalLine_' + annotId] = {
                                         type: 'line',
                                         scaleID: 'y',
@@ -2193,16 +2204,21 @@
                             }
                             var trExitVolColor = getCartVolumeColor(trExitVolRatio);
 
+                            var tradeExitNum = (tr.cycleNum !== undefined && tr.cycleNum !== null) ? tr.cycleNum :
+                                               ((tr.tradeNum !== undefined && tr.tradeNum !== null) ? tr.tradeNum : (tIdx + 1));
                             var metaExit = {
                                 x: exitTs,
                                 y: chartExitPx,
-                                tradeNum: tr.idTrade || tr.tradeNum || (tIdx + 1),
+                                cycleNum: tradeExitNum,
+                                idTrade: tr.idTrade,
+                                ticketId: tr.ticketId,
+                                tradeNum: tradeExitNum,
                                 direction: isBuy ? 'COMPRA' : 'VENTA',
                                 signalType: tr.exitReason || (isBuy ? 'Reingreso CAR Superior' : 'Reingreso CAR Inferior'),
                                 entryDate: trOpenTime,
                                 exitDate: trCloseTime,
-                                entryPrice: chartEntryPx,
-                                exitPrice: chartExitPx,
+                                entryPrice: (entryPx !== null && !isNaN(entryPx)) ? entryPx : chartEntryPx,
+                                exitPrice: (exitPx !== null && !isNaN(exitPx)) ? exitPx : chartExitPx,
                                 volume: trExitVol,
                                 volumeRatio: trExitVolRatio,
                                 volumeColor: trExitVolColor,
@@ -2490,8 +2506,21 @@
                     if (hInicioFormatted.length === 5) hInicioFormatted = hInicioFormatted + ':00';
                     var parsedZoomMinTs = parseCartDateMs(lastCandleYmd + ' ' + hInicioFormatted);
 
-                    if (parsedZoomMinTs && maxHistTs && parsedZoomMinTs < maxHistTs) {
-                        var zoomMinTs = (minHistTs !== null) ? Math.max(parsedZoomMinTs, minHistTs) : parsedZoomMinTs;
+                    // Asegurar que el zoom horizontal incluya todas las órdenes de la sesión de hoy
+                    var earliestTodayTradeTs = parsedZoomMinTs;
+                    if (tradesToRender && tradesToRender.length > 0) {
+                        for (var trk = 0; trk < tradesToRender.length; trk++) {
+                            var trkTs = parseCartDateMs(tradesToRender[trk].openTime || tradesToRender[trk].entryDate);
+                            if (trkTs && isTradeFromToday(tradesToRender[trk])) {
+                                if (earliestTodayTradeTs === null || trkTs < earliestTodayTradeTs) {
+                                    earliestTodayTradeTs = trkTs;
+                                }
+                            }
+                        }
+                    }
+
+                    if (earliestTodayTradeTs && maxHistTs && earliestTodayTradeTs < maxHistTs) {
+                        var zoomMinTs = (minHistTs !== null) ? Math.max(earliestTodayTradeTs - 1800000, minHistTs) : earliestTodayTradeTs;
                         scalesConfig.x.min = zoomMinTs;
 
                         var candleStep = 60000;
@@ -2499,7 +2528,7 @@
                             var diff = priceSeries[priceSeries.length - 1].x - priceSeries[priceSeries.length - 2].x;
                             if (diff > 0 && diff < 86400000) candleStep = diff;
                         }
-                        scalesConfig.x.max = maxHistTs + candleStep * 2;
+                        scalesConfig.x.max = Math.max(maxHistTs + candleStep * 2, Date.now() + candleStep);
 
                         // Ajustar rango vertical dinámico (eje Y) sobre los puntos visibles en la ventana de zoom
                         var visMinY = Infinity;
@@ -2594,12 +2623,12 @@
                                 showLine: false,
                                 pointStyle: 'triangle',
                                 pointRotation: 0,
-                                pointRadius: 7.5,
-                                pointHoverRadius: 11,
+                                pointRadius: 8.5,
+                                pointHoverRadius: 12,
                                 pointBackgroundColor: '#16a34a',
                                 pointBorderColor: '#ffffff',
-                                pointBorderWidth: 1.8,
-                                order: 1
+                                pointBorderWidth: 2,
+                                order: -5
                             },
                             {
                                 label: isLiveChart ? '▼ Entrada Venta (Hechos)' : '▼ Entrada Venta (Salida debajo CAR)',
@@ -2607,26 +2636,26 @@
                                 showLine: false,
                                 pointStyle: 'triangle',
                                 pointRotation: 180,
-                                pointRadius: 7.5,
-                                pointHoverRadius: 11,
+                                pointRadius: 8.5,
+                                pointHoverRadius: 12,
                                 pointBackgroundColor: '#dc2626',
                                 pointBorderColor: '#ffffff',
-                                pointBorderWidth: 1.8,
-                                order: 2
+                                pointBorderWidth: 2,
+                                order: -5
                             },
                             {
                                 label: isLiveChart ? '◆ Cierre de Posición (Hechos)' : '◆ Cierre de Posición (Reingreso al CAR / Trailing SL)',
                                 data: exitPoints,
                                 showLine: false,
                                 pointStyle: 'rectRot',
-                                pointRadius: 6.5,
-                                pointHoverRadius: 10.5,
+                                pointRadius: 7.5,
+                                pointHoverRadius: 11,
                                 pointBackgroundColor: '#0f172a',
                                 pointBorderColor: function (ctx) {
                                     return exitPointBorders[ctx.dataIndex] || '#ffffff';
                                 },
                                 pointBorderWidth: 2,
-                                order: 3
+                                order: -5
                             }
                         ].concat(isBtChart ? [
                             {
@@ -2665,7 +2694,7 @@
                                 pointRadius: 0,
                                 fill: false,
                                 tension: 0,
-                                order: 0
+                                order: 4
                             },
                             {
                                 label: '— Precio (Posición Activa)',
@@ -2675,7 +2704,7 @@
                                 pointRadius: 0,
                                 fill: false,
                                 tension: 0,
-                                order: 0
+                                order: 5
                             },
                             {
                                 label: '— Trailing Stop Loss (±' + slPctStr + ')',
@@ -2687,7 +2716,7 @@
                                 pointRadius: 0,
                                 fill: '-1',
                                 tension: 0,
-                                order: 0
+                                order: 4
                             }
                         ] : [])
                     },
@@ -2712,6 +2741,11 @@
                                 }
                             },
                             tooltip: {
+                                itemSort: function (a, b) {
+                                    var aIsTrade = (a.raw && (a.raw.eventType === 'ENTRADA' || a.raw.eventType === 'CIERRE')) ? 1 : 0;
+                                    var bIsTrade = (b.raw && (b.raw.eventType === 'ENTRADA' || b.raw.eventType === 'CIERRE')) ? 1 : 0;
+                                    return bIsTrade - aIsTrade;
+                                },
                                 callbacks: {
                                     label: function (context) {
                                         var raw = context.raw || {};
@@ -2719,8 +2753,10 @@
                                         if (raw.eventType === 'ENTRADA') {
                                             var volStr = (raw.volume !== undefined && raw.volume !== null && raw.volume > 0) ? (' | Vol: ' + raw.volume) : '';
                                             var rvolStr = (raw.rvol !== undefined && raw.rvol !== null) ? (' (RVOL: ' + raw.rvol + 'x)') : '';
-                                            var line1 = (raw.tradeNum ? '[Entrada ' + raw.tradeNum + '] ' : '') +
-                                                'ENTRADA ' + (raw.direction || '') + ' @ ' + Number(raw.y).toFixed(dec) + volStr + rvolStr;
+                                            var numLabel = raw.cycleNum ? ('[Entrada #' + raw.cycleNum + (raw.idTrade ? ' · ID: ' + raw.idTrade : '') + '] ') :
+                                                           (raw.tradeNum ? ('[Entrada #' + raw.tradeNum + '] ') : '');
+                                            var line1 = numLabel +
+                                                'ENTRADA ' + (raw.direction || '') + ' @ ' + (raw.entryPrice ? Number(raw.entryPrice).toFixed(dec) : Number(raw.y).toFixed(dec)) + volStr + rvolStr;
                                             var line2 = 'Salida CAR: ' + (raw.entryDate || '');
                                             if (raw.pnl !== undefined && raw.pnl !== null) {
                                                 var sign = Number(raw.pnl) >= 0 ? '+' : '';
@@ -2736,8 +2772,10 @@
                                         }
                                         if (raw.eventType === 'CIERRE') {
                                             var cVolStr = (raw.volume !== undefined && raw.volume !== null && raw.volume > 0) ? (' | Vol: ' + raw.volume) : '';
-                                            var cLine1 = (raw.tradeNum ? '[Entrada ' + raw.tradeNum + '] ' : '') +
-                                                'CIERRE (' + (raw.direction || '') + ') por Reingreso CAR @ ' + Number(raw.y).toFixed(dec) + cVolStr;
+                                            var cNumLabel = raw.cycleNum ? ('[Entrada #' + raw.cycleNum + (raw.idTrade ? ' · ID: ' + raw.idTrade : '') + '] ') :
+                                                            (raw.tradeNum ? ('[Entrada #' + raw.tradeNum + '] ') : '');
+                                            var cLine1 = cNumLabel +
+                                                'CIERRE (' + (raw.direction || '') + ') @ ' + (raw.exitPrice ? Number(raw.exitPrice).toFixed(dec) : Number(raw.y).toFixed(dec)) + cVolStr;
                                             if (raw.pnl !== undefined && raw.pnl !== null) {
                                                 var cSign = Number(raw.pnl) >= 0 ? '+' : '';
                                                 return [

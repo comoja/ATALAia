@@ -2388,7 +2388,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     dbSession.commit()
                 return
 
-        # 3.2 GESTIÓN DE COBERTURAS POR PRECIO (+1% ENTRADA / TRAILING 0.5% / STOP 0.5%)
+        # 3.2 GESTIÓN DE COBERTURAS POR PRECIO (+1% ENTRADA / TRAILING STOP LOSS 2/3 NATR)
         # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
         ENABLE_COBERTURAS = True
         isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles) and ENABLE_COBERTURAS and (idCuenta != 3)
@@ -2400,6 +2400,7 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             for legName, legSym, legSymData, legCurPx in legsToEvaluate:
                 legRegTrades = [t for t in regularTrades if t.get("symbol") == legSym]
                 legCobTrades = [t for t in coverageTrades if t.get("symbol") == legSym]
+                legCobIniTrades = [t for t in coberturaInicialTrades if t.get("symbol") == legSym]
 
                 if not legRegTrades:
                     continue
@@ -2424,8 +2425,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     isAdverse = (legCurPx >= triggerPx)
                     isSafeZone = (legCurPx < triggerPx)
 
-                # CASO 1: NO HAY COBERTURA ACTIVA -> EVALUAR ENTRADA AL 1% ADVERSO
-                if not legCobTrades:
+                # CASO 1: NO HAY COBERTURA ACTIVA (ni de protección ni inicial) -> EVALUAR ENTRADA AL 1% ADVERSO
+                if not legCobTrades and not legCobIniTrades:
                     # Si el precio recuperó a la zona segura, habilitar la siguiente re-entrada
                     if isSafeZone and not cobState.get("safeZoneRecovered", True):
                         cobState["safeZoneRecovered"] = True
@@ -2462,12 +2463,12 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             dbOpenTrades.append(newCob)
                             cobState["safeZoneRecovered"] = False
                             cobState["peakPxMovePct"] = 0.0
-                            cobState["tslThreshold"] = -COBERTURA_NATR_DEFAULT_PCT
+                            cobState["tslThreshold"] = 0.0
                             cobState["target05Reached"] = False
                             saveCoverageState(stateKey, cobState)
 
-                # CASO 2: YA HAY COBERTURA ACTIVA -> EVALUAR CIERRE CON TRAILING STOP LOSS (NATR)
-                else:
+                # CASO 2: YA HAY COBERTURA DE PROTECCIÓN ACTIVA -> EVALUAR CIERRE (BREAK-EVEN O 2/3 TSL DINÁMICO)
+                elif legCobTrades:
                     activeCob = legCobTrades[0]
                     cobPx = float(activeCob.get("entryPrice", 0.0))
                     cobSz = float(activeCob.get("size", 0.0))
@@ -2488,16 +2489,20 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                         pip_size=pipSize
                     )
 
-                    # Distancia de TSL dinámico adaptado a la volatilidad del par (Opción C: NATR)
+                    # Distancia de TSL dinámico adaptado a la volatilidad del par (NATR) a 2/3
                     tslPct = calculateSymbolNATR(dbSession, legSym, timeframe=periodo, kMultiplier=COBERTURA_NATR_MULTIPLIER)
+                    tslDistance = (2.0 / 3.0) * tslPct
 
                     prevPeak = float(cobState.get("peakPxMovePct", 0.0))
                     peakPxMove = max(prevPeak, cobPxMovePct)
 
-                    # TSL estrictamente monótono: el umbral solo puede avanzar a favor, nunca retroceder
-                    prevThreshold = float(cobState.get("tslThreshold", -tslPct))
-                    trailStop = (peakPxMove - tslPct) if peakPxMove > 0 else -tslPct
-                    stopThreshold = max(prevThreshold, trailStop)
+                    # TSL a 2/3 de distancia solo en zona de ganancia positiva
+                    prevThreshold = float(cobState.get("tslThreshold", 0.0))
+                    if peakPxMove > tslDistance:
+                        trailStop = peakPxMove - tslDistance
+                        stopThreshold = max(prevThreshold, trailStop)
+                    else:
+                        stopThreshold = prevThreshold
 
                     cobState["peakPxMovePct"] = peakPxMove
                     cobState["tslThreshold"] = stopThreshold
@@ -2507,25 +2512,34 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                     logger.info(
                         f"🛡️ [{accHeader}] COBERTURA ACTIVA Pata {legName} ({legSym} {cobDir}): "
                         f"Precio Ent: {cobPx:.5f} | Act: {legCurPx:.5f} | Mov: {cobPxMovePct:+.2f}% | "
-                        f"Pico: {peakPxMove:+.2f}% | TSL NATR ({tslPct:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
+                        f"Pico: {peakPxMove:+.2f}% | 2/3 TSL NATR ({tslDistance:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
                     )
 
                     shouldCloseCoverage = False
                     cobCloseReason = ""
 
-                    # Disparo si el precio perfora el Trailing Stop Loss o el Stop Loss de Protección inicial
-                    if cobPxMovePct <= stopThreshold:
+                    # Condición 1: Trailing Stop Loss a 2/3 del TSL en positivo
+                    isTslTriggered = (peakPxMove > tslDistance) and (cobPxMovePct <= stopThreshold) and (stopThreshold > 0.0)
+
+                    # Condición 2: Break-Even (cero pérdidas: precio menor/igual que entrada para compra, mayor/igual para venta)
+                    isBreakEvenTriggered = False
+                    if cobDir in ["LARGO", "BUY"]:
+                        isBreakEvenTriggered = (legCurPx < cobPx) or (peakPxMove > 0.0 and legCurPx <= cobPx)
+                    else:
+                        isBreakEvenTriggered = (legCurPx > cobPx) or (peakPxMove > 0.0 and legCurPx >= cobPx)
+
+                    if isTslTriggered:
                         shouldCloseCoverage = True
-                        if stopThreshold > 0:
-                            cobCloseReason = (
-                                f"POR DISPARO DE TRAILING STOP LOSS NATR (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
-                                f"Mov: {cobPxMovePct:+.2f}% | Distancia TSL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
-                            )
-                        else:
-                            cobCloseReason = (
-                                f"POR STOP DE PROTECCIÓN NATR ({stopThreshold:.2f}% | "
-                                f"Mov: {cobPxMovePct:+.2f}% | Distancia SL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
-                            )
+                        cobCloseReason = (
+                            f"POR DISPARO DE TRAILING STOP LOSS NATR 2/3 (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
+                            f"Mov: {cobPxMovePct:+.2f}% | Distancia 2/3 TSL: {tslDistance:.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
+                    elif isBreakEvenTriggered:
+                        shouldCloseCoverage = True
+                        cobCloseReason = (
+                            f"POR SALIDA BREAK-EVEN / PROTECCIÓN (Entrada: {cobPx:.5f} -> Actual: {legCurPx:.5f} | "
+                            f"Mov: {cobPxMovePct:+.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
 
                     if shouldCloseCoverage:
                         logger.info(
@@ -2543,104 +2557,236 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             closeReason=cobCloseReason
                         )
                         if closeSuccess:
+                            cobState["safeZoneRecovered"] = False
+                            cobState["peakPxMovePct"] = 0.0
+                            cobState["tslThreshold"] = 0.0
+                            saveCoverageState(stateKey, cobState)
                             accountData = fetchAccountData(dbSession, idCuenta)
                             coverageTrades = [t for t in coverageTrades if t.get("idTrade") != activeCob.get("idTrade")]
                             dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != activeCob.get("idTrade")]
 
-        # 3.3 GESTIÓN DE COBERTURA INICIAL (Pata por Pata con Trailing Stop Loss NATR)
+        # 3.3 GESTIÓN DE COBERTURA INICIAL (Cierre y Apertura Pata por Pata por Cruce Contrario al Ride)
         # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
-        if (idCuenta != 3) and coberturaInicialTrades:
-            isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles or hoursOpen >= maxHoursAllowed)
-            for cobIni in list(coberturaInicialTrades):
-                legSym = cobIni.get("symbol")
-                legDir = cobIni.get("direction", "LARGO")
-                cobEntryPx = float(cobIni.get("entryPrice", 0.0))
-                cobSize = float(cobIni.get("size", 0.0))
-                legCurPx = latestPriceA if legSym == numerador else latestPriceB
-                legSymData = symDataA if legSym == numerador else symDataB
-                pipSize = legSymData.get("pip", 0.0001)
+        if idCuenta != 3:
+            # --- PARTE A: CIERRE DE COBERTURAS INICIALES ACTIVAS ---
+            if coberturaInicialTrades:
+                for cobIni in list(coberturaInicialTrades):
+                    legSym = cobIni.get("symbol")
+                    legDir = cobIni.get("direction", "LARGO")
+                    cobEntryPx = float(cobIni.get("entryPrice", 0.0))
+                    cobSize = float(cobIni.get("size", 0.0))
+                    legCurPx = latestPriceA if legSym == numerador else latestPriceB
+                    legSymData = symDataA if legSym == numerador else symDataB
+                    pipSize = legSymData.get("pip", 0.0001)
 
-                cobPnl, _pips, _pipVal, _mov = calculate_unrealized_pnl(
-                    symbol=legSym,
-                    direction=legDir,
-                    entry_price=cobEntryPx,
-                    current_price=legCurPx,
-                    size=cobSize,
-                    pip_size=pipSize
-                )
+                    cobPnl, _pips, _pipVal, _mov = calculate_unrealized_pnl(
+                        symbol=legSym,
+                        direction=legDir,
+                        entry_price=cobEntryPx,
+                        current_price=legCurPx,
+                        size=cobSize,
+                        pip_size=pipSize
+                    )
 
-                shouldCloseCobIni = False
-                cobIniCloseReason = ""
+                    stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
+                    cobState = getCoverageState(stateKey)
 
-                stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
-                cobState = getCoverageState(stateKey)
+                    # Distancia de TSL dinámico adaptado a la volatilidad del par (NATR) a 2/3
+                    tslPct = calculateSymbolNATR(dbSession, legSym, timeframe=periodo, kMultiplier=COBERTURA_NATR_MULTIPLIER)
+                    tslDistance = (2.0 / 3.0) * tslPct
 
-                # Distancia de TSL dinámico adaptado a la volatilidad del par (Opción C: NATR)
-                tslPct = calculateSymbolNATR(dbSession, legSym, timeframe=periodo, kMultiplier=COBERTURA_NATR_MULTIPLIER)
-
-                # Variación porcentual en precio de la cobertura inicial (+ a favor, - en contra)
-                if legDir in ["LARGO", "BUY"]:
-                    movePctFromEntry = ((legCurPx - cobEntryPx) / cobEntryPx) * 100.0
-                else:
-                    movePctFromEntry = ((cobEntryPx - legCurPx) / cobEntryPx) * 100.0
-
-                prevPeak = float(cobState.get("peakPxMovePct", 0.0))
-                peakPxMove = max(prevPeak, movePctFromEntry)
-
-                # TSL estrictamente monótono: el umbral solo puede avanzar a favor, nunca retroceder
-                prevThreshold = float(cobState.get("tslThreshold", -tslPct))
-                trailStop = (peakPxMove - tslPct) if peakPxMove > 0 else -tslPct
-                stopThreshold = max(prevThreshold, trailStop)
-
-                cobState["peakPxMovePct"] = peakPxMove
-                cobState["tslThreshold"] = stopThreshold
-                cobState["tslPct"] = tslPct
-                saveCoverageState(stateKey, cobState)
-
-                logger.info(
-                    f"🛡️ [{accHeader}] COBERTURA INICIAL ACTIVA Pata {legSym} ({legDir}): "
-                    f"Precio Ent: {cobEntryPx:.5f} | Act: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | "
-                    f"Pico: {peakPxMove:+.2f}% | TSL NATR ({tslPct:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
-                )
-
-                # CAUSA 1: Disparo de Trailing Stop Loss o Stop Loss de Protección dinámico
-                if movePctFromEntry <= stopThreshold:
-                    shouldCloseCobIni = True
-                    if stopThreshold > 0:
-                        cobIniCloseReason = (
-                            f"POR DISPARO DE TRAILING STOP LOSS NATR (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
-                            f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | Distancia TSL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
-                        )
+                    # Variación porcentual en precio de la cobertura inicial (+ a favor, - en contra)
+                    if legDir in ["LARGO", "BUY"]:
+                        movePctFromEntry = ((legCurPx - cobEntryPx) / cobEntryPx) * 100.0
                     else:
+                        movePctFromEntry = ((cobEntryPx - legCurPx) / cobEntryPx) * 100.0
+
+                    prevPeak = float(cobState.get("peakPxMovePct", 0.0))
+                    peakPxMove = max(prevPeak, movePctFromEntry)
+
+                    # TSL a 2/3 de distancia solo en zona de ganancia positiva
+                    prevThreshold = float(cobState.get("tslThreshold", 0.0))
+                    if peakPxMove > tslDistance:
+                        trailStop = peakPxMove - tslDistance
+                        stopThreshold = max(prevThreshold, trailStop)
+                    else:
+                        stopThreshold = prevThreshold
+
+                    cobState["peakPxMovePct"] = peakPxMove
+                    cobState["tslThreshold"] = stopThreshold
+                    cobState["tslPct"] = tslPct
+                    saveCoverageState(stateKey, cobState)
+
+                    logger.info(
+                        f"🛡️ [{accHeader}] COBERTURA INICIAL ACTIVA Pata {legSym} ({legDir}): "
+                        f"Precio Ent: {cobEntryPx:.5f} | Act: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | "
+                        f"Pico: {peakPxMove:+.2f}% | 2/3 TSL NATR ({tslDistance:.2f}%): Salida en {stopThreshold:+.2f}% | PnL: ${cobPnl:+.2f}"
+                    )
+
+                    shouldCloseCobIni = False
+                    cobIniCloseReason = ""
+
+                    # Condición 1: Trailing Stop Loss a 2/3 del TSL en positivo
+                    isTslTriggered = (peakPxMove > tslDistance) and (movePctFromEntry <= stopThreshold) and (stopThreshold > 0.0)
+
+                    # Condición 2: Break-Even con activación previa obligatoria
+                    # Requiere haber alcanzado una ganancia mínima de activación (+0.04% o al menos 1/4 de tslDistance)
+                    # antes de cerrar si el precio regresa al precio de entrada (evita falsos cierres en el segundo 0 por spread)
+                    minBeActivation = max(0.04, tslDistance * 0.25)
+                    isBreakEvenTriggered = False
+                    if peakPxMove >= minBeActivation:
+                        if legDir in ["LARGO", "BUY"]:
+                            isBreakEvenTriggered = (legCurPx <= cobEntryPx)
+                        else:
+                            isBreakEvenTriggered = (legCurPx >= cobEntryPx)
+
+                    # Condición 3: Salida por Recuperación del Ride (el ratio se recuperó)
+                    # La cobertura se abrió porque el precio cruzó el Ride en sentido contrario al Ratio.
+                    # Si el precio normalizado regresa al lado favorable del Ride para el Ratio, la cobertura ya cumplió su función.
+                    isRideRecovered = False
+                    legTag = "A" if legSym == numerador else "B"
+                    if signalsList:
+                        cSig = signalsList[-1]
+                        cNorm = float(cSig.get(f"norm{legTag}", 0.0))
+                        cEma = float(cSig.get(f"ema{legTag}", 0.0))
+                        if legDir in ["LARGO", "BUY"] and cNorm < cEma:
+                            isRideRecovered = True
+                        elif legDir in ["CORTO", "SELL"] and cNorm > cEma:
+                            isRideRecovered = True
+
+                    if isTslTriggered:
+                        shouldCloseCobIni = True
                         cobIniCloseReason = (
-                            f"POR STOP DE PROTECCIÓN NATR ({stopThreshold:.2f}% respecto a entrada {cobEntryPx:.5f} | "
-                            f"Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | Distancia SL: {tslPct:.2f}% | PnL: ${cobPnl:+.2f})"
+                            f"POR DISPARO DE TRAILING STOP LOSS NATR 2/3 (+{stopThreshold:.2f}% tras pico de {peakPxMove:+.2f}% | "
+                            f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | Distancia 2/3 TSL: {tslDistance:.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
+                    elif isBreakEvenTriggered:
+                        shouldCloseCobIni = True
+                        cobIniCloseReason = (
+                            f"POR SALIDA BREAK-EVEN / PROTECCIÓN TRAS PICO +{peakPxMove:.2f}% >= {minBeActivation:.2f}% "
+                            f"(Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | PnL: ${cobPnl:+.2f})"
+                        )
+                    elif isRideRecovered:
+                        shouldCloseCobIni = True
+                        cobIniCloseReason = (
+                            f"POR RECUPERACIÓN DEL RIDE (El precio normalizado {legSym} regresó al lado favorable del Ratio | "
+                            f"Entrada: {cobEntryPx:.5f} -> Actual: {legCurPx:.5f} | Mov: {movePctFromEntry:+.2f}% | PnL: ${cobPnl:+.2f})"
                         )
 
-                # CAUSA 2: Entrada inmediata en Modo Protección por Oleaje (sin esperar nuevo cuadro/triángulo)
-                elif isProtectionMode:
-                    shouldCloseCobIni = True
-                    cobIniCloseReason = f"POR ENTRADA EN MODO PROTECCIÓN POR OLEAJE ({detectedWaves}/{maxAllowedCycles} CICLOS ALCANZADOS | PnL: ${cobPnl:+.2f})"
+                    if shouldCloseCobIni:
+                        logger.info(
+                            f"🎯 [{accHeader}] DISPARO DE SALIDA DE COBERTURA INICIAL Pata {legSym} ({legDir}): {cobIniCloseReason}"
+                        )
+                        closeSuccess = closeSingleCoverageTrade(
+                            dbSession=dbSession,
+                            idCuenta=idCuenta,
+                            setupName=setupName,
+                            coverageTrade=cobIni,
+                            latestPrice=legCurPx,
+                            symData=legSymData,
+                            accountData=accountData,
+                            closeReason=cobIniCloseReason
+                        )
+                        if closeSuccess:
+                            cobState["peakPxMovePct"] = 0.0
+                            cobState["tslThreshold"] = 0.0
+                            cobState["executedWave"] = detectedWaves
+                            cobState["lastExitDate"] = str(signalsList[-1].get("date", "")).strip() if signalsList else ""
+                            cobState["lastExitTime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            saveCoverageState(stateKey, cobState)
+                            accountData = fetchAccountData(dbSession, idCuenta)
+                            coberturaInicialTrades = [t for t in coberturaInicialTrades if t.get("idTrade") != cobIni.get("idTrade")]
+                            dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != cobIni.get("idTrade")]
 
-                if shouldCloseCobIni:
-                    logger.info(
-                        f"🎯 [{accHeader}] DISPARO DE SALIDA DE COBERTURA INICIAL Pata {legSym} ({legDir}): {cobIniCloseReason}"
-                    )
-                    closeSuccess = closeSingleCoverageTrade(
-                        dbSession=dbSession,
-                        idCuenta=idCuenta,
-                        setupName=setupName,
-                        coverageTrade=cobIni,
-                        latestPrice=legCurPx,
-                        symData=legSymData,
-                        accountData=accountData,
-                        closeReason=cobIniCloseReason
-                    )
-                    if closeSuccess:
-                        clearCoverageState(stateKey)
-                        accountData = fetchAccountData(dbSession, idCuenta)
-                        coberturaInicialTrades = [t for t in coberturaInicialTrades if t.get("idTrade") != cobIni.get("idTrade")]
-                        dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != cobIni.get("idTrade")]
+            # --- PARTE B: APERTURA DE COBERTURA INICIAL POR CRUCE CONTRARIO AL RIDE ---
+            if regularTrades and len(signalsList) >= 2:
+                prevSig = signalsList[-2]
+                currSig = signalsList[-1]
+
+                legsForCobIni = [
+                    ("A", numerador, symDataA, latestPriceA,
+                     float(prevSig.get("normA", 0.0)), float(currSig.get("normA", 0.0)),
+                     float(prevSig.get("emaA", 0.0)), float(currSig.get("emaA", 0.0))),
+                    ("B", denominador, symDataB, latestPriceB,
+                     float(prevSig.get("normB", 0.0)), float(currSig.get("normB", 0.0)),
+                     float(prevSig.get("emaB", 0.0)), float(currSig.get("emaB", 0.0)))
+                ]
+
+                for legTag, legSym, legSymData, legCurPx, prevNorm, currNorm, prevEma, currEma in legsForCobIni:
+                    legRegTrades = [t for t in regularTrades if t.get("symbol") == legSym]
+                    if not legRegTrades:
+                        continue
+
+                    # Verificar si ya existe alguna cobertura activa en esta pata (exclusividad)
+                    legCobActive = [t for t in (coverageTrades + coberturaInicialTrades) if t.get("symbol") == legSym]
+                    if legCobActive:
+                        continue
+
+                    stateKey = f"{idCuenta}_{setupName}_{legSym}_COB_INI"
+                    cobState = getCoverageState(stateKey)
+
+                    # Candado anti-whipsaw 1: Evitar re-apertura en la misma vela de salida o ejecución
+                    currCandleDate = str(currSig.get("date", "")).strip()
+                    lastExecDate = str(cobState.get("lastExecutedDate", "")).strip()
+                    lastExitDate = str(cobState.get("lastExitDate", "")).strip()
+                    if currCandleDate and (currCandleDate == lastExecDate or currCandleDate == lastExitDate):
+                        continue
+
+                    # Candado anti-whipsaw 2: Máximo 1 cobertura inicial por pata en cada ola/ciclo detectado
+                    executedWave = cobState.get("executedWave")
+                    if executedWave is not None and int(executedWave) == detectedWaves:
+                        continue
+
+                    lastReg = legRegTrades[-1]
+                    ratioDir = lastReg.get("direction", "LARGO")
+                    legTotSize = sum(float(tr.get("size", 0.0)) for tr in legRegTrades)
+
+                    # Cruce contrario al Ride:
+                    # Ratio en CORTO: engaña cruzando hacia ARRIBA del Ride -> Cobertura entra en LARGO
+                    isCrossUp = (prevNorm <= prevEma and currNorm > currEma)
+                    # Ratio en LARGO: engaña cruzando hacia ABAJO del Ride -> Cobertura entra en CORTO
+                    isCrossDown = (prevNorm >= prevEma and currNorm < currEma)
+
+                    triggerCobIni = False
+                    cobIniDir = ""
+                    crossReason = ""
+
+                    if ratioDir in ["CORTO", "SELL"] and isCrossUp:
+                        triggerCobIni = True
+                        cobIniDir = "LARGO"
+                        crossReason = f"Precio cruzó Ride al alza (Norm {prevNorm:.4f}->{currNorm:.4f} > EMA {currEma:.4f}) contrario a entrada Ratio CORTO"
+                    elif ratioDir in ["LARGO", "BUY"] and isCrossDown:
+                        triggerCobIni = True
+                        cobIniDir = "CORTO"
+                        crossReason = f"Precio cruzó Ride a la baja (Norm {prevNorm:.4f}->{currNorm:.4f} < EMA {currEma:.4f}) contrario a entrada Ratio LARGO"
+
+                    if triggerCobIni and legTotSize > 0:
+                        logger.warning(
+                            f"🛡️ [{accHeader}] ¡DISPARO DE COBERTURA INICIAL Pata {legTag} ({legSym})! "
+                            f"{crossReason}. Abriendo {cobIniDir} por {legTotSize:,.0f} u (100% de la pata)..."
+                        )
+                        newCobIni = openSingleCoverageTrade(
+                            dbSession=dbSession,
+                            idCuenta=idCuenta,
+                            setupName=setupName,
+                            symbol=legSym,
+                            direction=cobIniDir,
+                            size=legTotSize,
+                            entryPrice=legCurPx,
+                            accountData=accountData,
+                            symData=legSymData,
+                            periodo=periodo,
+                            legReason=crossReason,
+                            strategyName="COBERTURA INICIAL"
+                        )
+                        if newCobIni:
+                            coberturaInicialTrades.append(newCobIni)
+                            dbOpenTrades.append(newCobIni)
+                            cobState["executedWave"] = detectedWaves
+                            cobState["lastExecutedDate"] = currCandleDate
+                            cobState["peakPxMovePct"] = 0.0
+                            cobState["tslThreshold"] = 0.0
+                            saveCoverageState(stateKey, cobState)
 
     if sameSide:
         logger.info(
@@ -2877,7 +3023,6 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 f"Dirección: {numerador} {dirA} + {denominador} {dirB} | "
                 f"Ind. Margen: {marginInd:.1f}% >= {accountData.get('indicadorMargen', 200.0):.0f}%). Registrando en trades..."
             )
-            isFirstRatioEntry = not regularTrades
             tradePairOpened = openSingleRatioTradePair(
                 dbSession=dbSession,
                 idCuenta=idCuenta,
@@ -2895,55 +3040,6 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                 symDataA=symDataA,
                 symDataB=symDataB
             )
-
-            # APERTURA DE COBERTURA INICIAL: Solo en el primer cuadro/triángulo de la canasta (1:1 en sentido opuesto)
-            # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
-            if tradePairOpened and isFirstRatioEntry and (idCuenta != 3):
-                freshTrades = checkActiveOpenTrades(dbSession, idCuenta, setupName)
-                freshA = [t for t in freshTrades if t.get("symbol") == numerador and "RATIO" in str(t.get("strategy") or "").upper()]
-                freshB = [t for t in freshTrades if t.get("symbol") == denominador and "RATIO" in str(t.get("strategy") or "").upper()]
-                totSizeA = sum(float(t.get("size", 0.0)) for t in freshA)
-                totSizeB = sum(float(t.get("size", 0.0)) for t in freshB)
-
-                oppDirA = "CORTO" if dirA == "LARGO" else "LARGO"
-                oppDirB = "CORTO" if dirB == "LARGO" else "LARGO"
-
-                logger.info(
-                    f"🛡️ [{accHeader}] DISPARANDO COBERTURA INICIAL (1er {sigType}): "
-                    f"{numerador} {oppDirA} {totSizeA:,.0f} u + {denominador} {oppDirB} {totSizeB:,.0f} u"
-                )
-
-                if totSizeA > 0:
-                    openSingleCoverageTrade(
-                        dbSession=dbSession,
-                        idCuenta=idCuenta,
-                        setupName=setupName,
-                        symbol=numerador,
-                        direction=oppDirA,
-                        size=totSizeA,
-                        entryPrice=latestPriceA,
-                        accountData=accountData,
-                        symData=symDataA,
-                        periodo=periodo,
-                        legReason=f"Primer {sigType} del ratio",
-                        strategyName="COBERTURA INICIAL"
-                    )
-
-                if totSizeB > 0:
-                    openSingleCoverageTrade(
-                        dbSession=dbSession,
-                        idCuenta=idCuenta,
-                        setupName=setupName,
-                        symbol=denominador,
-                        direction=oppDirB,
-                        size=totSizeB,
-                        entryPrice=latestPriceB,
-                        accountData=accountData,
-                        symData=symDataB,
-                        periodo=periodo,
-                        legReason=f"Primer {sigType} del ratio",
-                        strategyName="COBERTURA INICIAL"
-                    )
         else:
             logger.info(f"ℹ️ [{accHeader}] Señal ({sigType}) de fecha {entryDateStr} ya fue registrada previamente en trades.")
     else:

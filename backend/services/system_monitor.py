@@ -146,6 +146,18 @@ class SystemMonitorService:
             "description": "Optimizador adaptativo de temporalidad, R:R, confianza y horario operativo para SNIPER."
         },
         {
+            "id": "sniper_ml",
+            "name": "SNIPER ML Engine",
+            "unit": None,
+            "is_system": False,
+            "is_file_artifact": True,
+            "artifact_path": "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/Sentinel/ml/trainedModel.joblib",
+            "port": None,
+            "category": "Machine Learning",
+            "icon": "pi pi-bolt",
+            "description": "Modelo RandomForest (300 árboles) para predicción de probabilidad. Reentrenamiento: Domingos 05:00 AM."
+        },
+        {
             "id": "ngrok",
             "name": "Ngrok Tunnel (WebHook)",
             "unit": "ngrok",
@@ -243,7 +255,17 @@ class SystemMonitorService:
             status_css = "status-inactive"
             pid_info = "-"
 
-            if svc.get("is_process"):
+            if svc.get("is_file_artifact"):
+                art_path = svc.get("artifact_path", "")
+                if os.path.exists(art_path):
+                    is_active = True
+                    mtime = os.path.getmtime(art_path)
+                    mdate = datetime.fromtimestamp(mtime).strftime("%d/%b %H:%M")
+                    sz_mb = os.path.getsize(art_path) / (1024 * 1024)
+                    pid_info = f"{sz_mb:.1f}MB ({mdate})"
+                    auto_start = "Cron: Dom 05:00"
+                    status_label = f"Vigente ({mdate})"
+            elif svc.get("is_process"):
                 proc_info = cls.check_process(svc["process_match"])
                 is_active = proc_info["active"]
                 if proc_info["pids"]:
@@ -377,6 +399,12 @@ class SystemMonitorService:
 
         if svc_lower in ["all", "microcart", "cart"]:
             add_from_file("microCart", f"{base_dir}/logs/microCart.log", 30)
+
+        if svc_lower in ["all", "microsniper", "sniper"]:
+            add_from_file("microSniper", f"{base_dir}/logs/microSniper.log", 30)
+
+        if svc_lower in ["all", "sniper_ml", "ml", "retrain"]:
+            add_from_file("Sniper-ML", f"{base_dir}/logs/sniper_ml_retrain.log", 30)
 
         if svc_lower in ["all", "backend", "fastapi"]:
             add_from_file("Backend-FastAPI", f"{base_dir}/logs/backend_output.log", 25)

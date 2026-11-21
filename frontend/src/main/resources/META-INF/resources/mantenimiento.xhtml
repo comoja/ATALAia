@@ -459,6 +459,8 @@
                             <f:selectItem itemLabel="Sentinel (Trading Bots)" itemValue="sentinel" />
                             <f:selectItem itemLabel="microRatio (Ratios &amp; PnL)" itemValue="microratio" />
                             <f:selectItem itemLabel="microCart (CART &amp; CAR)" itemValue="microcart" />
+                            <f:selectItem itemLabel="microSniper (Estrategia SNIPER)" itemValue="microsniper" />
+                            <f:selectItem itemLabel="SNIPER ML (auto_retrain)" itemValue="sniper_ml" />
                             <f:selectItem itemLabel="Backend FastAPI Core" itemValue="backend" />
                             <f:selectItem itemLabel="MT5 Wine Bridge" itemValue="mt5bridge" />
                             <f:selectItem itemLabel="ConnectionPool API" itemValue="connectionpool" />
@@ -551,6 +553,22 @@
                                          action="#{mantenimientoBean.runCartOptimizer()}"
                                          update="@form :servicesGridForm :terminalForm"
                                          styleClass="aether-btn-primary" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Reentrenamiento Dominical ML SNIPER</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Auto-reentrenamiento de RandomForest (300 árboles). Programado en crontab: <b>#{mantenimientoBean.sniperMlCron}</b></div>
+                            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+                                Última ejecución: <b style="color: #b47b2b;">#{mantenimientoBean.sniperMlLastTrained}</b> · Tamaño: <b>#{mantenimientoBean.sniperMlSizeMb}</b>
+                            </div>
+                        </div>
+                        <p:commandButton value="Reentrenar" 
+                                         icon="pi pi-bolt"
+                                         action="#{mantenimientoBean.runSniperMlRetrain()}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary"
+                                         style="background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
                     </div>
 
                     <div class="action-row">
