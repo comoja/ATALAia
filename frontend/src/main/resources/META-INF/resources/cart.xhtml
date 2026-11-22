@@ -141,12 +141,14 @@
                                         <h:outputText value="#{uc.id}"
                                             style="font-size: 0.95rem; font-weight: 800; color: #0f766e;" />
                                     </p:column>
-                                    <p:column headerText="PAR" sortBy="#{uc.numerador}" style="font-weight: 700;">
-                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                    <p:column headerText="PAR" sortBy="#{uc.numerador}"
+                                        style="font-weight: 700; width: auto; min-width: max-content; white-space: nowrap;"
+                                        styleClass="col-par-flexible">
+                                        <div style="display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                                             <h:outputText value="#{uc.numerador}"
                                                 style="font-size: 1.05rem; font-weight: 800; color: #0f766e; white-space: nowrap;" />
                                             <h:panelGroup rendered="#{uc.nuevaRecomendacion}">
-                                                <span class="badge" style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4);"
+                                                <span class="badge" style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4); white-space: nowrap;"
                                                     title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨ NUEVA</span>
                                             </h:panelGroup>
                                         </div>
@@ -477,7 +479,12 @@
                                             update=":aetherForm :aetherForm:growl"
                                             oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();"
                                             styleClass="aether-btn-secondary"
-                                            style="flex: 1; min-height: 36px; padding: 6px 14px;" icon="pi pi-trash" />
+                                            style="flex: 1; min-height: 36px; padding: 6px 14px;" icon="pi pi-trash"
+                                            title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes eliminar pares RIDER de otro usuario' : (dashboardBean.cartHasActiveTradesInDb ? 'Bloqueado: Tiene posiciones activas en la tabla trades' : 'Eliminar par RIDER guardado')}">
+                                            <p:confirm header="Confirmar Eliminación"
+                                                message="¿Estás seguro de que deseas eliminar este Par RIDER de la cuenta #{dashboardBean.selectedAccountName}?"
+                                                icon="pi pi-exclamation-triangle" />
+                                        </p:commandButton>
                                     </div>
                                 </div>
 

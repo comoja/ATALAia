@@ -188,10 +188,11 @@ class UserRatioCreate(BaseModel):
     fechaInicio: Optional[str] = Field(None, description="Fecha Inicio de calibración")
 
 class UserRatioDelete(BaseModel):
-    idUsuario: int = Field(..., description="ID del usuario")
+    id: Optional[int] = Field(None, description="ID primario del registro en user_ratios")
+    idUsuario: Optional[int] = Field(None, description="ID del usuario")
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
-    numerador: str = Field(..., description="Símbolo numerador (Par A)")
-    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    numerador: Optional[str] = Field(None, description="Símbolo numerador (Par A)")
+    denominador: Optional[str] = Field(None, description="Símbolo denominador (Par B)")
 
 @router.post("/user-ratios/guardar")
 async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db)):
@@ -267,12 +268,12 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
 
         # Regla: No se permite guardar ni modificar en user_ratios si tiene posiciones abiertas en la cuenta
         if has_open_trades:
-            logger.warning(f"Guardado bloqueado para {payload.numerador}/{payload.denominador} en cuenta {cuentaId}: tiene {cnt} posiciones abiertas")
+            logger.warning(f"Guardado bloqueado para {numerador}/{denominador} en cuenta {cuentaId}: tiene {cnt} posiciones abiertas")
             return JSONResponse(
                 status_code=400,
                 content={
                     "status": "error",
-                    "message": f"No se puede guardar el ratio {payload.numerador}/{payload.denominador}: tiene posiciones abiertas en la cuenta."
+                    "message": f"No se puede guardar el ratio {numerador}/{denominador}: tiene posiciones abiertas en la cuenta."
                 }
             )
 
@@ -356,7 +357,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                 if not dfB.empty and 'closePrice' in dfB.columns:
                     fixedMinB, fixedMaxB = float(dfB['closePrice'].min()), float(dfB['closePrice'].max())
             except Exception as ex_lim:
-                logger.warning(f"No se pudieron calcular los limites estaticos para {payload.numerador}/{payload.denominador}: {ex_lim}")
+                logger.warning(f"No se pudieron calcular los limites estaticos para {numerador}/{denominador}: {ex_lim}")
 
         if existingRatio:
             existingRatio.idCuenta = cuentaId
@@ -380,7 +381,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
             existingRatio.borrado = False
             db.commit()
             db.refresh(existingRatio)
-            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, CierreDivergencia: {cierreDivergencia}, Borrado: False]")
+            logger.info(f"Ratio actualizado para usuario {payload.idUsuario} (cuenta {cuentaId}): {numerador}/{denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}, CierreDivergencia: {cierreDivergencia}, Borrado: False]")
             return {"status": "success", "message": "Ratio actualizado exitosamente", "id": existingRatio.id, "idCuenta": cuentaId, "action": "updated"}
         else:
             nuevoRatio = UserRatio(
@@ -409,7 +410,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
             db.add(nuevoRatio)
             db.commit()
             db.refresh(nuevoRatio)
-            logger.info(f"Ratio guardado para usuario {payload.idUsuario} (cuenta {cuentaId}): {payload.numerador}/{payload.denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
+            logger.info(f"Ratio guardado para usuario {payload.idUsuario} (cuenta {cuentaId}): {numerador}/{denominador} ({payload.periodo}, {dias} días) [EMA Fast: {emaRapida}, Slow: {emaLenta}, Operar: {operar}]")
             return {"status": "success", "message": "Ratio guardado exitosamente", "id": nuevoRatio.id, "idCuenta": cuentaId, "action": "created"}
     except Exception as e:
         db.rollback()
@@ -504,25 +505,35 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
     - Si NO tiene ningún registro en trades: Borrado FÍSICO (DELETE).
     """
     try:
-        query = db.query(UserRatio).filter(
-            UserRatio.idUsuario == payload.idUsuario,
-            UserRatio.numerador == payload.numerador,
-            UserRatio.denominador == payload.denominador
-        )
-        if payload.idCuenta:
-            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        ratioToDelete = None
+        if payload.id:
+            ratioToDelete = db.query(UserRatio).filter(UserRatio.id == payload.id).first()
 
-        ratioToDelete = query.first()
+        if not ratioToDelete and payload.numerador and payload.denominador:
+            num = unquote(payload.numerador).strip()
+            den = unquote(payload.denominador).strip()
+            query = db.query(UserRatio).filter(
+                (UserRatio.numerador == num) | (UserRatio.numerador == payload.numerador),
+                (UserRatio.denominador == den) | (UserRatio.denominador == payload.denominador)
+            )
+            if payload.idCuenta:
+                query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+            elif payload.idUsuario:
+                query = query.filter(UserRatio.idUsuario == payload.idUsuario)
+            ratioToDelete = query.first()
 
         if not ratioToDelete:
             raise HTTPException(status_code=404, detail="No se encontró la combinación de ratio especificada para eliminar.")
 
         targetAccount = ratioToDelete.idCuenta or payload.idCuenta
+        numerador = ratioToDelete.numerador or payload.numerador
+        denominador = ratioToDelete.denominador or payload.denominador
+
         from sqlalchemy import text
-        s1 = f"{payload.numerador} - {payload.denominador}"
-        s2 = f"{payload.denominador} - {payload.numerador}"
-        s3 = f"{payload.numerador.replace("//", "")} - {payload.denominador.replace("//", "")}"
-        s4 = f"{payload.denominador.replace("//", "")} - {payload.numerador.replace("//", "")}"
+        s1 = f"{numerador} - {denominador}"
+        s2 = f"{denominador} - {numerador}"
+        s3 = f"{numerador.replace('/', '')} - {denominador.replace('/', '')}"
+        s4 = f"{denominador.replace('/', '')} - {numerador.replace('/', '')}"
 
         # 1. Validar si tiene posiciones activas (OPEN) en trades
         if targetAccount:
@@ -552,21 +563,21 @@ def deleteUserRatio(payload: UserRatioDelete, db: Session = Depends(get_db)):
             ratioToDelete.borrado = True
             ratioToDelete.operar = False
             db.commit()
-            logger.info(f"Ratio marcado como borrado LÓGICO para usuario {payload.idUsuario} (cuenta {targetAccount}): {payload.numerador}/{payload.denominador} ({total_trades} trades históricos preservados)")
+            logger.info(f"Ratio marcado como borrado LÓGICO para usuario {payload.idUsuario} (cuenta {targetAccount}): {numerador}/{denominador} ({total_trades} trades históricos preservados)")
             return {
                 "status": "success",
                 "action": "logical_delete",
-                "message": f"Ratio {payload.numerador} / {payload.denominador} archivado lógicamente. Se conservaron {total_trades} registros históricos en trades."
+                "message": f"Ratio {numerador} / {denominador} archivado lógicamente. Se conservaron {total_trades} registros históricos en trades."
             }
         else:
             # Borrado FÍSICO: No hay trades asociados
             db.delete(ratioToDelete)
             db.commit()
-            logger.info(f"Ratio eliminado FÍSICAMENTE para usuario {payload.idUsuario} (cuenta {targetAccount}): {payload.numerador}/{payload.denominador} (sin historial de trades)")
+            logger.info(f"Ratio eliminado FÍSICAMENTE para usuario {payload.idUsuario} (cuenta {targetAccount}): {numerador}/{denominador} (sin historial de trades)")
             return {
                 "status": "success",
                 "action": "physical_delete",
-                "message": f"Ratio {payload.numerador} / {payload.denominador} eliminado físicamente de la base de datos."
+                "message": f"Ratio {numerador} / {denominador} eliminado físicamente de la base de datos."
             }
     except HTTPException as he:
         raise he
@@ -5930,7 +5941,7 @@ def update_user_ratio_breakeven(payload: UserRatioBreakevenUpdate, db: Session =
         ratio.salirBreakeven = bool(payload.salirBreakeven)
         db.commit()
         db.refresh(ratio)
-        logger.info(f"Break-Even actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> salirBreakeven={ratio.salirBreakeven}")
+        logger.info(f"Break-Even actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {numerador}/{denominador} -> salirBreakeven={ratio.salirBreakeven}")
         return {"status": "success", "message": "Break-Even actualizado correctamente", "salirBreakeven": ratio.salirBreakeven}
     except Exception as e:
         db.rollback()
@@ -5969,7 +5980,7 @@ def update_user_ratio_vr(payload: UserRatioVrUpdate, db: Session = Depends(get_d
             ratio.umbralDiferencia = payload.umbralDiferencia
         db.commit()
         db.refresh(ratio)
-        logger.info(f"VR actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> tipoCierre={ratio.tipoCierre}, umbralDiferencia={ratio.umbralDiferencia}")
+        logger.info(f"VR actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {numerador}/{denominador} -> tipoCierre={ratio.tipoCierre}, umbralDiferencia={ratio.umbralDiferencia}")
         return {
             "status": "success",
             "message": "Vector de Retorno (VR) actualizado correctamente",
@@ -6012,7 +6023,7 @@ def update_user_ratio_operar(payload: UserRatioOperarUpdate, db: Session = Depen
             ratio.estadoRecomendacion = "REVISADA"
         db.commit()
         db.refresh(ratio)
-        logger.info(f"Generar Órdenes (operar) actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> operar={ratio.operar}, estadoRecomendacion={getattr(ratio, 'estadoRecomendacion', 'MANUAL')}")
+        logger.info(f"Generar Órdenes (operar) actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {numerador}/{denominador} -> operar={ratio.operar}, estadoRecomendacion={getattr(ratio, 'estadoRecomendacion', 'MANUAL')}")
         return {
             "status": "success",
             "message": "Generar Órdenes actualizado correctamente",
@@ -6055,9 +6066,10 @@ class UserCartCreate(BaseModel):
 
 
 class UserCartDelete(BaseModel):
-    idUsuario: int = Field(..., description="ID del usuario")
+    id: Optional[int] = Field(None, description="ID primario del registro en userCART")
+    idUsuario: Optional[int] = Field(None, description="ID del usuario")
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
-    symbol: str = Field(..., description="Símbolo a borrar de userCART")
+    symbol: Optional[str] = Field(None, description="Símbolo a borrar de userCART")
 
 
 class UserCartOperarUpdate(BaseModel):
@@ -6361,13 +6373,21 @@ def deleteUserCart(payload: UserCartDelete, db: Session = Depends(get_db)):
     Elimina lógica o físicamente un par de userCART.
     """
     try:
-        query = db.query(UserCart).filter(
-            UserCart.idUsuario == payload.idUsuario,
-            UserCart.symbol == payload.symbol
-        )
-        if payload.idCuenta:
-            query = query.filter(UserCart.idCuenta == payload.idCuenta)
-        item = query.first()
+        item = None
+        if payload.id:
+            item = db.query(UserCart).filter(UserCart.id == payload.id).first()
+
+        if not item and payload.symbol:
+            sym = unquote(payload.symbol).strip()
+            query = db.query(UserCart).filter(
+                (UserCart.symbol == sym) | (UserCart.symbol == payload.symbol)
+            )
+            if payload.idCuenta:
+                query = query.filter(UserCart.idCuenta == payload.idCuenta)
+            elif payload.idUsuario:
+                query = query.filter(UserCart.idUsuario == payload.idUsuario)
+            item = query.first()
+
         if not item:
             raise HTTPException(status_code=404, detail="No se encontró el par en userCART.")
 

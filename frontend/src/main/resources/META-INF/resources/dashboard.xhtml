@@ -1148,75 +1148,94 @@
                 background-color: #e2eaf2 !important;
             }
 
-            /* Tabla de Ratios del Usuario con acomodo automático y barras compactas */
-            #userRatiosTable.ui-datatable {
+            /* Tablas de Pares de la Sección 1 (Ratios, RIDER, SNIPER): Acomodo dinámico, ancho mínimo según texto del par */
+            #userRatiosTable.ui-datatable,
+            #userCartTable.ui-datatable,
+            #userSniperTable.ui-datatable {
                 width: 100% !important;
                 box-sizing: border-box !important;
             }
 
             #userRatiosTable .ui-datatable-table,
-            #userRatiosTable table {
+            #userRatiosTable table,
+            #userCartTable .ui-datatable-table,
+            #userCartTable table,
+            #userSniperTable .ui-datatable-table,
+            #userSniperTable table {
                 width: 100% !important;
+                min-width: 100% !important;
                 border-collapse: separate !important;
                 border-spacing: 0 2px !important;
                 box-sizing: border-box !important;
             }
 
-            #userRatiosTable .ui-datatable-scrollable-body {
+            #userRatiosTable .ui-datatable-scrollable-body,
+            #userCartTable .ui-datatable-scrollable-body,
+            #userSniperTable .ui-datatable-scrollable-body {
                 width: 100% !important;
-                overflow-x: hidden !important;
+                overflow-x: auto !important;
                 overflow-y: auto !important;
                 box-sizing: border-box !important;
             }
 
-            #userRatiosTable .ui-datatable-scrollable-header-box {
+            #userRatiosTable .ui-datatable-scrollable-header-box,
+            #userCartTable .ui-datatable-scrollable-header-box,
+            #userSniperTable .ui-datatable-scrollable-header-box {
                 padding-right: 0px !important;
                 box-sizing: border-box !important;
             }
 
-            #userRatiosTable thead th {
-                padding: 3px 1px !important;
-                font-size: 0.85rem !important;
-                font-weight: 800 !important;
+            .col-par-flexible {
+                width: auto !important;
+                min-width: max-content !important;
+                white-space: nowrap !important;
+            }
+
+            #userRatiosTable thead th,
+            #userCartTable thead th,
+            #userSniperTable thead th {
+                padding: 3px 2px !important;
                 border-radius: 4px !important;
                 line-height: 1.1 !important;
                 text-align: center !important;
             }
 
-            #userRatiosTable thead th:first-child {
-                text-align: left !important;
-                padding-left: 6px !important;
-                font-size: 0.85rem !important;
-            }
-
-            #userRatiosTable .ui-datatable-data tr {
+            #userRatiosTable .ui-datatable-data tr,
+            #userCartTable .ui-datatable-data tr,
+            #userSniperTable .ui-datatable-data tr {
                 margin-bottom: 0px !important;
                 border-radius: 6px !important;
                 box-shadow: 0 1px 2px rgba(18, 32, 34, 0.05) !important;
                 height: 25px !important;
             }
 
-            #userRatiosTable .ui-datatable-data tr:hover {
+            #userRatiosTable .ui-datatable-data tr:hover,
+            #userCartTable .ui-datatable-data tr:hover,
+            #userSniperTable .ui-datatable-data tr:hover {
                 transform: none !important;
             }
 
-            #userRatiosTable .ui-datatable-data td {
-                padding: 2px 1px !important;
+            #userRatiosTable .ui-datatable-data td,
+            #userCartTable .ui-datatable-data td,
+            #userSniperTable .ui-datatable-data td {
+                padding: 2px 2px !important;
                 line-height: 1.15 !important;
                 border-radius: 0 !important;
                 box-sizing: border-box !important;
             }
 
-            #userRatiosTable .ui-datatable-data td:first-child {
+            #userRatiosTable .ui-datatable-data td:first-child,
+            #userCartTable .ui-datatable-data td:first-child,
+            #userSniperTable .ui-datatable-data td:first-child {
                 border-top-left-radius: 6px !important;
                 border-bottom-left-radius: 6px !important;
-                padding-left: 6px !important;
             }
 
-            #userRatiosTable .ui-datatable-data td:last-child {
+            #userRatiosTable .ui-datatable-data td:last-child,
+            #userCartTable .ui-datatable-data td:last-child,
+            #userSniperTable .ui-datatable-data td:last-child {
                 border-top-right-radius: 6px !important;
                 border-bottom-right-radius: 6px !important;
-                padding-right: 2px !important;
                 text-align: center !important;
             }
 

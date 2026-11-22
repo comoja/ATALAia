@@ -160,16 +160,17 @@
                                         <h:outputText value="#{r.id}"
                                             style="font-size: 0.95rem; font-weight: 800; color: #0284c7;" />
                                     </p:column>
-                                    <p:column headerText="Ratio" sortBy="#{r.numerador}" style="font-weight: 700;">
-                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                    <p:column headerText="Ratio" sortBy="#{r.numerador}"
+                                        style="font-weight: 700; width: auto; min-width: max-content; white-space: nowrap;"
+                                        styleClass="col-par-flexible">
+                                        <div style="display: flex; align-items: center; gap: 4px; white-space: nowrap;">
                                             <h:outputText value="#{r.numerador} / #{r.denominador}"
                                                 style="font-size: 1.05rem; font-weight: 800; white-space: nowrap;"
                                                 title="#{r.numerador} / #{r.denominador}" />
                                             <h:panelGroup rendered="#{r.nuevaRecomendacion}">
                                                 <span class="badge"
-                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4);"
-                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨
-                                                    NUEVA</span>
+                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4); white-space: nowrap;"
+                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨ NUEVA</span>
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
@@ -542,7 +543,11 @@
                                             update=":aetherForm :aetherForm:growl" oncomplete="renderAetherChart()"
                                             styleClass="aether-btn-secondary"
                                             style="flex: 1; min-height: 36px; padding: 6px 14px;" icon="pi pi-trash"
-                                            title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes eliminar ratios de otro usuario' : (dashboardBean.hasActiveTradesInDb ? 'Bloqueado: Tiene posiciones activas en la tabla trades' : 'Eliminar ratio guardado')}" />
+                                            title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes eliminar ratios de otro usuario' : (dashboardBean.hasActiveTradesInDb ? 'Bloqueado: Tiene posiciones activas en la tabla trades' : 'Eliminar ratio guardado')}">
+                                            <p:confirm header="Confirmar Eliminación"
+                                                message="¿Estás seguro de que deseas eliminar este Ratio de la cuenta #{dashboardBean.selectedAccountName}?"
+                                                icon="pi pi-exclamation-triangle" />
+                                        </p:commandButton>
                                     </div>
                                 </div>
                                 <!-- RESUMEN DE POSICIÓN EN CURSO (BITÁCORA DE TRADES) -->

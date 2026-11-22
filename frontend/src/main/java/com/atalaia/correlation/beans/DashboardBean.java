@@ -4586,6 +4586,11 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentRatioId != null) {
+                payload.put("id", this.currentRatioId);
+            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+                payload.put("id", this.selectedUserRatio.getId());
+            }
             payload.put("idUsuario", userId);
             payload.put("idCuenta", selectedAccountId);
             payload.put("numerador", selectedPair);
@@ -5233,6 +5238,11 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentRatioId != null) {
+                payload.put("id", this.currentRatioId);
+            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+                payload.put("id", this.selectedUserRatio.getId());
+            }
             payload.put("idUsuario", userId);
             payload.put("idCuenta", selectedAccountId);
             payload.put("numerador", selectedPair);
@@ -7613,6 +7623,11 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentCartId != null) {
+                payload.put("id", this.currentCartId);
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+                payload.put("id", this.selectedUserCart.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", this.selectedAccountId);
             payload.put("symbol", this.selectedCartPair);
@@ -7655,6 +7670,11 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentCartId != null) {
+                payload.put("id", this.currentCartId);
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+                payload.put("id", this.selectedUserCart.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", this.selectedAccountId);
             payload.put("symbol", this.selectedCartPair);
@@ -7687,6 +7707,11 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentCartId != null) {
+                payload.put("id", this.currentCartId);
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+                payload.put("id", this.selectedUserCart.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", this.selectedAccountId);
             payload.put("symbol", this.selectedCartPair);
