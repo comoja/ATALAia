@@ -2181,6 +2181,20 @@ public class DashboardBean implements Serializable {
     public Boolean getNuevaCuentaConcentradora() { return nuevaCuentaConcentradora; }
     public void setNuevaCuentaConcentradora(Boolean nuevaCuentaConcentradora) { this.nuevaCuentaConcentradora = nuevaCuentaConcentradora; }
 
+    private Double nuevaCuentaPctConservador = 40.0;
+    private Double nuevaCuentaPctModerado = 30.0;
+    private Double nuevaCuentaPctAgresivo = 30.0;
+    private Integer nuevaCuentaUsuarioId = null;
+
+    public Double getNuevaCuentaPctConservador() { return nuevaCuentaPctConservador; }
+    public void setNuevaCuentaPctConservador(Double nuevaCuentaPctConservador) { this.nuevaCuentaPctConservador = nuevaCuentaPctConservador; }
+    public Double getNuevaCuentaPctModerado() { return nuevaCuentaPctModerado; }
+    public void setNuevaCuentaPctModerado(Double nuevaCuentaPctModerado) { this.nuevaCuentaPctModerado = nuevaCuentaPctModerado; }
+    public Double getNuevaCuentaPctAgresivo() { return nuevaCuentaPctAgresivo; }
+    public void setNuevaCuentaPctAgresivo(Double nuevaCuentaPctAgresivo) { this.nuevaCuentaPctAgresivo = nuevaCuentaPctAgresivo; }
+    public Integer getNuevaCuentaUsuarioId() { return nuevaCuentaUsuarioId; }
+    public void setNuevaCuentaUsuarioId(Integer nuevaCuentaUsuarioId) { this.nuevaCuentaUsuarioId = nuevaCuentaUsuarioId; }
+
     public void prepararNuevaCuenta() {
         this.nuevaCuentaNombre = "";
         this.nuevaCuentaCorreo = "";
@@ -2191,6 +2205,10 @@ public class DashboardBean implements Serializable {
         this.nuevaCuentaComision = 0.0;
         this.nuevaCuentaConcentradora = false;
         this.nuevaCuentaIndicadorMargen = 200.0;
+        this.nuevaCuentaPctConservador = 40.0;
+        this.nuevaCuentaPctModerado = 30.0;
+        this.nuevaCuentaPctAgresivo = 30.0;
+        this.nuevaCuentaUsuarioId = securityBean != null ? (securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario()) : 1;
     }
 
     public void guardarNuevaCuenta() {
@@ -2214,9 +2232,23 @@ public class DashboardBean implements Serializable {
                             "Dato Requerido", "El nombre de la cuenta es obligatorio."));
             return;
         }
+
+        double c = nuevaCuentaPctConservador != null ? nuevaCuentaPctConservador : 0.0;
+        double m = nuevaCuentaPctModerado != null ? nuevaCuentaPctModerado : 0.0;
+        double a = nuevaCuentaPctAgresivo != null ? nuevaCuentaPctAgresivo : 0.0;
+        double sum = Math.round((c + m + a) * 100.0) / 100.0;
+        if (Math.abs(sum - 100.0) > 0.05) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Validación de Perfil", "La suma del perfil de inversionista debe ser exactamente 100% (Actual: " + sum + "%)."));
+            return;
+        }
+
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -2238,6 +2270,12 @@ public class DashboardBean implements Serializable {
             payload.put("comision", nuevaCuentaComision != null ? nuevaCuentaComision : 0.0);
             payload.put("concentradora", Boolean.TRUE.equals(nuevaCuentaConcentradora));
             payload.put("indicadorMargen", nuevaCuentaIndicadorMargen != null ? nuevaCuentaIndicadorMargen : 200.0);
+            payload.put("pctConservador", c);
+            payload.put("pctModerado", m);
+            payload.put("pctAgresivo", a);
+            if (this.editarCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                payload.put("idUsuario", this.editarCuentaUsuarioId);
+            }
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -2306,6 +2344,19 @@ public class DashboardBean implements Serializable {
     public void setEditarCuentaRiesgo(Double editarCuentaRiesgo) { this.editarCuentaRiesgo = editarCuentaRiesgo; }
     public Double getEditarCuentaComision() { return editarCuentaComision; }
     public void setEditarCuentaComision(Double editarCuentaComision) { this.editarCuentaComision = editarCuentaComision; }
+    private Double editarCuentaPctConservador = 40.0;
+    private Double editarCuentaPctModerado = 30.0;
+    private Double editarCuentaPctAgresivo = 30.0;
+    private Integer editarCuentaUsuarioId = null;
+
+    public Double getEditarCuentaPctConservador() { return editarCuentaPctConservador; }
+    public void setEditarCuentaPctConservador(Double editarCuentaPctConservador) { this.editarCuentaPctConservador = editarCuentaPctConservador; }
+    public Double getEditarCuentaPctModerado() { return editarCuentaPctModerado; }
+    public void setEditarCuentaPctModerado(Double editarCuentaPctModerado) { this.editarCuentaPctModerado = editarCuentaPctModerado; }
+    public Double getEditarCuentaPctAgresivo() { return editarCuentaPctAgresivo; }
+    public void setEditarCuentaPctAgresivo(Double editarCuentaPctAgresivo) { this.editarCuentaPctAgresivo = editarCuentaPctAgresivo; }
+    public Integer getEditarCuentaUsuarioId() { return editarCuentaUsuarioId; }
+    public void setEditarCuentaUsuarioId(Integer editarCuentaUsuarioId) { this.editarCuentaUsuarioId = editarCuentaUsuarioId; }
     public boolean isConcentradoraDisabledForEdit() {
         if (Boolean.TRUE.equals(editarCuentaConcentradora)) {
             return false;
@@ -2335,6 +2386,13 @@ public class DashboardBean implements Serializable {
 
     public Boolean getEditarCuentaConcentradora() { return editarCuentaConcentradora; }
     public void setEditarCuentaConcentradora(Boolean editarCuentaConcentradora) { this.editarCuentaConcentradora = editarCuentaConcentradora; }
+
+    public void prepararEditarCuentaId(Integer idCuenta) {
+        if (idCuenta != null) {
+            this.selectedAccountId = idCuenta;
+        }
+        prepararEditarCuenta();
+    }
 
     public void prepararEditarCuenta() {
         if (isReadOnly()) {
@@ -2367,6 +2425,10 @@ public class DashboardBean implements Serializable {
                 this.editarCuentaComision = root.has("comision") ? root.get("comision").asDouble() : 0.0;
                 this.editarCuentaConcentradora = root.has("concentradora") ? root.get("concentradora").asBoolean() : false;
                 this.editarCuentaIndicadorMargen = root.has("indicadorMargen") ? root.get("indicadorMargen").asDouble() : 200.0;
+                this.editarCuentaPctConservador = root.has("pctConservador") ? root.get("pctConservador").asDouble() : 40.0;
+                this.editarCuentaPctModerado = root.has("pctModerado") ? root.get("pctModerado").asDouble() : 30.0;
+                this.editarCuentaPctAgresivo = root.has("pctAgresivo") ? root.get("pctAgresivo").asDouble() : 30.0;
+                this.editarCuentaUsuarioId = root.has("idUsuario") && !root.get("idUsuario").isNull() ? root.get("idUsuario").asInt() : null;
 
                 org.primefaces.PrimeFaces.current().executeScript("PF('editarCuentaDlg').show();");
             }
@@ -2392,6 +2454,18 @@ public class DashboardBean implements Serializable {
                             "Dato Requerido", "El nombre de la cuenta no puede estar vacío."));
             return;
         }
+
+        double c = editarCuentaPctConservador != null ? editarCuentaPctConservador : 0.0;
+        double m = editarCuentaPctModerado != null ? editarCuentaPctModerado : 0.0;
+        double a = editarCuentaPctAgresivo != null ? editarCuentaPctAgresivo : 0.0;
+        double sum = Math.round((c + m + a) * 100.0) / 100.0;
+        if (Math.abs(sum - 100.0) > 0.05) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Validación de Perfil", "La suma del perfil de inversionista debe ser exactamente 100% (Actual: " + sum + "%)."));
+            return;
+        }
+
         try {
             RestTemplate restTemplate = new RestTemplate();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -2408,6 +2482,12 @@ public class DashboardBean implements Serializable {
             payload.put("comision", editarCuentaComision != null ? editarCuentaComision : 0.0);
             payload.put("concentradora", Boolean.TRUE.equals(editarCuentaConcentradora));
             payload.put("indicadorMargen", editarCuentaIndicadorMargen != null ? editarCuentaIndicadorMargen : 200.0);
+            payload.put("pctConservador", c);
+            payload.put("pctModerado", m);
+            payload.put("pctAgresivo", a);
+            if (this.editarCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                payload.put("idUsuario", this.editarCuentaUsuarioId);
+            }
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
 
@@ -2617,7 +2697,9 @@ public class DashboardBean implements Serializable {
         }
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -2842,6 +2924,18 @@ public class DashboardBean implements Serializable {
         public Boolean getBorrado() { return borrado; }
         public Boolean isBorrado() { return borrado; }
         public void setBorrado(Boolean borrado) { this.borrado = borrado; }
+
+        private String origen = "MANUAL";
+        private String estadoRecomendacion = "MANUAL";
+        private String fechaRecomendacion;
+
+        public String getOrigen() { return origen != null ? origen : "MANUAL"; }
+        public void setOrigen(String origen) { this.origen = origen; }
+        public String getEstadoRecomendacion() { return estadoRecomendacion != null ? estadoRecomendacion : "MANUAL"; }
+        public void setEstadoRecomendacion(String estadoRecomendacion) { this.estadoRecomendacion = estadoRecomendacion; }
+        public String getFechaRecomendacion() { return fechaRecomendacion; }
+        public void setFechaRecomendacion(String fechaRecomendacion) { this.fechaRecomendacion = fechaRecomendacion; }
+        public boolean isNuevaRecomendacion() { return "NUEVA".equalsIgnoreCase(estadoRecomendacion); }
 
         private Boolean filtroHorario = true;
         private String horaInicio = "08:00";
@@ -4474,7 +4568,9 @@ public class DashboardBean implements Serializable {
         }
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -4567,7 +4663,9 @@ public class DashboardBean implements Serializable {
                 public void loadUserAccounts() {
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -4753,7 +4851,9 @@ public class DashboardBean implements Serializable {
         public void loadUserRatiosList() {
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -4816,6 +4916,9 @@ public class DashboardBean implements Serializable {
                         else dto.setAccionCierre("Continua");
                         if (item.has("salirBreakeven") && !item.get("salirBreakeven").isNull()) dto.setSalirBreakeven(item.get("salirBreakeven").asBoolean());
                         else dto.setSalirBreakeven(false);
+                        if (item.has("origen") && !item.get("origen").isNull()) dto.setOrigen(item.get("origen").asText());
+                        if (item.has("estadoRecomendacion") && !item.get("estadoRecomendacion").isNull()) dto.setEstadoRecomendacion(item.get("estadoRecomendacion").asText());
+                        if (item.has("fechaRecomendacion") && !item.get("fechaRecomendacion").isNull()) dto.setFechaRecomendacion(item.get("fechaRecomendacion").asText());
                         if (item.has("createdAt") && !item.get("createdAt").isNull()) dto.setCreatedAt(item.get("createdAt").asText());
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
@@ -4903,6 +5006,10 @@ public class DashboardBean implements Serializable {
 
     public void onSelectUserRatio(UserRatioDto ratio) {
         if (ratio == null) return;
+        if (ratio.isNuevaRecomendacion()) {
+            marcarRecomendacionRevisada("RATIO", ratio.getId());
+            ratio.setEstadoRecomendacion("REVISADA");
+        }
         log.info("Seleccionado ratio desde acordeón: {} / {} (temporalidad={}, periodo={}, fast={}, slow={}, operar={})",
                 ratio.getNumerador(), ratio.getDenominador(), ratio.getTemporalidad(), ratio.getPeriodo(), ratio.getEmaRapida(), ratio.getEmaLenta(), ratio.getOperar());
         this.selectedUserRatio = ratio;
@@ -4965,7 +5072,9 @@ public class DashboardBean implements Serializable {
         log.info("Consultando BD al seleccionar Denominador para {} / {}", selectedPair, selectedPair2);
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -5110,7 +5219,9 @@ public class DashboardBean implements Serializable {
         }
         try {
             Integer userId = null;
-            if (securityBean != null) {
+            if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
+                userId = this.nuevaCuentaUsuarioId;
+            } else if (securityBean != null) {
                 userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
             }
             if (userId == null) {
@@ -7250,6 +7361,9 @@ public class DashboardBean implements Serializable {
                         dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
                         dto.setHoraFin(item.path("horaFin").asText("16:00"));
                         dto.setUsarTSL(item.path("usarTSL").asBoolean(true));
+                        dto.setOrigen(item.path("origen").asText("MANUAL"));
+                        dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
+                        dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
                         dto.setCreatedAt(item.path("createdAt").asText(""));
                         list.add(dto);
                     }
@@ -7270,6 +7384,10 @@ public class DashboardBean implements Serializable {
 
     public void onSelectUserCart(UserRatioDto cartDto) {
         if (cartDto == null) return;
+        if (cartDto.isNuevaRecomendacion()) {
+            marcarRecomendacionRevisada("CART", cartDto.getId());
+            cartDto.setEstadoRecomendacion("REVISADA");
+        }
         this.selectedUserCart = cartDto;
         this.currentCartId = cartDto.getId();
         this.selectedCartPair = cartDto.getNumerador();
@@ -7888,6 +8006,38 @@ public class DashboardBean implements Serializable {
 
     public List<UserRatioDto> getUserSniperList() { return userSniperList; }
     public void setUserSniperList(List<UserRatioDto> userSniperList) { this.userSniperList = userSniperList; }
+
+    public long getNuevasRecomendacionesRatiosCount() {
+        if (this.userRatiosList == null) return 0;
+        return this.userRatiosList.stream().filter(UserRatioDto::isNuevaRecomendacion).count();
+    }
+
+    public long getNuevasRecomendacionesCartCount() {
+        if (this.userCartList == null) return 0;
+        return this.userCartList.stream().filter(UserRatioDto::isNuevaRecomendacion).count();
+    }
+
+    public long getNuevasRecomendacionesSniperCount() {
+        if (this.userSniperList == null) return 0;
+        return this.userSniperList.stream().filter(UserRatioDto::isNuevaRecomendacion).count();
+    }
+
+    public void marcarRecomendacionRevisada(String strategy, Integer id) {
+        if (id == null || strategy == null) return;
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("strategy", strategy);
+            payload.put("id", id);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(backendUrl + "/api/v1/recommendations/marcar-revisada", entity, String.class);
+            log.info("Recomendación #{}-{} marcada como REVISADA en backend", strategy, id);
+        } catch (Exception e) {
+            log.warn("Error al marcar recomendación como revisada ({}-{}): {}", strategy, id, e.getMessage());
+        }
+    }
     public UserRatioDto getSelectedUserSniper() { return selectedUserSniper; }
     public void setSelectedUserSniper(UserRatioDto selectedUserSniper) { this.selectedUserSniper = selectedUserSniper; }
     public Integer getCurrentSniperId() { return currentSniperId; }
@@ -8141,6 +8291,9 @@ public class DashboardBean implements Serializable {
                         String rawHf2 = item.path("horaFin2").asText("");
                         dto.setHoraFin2("null".equalsIgnoreCase(rawHf2) ? "" : rawHf2);
                         dto.setMultiplicadorRiesgo(item.path("multiplicadorRiesgo").asDouble(1.0));
+                        dto.setOrigen(item.path("origen").asText("MANUAL"));
+                        dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
+                        dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
                         dto.setCreatedAt(item.path("createdAt").asText(""));
                         list.add(dto);
                     }
@@ -8161,6 +8314,10 @@ public class DashboardBean implements Serializable {
 
     public void onSelectUserSniper(UserRatioDto dto) {
         if (dto == null) return;
+        if (dto.isNuevaRecomendacion()) {
+            marcarRecomendacionRevisada("SNIPER", dto.getId());
+            dto.setEstadoRecomendacion("REVISADA");
+        }
         this.selectedUserSniper = dto;
         this.currentSniperId = dto.getId();
         if (dto.getIdCuenta() != null) {
@@ -8336,8 +8493,12 @@ public class DashboardBean implements Serializable {
                     this.sniperBtMetrics = mDto;
                 }
 
+                JsonNode actTrArr = root.path("activeTrades");
                 JsonNode actTr = root.path("activeTrade");
-                if (!actTr.isMissingNode() && !actTr.isNull()) {
+                if (!actTrArr.isMissingNode() && actTrArr.isArray() && actTrArr.size() > 0) {
+                    this.sniperActiveTradesJson = mapper.writeValueAsString(actTrArr);
+                    this.sniperHasActiveTradesInDb = true;
+                } else if (!actTr.isMissingNode() && !actTr.isNull()) {
                     this.sniperActiveTradesJson = mapper.writeValueAsString(actTr);
                     this.sniperHasActiveTradesInDb = true;
                 } else {
@@ -8350,6 +8511,7 @@ public class DashboardBean implements Serializable {
                 }
             }
             loadSniperActiveCycles();
+            loadSniperRealTradesMovimientos();
         } catch (Exception e) {
             log.error("Error en analyzeSniperPair: {}", e.getMessage());
         }

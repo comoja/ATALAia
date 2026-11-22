@@ -441,26 +441,56 @@ public class SecurityBean implements Serializable {
 
     public String getActiveUserAvatar() {
         if (this.selectedUserId != null) {
-            if (Integer.valueOf(1).equals(this.selectedUserId)) return "jcolin";
-            if (Integer.valueOf(2).equals(this.selectedUserId)) return "rortiz";
-            if (Integer.valueOf(3).equals(this.selectedUserId)) return "rcolin";
-            return "role_" + this.selectedUserId;
+            if (this.usuariosCombo != null) {
+                for (UsuarioComboItem u : this.usuariosCombo) {
+                    if (this.selectedUserId.equals(u.getIdUsuario())) {
+                        if (u.getUsername() != null && !u.getUsername().trim().isEmpty()) {
+                            return u.getUsername().trim().toLowerCase();
+                        }
+                        return "role_" + (u.getIdRole() != null ? u.getIdRole() : 1);
+                    }
+                }
+            }
+            if (this.selectedUserId.equals(this.idUsuario)) {
+                return this.username != null ? this.username.toLowerCase() : "role_" + (this.idRole != null ? this.idRole : 1);
+            }
+            return "role_" + getActiveUserRoleId();
         }
-        return this.username != null ? this.username : "role_" + (this.idRole != null ? this.idRole : 1);
+        return this.username != null ? this.username.toLowerCase() : "role_" + (this.idRole != null ? this.idRole : 1);
     }
 
     public String getActiveUserRole() {
         if (this.selectedUserId != null) {
-            if (Integer.valueOf(1).equals(this.selectedUserId)) return "Administrador";
-            if (Integer.valueOf(2).equals(this.selectedUserId)) return "Analista";
-            if (Integer.valueOf(3).equals(this.selectedUserId)) return "Trader";
+            if (this.usuariosCombo != null) {
+                for (UsuarioComboItem u : this.usuariosCombo) {
+                    if (this.selectedUserId.equals(u.getIdUsuario())) {
+                        if (u.getNameRole() != null && !u.getNameRole().trim().isEmpty()) {
+                            return u.getNameRole();
+                        }
+                    }
+                }
+            }
+            if (this.selectedUserId.equals(this.idUsuario) && this.nameRole != null) {
+                return this.nameRole;
+            }
         }
         return this.nameRole != null ? this.nameRole : "";
     }
 
     public Integer getActiveUserRoleId() {
         if (this.selectedUserId != null) {
-            return this.selectedUserId;
+            if (this.usuariosCombo != null) {
+                for (UsuarioComboItem u : this.usuariosCombo) {
+                    if (this.selectedUserId.equals(u.getIdUsuario())) {
+                        if (u.getIdRole() != null) {
+                            return u.getIdRole();
+                        }
+                    }
+                }
+            }
+            if (this.selectedUserId.equals(this.idUsuario) && this.idRole != null) {
+                return this.idRole;
+            }
         }
         return this.idRole != null ? this.idRole : 1;
     }
@@ -575,6 +605,9 @@ public class SecurityBean implements Serializable {
         private static final long serialVersionUID = 1L;
         private Integer idUsuario;
         private String  nombreCompleto;
+        private String  username;
+        private Integer idRole;
+        private String  nameRole;
     }
 
     @Getter

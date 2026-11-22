@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ui:composition xmlns="http://www.w3.org/1999/xhtml"
-    xmlns:h="http://xmlns.jcp.org/jsf/html"
-    xmlns:f="http://xmlns.jcp.org/jsf/core"
-    xmlns:p="http://primefaces.org/ui"
+<ui:composition xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://xmlns.jcp.org/jsf/html"
+    xmlns:f="http://xmlns.jcp.org/jsf/core" xmlns:p="http://primefaces.org/ui"
     xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
 
     <!-- ========================================================================= -->
@@ -27,22 +25,23 @@
 
     <!-- Polling en vivo para SNIPER (10 segundos, no invasivo) -->
     <p:poll id="sniperLivePoll" widgetVar="sniperLivePollWidget" interval="10" global="false"
-        enabled="#{dashboardBean.activeStrategy eq 'SNIPER'}" listener="#{dashboardBean.analyzeSniperPair}" process="@this"
-        update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
+        enabled="#{dashboardBean.activeStrategy eq 'SNIPER'}" listener="#{dashboardBean.analyzeSniperPair}"
+        process="@this"
+        update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData :aetherForm:sniperRealTradesJsonData"
         oncomplete="renderSniperChart(); if (typeof updateSniperLiveTimestamp === 'function') updateSniperLiveTimestamp();" />
 
     <p:remoteCommand name="rcRefreshSniperChart" actionListener="#{dashboardBean.analyzeSniperPair}" process="@this"
-        global="false"
-        update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
+        global="false" update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
         oncomplete="renderSniperChart(); if (typeof updateSniperLiveTimestamp === 'function') updateSniperLiveTimestamp();" />
 
     <!-- ========================================================================= -->
     <!-- CONTENEDOR ESTRATEGIA 3: SNIPER (TEMA CAMEL MILITAR #b47b2b)              -->
     <!-- ========================================================================= -->
     <div id="strategySniperWrapper"
-        style="display: #{dashboardBean.activeStrategy eq 'SNIPER' ? 'flex' : 'none'}; flex-direction: column; flex: 1; min-height: 0;">
-        <p:tabView id="sniperTabView" widgetVar="sniperTabViewWidget" activeIndex="#{dashboardBean.activeSniperTabIndex}"
-            onTabShow="handleSniperTabShow(index);">
+        style="display: #{dashboardBean.activeStrategy eq 'SNIPER' ? 'flex' : 'none'}; flex-direction: column; flex: 1; min-height: 0; position: relative;">
+
+        <p:tabView id="sniperTabView" widgetVar="sniperTabViewWidget"
+            activeIndex="#{dashboardBean.activeSniperTabIndex}" onTabShow="handleSniperTabShow(index);">
             <p:ajax event="tabChange" listener="#{dashboardBean.onSniperTabChange}" />
 
             <!-- ===================================================================== -->
@@ -50,11 +49,13 @@
             <!-- ===================================================================== -->
             <p:tab>
                 <f:facet name="title">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="38" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;" title="SNIPER">
-                        <circle cx="12" cy="12" r="10" />
-                        <circle cx="12" cy="12" r="6.5" />
-                        <circle cx="12" cy="12" r="3.2" />
-                        <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+                    <svg class="config-tab-icon" xmlns="http://www.w3.org/2000/svg" width="34" height="30"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                        stroke-linejoin="round" style="display: inline-block; vertical-align: middle;"
+                        title="Configuración">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                     </svg>
                 </f:facet>
                 <div class="dashboard-grid">
@@ -62,27 +63,50 @@
                     <!-- COLUMNA IZQUIERDA: CONTROLES DE CALIBRACIÓN SNIPER -->
                     <p:panel styleClass="aether-panel">
                         <f:facet name="header">
-                            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-weight: 800; color: #b47b2b; font-size: 1.05rem; display: inline-flex; align-items: center; gap: 5px;">
-                                        <i class="pi pi-crosshair" style="font-size: 1.1rem; color: #b47b2b;"></i>Configuración SNIPER
-                                    </span>
-                                    <span style="background: rgba(180, 123, 43, 0.15); color: #8c5d1e; border: 1px solid #b47b2b; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase;">
-                                        Tactical #{dashboardBean.sniperTimeframeLabel}
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span
+                                        style="font-weight: 800; color: #b47b2b; font-size: 1.15rem; display: inline-flex; align-items: center; gap: 10px;">
+                                        <i class="pi pi-cog"
+                                            style="font-size: 2.6rem; color: #b47b2b; vertical-align: middle;"></i>CALIBRACION
                                     </span>
                                 </div>
-                                <h:panelGroup layout="block" rendered="#{securityBean.admin}"
-                                    style="display: flex; align-items: center; gap: 6px;">
-                                    <i class="pi pi-user" style="font-size: 1.20rem; color: #64748b;"></i>
-                                    <p:selectOneMenu id="sniperUsuarioSelector" value="#{securityBean.selectedUserId}"
-                                        styleClass="aether-input" style="min-width: 135px; font-size: 0.85em;">
-                                        <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
-                                            itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                                <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
+                                    style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                                    <p:commandButton icon="pi pi-pencil"
+                                        action="#{dashboardBean.prepararEditarCuenta}"
+                                        disabled="#{dashboardBean.readOnly || dashboardBean.selectedAccountId == null}"
+                                        process="@this" update=":editarCuentaForm:editarCuentaDlg"
+                                        styleClass="aether-btn-secondary"
+                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes editar cuentas de otro usuario' : 'Editar Valores de la Cuenta'}" />
+                                    <p:selectOneMenu id="sniperCuentaSelector"
+                                        value="#{dashboardBean.selectedAccountId}"
+                                        styleClass="aether-input aether-cuenta-selector"
+                                        style="min-width: 155px; max-width: 230px; width: 185px; height: 32px !important; line-height: 32px !important; font-size: 1.05rem !important;">
+                                        <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
+                                            itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
                                         <p:ajax process="@this" update=":aetherForm"
                                             oncomplete="handleUserSniperSelected();"
-                                            listener="#{dashboardBean.onUsuarioChange}" />
+                                            listener="#{dashboardBean.onCuentaChange}" />
                                     </p:selectOneMenu>
-                                </h:panelGroup>
+                                    <p:commandButton icon="pi pi-plus"
+                                        action="#{dashboardBean.prepararNuevaCuenta}"
+                                        rendered="#{securityBean.canCreateAccount}"
+                                        disabled="#{dashboardBean.readOnly}" process="@this"
+                                        update=":nuevaCuentaForm:nuevaCuentaDlg"
+                                        oncomplete="PF('nuevaCuentaDlg').show();"
+                                        styleClass="aether-btn-primary"
+                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes dar de alta cuentas para otro usuario' : 'Dar de Alta Nueva Cuenta'}" />
+                                    <p:commandButton icon="pi pi-refresh"
+                                        action="#{dashboardBean.refreshDashboard}" process="@this"
+                                        update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                        styleClass="aether-btn-secondary"
+                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        title="Actualizar datos y pares SNIPER" />
+                                </div>
                             </div>
                         </f:facet>
 
@@ -92,36 +116,31 @@
                             <p:ajax event="tabChange" listener="#{dashboardBean.onSniperAccordionTabChange}"
                                 update="@this" />
 
-                            <!-- SECCIÓN 1: PARES SNIPER CONFIGURADOS DEL USUARIO -->
+                            <!-- SECCIÓN 1: PARES CONFIGURADOS DEL USUARIO -->
                             <p:tab id="tabUserSniper">
                                 <f:facet name="title">
                                     <div class="aether-tab-title-container">
                                         <span class="aether-tab-title-text"
                                             style="font-weight: 700; font-size: 1.15rem; color: #8c5d1e; white-space: nowrap; display: flex; align-items: center; gap: 4px;">
-                                            1. Pares SNIPER de la Cuenta
+                                            1. Pares de la Cuenta
                                         </span>
-                                        <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
-                                            style="display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;">
-                                            <p:selectOneMenu id="sniperCuentaSelector"
-                                                value="#{dashboardBean.selectedAccountId}"
-                                                styleClass="aether-input aether-cuenta-selector"
-                                                style="min-width: 155px; max-width: 230px; width: 185px; height: 28px !important; line-height: 28px !important; font-size: 1.05rem !important;">
-                                                <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
-                                                    itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
-                                                <p:ajax process="@this" update=":aetherForm"
-                                                    oncomplete="handleUserSniperSelected();"
-                                                    listener="#{dashboardBean.onCuentaChange}" />
-                                            </p:selectOneMenu>
-                                            <p:commandButton icon="pi pi-refresh"
-                                                action="#{dashboardBean.refreshDashboard}" process="@this"
-                                                update=":aetherForm"
-                                                oncomplete="handleUserSniperSelected();"
-                                                styleClass="aether-btn-secondary"
-                                                style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
-                                                title="Actualizar datos y pares SNIPER" />
-                                        </div>
                                     </div>
                                 </f:facet>
+
+                                <!-- Banner de Nuevas Recomendaciones del Optimizador -->
+                                <h:panelGroup layout="block"
+                                    rendered="#{dashboardBean.nuevasRecomendacionesSniperCount > 0}"
+                                    style="margin: 4px 2px 6px 2px; padding: 5px 8px; background: linear-gradient(135deg, #fffbeb, #fef3c7); border: 1px solid #f59e0b; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.15);">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <i class="pi pi-sparkles" style="color: #d97706; font-size: 1.1rem;"></i>
+                                        <span style="font-size: 0.84rem; font-weight: 700; color: #92400e;">
+                                            #{dashboardBean.nuevasRecomendacionesSniperCount} recomendación(es) nueva(s)
+                                            del fin de semana
+                                        </span>
+                                    </div>
+                                    <span style="font-size: 0.74rem; font-weight: 600; color: #b45309;">(Haz clic para
+                                        activar)</span>
+                                </h:panelGroup>
 
                                 <p:dataTable id="userSniperTable" value="#{dashboardBean.userSniperList}" var="us"
                                     selectionMode="single" selection="#{dashboardBean.selectedUserSniper}"
@@ -131,47 +150,67 @@
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onSniperRowSelect}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();" />
 
-                                    <p:column headerText="ID" style="width: 28px; text-align: center; padding: 4px 1px !important;">
+                                    <p:column headerText="ID" sortBy="#{us.id}"
+                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{us.id}"
-                                            style="font-size: 0.82rem; font-weight: 800; color: #8c5d1e;" />
+                                            style="font-size: 0.95rem; font-weight: 800; color: #b47b2b;" />
                                     </p:column>
-                                    <p:column headerText="Par" style="font-weight: 700; padding: 4px 2px !important;">
-                                        <h:outputText value="#{us.numerador}"
-                                            style="font-size: 0.90rem; font-weight: 800; color: #b47b2b; white-space: nowrap;"
-                                            title="#{us.numerador}" />
+                                    <p:column headerText="PAR" sortBy="#{us.numerador}" style="font-weight: 700;">
+                                        <div style="display: flex; align-items: center; gap: 4px;">
+                                            <h:outputText value="#{us.numerador}"
+                                                style="font-size: 1.05rem; font-weight: 800; color: #b47b2b; white-space: nowrap;"
+                                                title="#{us.numerador}" />
+                                            <h:panelGroup rendered="#{us.nuevaRecomendacion}">
+                                                <span class="badge"
+                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4);"
+                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨
+                                                    NUEVA</span>
+                                            </h:panelGroup>
+                                        </div>
                                     </p:column>
-                                    <p:column headerText="TF" style="width: 38px; text-align: center; padding: 4px 1px !important;">
+                                    <p:column headerText="TF" sortBy="#{us.temporalidad}"
+                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{us.temporalidad}"
-                                            style="font-size: 0.82rem; font-weight: 700; color: #475569;" />
+                                            style="font-size: 1.0rem; font-weight: 800;" />
                                     </p:column>
-                                    <p:column headerText="Conf" style="width: 38px; text-align: center; padding: 4px 1px !important;">
-                                        <span style="font-size: 0.80rem; font-weight: 800; color: #334155;">
+                                    <p:column headerText="Conf" sortBy="#{us.minConfidence}"
+                                        style="width: 52px; text-align: center; padding: 2px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(180, 123, 43, 0.12); color: #8c5d1e; border: 1px solid #d4a373; display: inline-block; line-height: 1.1;">
                                             #{us.minConfidence}%
                                         </span>
                                     </p:column>
-                                    <p:column headerText="R:R" style="width: 36px; text-align: center; padding: 4px 1px !important;">
-                                        <span style="font-size: 0.82rem; font-weight: 800; color: #0284c7;">
+                                    <p:column headerText="R:R" sortBy="#{us.minRr}"
+                                        style="width: 46px; text-align: center; padding: 2px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid #bae6fd; display: inline-block; line-height: 1.1;">
                                             #{us.minRr}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="BE" style="width: 26px; text-align: center; padding: 4px 1px !important;">
-                                        <i class="#{us.usarBreakEven ? 'pi pi-check-circle' : 'pi pi-minus-circle'}"
-                                           style="color: #{us.usarBreakEven ? '#10b981' : '#cbd5e1'}; font-size: 0.85rem;"
-                                           title="Break-Even: #{us.usarBreakEven ? 'Activo' : 'Inactivo'}"></i>
+                                    <p:column headerText="BE" sortBy="#{us.usarBreakEven}"
+                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarBreakEven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="Break-Even: #{us.usarBreakEven ? 'Activo' : 'Inactivo'}">
+                                            #{us.usarBreakEven ? 'BE' : 'OFF'}
+                                        </span>
                                     </p:column>
-                                    <p:column headerText="Op" style="width: 30px; text-align: center; padding: 4px 1px !important;">
+                                    <p:column headerText="Op" sortBy="#{us.operar}"
+                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:panelGroup layout="block"
-                                            style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 4px; #{us.operar ? 'background: rgba(180, 123, 43, 0.2); border: 1px solid #b47b2b;' : 'background: #f1f5f9; border: 1px solid #cbd5e1;'}"
-                                            title="#{us.operar ? 'Generación de órdenes activa' : 'Sólo monitoreo'}">
+                                            style="#{us.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
+                                            title="#{us.hasOpenTrades ? 'Posición SNIPER en Curso' : (us.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
                                             <i class="#{us.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                               style="font-size: 0.75rem; color: #{us.operar ? '#8c5d1e' : '#94a3b8'}; font-weight: 900;"></i>
+                                                style="color: #{us.operar ? (us.hasOpenTrades ? '#fde68a' : '#b47b2b') : '#ff3333'} !important; font-size: 1.55rem; font-weight: 900;"></i>
                                         </h:panelGroup>
                                     </p:column>
-                                    <p:column headerText="Pos" style="width: 34px; text-align: center; padding: 4px 1px !important;">
-                                        <span class="badge"
-                                            style="font-size: 0.70rem; padding: 2px 3px; font-weight: 800; border-radius: 3px; display: inline-block; line-height: 1; #{us.hasOpenTrades ? 'background: #16a34a; color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'background: transparent; color: #cbd5e1;'}">
-                                            #{us.hasOpenTrades ? 'ON' : '—'}
-                                        </span>
+                                    <p:column style="width: 34px; text-align: center; padding: 2px 1px !important;">
+                                        <p:commandButton icon="pi pi-arrow-right"
+                                            action="#{dashboardBean.onSelectUserSniper(us)}" process="@this"
+                                            update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                            styleClass="aether-btn-primary"
+                                            style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; background: #b47b2b !important; border-color: #b47b2b !important;"
+                                            title="Cargar par SNIPER a configuración y ver gráfica" />
                                     </p:column>
                                 </p:dataTable>
                             </p:tab>
@@ -180,20 +219,25 @@
                             <p:tab id="tabCalibSniper" title="#{dashboardBean.sniperCalibrationTabTitle}">
                                 <div style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;">
                                     <!-- Selector de Emisora y Multiplicador de Riesgo (Lado a Lado) -->
-                                    <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; align-items: end;">
+                                    <div
+                                        style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; align-items: end;">
                                         <!-- Columna Izquierda: Emisora -->
                                         <div>
-                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-                                                <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Emisora:</label>
+                                            <div
+                                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                                <label
+                                                    style="font-weight: 700; color: #334155; font-size: 0.85rem;">Emisora:</label>
                                                 <h:panelGroup rendered="#{dashboardBean.currentSniperId != null}"
                                                     style="font-size: 0.75rem; font-weight: 800; color: #8c5d1e; background: rgba(180, 123, 43, 0.15); border: 1px solid #b47b2b; padding: 1px 6px; border-radius: 4px;"
                                                     title="ID de Registro SNIPER">
                                                     ID: #{dashboardBean.currentSniperId}
                                                 </h:panelGroup>
                                             </div>
-                                            <p:selectOneMenu id="sniperSymbolSelect" value="#{dashboardBean.selectedSniperPair}"
-                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input" filter="true"
-                                                filterMatchMode="contains" style="width: 100%; font-weight: 800;">
+                                            <p:selectOneMenu id="sniperSymbolSelect"
+                                                value="#{dashboardBean.selectedSniperPair}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
+                                                filter="true" filterMatchMode="contains"
+                                                style="width: 100%; font-weight: 800;">
                                                 <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
                                                     itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
                                                 <p:ajax process="@this" update=":aetherForm"
@@ -204,24 +248,26 @@
 
                                         <!-- Columna Derecha: Multiplicador de Riesgo -->
                                         <h:panelGroup layout="block" id="pnlRiesgoSniper">
-                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                            <div
+                                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
                                                 <label style="font-weight: 700; color: #8c5d1e; font-size: 0.80rem;"
-                                                       title="Multiplicador de riesgo sobre la base de cuenta (#{dashboardBean.selectedAccountRiesgoPorOperacion}%)">
-                                                    <i class="pi pi-shield" style="font-size: 0.75rem; color: #b47b2b; margin-right: 2px;"></i>Riesgo:
+                                                    title="Multiplicador de riesgo sobre la base de cuenta (#{dashboardBean.selectedAccountRiesgoPorOperacion}%)">
+                                                    <i class="pi pi-shield"
+                                                        style="font-size: 0.75rem; color: #b47b2b; margin-right: 2px;"></i>Riesgo:
                                                 </label>
-                                                <span style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 4px; border-radius: 3px;"
-                                                      title="Riesgo Efectivo = Base #{dashboardBean.selectedAccountRiesgoPorOperacion}% x Multiplicador">
+                                                <span
+                                                    style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 4px; border-radius: 3px;"
+                                                    title="Riesgo Efectivo = Base #{dashboardBean.selectedAccountRiesgoPorOperacion}% x Multiplicador">
                                                     #{dashboardBean.formattedSniperRiesgoEfectivoPct}%
                                                 </span>
                                             </div>
-                                            <p:inputNumber id="sniperMultRiesgoInput" value="#{dashboardBean.sniperMultiplicadorRiesgo}"
-                                                decimalPlaces="2" minValue="0.10" maxValue="10.00"
-                                                symbol="x" symbolPosition="s"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                style="width: 100%;" inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff;">
+                                            <p:inputNumber id="sniperMultRiesgoInput"
+                                                value="#{dashboardBean.sniperMultiplicadorRiesgo}" decimalPlaces="2"
+                                                minValue="0.10" maxValue="10.00" symbol="x" symbolPosition="s"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" style="width: 100%;"
+                                                inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
-                                                    update="pnlRiesgoSniper"
-                                                    oncomplete="handleUserSniperSelected();" />
+                                                    update="pnlRiesgoSniper" oncomplete="handleUserSniperSelected();" />
                                             </p:inputNumber>
                                         </h:panelGroup>
                                     </div>
@@ -229,13 +275,14 @@
                                     <!-- Temporalidad y Días -->
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                                         <div>
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Temporalidad:</label>
-                                            <p:selectOneMenu id="sniperTimeframeSelect" value="#{dashboardBean.sniperTimeframe}"
+                                            <label
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Temporalidad:</label>
+                                            <p:selectOneMenu id="sniperTimeframeSelect"
+                                                value="#{dashboardBean.sniperTimeframe}"
                                                 disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
                                                 style="width: 100%; font-weight: 800;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
-                                                    update=":aetherForm"
-                                                    oncomplete="handleUserSniperSelected();" />
+                                                    update=":aetherForm" oncomplete="handleUserSniperSelected();" />
                                                 <f:selectItem itemLabel="1 Minuto" itemValue="1min" />
                                                 <f:selectItem itemLabel="5 Minutos" itemValue="5min" />
                                                 <f:selectItem itemLabel="15 Minutos" itemValue="15min" />
@@ -246,9 +293,12 @@
                                             </p:selectOneMenu>
                                         </div>
                                         <div>
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días Historial:</label>
-                                            <p:spinner id="sniperDaysBackSpinner" value="#{dashboardBean.sniperDaysBack}" min="30" max="365" stepFactor="30"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                            <label
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días
+                                                Historial:</label>
+                                            <p:spinner id="sniperDaysBackSpinner"
+                                                value="#{dashboardBean.sniperDaysBack}" min="30" max="365"
+                                                stepFactor="30" disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="width: 100%;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update=":aetherForm" oncomplete="handleUserSniperSelected();" />
@@ -259,100 +309,123 @@
                                     <!-- Confianza ML y R:R Mínimo -->
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                                         <div>
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza Mín ML (%):</label>
-                                            <p:spinner value="#{dashboardBean.sniperMinConfidence}" min="50.0" max="95.0" stepFactor="5.0"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="width: 100%;" />
+                                            <label
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza
+                                                Mín ML (%):</label>
+                                            <p:spinner value="#{dashboardBean.sniperMinConfidence}" min="50.0"
+                                                max="95.0" stepFactor="5.0"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
+                                                style="width: 100%;" />
                                         </div>
                                         <div>
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R Mínimo:</label>
-                                            <p:spinner value="#{dashboardBean.sniperMinRr}" min="1.0" max="5.0" stepFactor="0.1"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                            <label
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R
+                                                Mínimo:</label>
+                                            <p:spinner value="#{dashboardBean.sniperMinRr}" min="1.0" max="5.0"
+                                                stepFactor="0.1" disabled="#{dashboardBean.sniperEditBlocked}"
                                                 styleClass="aether-input" style="width: 100%;" />
                                         </div>
                                     </div>
 
                                     <!-- BreakEven y Trailing Stop Loss -->
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(180, 123, 43, 0.06); padding: 8px; border-radius: 8px; border: 1px solid rgba(180, 123, 43, 0.2);">
-                                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit">BreakEven (50%):</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}" disabled="#{dashboardBean.sniperEditBlocked}" />
+                                    <div
+                                        style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(180, 123, 43, 0.06); padding: 8px; border-radius: 8px; border: 1px solid rgba(180, 123, 43, 0.2);">
+                                        <div
+                                            style="display: flex; align-items: center; justify-content: space-between;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;"
+                                                title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit">BreakEven
+                                                (50%):</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" />
                                         </div>
-                                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;" title="Activa Trailing Stop Loss una vez asegurado el BreakEven">Trailing SL:</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}" disabled="#{dashboardBean.sniperEditBlocked}" />
+                                        <div
+                                            style="display: flex; align-items: center; justify-content: space-between;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;"
+                                                title="Activa Trailing Stop Loss una vez asegurado el BreakEven">Trailing
+                                                SL:</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" />
                                         </div>
                                     </div>
 
                                     <!-- Horario Operativo -->
-                                    <h:panelGroup layout="block" id="pnlHorarioSniper" style="background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Filtro Horario (CST):</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperFiltroHorario}" disabled="#{dashboardBean.sniperEditBlocked}">
+                                    <h:panelGroup layout="block" id="pnlHorarioSniper"
+                                        style="background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                        <div
+                                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                            <label style="font-weight: 700; color: #334155; font-size: 0.85rem;">Filtro
+                                                Horario (CST):</label>
+                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperFiltroHorario}"
+                                                disabled="#{dashboardBean.sniperEditBlocked}">
                                                 <p:ajax process="@this" update="pnlHorarioSniper" />
                                             </p:selectBooleanCheckbox>
                                         </div>
-                                        <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">Horario 1 (Principal):</div>
-                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px;">
+                                        <div
+                                            style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">
+                                            Horario 1 (Principal):</div>
+                                        <div
+                                            style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px;">
                                             <p:inputText value="#{dashboardBean.sniperHoraInicio}" placeholder="08:00"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
+                                                style="text-align: center; font-size: 0.85rem;" />
                                             <p:inputText value="#{dashboardBean.sniperHoraFin}" placeholder="16:00"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
+                                                style="text-align: center; font-size: 0.85rem;" />
                                         </div>
-                                        <div style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">Horario 2 (Opcional / Split):</div>
+                                        <div
+                                            style="font-size: 0.72rem; color: #64748b; margin-bottom: 3px; font-weight: 600;">
+                                            Horario 2 (Opcional / Split):</div>
                                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                            <p:inputText value="#{dashboardBean.sniperHoraInicio2}" placeholder="Ej. 16:00"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                            <p:inputText value="#{dashboardBean.sniperHoraInicio2}"
+                                                placeholder="Ej. 16:00" disabled="#{dashboardBean.sniperEditBlocked}"
+                                                styleClass="aether-input"
+                                                style="text-align: center; font-size: 0.85rem;" />
                                             <p:inputText value="#{dashboardBean.sniperHoraFin2}" placeholder="Ej. 19:00"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="text-align: center; font-size: 0.85rem;" />
+                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
+                                                style="text-align: center; font-size: 0.85rem;" />
                                         </div>
                                     </h:panelGroup>
 
                                     <!-- Generar Órdenes (Operar) -->
-                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #{dashboardBean.sniperOperar ? 'rgba(180, 123, 43, 0.15)' : '#f8fafc'}; border: 1.5px solid #{dashboardBean.sniperOperar ? '#b47b2b' : '#cbd5e1'}; border-radius: 8px; margin-top: 4px;">
+                                    <div
+                                        style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #{dashboardBean.sniperOperar ? 'rgba(180, 123, 43, 0.15)' : '#f8fafc'}; border: 1.5px solid #{dashboardBean.sniperOperar ? '#b47b2b' : '#cbd5e1'}; border-radius: 8px; margin-top: 4px;">
                                         <div>
-                                            <span style="font-weight: 800; font-size: 0.90rem; color: #{dashboardBean.sniperOperar ? '#8c5d1e' : '#475569'}; display: block;">
+                                            <span
+                                                style="font-weight: 800; font-size: 0.90rem; color: #{dashboardBean.sniperOperar ? '#8c5d1e' : '#475569'}; display: block;">
                                                 Generar Órdenes SNIPER:
                                             </span>
                                             <span style="font-size: 0.75rem; color: #64748b;">
-                                                #{dashboardBean.sniperOperar ? 'Ejecución autónoma activa en microSNIPER' : 'Modo sólo monitoreo (sin órdenes)'}
+                                                #{dashboardBean.sniperOperar ? 'Ejecución autónoma activa en
+                                                microSNIPER' : 'Modo sólo monitoreo (sin órdenes)'}
                                             </span>
                                         </div>
                                         <p:inputSwitch value="#{dashboardBean.sniperOperar}">
-                                            <p:ajax listener="#{dashboardBean.onSniperOperarToggle}" update=":aetherForm" />
+                                            <p:ajax listener="#{dashboardBean.onSniperOperarToggle}"
+                                                update=":aetherForm" />
                                         </p:inputSwitch>
                                     </div>
 
                                     <!-- Botones de Acción -->
                                     <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 8px;">
-                                        <p:commandButton value="Auto-Calibrar Parámetros y Horario" icon="pi pi-sliders-h"
-                                            action="#{dashboardBean.optimizarSniperPair}"
-                                            disabled="#{dashboardBean.sniperEditBlocked}"
-                                            process="@this"
+                                        <p:commandButton value="Auto-Calibrar Parámetros y Horario"
+                                            icon="pi pi-sliders-h" action="#{dashboardBean.optimizarSniperPair}"
+                                            disabled="#{dashboardBean.sniperEditBlocked}" process="@this"
                                             update=":aetherForm :aetherForm:growl"
-                                            oncomplete="handleUserSniperSelected();"
-                                            styleClass="aether-btn-secondary"
+                                            oncomplete="handleUserSniperSelected();" styleClass="aether-btn-secondary"
                                             style="width: 100%; border: 1.5px solid #b47b2b !important; color: #8c5d1e !important; background: #fefce8 !important; font-weight: 800; font-size: 0.92rem;"
                                             title="Calcula de forma automática la temporalidad, niveles ML, R:R y ventana horaria óptima para #{dashboardBean.selectedSniperPair}" />
 
                                         <div style="display: flex; gap: 8px;">
                                             <p:commandButton value="Guardar" icon="pi pi-check"
                                                 action="#{dashboardBean.guardarSniper}"
-                                                disabled="#{dashboardBean.sniperEditBlocked}"
-                                                process="@form"
+                                                disabled="#{dashboardBean.sniperEditBlocked}" process="@form"
                                                 update=":aetherForm :aetherForm:growl"
-                                                oncomplete="handleUserSniperSelected();"
-                                                styleClass="aether-btn-primary"
+                                                oncomplete="handleUserSniperSelected();" styleClass="aether-btn-primary"
                                                 style="flex: 2; background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
-                                            
+
                                             <p:commandButton value="Borrar" icon="pi pi-trash"
                                                 disabled="#{dashboardBean.sniperEditBlocked}"
-                                                rendered="#{dashboardBean.sniperExistsInDb}"
-                                                process="@this"
+                                                rendered="#{dashboardBean.sniperExistsInDb}" process="@this"
                                                 update=":borrarSniperForm:borrarSniperDlg"
                                                 oncomplete="PF('borrarSniperDlg').show();"
                                                 styleClass="aether-btn-secondary"
@@ -362,8 +435,10 @@
                                     </div>
 
                                     <!-- RESUMEN DE POSICIÓN EN CURSO SNIPER -->
-                                    <h:panelGroup id="sniperActiveCycleSummaryCard" layout="block" style="margin-top: 14px;">
-                                        <h:panelGroup rendered="#{dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
+                                    <h:panelGroup id="sniperActiveCycleSummaryCard" layout="block"
+                                        style="margin-top: 14px;">
+                                        <h:panelGroup
+                                            rendered="#{dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
                                             <div
                                                 style="background: #ffffff; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
                                                 <div
@@ -383,7 +458,8 @@
                                                 <div
                                                     style="display: flex; justify-content: space-between; font-size: 0.82rem; color: #334155;">
                                                     <span>Dir: <b>#{dashboardBean.sniperActiveCycleSummary.dirA}</b>
-                                                        (#{dashboardBean.sniperActiveCycleSummary.totalOpenTrades} ops)</span>
+                                                        (#{dashboardBean.sniperActiveCycleSummary.totalOpenTrades}
+                                                        ops)</span>
                                                     <span>Cant:
                                                         <b>#{dashboardBean.sniperActiveCycleSummary.formattedSizeA}</b></span>
                                                     <span>Px Ent:
@@ -391,7 +467,8 @@
                                                 </div>
                                             </div>
                                         </h:panelGroup>
-                                        <h:panelGroup rendered="#{!dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
+                                        <h:panelGroup
+                                            rendered="#{!dashboardBean.sniperActiveCycleSummary.hasActiveCycle}">
                                             <div
                                                 style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; text-align: center;">
                                                 <div style="font-weight: 700; font-size: 0.80rem; color: #64748b;">
@@ -445,7 +522,8 @@
                                                 <div
                                                     style="font-size: 0.62rem; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#166534' : '#991b1b'}; font-weight: 700; text-transform: uppercase;">
                                                     Ind. Margen</div>
-                                                <div style="font-size: 0.95rem; font-weight: 900; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#15803d' : '#dc2626'};">
+                                                <div
+                                                    style="font-size: 0.95rem; font-weight: 900; color: #{dashboardBean.accountRealMarginIndicator >= dashboardBean.accountRealMinMargin ? '#15803d' : '#dc2626'};">
                                                     #{dashboardBean.formattedAccountRealMarginIndicator}%</div>
                                             </div>
                                         </div>
@@ -461,7 +539,8 @@
                                                         <p:commandButton icon="pi pi-times"
                                                             action="#{dashboardBean.cerrarPosicionSniper(sniperCycle.pairA)}"
                                                             process="@this" disabled="#{dashboardBean.readOnly}"
-                                                            update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                                            update=":aetherForm"
+                                                            oncomplete="handleUserSniperSelected();"
                                                             styleClass="aether-btn-danger"
                                                             title="#{dashboardBean.readOnly ? 'Modo solo lectura' : 'Cerrar Posición SNIPER en FOREX.com y BD'}" />
                                                         <p:commandLink
@@ -558,7 +637,8 @@
                                                     <div style="display: flex; align-items: center; gap: 6px;">
                                                         <span
                                                             style="font-weight: 800; font-size: 0.88rem; color: #0f172a;">
-                                                            Última Op: #{dashboardBean.sniperRealTradesList.get(0).symbol}
+                                                            Última Op:
+                                                            #{dashboardBean.sniperRealTradesList.get(0).symbol}
                                                         </span>
                                                         <p:commandButton icon="pi pi-arrow-right"
                                                             action="#{dashboardBean.onSelectUserSniperBySymbol(dashboardBean.sniperRealTradesList.get(0).symbol)}"
@@ -570,7 +650,8 @@
                                                     </div>
                                                     <span
                                                         style="font-weight: 800; font-size: 0.82rem; color: #{dashboardBean.sniperRealTradesList.get(0).pnl >= 0 ? '#15803d' : '#b91c1c'};">
-                                                        #{dashboardBean.sniperRealTradesList.get(0).pnl >= 0 ? '+' : ''}$#{dashboardBean.sniperRealTradesList.get(0).pnl}
+                                                        #{dashboardBean.sniperRealTradesList.get(0).pnl >= 0 ? '+' :
+                                                        ''}$#{dashboardBean.sniperRealTradesList.get(0).pnl}
                                                     </span>
                                                 </div>
                                                 <div style="font-size: 0.74rem; color: #64748b;">
@@ -633,12 +714,13 @@
                                 <p:commandButton icon="pi pi-refresh" title="Refrescar gráfica en vivo"
                                     action="#{dashboardBean.analyzeSniperPair}" process="@this"
                                     update=":aetherForm:sniperHistoryJsonData :aetherForm:sniperActiveTradesJsonData"
-                                    oncomplete="renderSniperChart();"
-                                    styleClass="aether-btn-secondary"
+                                    oncomplete="renderSniperChart();" styleClass="aether-btn-secondary"
                                     style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
-                                <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperChart');"
-                                    style="display: inline-flex; align-items: center; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #334155; cursor: pointer;">
-                                    Reset Zoom
+                                <button type="button"
+                                    onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperChart');"
+                                    title="Restablecer Zoom"
+                                    style="display: inline-flex; align-items: center; justify-content: center; height: 32px; width: 36px; padding: 0; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #334155; cursor: pointer;">
+                                    <i class="pi pi-search" style="font-size: 1.65rem;"></i>
                                 </button>
                             </div>
                         </div>
@@ -650,78 +732,104 @@
                             <!-- BANNER DE POSICIÓN ACTIVA EN CURSO (SI EXISTE TRADE OPEN EN SNIPER) -->
                             <div id="sniperActiveTradeBanner"
                                 style="display: none; margin-bottom: 6px; padding: 3px 12px; border-radius: 8px; background: rgba(180, 123, 43, 0.08); border: 1.5px solid #b47b2b; justify-content: space-between; align-items: center; min-height: 36px; box-sizing: border-box; gap: 10px;">
-                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; overflow-x: auto; font-size: 1.15rem;">
+                                <div
+                                    style="display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; overflow-x: auto; font-size: 1.15rem;">
                                     <span id="sniperBannerDirBadge"
                                         style="font-weight: 900; font-size: 1.15rem; padding: 2px 10px; border-radius: 6px; color: #ffffff; letter-spacing: 0.5px; white-space: nowrap; line-height: 1.2;"></span>
-                                    
-                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">Entrada:</span>
-                                        <b id="sniperBannerEntry" style="color: #0f172a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
-                                    </div>
-                                    
-                                    <div id="sniperBannerSlContainer" style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #ef4444; text-transform: uppercase;">SL:</span>
-                                        <b id="sniperBannerSl" style="color: #dc2626; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
-                                    </div>
-                                    
-                                    <div id="sniperBannerTpContainer" style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #10b981; text-transform: uppercase;">TP:</span>
-                                        <b id="sniperBannerTp" style="color: #16a34a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
-                                    </div>
-                                    
-                                    <div id="sniperBannerBeContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #0284c7; text-transform: uppercase;">BE:</span>
-                                        <b id="sniperBannerBe" style="color: #0284c7; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+
+                                    <div
+                                        style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">Entrada:</span>
+                                        <b id="sniperBannerEntry"
+                                            style="color: #0f172a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
                                     </div>
 
-                                    <div id="sniperBannerTslContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #d97706; text-transform: uppercase;">TSL:</span>
-                                        <b id="sniperBannerTsl" style="color: #d97706; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    <div id="sniperBannerSlContainer"
+                                        style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #ef4444; text-transform: uppercase;">SL:</span>
+                                        <b id="sniperBannerSl"
+                                            style="color: #dc2626; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
                                     </div>
-                                    
-                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
-                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">PnL:</span>
-                                        <b id="sniperBannerPnl" style="font-size: 1.15rem; font-weight: 900; line-height: 1;">$0.00</b>
+
+                                    <div id="sniperBannerTpContainer"
+                                        style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #10b981; text-transform: uppercase;">TP:</span>
+                                        <b id="sniperBannerTp"
+                                            style="color: #16a34a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+
+                                    <div id="sniperBannerBeContainer"
+                                        style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #0284c7; text-transform: uppercase;">BE:</span>
+                                        <b id="sniperBannerBe"
+                                            style="color: #0284c7; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+
+                                    <div id="sniperBannerTslContainer"
+                                        style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #d97706; text-transform: uppercase;">TSL:</span>
+                                        <b id="sniperBannerTsl"
+                                            style="color: #d97706; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+
+                                    <div
+                                        style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span
+                                            style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">PnL:</span>
+                                        <b id="sniperBannerPnl"
+                                            style="font-size: 1.15rem; font-weight: 900; line-height: 1;">$0.00</b>
                                     </div>
                                 </div>
                                 <p:commandButton icon="pi pi-times"
                                     title="Cerrar Posición Activa de #{dashboardBean.selectedSniperPair}"
                                     action="#{dashboardBean.cerrarPosicionSniper(dashboardBean.selectedSniperPair)}"
-                                    process="@this" update=":aetherForm"
-                                    oncomplete="handleUserSniperSelected();"
+                                    process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();"
                                     styleClass="aether-btn-secondary"
                                     style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; color: #dc2626 !important; border-color: #ef4444 !important; font-size: 0.95rem !important; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px !important;" />
                             </div>
 
                             <!-- LEYENDA TÁCTICA DE ELEMENTOS DIBUJADOS -->
-                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 4px 10px; background: #f8fafc; border-radius: 6px; font-size: 0.85rem; border: 1px solid #e2e8f0; flex-wrap: wrap;">
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; padding: 4px 10px; background: #f8fafc; border-radius: 6px; font-size: 0.85rem; border: 1px solid #e2e8f0; flex-wrap: wrap;">
                                 <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 3px; background: #b47b2b; display: inline-block;"></span>
+                                        <span
+                                            style="width: 12px; height: 3px; background: #b47b2b; display: inline-block;"></span>
                                         <b>Precio</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 3px; background: #16a34a; display: inline-block;"></span>
+                                        <span
+                                            style="width: 12px; height: 3px; background: #16a34a; display: inline-block;"></span>
                                         <b>Entrada</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 10px; background: rgba(16, 185, 129, 0.25); border: 1.5px dashed #10b981; display: inline-block; border-radius: 2px;"></span>
+                                        <span
+                                            style="width: 12px; height: 10px; background: rgba(16, 185, 129, 0.25); border: 1.5px dashed #10b981; display: inline-block; border-radius: 2px;"></span>
                                         <b style="color: #059669;">Zona TP</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 10px; background: rgba(239, 68, 68, 0.25); border: 1.5px dashed #ef4444; display: inline-block; border-radius: 2px;"></span>
+                                        <span
+                                            style="width: 12px; height: 10px; background: rgba(239, 68, 68, 0.25); border: 1.5px dashed #ef4444; display: inline-block; border-radius: 2px;"></span>
                                         <b style="color: #dc2626;">Zona SL</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #3b82f6; display: inline-block;"></span>
+                                        <span
+                                            style="width: 12px; height: 2px; border-top: 2px dashed #3b82f6; display: inline-block;"></span>
                                         <b style="color: #2563eb;">BreakEven (BE)</b>
                                     </span>
                                     <span style="display: inline-flex; align-items: center; gap: 4px;">
-                                        <span style="width: 12px; height: 10px; background: rgba(217, 119, 6, 0.25); border: 1.5px dashed #d97706; display: inline-block; border-radius: 2px;"></span>
+                                        <span
+                                            style="width: 12px; height: 10px; background: rgba(217, 119, 6, 0.25); border: 1.5px dashed #d97706; display: inline-block; border-radius: 2px;"></span>
                                         <b style="color: #d97706;">Zona TSL</b>
                                     </span>
                                 </div>
-                                <span id="sniperLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
+                                <span id="sniperLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado:
+                                    —</span>
                             </div>
 
                             <!-- CANVAS DE GRÁFICA CHART.JS -->
@@ -736,9 +844,10 @@
             <!-- ===================================================================== -->
             <!-- PESTAÑA: GRÁFICA SNIPER                                               -->
             <!-- ===================================================================== -->
-            <p:tab id="tabGraficaSniper" titletip="Grafica">
+            <p:tab id="tabGraficaSniper" titletip="Grafica" titleStyleClass="mobile-chart-tab-header">
                 <f:facet name="title">
-                    <span class="grafica-tab-icon" title="Grafica" style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                    <span class="grafica-tab-icon" title="Grafica"
+                        style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
                 </f:facet>
                 <div id="mobileSniperChartMountPoint" style="padding: 8px 10px; height: 100%; box-sizing: border-box;">
                 </div>
@@ -749,45 +858,60 @@
             <!-- ===================================================================== -->
             <p:tab titletip="BackTesting">
                 <f:facet name="title">
-                    <span class="backtest-tab-icon" title="BackTesting" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                    <span class="backtest-tab-icon" title="BackTesting"
+                        style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
                 </f:facet>
                 <p:outputPanel id="sniperBtWrapper" layout="block"
                     style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
 
-                    <div style="background: #ffffff; border-radius: 8px; border: 1px solid #e7d8c0; padding: 8px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 8px;">
-                        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 2px solid #e7d8c0; padding-bottom: 6px; gap: 8px; background: linear-gradient(135deg, #fdfbf7 0%, #fef3c7 100%); border-radius: 8px; padding: 8px 12px;">
+                    <div
+                        style="background: #ffffff; border-radius: 8px; border: 1px solid #e7d8c0; padding: 8px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 8px;">
+                        <div
+                            style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 2px solid #e7d8c0; padding-bottom: 6px; gap: 8px; background: linear-gradient(135deg, #fdfbf7 0%, #fef3c7 100%); border-radius: 8px; padding: 8px 12px;">
                             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <span style="font-weight: 900; font-size: 1.22rem; color: #8c5d1e; display: inline-flex; align-items: center;">
-                                    <i class="pi pi-compass" style="margin-right: 6px; color: #b47b2b;"></i>Estrategia SNIPER: Precision Order Blocks &amp; ML
+                                <span
+                                    style="font-weight: 900; font-size: 1.22rem; color: #8c5d1e; display: inline-flex; align-items: center;">
+                                    <i class="pi pi-compass" style="margin-right: 6px; color: #b47b2b;"></i>Estrategia
+                                    SNIPER: Precision Order Blocks &amp; ML
                                 </span>
-                                <span style="color: #8c5d1e; background: #ffffff; border: 1.5px solid #d4b584; padding: 3px 10px; border-radius: 6px; font-weight: 900; font-size: 1.15rem;">
+                                <span
+                                    style="color: #8c5d1e; background: #ffffff; border: 1.5px solid #d4b584; padding: 3px 10px; border-radius: 6px; font-weight: 900; font-size: 1.15rem;">
                                     #{dashboardBean.selectedSniperPair}
                                 </span>
-                                <span style="background: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 700;">
-                                    <i class="pi pi-clock" style="color: #b47b2b; margin-right: 4px;"></i>#{dashboardBean.sniperTimeframe} (#{dashboardBean.sniperDaysBack} periodos)
+                                <span
+                                    style="background: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 700;">
+                                    <i class="pi pi-clock"
+                                        style="color: #b47b2b; margin-right: 4px;"></i>#{dashboardBean.sniperTimeframe}
+                                    (#{dashboardBean.sniperDaysBack} periodos)
                                 </span>
-                                <span style="background: #ffffff; color: #8c5d1e; border: 1px solid #e7d8c0; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 800;">
-                                    Conf. Mín: #{dashboardBean.sniperMinConfidence}% | R:R #{dashboardBean.sniperMinRr}:1 | Horario: #{dashboardBean.sniperHoraInicio}-#{dashboardBean.sniperHoraFin}#{not empty dashboardBean.sniperHoraInicio2 ? ' y ' : ''}#{dashboardBean.sniperHoraInicio2}#{not empty dashboardBean.sniperHoraInicio2 ? '-' : ''}#{dashboardBean.sniperHoraFin2} CST
+                                <span
+                                    style="background: #ffffff; color: #8c5d1e; border: 1px solid #e7d8c0; padding: 3px 9px; border-radius: 6px; font-size: 1.02rem; font-weight: 800;">
+                                    Conf. Mín: #{dashboardBean.sniperMinConfidence}% | R:R
+                                    #{dashboardBean.sniperMinRr}:1 | Horario:
+                                    #{dashboardBean.sniperHoraInicio}-#{dashboardBean.sniperHoraFin}#{not empty
+                                    dashboardBean.sniperHoraInicio2 ? ' y ' : ''}#{dashboardBean.sniperHoraInicio2}#{not
+                                    empty dashboardBean.sniperHoraInicio2 ? '-' : ''}#{dashboardBean.sniperHoraFin2} CST
                                 </span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <span style="background: #ffffff; color: #8c5d1e; border: 1px solid #d4b584; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
-                                    <i class="pi pi-wallet" style="margin-right: 4px;"></i>Capital: $#{dashboardBean.formattedSniperBtInitialCapital} USD
+                                <span
+                                    style="background: #ffffff; color: #8c5d1e; border: 1px solid #d4b584; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
+                                    <i class="pi pi-wallet" style="margin-right: 4px;"></i>Capital:
+                                    $#{dashboardBean.formattedSniperBtInitialCapital} USD
                                 </span>
-                                <span style="background: #ffffff; color: #0369a1; border: 1px solid #bae6fd; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
+                                <span
+                                    style="background: #ffffff; color: #0369a1; border: 1px solid #bae6fd; padding: 3px 9px; border-radius: 8px; font-weight: 800; font-size: 1.02rem;">
                                     Asignación: #{dashboardBean.formattedSniperBtAllocationPct}% / Entrada
                                 </span>
                                 <p:commandButton value="Auto-Calibrar" icon="pi pi-sliders-h"
                                     actionListener="#{dashboardBean.optimizarSniperPair}"
-                                    update=":aetherForm :aetherForm:growl"
-                                    oncomplete="handleUserSniperSelected();"
+                                    update=":aetherForm :aetherForm:growl" oncomplete="handleUserSniperSelected();"
                                     styleClass="ui-button-outlined"
                                     style="font-size: 0.90rem; padding: 4px 10px; color: #8c5d1e; border-color: #b47b2b; background: #fefce8; font-weight: 800;"
                                     title="Auto-calibrar temporalidad, ML, R:R y horario óptimo para #{dashboardBean.selectedSniperPair}" />
-                                <p:commandButton icon="pi pi-refresh" actionListener="#{dashboardBean.analyzeSniperPair}"
-                                    update=":aetherForm"
-                                    oncomplete="handleUserSniperSelected();"
-                                    styleClass="ui-button-outlined"
+                                <p:commandButton icon="pi pi-refresh"
+                                    actionListener="#{dashboardBean.analyzeSniperPair}" update=":aetherForm"
+                                    oncomplete="handleUserSniperSelected();" styleClass="ui-button-outlined"
                                     style="font-size: 0.90rem; padding: 4px 8px; color: #8c5d1e; border-color: #b47b2b; background: #ffffff;"
                                     title="Recalcular Backtest SNIPER" />
                             </div>
@@ -795,98 +919,148 @@
 
                         <!-- KPIs de BackTest SNIPER -->
                         <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;">
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #b47b2b;">
-                                <span style="display: block; font-size: 0.88rem; color: #8c5d1e; font-weight: 700;">Ventana BackTest</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">#{dashboardBean.formattedSniperBtTotalDays} días</span>
-                                <span style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.formattedSniperBtTotalBars} velas</span>
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #b47b2b;">
+                                <span
+                                    style="display: block; font-size: 0.88rem; color: #8c5d1e; font-weight: 700;">Ventana
+                                    BackTest</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">#{dashboardBean.formattedSniperBtTotalDays}
+                                    días</span>
+                                <span
+                                    style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.formattedSniperBtTotalBars}
+                                    velas</span>
                             </div>
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #0284c7;">
-                                <span style="display: block; font-size: 0.88rem; color: #0369a1; font-weight: 700;">Total Operaciones</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">#{dashboardBean.sniperBtMetrics.formattedTotalTrades} Trades</span>
-                                <span style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.sniperBtMetrics.winningTrades} W / #{dashboardBean.sniperBtMetrics.losingTrades} L</span>
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #0284c7;">
+                                <span
+                                    style="display: block; font-size: 0.88rem; color: #0369a1; font-weight: 700;">Total
+                                    Operaciones</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">#{dashboardBean.sniperBtMetrics.formattedTotalTrades}
+                                    Trades</span>
+                                <span
+                                    style="display: block; font-size: 0.82rem; color: #64748b;">#{dashboardBean.sniperBtMetrics.winningTrades}
+                                    W / #{dashboardBean.sniperBtMetrics.losingTrades} L</span>
                             </div>
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #10b981;">
-                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Retorno Total</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '#10b981' : '#ef4444'};">
-                                    #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '+' : ''}#{dashboardBean.sniperBtMetrics.formattedTotalReturnPct}%
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #10b981;">
+                                <span
+                                    style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Retorno
+                                    Total</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '#10b981' : '#ef4444'};">
+                                    #{dashboardBean.sniperBtMetrics.totalReturnPct ge 0 ? '+' :
+                                    ''}#{dashboardBean.sniperBtMetrics.formattedTotalReturnPct}%
                                 </span>
-                                <span style="display: block; font-size: 0.85rem; font-weight: 700; color: #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '#15803d' : '#b91c1c'};">
-                                    #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '+' : ''}$#{dashboardBean.sniperBtMetrics.formattedNetProfit} USD
+                                <span
+                                    style="display: block; font-size: 0.85rem; font-weight: 700; color: #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '#15803d' : '#b91c1c'};">
+                                    #{dashboardBean.sniperBtMetrics.netProfit ge 0 ? '+' :
+                                    ''}$#{dashboardBean.sniperBtMetrics.formattedNetProfit} USD
                                 </span>
                             </div>
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #d97706;">
-                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Capital Final</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">$#{dashboardBean.formattedSniperBtFinalCapital}</span>
-                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Reinversión Compuesta</span>
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #d97706;">
+                                <span
+                                    style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Capital
+                                    Final</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #0284c7;">$#{dashboardBean.formattedSniperBtFinalCapital}</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Reinversión
+                                    Compuesta</span>
                             </div>
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #8c5d1e;">
-                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Win Rate / PF</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #8c5d1e;">#{dashboardBean.sniperBtMetrics.winRate}%</span>
-                                <span style="display: block; font-size: 0.82rem; color: #64748b;">PF: #{dashboardBean.sniperBtMetrics.formattedProfitFactor}</span>
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #8c5d1e;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Win
+                                    Rate / PF</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #8c5d1e;">#{dashboardBean.sniperBtMetrics.winRate}%</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">PF:
+                                    #{dashboardBean.sniperBtMetrics.formattedProfitFactor}</span>
                             </div>
-                            <div style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #ef4444;">
-                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Max Drawdown</span>
-                                <span style="font-size: 1.25rem; font-weight: 800; color: #ef4444;">-#{dashboardBean.sniperBtMetrics.formattedMaxDrawdown}%</span>
-                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Sharpe: #{dashboardBean.sniperBtMetrics.formattedSharpeRatio}</span>
+                            <div
+                                style="background: #f8fafc; border-radius: 6px; padding: 5px 6px; text-align: center; border: 1px solid #f1f5f9; border-top: 3px solid #ef4444;">
+                                <span style="display: block; font-size: 0.88rem; color: #64748b; font-weight: 600;">Max
+                                    Drawdown</span>
+                                <span
+                                    style="font-size: 1.25rem; font-weight: 800; color: #ef4444;">-#{dashboardBean.sniperBtMetrics.formattedMaxDrawdown}%</span>
+                                <span style="display: block; font-size: 0.82rem; color: #64748b;">Sharpe:
+                                    #{dashboardBean.sniperBtMetrics.formattedSharpeRatio}</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Sub-Pestañas Internas de BackTest SNIPER -->
-                    <p:tabView id="sniperBtInnerTabs" widgetVar="sniperBtInnerTabsWidget" styleClass="compact-inner-tabs"
+                    <p:tabView id="sniperBtInnerTabs" widgetVar="sniperBtInnerTabsWidget"
+                        styleClass="compact-inner-tabs"
                         onTabShow="if (index === 1) setTimeout(renderSniperBtPriceChart, 50); else if (index === 2) setTimeout(renderSniperBtEquityChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES SNIPER -->
                         <p:tab title="Bitácora detallada de Trades">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <p:dataTable id="sniperSignalTradesTable" value="#{dashboardBean.sniperBtTradesList}"
-                                    var="st" scrollable="true" scrollHeight="340px" styleClass="aether-trades-table aether-table-compact"
+                                    var="st" scrollable="true" scrollHeight="340px"
+                                    styleClass="aether-trades-table aether-table-compact"
                                     emptyMessage="Sin operaciones simuladas para este par en SNIPER"
                                     tableStyle="width: 100%;">
                                     <p:column headerText="Entrada" style="width: 5%; text-align: center;">
-                                        <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}" style="font-weight: 700; font-size: 0.95rem;" />
+                                        <h:outputText value="#{st.tradeNum != null ? st.tradeNum : '-'}"
+                                            style="font-weight: 700; font-size: 0.95rem;" />
                                     </p:column>
                                     <p:column headerText="Dirección / Señal" style="width: 12%; text-align: center;">
-                                        <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 800; font-size: 0.82rem; background: #{st.direction == 'COMPRA' ? '#dcfce7' : '#fee2e2'}; color: #{st.direction == 'COMPRA' ? '#15803d' : '#b91c1c'}; border: 1px solid #{st.direction == 'COMPRA' ? '#86efac' : '#fca5a5'};">
+                                        <span
+                                            style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-weight: 800; font-size: 0.82rem; background: #{st.direction == 'COMPRA' ? '#dcfce7' : '#fee2e2'}; color: #{st.direction == 'COMPRA' ? '#15803d' : '#b91c1c'}; border: 1px solid #{st.direction == 'COMPRA' ? '#86efac' : '#fca5a5'};">
                                             #{st.direction == 'COMPRA' ? '▲ COMPRA' : '▼ VENTA'}
                                         </span>
-                                        <div style="font-size: 0.75rem; color: #475569; margin-top: 2px; font-weight: 600;">#{st.signalType}</div>
+                                        <div
+                                            style="font-size: 0.75rem; color: #475569; margin-top: 2px; font-weight: 600;">
+                                            #{st.signalType}</div>
                                     </p:column>
                                     <p:column headerText="Fecha Entrada" style="width: 12%; text-align: center;">
-                                        <h:outputText value="#{st.entryDate}" style="font-weight: 700; font-size: 0.95rem; color: #0f172a;" />
+                                        <h:outputText value="#{st.entryDate}"
+                                            style="font-weight: 700; font-size: 0.95rem; color: #0f172a;" />
                                     </p:column>
                                     <p:column headerText="Px Entrada" style="width: 9%; text-align: right;">
-                                        <h:outputText value="#{st.entryPriceA}" style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                        <h:outputText value="#{st.entryPriceA}"
+                                            style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
                                             <f:convertNumber pattern="#,##0.000000" />
                                         </h:outputText>
                                     </p:column>
                                     <p:column headerText="Fecha Cierre" style="width: 13%; text-align: center;">
-                                        <h:outputText value="#{st.exitDate}" style="font-weight: 700; font-size: 1.05rem; color: #0f172a;" />
-                                        <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración: #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
+                                        <h:outputText value="#{st.exitDate}"
+                                            style="font-weight: 700; font-size: 1.05rem; color: #0f172a;" />
+                                        <div style="font-size: 0.72rem; color: #64748b; font-weight: 600;">Duración:
+                                            #{st.durationBars} #{st.durationBars == 1 ? 'vela' : 'velas'}</div>
                                     </p:column>
                                     <p:column headerText="Px Cierre" style="width: 9%; text-align: right;">
-                                        <h:outputText value="#{st.exitPriceA}" style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
+                                        <h:outputText value="#{st.exitPriceA}"
+                                            style="font-weight: 800; font-size: 1.05rem; color: #0f172a;">
                                             <f:convertNumber pattern="#,##0.000000" />
                                         </h:outputText>
                                     </p:column>
                                     <p:column headerText="Motivo Cierre" style="width: 12%; text-align: center;">
-                                        <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-weight: 800; font-size: 0.76rem; background: #{st.exitReason.contains('Take Profit') ? '#dcfce7' : (st.exitReason.contains('Break-Even') ? '#e0f2fe' : (st.exitReason.contains('Trailing') ? '#fef3c7' : '#fee2e2'))}; color: #{st.exitReason.contains('Take Profit') ? '#15803d' : (st.exitReason.contains('Break-Even') ? '#0369a1' : (st.exitReason.contains('Trailing') ? '#b45309' : '#b91c1c'))};">
+                                        <span
+                                            style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-weight: 800; font-size: 0.76rem; background: #{st.exitReason.contains('Take Profit') ? '#dcfce7' : (st.exitReason.contains('Break-Even') ? '#e0f2fe' : (st.exitReason.contains('Trailing') ? '#fef3c7' : '#fee2e2'))}; color: #{st.exitReason.contains('Take Profit') ? '#15803d' : (st.exitReason.contains('Break-Even') ? '#0369a1' : (st.exitReason.contains('Trailing') ? '#b45309' : '#b91c1c'))};">
                                             #{st.exitReason}
                                         </span>
                                     </p:column>
                                     <p:column headerText="Retorno %" style="width: 9%; text-align: right;">
-                                        <span style="font-weight: 800; font-size: 1.05rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
+                                        <span
+                                            style="font-weight: 800; font-size: 1.05rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.returnPct > 0 ? '+' : ''}#{st.formattedReturnPct}%
                                         </span>
                                     </p:column>
                                     <p:column headerText="PnL ($)" style="width: 10%; text-align: right;">
-                                        <span style="font-weight: 800; font-size: 1.08rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
+                                        <span
+                                            style="font-weight: 800; font-size: 1.08rem; color: #{st.isWin ? '#166534' : '#ef4444'};">
                                             #{st.pnl >= 0 ? '+' : ''}$#{st.formattedPnl}
                                         </span>
-                                        <div style="font-size: 0.76rem; color: #64748b;">(#{st.formattedPipsAWithSign}p)</div>
+                                        <div style="font-size: 0.76rem; color: #64748b;">(#{st.formattedPipsAWithSign}p)
+                                        </div>
                                     </p:column>
                                     <p:column headerText="Capital Acum. ($)" style="width: 9%; text-align: right;">
-                                        <span style="font-weight: 800; font-size: 0.95rem; color: #0f172a;">$#{st.formattedAccumCapital}</span>
+                                        <span
+                                            style="font-weight: 800; font-size: 0.95rem; color: #0f172a;">$#{st.formattedAccumCapital}</span>
                                     </p:column>
                                 </p:dataTable>
                             </div>
@@ -895,24 +1069,31 @@
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS Y OPERACIONES SIMULADAS (BACKTEST) -->
                         <p:tab title="Gráfica del Par y Operaciones Simuladas">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
                                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                         <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
-                                            Velas #{dashboardBean.sniperTimeframeLabel} + Señales Tácticas SNIPER (#{dashboardBean.selectedSniperPair})
+                                            Velas #{dashboardBean.sniperTimeframeLabel} + Señales Tácticas SNIPER
+                                            (#{dashboardBean.selectedSniperPair})
                                         </span>
-                                        <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ▲ Entrada Compra
                                         </span>
-                                        <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ▼ Entrada Venta
                                         </span>
-                                        <span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ◆ Salida (TP / SL / BE / TSL)
                                         </span>
                                     </div>
-                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtPriceChart');"
-                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
-                                        Reset Zoom
+                                    <button type="button"
+                                        onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtPriceChart');"
+                                        title="Restablecer Zoom"
+                                        style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; color: #334155;">
+                                        <i class="pi pi-search" style="font-size: 1.60rem;"></i>
                                     </button>
                                 </div>
                                 <div style="height: 460px; width: 100%; position: relative;">
@@ -924,13 +1105,16 @@
                         <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD BACKTEST SNIPER -->
                         <p:tab title="Gráfica de Curva de Equidad">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                     <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
                                         Evolución de Capital SNIPER ($ USD)
                                     </span>
-                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtEquityChart');"
-                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
-                                        Reset Zoom
+                                    <button type="button"
+                                        onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperBtEquityChart');"
+                                        title="Restablecer Zoom"
+                                        style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; color: #334155;">
+                                        <i class="pi pi-search" style="font-size: 1.60rem;"></i>
                                     </button>
                                 </div>
                                 <div style="height: 440px; width: 100%; position: relative;">
@@ -947,53 +1131,70 @@
             <!-- ===================================================================== -->
             <p:tab titletip="Hechos">
                 <f:facet name="title">
-                    <span class="hechos-tab-icon" title="Hechos" style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                    <span class="hechos-tab-icon" title="Hechos"
+                        style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
                 </f:facet>
                 <p:outputPanel id="sniperRealTradesWrapper" layout="block"
                     style="padding: 12px 14px 10px 14px; overflow-y: auto; height: 100%; box-sizing: border-box;">
-                    
+
                     <!-- Resumen Métricas SNIPER -->
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 10px;">
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 10px;">
                         <div class="aether-card" style="padding: 12px; border-left: 4px solid #b47b2b;">
-                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total Trades:</span>
+                            <span
+                                style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Total
+                                Trades:</span>
                             <div style="font-size: 1.4rem; font-weight: 900; color: #0f172a;">
                                 #{dashboardBean.sniperRealTradesSummary.totalTrades}
                             </div>
                         </div>
                         <div class="aether-card" style="padding: 12px; border-left: 4px solid #10b981;">
-                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Win Rate:</span>
+                            <span
+                                style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Win
+                                Rate:</span>
                             <div style="font-size: 1.4rem; font-weight: 900; color: #059669;">
                                 #{dashboardBean.sniperRealTradesSummary.winRate}%
                             </div>
                         </div>
                         <div class="aether-card" style="padding: 12px; border-left: 4px solid #0284c7;">
-                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Profit Factor:</span>
+                            <span
+                                style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Profit
+                                Factor:</span>
                             <div style="font-size: 1.4rem; font-weight: 900; color: #0284c7;">
                                 #{dashboardBean.sniperRealTradesSummary.profitFactor}
                             </div>
                         </div>
-                        <div class="aether-card" style="padding: 12px; border-left: 4px solid #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#10b981' : '#ef4444'};">
-                            <span style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">PnL Neto:</span>
-                            <div style="font-size: 1.4rem; font-weight: 900; color: #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#059669' : '#dc2626'};">
+                        <div class="aether-card"
+                            style="padding: 12px; border-left: 4px solid #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#10b981' : '#ef4444'};">
+                            <span
+                                style="font-size: 0.80rem; color: #64748b; font-weight: 700; text-transform: uppercase;">PnL
+                                Neto:</span>
+                            <div
+                                style="font-size: 1.4rem; font-weight: 900; color: #{dashboardBean.sniperRealTradesSummary.netProfit ge 0 ? '#059669' : '#dc2626'};">
                                 $#{dashboardBean.sniperRealTradesSummary.netProfit}
                             </div>
                         </div>
                     </div>
 
                     <!-- Sub-Pestañas Internas de Hechos Reales SNIPER -->
-                    <p:tabView id="sniperRealInnerTabs" widgetVar="sniperRealInnerTabsWidget" styleClass="compact-inner-tabs"
+                    <p:tabView id="sniperRealInnerTabs" widgetVar="sniperRealInnerTabsWidget"
+                        styleClass="compact-inner-tabs"
                         onTabShow="if (index === 1) setTimeout(renderSniperHechosChart, 50); else if (index === 2) setTimeout(renderSniperRealTradesEquityChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DE TRADES REALES -->
                         <p:tab title="Bitácora de Trades Reales">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
-                                <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}" var="tr"
-                                    emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true" scrollHeight="380px"
-                                    styleClass="aether-trades-table aether-table-compact" tableStyle="width: 100%;">
+                                <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}"
+                                    var="tr" emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true"
+                                    scrollHeight="380px" styleClass="aether-trades-table aether-table-compact"
+                                    tableStyle="width: 100%;">
 
                                     <p:column headerText="#" style="width: 5%; text-align: center;">
-                                        <h:outputText value="#{tr.cycleNum != null and tr.cycleNum > 0 ? tr.cycleNum : tr.tradeNum}" rendered="#{!tr.isSubtotal}" style="font-weight: 700;" />
-                                        <h:outputText value="TOTAL" rendered="#{tr.isSubtotal}" style="font-weight: 900;" />
+                                        <h:outputText
+                                            value="#{tr.cycleNum != null and tr.cycleNum > 0 ? tr.cycleNum : tr.tradeNum}"
+                                            rendered="#{!tr.isSubtotal}" style="font-weight: 700;" />
+                                        <h:outputText value="TOTAL" rendered="#{tr.isSubtotal}"
+                                            style="font-weight: 900;" />
                                     </p:column>
                                     <p:column headerText="Ticket" style="width: 9%; text-align: center;">
                                         <span style="font-weight: 700; color: #475569;">#{tr.ticketId}</span>
@@ -1042,24 +1243,31 @@
                         <!-- SUB-PESTAÑA 2: GRÁFICA DEL PAR Y OPERACIONES (HECHOS) -->
                         <p:tab title="Gráfica del Par y Operaciones (Hechos)">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
                                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                         <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
-                                            Velas #{dashboardBean.sniperTimeframeLabel} + Hechos Reales Ejecutados (#{dashboardBean.selectedSniperPair})
+                                            Velas #{dashboardBean.sniperTimeframeLabel} + Hechos Reales Ejecutados
+                                            (#{dashboardBean.selectedSniperPair})
                                         </span>
-                                        <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ▲ Entrada Compra
                                         </span>
-                                        <span style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ▼ Entrada Venta
                                         </span>
-                                        <span style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
+                                        <span
+                                            style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 12px; font-size: 0.78rem; font-weight: 800;">
                                             ◆ Cierre Posición
                                         </span>
                                     </div>
-                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperHechosChart');"
-                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
-                                        Reset Zoom
+                                    <button type="button"
+                                        onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperHechosChart');"
+                                        title="Restablecer Zoom"
+                                        style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; color: #334155;">
+                                        <i class="pi pi-search" style="font-size: 1.60rem;"></i>
                                     </button>
                                 </div>
                                 <div style="height: 460px; width: 100%; position: relative;">
@@ -1071,13 +1279,16 @@
                         <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD REAL SNIPER -->
                         <p:tab title="Gráfica de Curva de Equidad Real">
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                     <span style="font-weight: 800; font-size: 1.15rem; color: #8c5d1e;">
                                         Evolución de Capital Real SNIPER ($ USD)
                                     </span>
-                                    <button type="button" onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperRealTradesEquityChart');"
-                                        style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 0.80rem; font-weight: 700; cursor: pointer;">
-                                        Reset Zoom
+                                    <button type="button"
+                                        onclick="if (typeof resetChartZoom === 'function') resetChartZoom('sniperRealTradesEquityChart');"
+                                        title="Restablecer Zoom"
+                                        style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; color: #334155;">
+                                        <i class="pi pi-search" style="font-size: 1.60rem;"></i>
                                     </button>
                                 </div>
                                 <div style="height: 440px; width: 100%; position: relative;">
@@ -1126,12 +1337,12 @@
         function handleSniperTabShow(index) {
             syncSniperChartPlacement();
             if (index === 0 || index === 1) {
-                setTimeout(function() {
+                setTimeout(function () {
                     syncSniperChartPlacement();
                     renderSniperChart();
                 }, 60);
             } else if (index === 2) {
-                setTimeout(function() {
+                setTimeout(function () {
                     var innerWidget = (typeof PF !== 'undefined') ? PF('sniperBtInnerTabsWidget') : null;
                     var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
                     if (innerIdx === 1) {
@@ -1144,7 +1355,7 @@
                     }
                 }, 60);
             } else if (index === 3) {
-                setTimeout(function() {
+                setTimeout(function () {
                     var innerWidget = (typeof PF !== 'undefined') ? PF('sniperRealInnerTabsWidget') : null;
                     var innerIdx = innerWidget ? innerWidget.getActiveIndex() : 0;
                     if (innerIdx === 1) {
@@ -1160,7 +1371,7 @@
         }
 
         function handleUserSniperSelected() {
-            setTimeout(function() {
+            setTimeout(function () {
                 syncSniperChartPlacement();
                 var tabWidget = (typeof PF !== 'undefined') ? PF('sniperTabViewWidget') : null;
                 var curTab = tabWidget ? tabWidget.getActiveIndex() : 0;
@@ -1347,15 +1558,18 @@
                 var actTradesEl = document.querySelector("[id$='sniperActiveTradesJsonData']");
                 var actTrStr = actTradesEl ? actTradesEl.value : 'null';
                 var activeTrade = null;
+                var activeTradesList = [];
                 if (actTrStr && actTrStr !== 'null' && actTrStr !== '[]') {
                     try {
                         var parsed = JSON.parse(actTrStr);
                         if (Array.isArray(parsed)) {
+                            activeTradesList = parsed;
                             activeTrade = parsed.length > 0 ? parsed[0] : null;
                         } else {
+                            activeTradesList = [parsed];
                             activeTrade = parsed;
                         }
-                    } catch(e) {}
+                    } catch (e) { }
                 }
 
                 var banner = document.getElementById('sniperActiveTradeBanner');
@@ -1368,7 +1582,7 @@
                             dirBadge.textContent = isBuy ? 'COMPRA' : 'VENTA';
                             dirBadge.style.background = isBuy ? '#16a34a' : '#dc2626';
                         }
-                        var setTxt = function(id, val) {
+                        var setTxt = function (id, val) {
                             var el = document.getElementById(id);
                             if (el) {
                                 if (val !== null && val !== undefined && !isNaN(Number(val))) {
@@ -1434,7 +1648,7 @@
                     var vVal = Number(rawCandles[vIdx].volume || 0);
                     if (vVal > 0) posVols.push(vVal);
                 }
-                posVols.sort(function(a, b) { return a - b; });
+                posVols.sort(function (a, b) { return a - b; });
 
                 var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
                 var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
@@ -1495,7 +1709,7 @@
                 var rawRealTrades = [];
                 try {
                     rawRealTrades = JSON.parse(realTradesStr) || [];
-                } catch (eRT) {}
+                } catch (eRT) { }
 
                 var activePairEl = document.querySelector("[id$='activeSniperPair']");
                 var curPairVal = (activePairEl && activePairEl.value) ? activePairEl.value : '#{dashboardBean.selectedSniperPair}';
@@ -1569,25 +1783,30 @@
                     }
                 }
 
-                if (activeTrade && activeTrade.entryPrice) {
-                    var actIsBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
-                    var actOpenTs = parseSniperDateMs(activeTrade.openTime);
+                var actTradesToDraw = activeTradesList.length > 0 ? activeTradesList : (activeTrade ? [activeTrade] : []);
+                for (var atIdx = 0; atIdx < actTradesToDraw.length; atIdx++) {
+                    var actItem = actTradesToDraw[atIdx];
+                    if (!actItem || !actItem.entryPrice) continue;
+                    var actIsBuy = actItem.isLong || (actItem.direction && actItem.direction.indexOf('LARG') !== -1);
+                    var actOpenTs = parseSniperDateMs(actItem.openTime);
                     var actCandle = findClosestSniperCandle(actOpenTs, pricePoints);
                     var actX = (actCandle && actCandle.x !== undefined) ? actCandle.x : actOpenTs;
-                    var actY = (actCandle && actCandle.y !== null && actCandle.y !== undefined) ? Number(actCandle.y) : Number(activeTrade.entryPrice);
+                    var actY = (actCandle && actCandle.y !== null && actCandle.y !== undefined) ? Number(actCandle.y) : Number(actItem.entryPrice);
 
-                    var alreadyAdded = realBuyEntries.concat(realSellEntries).some(function(item) {
-                        return item.trade && ((activeTrade.idTrade && item.trade.idTrade === activeTrade.idTrade) ||
-                                              (activeTrade.ticketId && item.trade.ticketId === activeTrade.ticketId));
+                    var alreadyAdded = realBuyEntries.concat(realSellEntries).some(function (item) {
+                        return item.trade && ((actItem.idTrade && item.trade.idTrade === actItem.idTrade) ||
+                            (actItem.ticketId && item.trade.ticketId === actItem.ticketId));
                     });
                     if (!alreadyAdded && actX && !isNaN(actY)) {
+                        var szNum = Number(actItem.size || 0);
+                        var szText = szNum > 0 ? (' (' + (szNum >= 1 ? szNum.toFixed(1) : szNum.toFixed(2)) + ' u)') : '';
                         var actEntryItem = {
                             x: actX,
                             y: actY,
-                            trade: activeTrade,
+                            trade: actItem,
                             isBuy: actIsBuy,
                             isOpen: true,
-                            label: (actIsBuy ? '▲ COMPRA (Vigente)' : '▼ VENTA (Vigente)') + ' #' + (activeTrade.ticketId || activeTrade.idTrade || '')
+                            label: (actIsBuy ? '▲ COMPRA (Vigente)' : '▼ VENTA (Vigente)') + ' #' + (actItem.ticketId || actItem.idTrade || '') + szText
                         };
                         if (actIsBuy) realBuyEntries.push(actEntryItem);
                         else realSellEntries.push(actEntryItem);
@@ -1625,11 +1844,11 @@
                     datasets.push({
                         label: '◆ Cierre Operación (Hechos)',
                         data: realExits,
-                        borderColor: function(ctx) {
+                        borderColor: function (ctx) {
                             var raw = ctx.raw;
                             return (raw && raw.isWin) ? '#15803d' : '#b91c1c';
                         },
-                        backgroundColor: function(ctx) {
+                        backgroundColor: function (ctx) {
                             var raw = ctx.raw;
                             return (raw && raw.isWin) ? '#22c55e' : '#ef4444';
                         },
@@ -1646,7 +1865,7 @@
                 if (realTradeConnectors.length > 0) {
                     var sniperTradeConnectorPlugin = {
                         id: 'sniperTradeConnectorPlugin',
-                        afterDatasetsDraw: function(chart) {
+                        afterDatasetsDraw: function (chart) {
                             var xScale = chart.scales.x;
                             var yScale = chart.scales.y;
                             var chartArea = chart.chartArea;
@@ -1756,7 +1975,7 @@
                     // Plugin de recuadro dinámico (Zona TP verde, Zona SL roja o TSL ámbar)
                     var tradeBoxPlugin = {
                         id: 'sniperTradeBoxPlugin',
-                        afterDatasetsDraw: function(chart) {
+                        afterDatasetsDraw: function (chart) {
                             if (!activeTrade || !effectiveEntryPx) return;
                             var ctx = chart.ctx;
                             var xScale = chart.scales.x;
@@ -1953,7 +2172,7 @@
                         }
                     }
 
-                    var checkLevelY = function(val) {
+                    var checkLevelY = function (val) {
                         if (val !== null && val !== undefined && !isNaN(Number(val))) {
                             var nVal = Number(val);
                             if (nVal < visMinY) visMinY = nVal;
@@ -2008,13 +2227,13 @@
                                 zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                             },
                             tooltip: {
-                                itemSort: function(a, b) {
+                                itemSort: function (a, b) {
                                     var aIsTrade = (a.raw && (a.raw.trade || (a.dataset.label && (a.dataset.label.indexOf('Entrada') !== -1 || a.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
                                     var bIsTrade = (b.raw && (b.raw.trade || (b.dataset.label && (b.dataset.label.indexOf('Entrada') !== -1 || b.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
                                     return bIsTrade - aIsTrade;
                                 },
                                 callbacks: {
-                                    label: function(ctx) {
+                                    label: function (ctx) {
                                         var raw = ctx.raw;
                                         if (raw && raw.trade) {
                                             var tr = raw.trade;
@@ -2025,7 +2244,7 @@
                                             var epStr = tr.entryPrice ? Number(tr.entryPrice).toFixed(5) : '';
                                             var xpStr = tr.exitPrice ? Number(tr.exitPrice).toFixed(5) : 'EN CURSO';
                                             var hechoLabel = tr.cycleNum ? ('[Entrada #' + tr.cycleNum + (tr.ticketId ? ' · ' + tr.ticketId : (tr.idTrade ? ' · ID ' + tr.idTrade : '')) + ']') :
-                                                             ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
+                                                ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
                                             return [
                                                 hechoLabel + ' (' + dir + ' ' + sz + ')',
                                                 'Entrada: ' + epStr + ' [' + (tr.openTime || '') + ']',
@@ -2079,7 +2298,7 @@
                     var vVal = Number(rawCandles[vIdx].volume || 0);
                     if (vVal > 0) posVols.push(vVal);
                 }
-                posVols.sort(function(a, b) { return a - b; });
+                posVols.sort(function (a, b) { return a - b; });
 
                 var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
                 var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
@@ -2217,7 +2436,7 @@
                                 grid: { color: 'rgba(241, 245, 249, 0.7)' },
                                 ticks: {
                                     font: { size: 11, weight: '700' },
-                                    callback: function(v) { return Number(v).toFixed(5); }
+                                    callback: function (v) { return Number(v).toFixed(5); }
                                 }
                             }
                         },
@@ -2334,7 +2553,7 @@
                     var vVal = Number(rawCandles[vIdx].volume || 0);
                     if (vVal > 0) posVols.push(vVal);
                 }
-                posVols.sort(function(a, b) { return a - b; });
+                posVols.sort(function (a, b) { return a - b; });
 
                 var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
                 var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
@@ -2366,7 +2585,7 @@
                 var realTradesEl = document.querySelector("[id$='sniperRealTradesJsonData']");
                 var realTradesStr = realTradesEl ? realTradesEl.value : '[]';
                 var rawRealTrades = [];
-                try { rawRealTrades = JSON.parse(realTradesStr) || []; } catch (e) {}
+                try { rawRealTrades = JSON.parse(realTradesStr) || []; } catch (e) { }
 
                 var activePairEl = document.querySelector("[id$='activeSniperPair']");
                 var curPairVal = (activePairEl && activePairEl.value) ? activePairEl.value : '#{dashboardBean.selectedSniperPair}';
@@ -2438,14 +2657,14 @@
                 }
 
                 if (sniperHechosChartInstance) {
-                    try { sniperHechosChartInstance.destroy(); } catch (e) {}
+                    try { sniperHechosChartInstance.destroy(); } catch (e) { }
                 }
 
                 var pluginsList = [];
                 if (tradeConnectors.length > 0) {
                     pluginsList.push({
                         id: 'sniperHechosConnectorPlugin',
-                        afterDatasetsDraw: function(chart) {
+                        afterDatasetsDraw: function (chart) {
                             var xScale = chart.scales.x;
                             var yScale = chart.scales.y;
                             var chartArea = chart.chartArea;
@@ -2529,11 +2748,11 @@
                             {
                                 label: '◆ Cierre Operación (Hechos)',
                                 data: tradeExits,
-                                borderColor: function(ctx) {
+                                borderColor: function (ctx) {
                                     var raw = ctx.raw;
                                     return (raw && raw.isWin) ? '#15803d' : '#b91c1c';
                                 },
-                                backgroundColor: function(ctx) {
+                                backgroundColor: function (ctx) {
                                     var raw = ctx.raw;
                                     return (raw && raw.isWin) ? '#22c55e' : '#ef4444';
                                 },
@@ -2562,7 +2781,7 @@
                                 grid: { color: 'rgba(241, 245, 249, 0.7)' },
                                 ticks: {
                                     font: { size: 11, weight: '700' },
-                                    callback: function(v) { return Number(v).toFixed(5); }
+                                    callback: function (v) { return Number(v).toFixed(5); }
                                 }
                             }
                         },
@@ -2576,13 +2795,13 @@
                                 zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
                             },
                             tooltip: {
-                                itemSort: function(a, b) {
+                                itemSort: function (a, b) {
                                     var aIsTrade = (a.raw && (a.raw.trade || (a.dataset.label && (a.dataset.label.indexOf('Entrada') !== -1 || a.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
                                     var bIsTrade = (b.raw && (b.raw.trade || (b.dataset.label && (b.dataset.label.indexOf('Entrada') !== -1 || b.dataset.label.indexOf('Cierre') !== -1)))) ? 1 : 0;
                                     return bIsTrade - aIsTrade;
                                 },
                                 callbacks: {
-                                    label: function(ctx) {
+                                    label: function (ctx) {
                                         var raw = ctx.raw;
                                         if (raw && raw.trade) {
                                             var tr = raw.trade;
@@ -2593,7 +2812,7 @@
                                             var epStr = tr.entryPrice ? Number(tr.entryPrice).toFixed(5) : '';
                                             var xpStr = tr.exitPrice ? Number(tr.exitPrice).toFixed(5) : 'EN CURSO';
                                             var hechoLabel = tr.cycleNum ? ('[Entrada #' + tr.cycleNum + (tr.ticketId ? ' · ' + tr.ticketId : (tr.idTrade ? ' · ID ' + tr.idTrade : '')) + ']') :
-                                                             ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
+                                                ('💼 Hecho #' + (tr.ticketId || tr.idTrade));
                                             return [
                                                 hechoLabel + ' (' + dir + ' ' + sz + ')',
                                                 'Entrada: ' + epStr + ' [' + (tr.openTime || '') + ']',
@@ -2645,7 +2864,7 @@
                 }
 
                 if (sniperRealTradesEquityChartInstance) {
-                    try { sniperRealTradesEquityChartInstance.destroy(); } catch (e) {}
+                    try { sniperRealTradesEquityChartInstance.destroy(); } catch (e) { }
                 }
 
                 var ctx = canvas.getContext('2d');

@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+                xmlns:h="http://xmlns.jcp.org/jsf/html"
+                xmlns:f="http://xmlns.jcp.org/jsf/core"
+                xmlns:p="http://primefaces.org/ui"
+                xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
+
+    <!-- ========================================================================= -->
+    <!-- COMPONENTE MODAL REUTILIZABLE: ALTA Y EDICIÓN DE CUENTA CON PERFIL        -->
+    <!-- DISPONIBLE EN TODAS LAS ESTRATEGIAS (RATIOS, RIDER, SNIPER) Y CONFIGURACIÓN -->
+    <!-- ========================================================================= -->
+
+    <!-- MODAL 1: DAR DE ALTA NUEVA CUENTA -->
+    <h:form id="nuevaCuentaForm">
+        <p:dialog header="Dar de Alta Nueva Cuenta" widgetVar="nuevaCuentaDlg" id="nuevaCuentaDlg" modal="true"
+            responsive="true" width="440" showEffect="fade" hideEffect="fade" styleClass="aether-dialog"
+            style="font-family: inherit;">
+            <div style="padding: 8px 6px 6px 6px;">
+                <!-- Asignación de Usuario (Solo Administrador, similar a Reporte Jerárquico) -->
+                <h:panelGroup layout="block" rendered="#{securityBean.admin}" style="margin-bottom: 12px;">
+                    <p:outputLabel for="ncUsuario" value="Asignar a Usuario"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:selectOneMenu id="ncUsuario" value="#{dashboardBean.nuevaCuentaUsuarioId}"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;">
+                        <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
+                            itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                    </p:selectOneMenu>
+                </h:panelGroup>
+
+                <!-- Nombre de la cuenta -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ncNombre" value="Nombre de la Cuenta"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputText id="ncNombre" value="#{dashboardBean.nuevaCuentaNombre}"
+                        placeholder="Ej. CUENTA-FOREX-01" styleClass="aether-input"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;" required="true" />
+                </div>
+
+                <!-- Correo de la cuenta -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ncCorreo" value="Correo Electrónico"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputText id="ncCorreo" value="#{dashboardBean.nuevaCuentaCorreo}"
+                        placeholder="ejemplo@correo.com" styleClass="aether-input"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;" />
+                </div>
+
+                <!-- Capital y Ganancia -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <p:outputLabel for="ncCapital" value="Capital Inicial (USD)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ncCapital" value="#{dashboardBean.nuevaCuentaCapital}" decimalPlaces="2"
+                            minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                    <div>
+                        <p:outputLabel for="ncGanancia" value="Ganancia Esperada (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ncGanancia" value="#{dashboardBean.nuevaCuentaGanancia}"
+                            decimalPlaces="2" minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                </div>
+
+                <!-- Riesgo x Operación y Comisión -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <p:outputLabel for="ncRiesgo" value="Riesgo x Operación (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ncRiesgo" value="#{dashboardBean.nuevaCuentaRiesgo}" decimalPlaces="2"
+                            minValue="0.01" maxValue="100.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                    <div>
+                        <p:outputLabel for="ncComision" value="Comisión (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ncComision" value="#{dashboardBean.nuevaCuentaComision}"
+                            decimalPlaces="2" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input"
+                            style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                </div>
+
+                <!-- Indicador de Margen Mínimo -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ncIndicadorMargen" value="Indicador de Margen Mínimo (%)"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputNumber id="ncIndicadorMargen" value="#{dashboardBean.nuevaCuentaIndicadorMargen}"
+                        decimalPlaces="1" minValue="1.0" inputStyleClass="aether-input" symbol=" %"
+                        symbolPosition="s" style="width: 60%;" inputStyle="width: 100%;" />
+                </div>
+
+                <!-- Perfil de Inversionista: Conservador / Moderado / Agresivo (Debe sumar 100%) -->
+                <div style="margin-bottom: 12px; background: rgba(248, 250, 252, 0.9); border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px;">
+                    <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 6px;">
+                        🎯 Perfil de Inversionista (Debe sumar 100%)
+                    </span>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                        <div>
+                            <p:outputLabel for="ncPctConservador" value="Conservador (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #0284c7; margin-bottom: 3px;" />
+                            <p:inputNumber id="ncPctConservador" value="#{dashboardBean.nuevaCuentaPctConservador}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #0284c7; font-weight: 700;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ncPctModerado" value="Moderado (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #ea580c; margin-bottom: 3px;" />
+                            <p:inputNumber id="ncPctModerado" value="#{dashboardBean.nuevaCuentaPctModerado}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #ea580c; font-weight: 700;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ncPctAgresivo" value="Agresivo (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #dc2626; margin-bottom: 3px;" />
+                            <p:inputNumber id="ncPctAgresivo" value="#{dashboardBean.nuevaCuentaPctAgresivo}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #dc2626; font-weight: 700;" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Estado y Concentradora -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div>
+                        <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 5px;">Estado</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <p:selectBooleanCheckbox id="ncActivo" value="#{dashboardBean.nuevaCuentaActivo}" />
+                            <p:outputLabel for="ncActivo" value="Cuenta Activa"
+                                style="font-weight: 700; font-size: 0.90rem; color: #475569;" />
+                        </div>
+                    </div>
+                    <div>
+                        <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 5px;">Tipo</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <p:selectBooleanCheckbox id="ncConcentradora"
+                                value="#{dashboardBean.nuevaCuentaConcentradora}"
+                                disabled="#{dashboardBean.concentradoraDisabledForNew}" />
+                            <p:outputLabel for="ncConcentradora" value="Concentradora"
+                                style="font-weight: 700; font-size: 0.90rem; color: #475569;" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botones de Acción -->
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                        onclick="PF('nuevaCuentaDlg').hide();"
+                        style="color: #64748b; font-weight: 600; padding: 5px 12px;" />
+                    <p:commandButton value="Guardar Cuenta" action="#{dashboardBean.guardarNuevaCuenta}"
+                        process="@form" update="@form" styleClass="aether-btn-primary"
+                        icon="pi pi-check"
+                        oncomplete="if (args &amp;&amp; !args.validationFailed) { PF('nuevaCuentaDlg').hide(); if (typeof rcRefreshCuentas === 'function') rcRefreshCuentas(); }"
+                        style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 5px 14px;" />
+                </div>
+            </div>
+        </p:dialog>
+    </h:form>
+
+    <!-- MODAL 2: EDITAR VALORES DE LA CUENTA -->
+    <h:form id="editarCuentaForm">
+        <p:dialog header="Editar Valores de la Cuenta" widgetVar="editarCuentaDlg" id="editarCuentaDlg" modal="true"
+            responsive="true" width="440" showEffect="fade" hideEffect="fade" styleClass="aether-dialog"
+            style="font-family: inherit;">
+            <div style="padding: 8px 6px 6px 6px;">
+                <!-- Asignación de Usuario (Solo Administrador, similar a Reporte Jerárquico) -->
+                <h:panelGroup layout="block" rendered="#{securityBean.admin}" style="margin-bottom: 12px;">
+                    <p:outputLabel for="ecUsuario" value="Usuario Responsable"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:selectOneMenu id="ecUsuario" value="#{dashboardBean.editarCuentaUsuarioId}"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;">
+                        <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
+                            itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                    </p:selectOneMenu>
+                </h:panelGroup>
+
+                <!-- Nombre de la cuenta -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ecNombre" value="Nombre de la Cuenta"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputText id="ecNombre" value="#{dashboardBean.editarCuentaNombre}"
+                        placeholder="Ej. CUENTA-FOREX-01" styleClass="aether-input"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;" required="true" />
+                </div>
+
+                <!-- Correo de la cuenta -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ecCorreo" value="Correo Electrónico"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputText id="ecCorreo" value="#{dashboardBean.editarCuentaCorreo}"
+                        placeholder="ejemplo@correo.com" styleClass="aether-input"
+                        style="width: 60%; box-sizing: border-box; font-size: 0.95rem;" />
+                </div>
+
+                <!-- Capital y Ganancia -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <p:outputLabel for="ecCapital" value="Capital (USD)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ecCapital" value="#{dashboardBean.editarCuentaCapital}" decimalPlaces="2"
+                            minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                    <div>
+                        <p:outputLabel for="ecGanancia" value="Ganancia Esperada (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ecGanancia" value="#{dashboardBean.editarCuentaGanancia}"
+                            decimalPlaces="2" minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                </div>
+
+                <!-- Riesgo x Operación y Comisión -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <p:outputLabel for="ecRiesgo" value="Riesgo x Operación (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ecRiesgo" value="#{dashboardBean.editarCuentaRiesgo}" decimalPlaces="2"
+                            minValue="0.01" maxValue="100.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                    <div>
+                        <p:outputLabel for="ecComision" value="Comisión (%)"
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                        <p:inputNumber id="ecComision" value="#{dashboardBean.editarCuentaComision}"
+                            decimalPlaces="2" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input"
+                            style="width: 60%;" inputStyle="width: 100%;" />
+                    </div>
+                </div>
+
+                <!-- Indicador de Margen Mínimo (Edición) -->
+                <div style="margin-bottom: 12px;">
+                    <p:outputLabel for="ecIndicadorMargen" value="Indicador de Margen Mínimo (%)"
+                        style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                    <p:inputNumber id="ecIndicadorMargen" value="#{dashboardBean.editarCuentaIndicadorMargen}"
+                        decimalPlaces="1" minValue="1.0" inputStyleClass="aether-input" symbol=" %"
+                        symbolPosition="s" style="width: 60%;" inputStyle="width: 100%;" />
+                </div>
+
+                <!-- Perfil de Inversionista: Conservador / Moderado / Agresivo (Debe sumar 100%) -->
+                <div style="margin-bottom: 12px; background: rgba(248, 250, 252, 0.9); border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px;">
+                    <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 6px;">
+                        🎯 Perfil de Inversionista (Debe sumar 100%)
+                    </span>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                        <div>
+                            <p:outputLabel for="ecPctConservador" value="Conservador (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #0284c7; margin-bottom: 3px;" />
+                            <p:inputNumber id="ecPctConservador" value="#{dashboardBean.editarCuentaPctConservador}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #0284c7; font-weight: 700;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ecPctModerado" value="Moderado (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #ea580c; margin-bottom: 3px;" />
+                            <p:inputNumber id="ecPctModerado" value="#{dashboardBean.editarCuentaPctModerado}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #ea580c; font-weight: 700;" />
+                        </div>
+                        <div>
+                            <p:outputLabel for="ecPctAgresivo" value="Agresivo (%)"
+                                style="display: block; font-weight: 700; font-size: 0.82rem; color: #dc2626; margin-bottom: 3px;" />
+                            <p:inputNumber id="ecPctAgresivo" value="#{dashboardBean.editarCuentaPctAgresivo}"
+                                decimalPlaces="1" minValue="0.0" maxValue="100.0" inputStyleClass="aether-input" symbol=" %"
+                                symbolPosition="s" style="width: 60%;" inputStyle="width: 100%; color: #dc2626; font-weight: 700;" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Estado y Concentradora -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div>
+                        <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 5px;">Estado</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <p:selectBooleanCheckbox id="ecActivo" value="#{dashboardBean.editarCuentaActivo}" />
+                            <p:outputLabel for="ecActivo" value="Cuenta Activa"
+                                style="font-weight: 700; font-size: 0.90rem; color: #475569;" />
+                        </div>
+                    </div>
+                    <div>
+                        <span style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 5px;">Tipo</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <p:selectBooleanCheckbox id="ecConcentradora"
+                                value="#{dashboardBean.editarCuentaConcentradora}"
+                                disabled="#{dashboardBean.concentradoraDisabledForEdit}" />
+                            <p:outputLabel for="ecConcentradora" value="Concentradora"
+                                style="font-weight: 700; font-size: 0.90rem; color: #475569;" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botones de Acción -->
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                        onclick="PF('editarCuentaDlg').hide();"
+                        style="color: #64748b; font-weight: 600; padding: 5px 12px;" />
+                    <p:commandButton value="Actualizar Cuenta" action="#{dashboardBean.guardarEditarCuenta}"
+                        process="@form" update="@form" styleClass="aether-btn-primary"
+                        icon="pi pi-check"
+                        oncomplete="if (args &amp;&amp; !args.validationFailed) { PF('editarCuentaDlg').hide(); if (typeof rcRefreshCuentas === 'function') rcRefreshCuentas(); }"
+                        style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 5px 14px;" />
+                </div>
+            </div>
+        </p:dialog>
+    </h:form>
+
+</ui:composition>

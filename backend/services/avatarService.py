@@ -13,21 +13,31 @@ USER_AVATAR_DIRS = [
 
 def generate_chess_avatar(role_name: str, output_path: str, size: int = 256) -> str:
     """
-    Genera un archivo PNG circular de alta resolución (256x256) con el icono de ajedrez representativo:
-      - Administrador: Alfil de ajedrez (Bishop ♝)
-      - Analista:      Torre de ajedrez (Rook ♜)
-      - Trader:        Caballo de ajedrez (Knight ♞)
-    
-    El icono se auto-escala dinámicamente para maximizar su tamaño, llegando casi a tocar
-    el borde del círculo (margen de ~3px) para una visibilidad y nitidez óptimas.
+    Genera o copia el avatar de ajedrez representativo de alta resolución:
+      - Administrador: Alfil de ajedrez geométrico (Bishop)
+      - Analista:      Torre de ajedrez geométrica (Rook)
+      - Trader:        Caballo de ajedrez geométrico (Knight)
     """
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    role_lower = (role_name or "").lower().strip()
+    if "admin" in role_lower:
+        template_name = "alfil.png"
+    elif "analis" in role_lower:
+        template_name = "torre.png"
+    else:
+        template_name = "caballo.png"
+
+    template_path = os.path.join(USER_AVATAR_DIRS[0], template_name)
+    if os.path.exists(template_path) and os.path.abspath(template_path) != os.path.abspath(output_path):
+        import shutil
+        shutil.copyfile(template_path, output_path)
+        return output_path
+
     scale = 4
     dim = size * scale
     im = Image.new("RGBA", (dim, dim), (0, 0, 0, 0))
     draw = ImageDraw.Draw(im)
 
-    role_lower = (role_name or "").lower().strip()
     if "admin" in role_lower:
         glyph = "\u265D"  # Alfil / Bishop ♝
         bg_color = (30, 41, 59, 255)       # Slate Navy #1e293b

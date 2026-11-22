@@ -457,23 +457,44 @@ def execute_single_asset_entry(
             subMrg = float(sub.get("margin") or (plannedMargin / len(unique_sub_tickets)))
             totalRealMargin += subMrg
 
-            resIns = dbSession.execute(insertSql, {
-                "idc": idCuenta,
-                "strat": dbStrat,
-                "setup": setup,
-                "sym": symbol,
-                "dir": direction.upper(),
-                "tf": timeframe,
-                "sz": subQty,
-                "epx": subPx,
-                "sl": realSl,
-                "tp": realTp,
-                "mrg": subMrg,
-                "cdt": candleDt,
-                "tid": subTicket
-            })
-            insertedTradeIds.append(resIns.lastrowid)
-            logger.info(f"✅ [{dbStrat}] Sub-orden guardada: Trade #{resIns.lastrowid}, Ticket={subTicket}, {subQty:g} u @ {subPx:.5f}, Margen=${subMrg:.2f}")
+            # Idempotencia: Verificar si el ticket ya existe para evitar duplicación
+            existingId = dbSession.execute(
+                text("SELECT idTrade FROM trades WHERE ticketId = :tid AND idCuenta = :idc AND status = 'OPEN' LIMIT 1"),
+                {"tid": subTicket, "idc": idCuenta}
+            ).scalar()
+
+            if existingId:
+                dbSession.execute(text("""
+                    UPDATE trades
+                    SET strategy = :strat, setup = :setup, intervalo = :tf,
+                        size = :sz, entryPrice = :epx, stopLoss = :sl, takeProfit = :tp,
+                        margin_used = :mrg, candleTime = :cdt, candle_time = :cdt
+                    WHERE idTrade = :id
+                """), {
+                    "strat": dbStrat, "setup": setup, "tf": timeframe,
+                    "sz": subQty, "epx": subPx, "sl": realSl, "tp": realTp,
+                    "mrg": subMrg, "cdt": candleDt, "id": existingId
+                })
+                insertedTradeIds.append(existingId)
+                logger.info(f"ℹ️ [{dbStrat}] Trade #{existingId} existente actualizado con metadata para Ticket={subTicket}")
+            else:
+                resIns = dbSession.execute(insertSql, {
+                    "idc": idCuenta,
+                    "strat": dbStrat,
+                    "setup": setup,
+                    "sym": symbol,
+                    "dir": direction.upper(),
+                    "tf": timeframe,
+                    "sz": subQty,
+                    "epx": subPx,
+                    "sl": realSl,
+                    "tp": realTp,
+                    "mrg": subMrg,
+                    "cdt": candleDt,
+                    "tid": subTicket
+                })
+                insertedTradeIds.append(resIns.lastrowid)
+                logger.info(f"✅ [{dbStrat}] Sub-orden guardada: Trade #{resIns.lastrowid}, Ticket={subTicket}, {subQty:g} u @ {subPx:.5f}, Margen=${subMrg:.2f}")
     else:
         orderId = str(whRes.get("order_id") or "")
         fillPx = primaryFillPx
@@ -481,23 +502,43 @@ def execute_single_asset_entry(
         confMrg = float(whRes.get("margin") or plannedMargin)
         totalRealMargin = confMrg
 
-        resIns = dbSession.execute(insertSql, {
-            "idc": idCuenta,
-            "strat": dbStrat,
-            "setup": setup,
-            "sym": symbol,
-            "dir": direction.upper(),
-            "tf": timeframe,
-            "sz": confQty,
-            "epx": fillPx,
-            "sl": realSl,
-            "tp": realTp,
-            "mrg": confMrg,
-            "cdt": candleDt,
-            "tid": orderId
-        })
-        insertedTradeIds.append(resIns.lastrowid)
-        logger.info(f"✅ [{dbStrat}] Trade guardado: Trade #{resIns.lastrowid}, Ticket={orderId}, {confQty:g} u @ {fillPx:.5f}, Margen=${confMrg:.2f}")
+        existingId = dbSession.execute(
+            text("SELECT idTrade FROM trades WHERE ticketId = :tid AND idCuenta = :idc AND status = 'OPEN' LIMIT 1"),
+            {"tid": orderId, "idc": idCuenta}
+        ).scalar() if orderId else None
+
+        if existingId:
+            dbSession.execute(text("""
+                UPDATE trades
+                SET strategy = :strat, setup = :setup, intervalo = :tf,
+                    size = :sz, entryPrice = :epx, stopLoss = :sl, takeProfit = :tp,
+                    margin_used = :mrg, candleTime = :cdt, candle_time = :cdt
+                WHERE idTrade = :id
+            """), {
+                "strat": dbStrat, "setup": setup, "tf": timeframe,
+                "sz": confQty, "epx": fillPx, "sl": realSl, "tp": realTp,
+                "mrg": confMrg, "cdt": candleDt, "id": existingId
+            })
+            insertedTradeIds.append(existingId)
+            logger.info(f"ℹ️ [{dbStrat}] Trade #{existingId} existente actualizado con metadata para Ticket={orderId}")
+        else:
+            resIns = dbSession.execute(insertSql, {
+                "idc": idCuenta,
+                "strat": dbStrat,
+                "setup": setup,
+                "sym": symbol,
+                "dir": direction.upper(),
+                "tf": timeframe,
+                "sz": confQty,
+                "epx": fillPx,
+                "sl": realSl,
+                "tp": realTp,
+                "mrg": confMrg,
+                "cdt": candleDt,
+                "tid": orderId
+            })
+            insertedTradeIds.append(resIns.lastrowid)
+            logger.info(f"✅ [{dbStrat}] Trade guardado: Trade #{resIns.lastrowid}, Ticket={orderId}, {confQty:g} u @ {fillPx:.5f}, Margen=${confMrg:.2f}")
 
     # 5. Descontar margen retenido de cuenta.Capital
     dbSession.execute(text("""

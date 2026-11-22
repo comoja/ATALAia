@@ -148,56 +148,34 @@ public class ReportesBean implements Serializable {
      */
     public void loadUserAccounts() {
         this.userAccounts.clear();
-        Integer userId = securityBean != null ? securityBean.getIdUsuario() : null;
-        boolean esAdmin = securityBean != null && securityBean.isAdmin();
-
+        Integer userId = null;
+        if (securityBean != null) {
+            userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+        }
         if (userId == null) {
             userId = 1;
-            esAdmin = true;
         }
 
-        log.info("Cargando cuentas para Reportes. userId={}, esAdmin={}", userId, esAdmin);
+        log.info("Cargando cuentas asignadas para Reportes. userId={}", userId);
 
         RestTemplate restTemplate = new RestTemplate();
         ObjectMapper mapper = new ObjectMapper();
 
         try {
-            if (esAdmin) {
-                // Administrador: ver todas las cuentas del sistema
-                String urlAll = backendUrl + "/api/v1/config/cuentas";
-                log.info("Usuario Administrador: Consultando todas las cuentas desde {}", urlAll);
-                String respAll = restTemplate.getForObject(urlAll, String.class);
-                if (respAll != null && !respAll.trim().isEmpty()) {
-                    JsonNode root = mapper.readTree(respAll);
-                    if (root.isArray()) {
-                        for (JsonNode n : root) {
-                            UserAccountDto dto = new UserAccountDto();
-                            dto.setIdCuenta(n.path("idCuenta").asInt());
-                            String name = n.has("nombre") ? n.path("nombre").asText() : n.path("nombreCuenta").asText();
-                            dto.setNombreCuenta(name != null && !name.isEmpty() ? name : ("Cuenta #" + dto.getIdCuenta()));
-                            dto.setCapital(n.path("capital").asDouble(0.0));
-                            dto.setActivo(n.path("activo").asBoolean(true));
-                            this.userAccounts.add(dto);
-                        }
-                    }
-                }
-            } else {
-                // Usuario regular: ver solo sus cuentas asignadas
-                String urlUser = backendUrl + "/api/v1/usuario-cuentas/" + userId;
-                log.info("Usuario Regular: Consultando cuentas asignadas desde {}", urlUser);
-                String respUser = restTemplate.getForObject(urlUser, String.class);
-                if (respUser != null && !respUser.trim().isEmpty()) {
-                    JsonNode root = mapper.readTree(respUser);
-                    if (root.isArray()) {
-                        for (JsonNode n : root) {
-                            UserAccountDto dto = new UserAccountDto();
-                            dto.setIdCuenta(n.path("idCuenta").asInt());
-                            String name = n.has("nombreCuenta") ? n.path("nombreCuenta").asText() : n.path("nombre").asText();
-                            dto.setNombreCuenta(name != null && !name.isEmpty() ? name : ("Cuenta #" + dto.getIdCuenta()));
-                            dto.setCapital(n.path("capital").asDouble(0.0));
-                            dto.setActivo(n.path("activo").asBoolean(true));
-                            this.userAccounts.add(dto);
-                        }
+            String urlUser = backendUrl + "/api/v1/usuario-cuentas/" + userId;
+            log.info("Consultando cuentas asignadas al usuario desde {}", urlUser);
+            String respUser = restTemplate.getForObject(urlUser, String.class);
+            if (respUser != null && !respUser.trim().isEmpty()) {
+                JsonNode root = mapper.readTree(respUser);
+                if (root.isArray()) {
+                    for (JsonNode n : root) {
+                        UserAccountDto dto = new UserAccountDto();
+                        dto.setIdCuenta(n.path("idCuenta").asInt());
+                        String name = n.has("nombreCuenta") ? n.path("nombreCuenta").asText() : n.path("nombre").asText();
+                        dto.setNombreCuenta(name != null && !name.isEmpty() ? name : ("Cuenta #" + dto.getIdCuenta()));
+                        dto.setCapital(n.path("capital").asDouble(0.0));
+                        dto.setActivo(n.path("activo").asBoolean(true));
+                        this.userAccounts.add(dto);
                     }
                 }
             }

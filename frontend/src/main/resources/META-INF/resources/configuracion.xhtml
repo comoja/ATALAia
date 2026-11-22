@@ -196,19 +196,60 @@
         <p:tab title="Cuentas de Trading">
             <h:form id="cuentasForm">
                 <p:growl id="msgs" showDetail="true" />
+                <p:remoteCommand name="rcRefreshCuentas" action="#{configuracionBean.loadCuentas}" update="tblCuentas msgs" />
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 0 4px; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <i class="pi pi-shield" style="color: #0284c7; font-size: 1.15rem;"></i>
+                            <span style="font-size: 0.95rem; color: #475569; font-weight: 600;">
+                                #{securityBean.admin ? 'Cuentas operacionales del sistema.' : 'Cuentas operacionales asignadas a su usuario.'}
+                            </span>
+                        </div>
+                        
+                        <!-- FILTRO DE USUARIO PARA ADMINISTRADOR (Similar a Reporte Jerárquico) -->
+                        <h:panelGroup layout="block" rendered="#{securityBean.admin}"
+                            style="display: inline-flex; align-items: center; gap: 8px; background: #f8fafc; padding: 4px 10px; border-radius: 8px; border: 1px solid #cbd5e1;">
+                            <i class="pi pi-users" style="color: #0284c7; font-size: 1rem;"></i>
+                            <label for="filtroUsuario" style="font-size: 0.88rem; font-weight: 700; color: #334155;">Filtrar Usuario:</label>
+                            <p:selectOneMenu id="filtroUsuario" value="#{configuracionBean.selectedFiltroUsuarioId}"
+                                style="min-width: 190px; height: 30px; font-size: 0.90rem;">
+                                <f:selectItems value="#{configuracionBean.usuariosFiltroCombo}" />
+                                <p:ajax event="change" listener="#{configuracionBean.loadCuentas}" update="tblCuentas msgs" />
+                            </p:selectOneMenu>
+                        </h:panelGroup>
+                    </div>
+                    
+                    <p:commandButton value="Dar de Alta Nueva Cuenta" icon="pi pi-plus"
+                        action="#{dashboardBean.prepararNuevaCuenta}"
+                        update=":nuevaCuentaForm"
+                        oncomplete="PF('nuevaCuentaDlg').show();"
+                        styleClass="aether-btn-primary"
+                        style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: 700; border-radius: 6px; padding: 6px 16px;" />
+                </div>
                 
                 <p:dataTable id="tblCuentas" value="#{configuracionBean.cuentas}" var="cta" 
-                             editable="true" styleClass="aether-table" reflow="true" 
+                             styleClass="aether-table" reflow="true" 
                              emptyMessage="No se encontraron cuentas operacionales activas.">
                     
-                    <p:ajax event="rowEdit" global="false" listener="#{configuracionBean.guardarCuenta(cta)}" update=":configTabs:cuentasForm:msgs" />
-                    
-                    <p:column style="width: 60px; text-align: center;">
+                    <p:column style="width: 50px; text-align: center;">
                         <f:facet name="header">
                             <h:outputText id="hdrCtaId" value="ID" />
                             <p:tooltip for="hdrCtaId" value="Identificador interno de la cuenta" position="top" />
                         </f:facet>
                         <h:outputText value="#{cta.idCuenta}" />
+                    </p:column>
+                    
+                    <!-- IDENTIFICACIÓN DE USUARIO RESPONSABLE (Para Administrador, similar al Reporte Jerárquico) -->
+                    <p:column style="width: 145px;" sortBy="#{cta.nombreUsuario}" rendered="#{securityBean.admin}">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaUsr" layout="block">Usuario<br/>Responsable</h:panelGroup>
+                            <p:tooltip for="hdrCtaUsr" value="Usuario o trader asignado que administra y opera esta cuenta" position="top" />
+                        </f:facet>
+                        <span class="badge" style="background: #e0f2fe; color: #0284c7; font-weight: 700; font-size: 0.82rem; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px;">
+                            <i class="pi pi-user" style="font-size: 0.8rem;"></i>
+                            #{cta.nombreUsuario}
+                        </span>
                     </p:column>
                     
                     <p:column>
@@ -220,6 +261,18 @@
                             <f:facet name="output"><h:outputText value="#{cta.nombre}" style="font-weight: 700;" /></f:facet>
                             <f:facet name="input"><p:inputText value="#{cta.nombre}" style="width:100%" required="true" /></f:facet>
                         </p:cellEditor>
+                    </p:column>
+                    
+                    <!-- IDENTIFICACIÓN DE BRÓKER ASIGNADO -->
+                    <p:column style="width: 130px;" sortBy="#{cta.nombreBroker}">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaBrk" layout="block">Bróker<br/>Ejecución</h:panelGroup>
+                            <p:tooltip for="hdrCtaBrk" value="Bróker proveedor de ejecución (Forex.com, Excent Capital, MetaTrader 5)" position="top" />
+                        </f:facet>
+                        <span class="badge" style="background: #{cta.nombreBroker eq 'Excent Capital' ? 'rgba(168, 85, 247, 0.15)' : (cta.nombreBroker eq 'Forex.com' ? 'rgba(16, 185, 129, 0.15)' : (cta.nombreBroker eq 'MetaTrader 5' ? 'rgba(2, 132, 199, 0.15)' : 'rgba(100, 116, 139, 0.15)'))}; color: #{cta.nombreBroker eq 'Excent Capital' ? '#7e22ce' : (cta.nombreBroker eq 'Forex.com' ? '#047857' : (cta.nombreBroker eq 'MetaTrader 5' ? '#0284c7' : '#64748b'))}; font-weight: 700; font-size: 0.82rem; padding: 4px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 5px;">
+                            <i class="pi #{cta.nombreBroker eq 'Excent Capital' ? 'pi-globe' : (cta.nombreBroker eq 'Forex.com' ? 'pi-chart-line' : (cta.nombreBroker eq 'MetaTrader 5' ? 'pi-desktop' : 'pi-server'))}" style="font-size: 0.8rem;"></i>
+                            #{cta.nombreBroker}
+                        </span>
                     </p:column>
                     
                     <p:column>
@@ -280,6 +333,60 @@
                             </f:facet>
                             <f:facet name="input">
                                 <p:inputNumber value="#{cta.riesgoPorOperacion}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="2" required="true" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+
+                    <!-- Perfil de Inversionista: Conservador (Riesgo Bajo) -> Azul -->
+                    <p:column style="text-align: right; width: 68px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaCons" layout="block">% Conserv.<br/>(Bajo)</h:panelGroup>
+                            <p:tooltip for="hdrCtaCons" value="Ponderación perfil Conservador (Riesgo Bajo - Azul). La suma con Moderado y Agresivo debe ser 100%." position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge" style="background: rgba(2, 132, 199, 0.15); color: #0284c7; font-weight: 700;">
+                                    #{cta.pctConservador}%
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.pctConservador}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="1" minValue="0" maxValue="100" required="true" style="width: 60%;" inputStyle="width: 100%; color: #0284c7; font-weight: 700;" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+
+                    <!-- Perfil de Inversionista: Moderado (Riesgo Medio) -> Naranja -->
+                    <p:column style="text-align: right; width: 68px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaMod" layout="block">% Moder.<br/>(Medio)</h:panelGroup>
+                            <p:tooltip for="hdrCtaMod" value="Ponderación perfil Moderado (Riesgo Medio - Naranja). La suma con Conservador y Agresivo debe ser 100%." position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge" style="background: rgba(234, 88, 12, 0.15); color: #ea580c; font-weight: 700;">
+                                    #{cta.pctModerado}%
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.pctModerado}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="1" minValue="0" maxValue="100" required="true" style="width: 60%;" inputStyle="width: 100%; color: #ea580c; font-weight: 700;" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+
+                    <!-- Perfil de Inversionista: Agresivo (Riesgo Alto) -> Rojo -->
+                    <p:column style="text-align: right; width: 68px;">
+                        <f:facet name="header">
+                            <h:panelGroup id="hdrCtaAgr" layout="block">% Agres.<br/>(Alto)</h:panelGroup>
+                            <p:tooltip for="hdrCtaAgr" value="Ponderación perfil Agresivo (Riesgo Alto - Rojo). La suma con Conservador y Moderado debe ser 100%." position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; font-weight: 700;">
+                                    #{cta.pctAgresivo}%
+                                </span>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputNumber value="#{cta.pctAgresivo}" symbol=" %" symbolPosition="s" decimalSeparator="." maxFractionDigits="1" minValue="0" maxValue="100" required="true" style="width: 60%;" inputStyle="width: 100%; color: #dc2626; font-weight: 700;" />
                             </f:facet>
                         </p:cellEditor>
                     </p:column>
@@ -355,12 +462,18 @@
                         </p:cellEditor>
                     </p:column>
                     
-                    <p:column style="width:80px; text-align: center;">
+                    <p:column style="width:70px; text-align: center;">
                         <f:facet name="header">
                             <h:outputText id="hdrCtaEdi" value="Editar" />
-                            <p:tooltip for="hdrCtaEdi" value="Habilitar edición de los parámetros de la cuenta" position="top" />
+                            <p:tooltip for="hdrCtaEdi" value="Editar cuenta y perfil de inversión en ventana modal" position="top" />
                         </f:facet>
-                        <p:rowEditor />
+                        <p:commandButton icon="pi pi-pencil" 
+                                         action="#{dashboardBean.prepararEditarCuentaId(cta.idCuenta)}"
+                                         update=":editarCuentaForm"
+                                         oncomplete="PF('editarCuentaDlg').show();"
+                                         title="Editar en Ventana Modal"
+                                         styleClass="ui-button-flat ui-button-primary"
+                                         style="color: #0284c7; width: 34px; height: 34px; border-radius: 50%; font-size: 1.1rem;" />
                     </p:column>
                 </p:dataTable>
             </h:form>

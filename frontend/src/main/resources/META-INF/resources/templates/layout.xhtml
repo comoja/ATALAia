@@ -148,20 +148,32 @@
             background: var(--bg-surface) !important;
             border: 1px solid var(--border-soft) !important;
             color: #EF4444 !important;
-            font-size: 1.3rem !important;
-            padding: 10px !important;
-            border-radius: 12px !important;
-            box-shadow: var(--neu-shadow-flat) !important;
+            font-size: 1.70rem !important;
+            padding: 0 !important;
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
+            border-radius: 50% !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
             cursor: pointer;
-            transition: all 0.2s ease !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+        }
+
+        .btn-logout .ui-icon,
+        .btn-logout .pi {
+            font-size: 1.70rem !important;
         }
 
         .btn-logout:hover {
             background: #2E1C1C !important;
             border-color: #EF4444 !important;
             color: #FCA5A5 !important;
-            box-shadow: var(--neu-shadow-hover) !important;
-            transform: translateY(-1px) !important;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18), 0 3px 6px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            transform: translateY(-2px) !important;
         }
 
         .btn-logout:active {
@@ -754,11 +766,24 @@
 
         #strategySelectorBar p\:commandLink,
         #strategySelectorBar a {
-            height: 36px !important;
+            height: 44px !important;
+            width: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
+            border-radius: 50% !important;
+            padding: 0 !important;
+            margin: 0 !important;
             box-sizing: border-box !important;
             display: inline-flex !important;
             align-items: center !important;
             justify-content: center !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+        }
+
+        #strategySelectorBar a:hover {
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18), 0 3px 6px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            transform: translateY(-2px) !important;
         }
 
         #mainTabView > .ui-tabview-nav,
@@ -770,16 +795,16 @@
         [id$=":mainTabView"] > .ui-tabview-nav,
         [id$=":cartTabView"] > .ui-tabview-nav,
         [id$=":sniperTabView"] > .ui-tabview-nav {
-            height: 48px !important;
-            min-height: 48px !important;
-            max-height: 48px !important;
+            height: 52px !important;
+            min-height: 52px !important;
+            max-height: 52px !important;
             box-sizing: border-box !important;
             padding: 0 14px !important;
             margin: 0 0 6px 0 !important;
             display: flex !important;
             align-items: center !important;
             justify-content: flex-start !important;
-            gap: 8px !important;
+            gap: 10px !important;
             border-radius: 12px !important;
         }
 
@@ -792,9 +817,10 @@
         [id$=":mainTabView"] > .ui-tabview-nav > li,
         [id$=":cartTabView"] > .ui-tabview-nav > li,
         [id$=":sniperTabView"] > .ui-tabview-nav > li {
-            height: 36px !important;
-            min-height: 36px !important;
-            max-height: 36px !important;
+            height: 44px !important;
+            width: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
             box-sizing: border-box !important;
             margin: 0 !important;
             top: 0 !important;
@@ -805,8 +831,36 @@
             display: inline-flex !important;
             align-items: center !important;
             justify-content: center !important;
-            border-radius: 8px !important;
+            border-radius: 50% !important;
             vertical-align: middle !important;
+            background: var(--bg-surface) !important;
+            border: 1px solid var(--border-soft) !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+            overflow: hidden !important;
+        }
+
+        #mainTabView > .ui-tabview-nav > li:hover,
+        #cartTabView > .ui-tabview-nav > li:hover,
+        #sniperTabView > .ui-tabview-nav > li:hover,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:hover,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:hover,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:hover,
+        [id$=":mainTabView"] > .ui-tabview-nav > li:hover,
+        [id$=":cartTabView"] > .ui-tabview-nav > li:hover,
+        [id$=":sniperTabView"] > .ui-tabview-nav > li:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+        }
+
+        #mainTabView > .ui-tabview-nav > li.ui-state-active,
+        #cartTabView > .ui-tabview-nav > li.ui-state-active,
+        #sniperTabView > .ui-tabview-nav > li.ui-state-active,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active,
+        #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active,
+        #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
         }
 
         #mainTabView > .ui-tabview-nav > li > a,
@@ -818,13 +872,14 @@
         [id$=":mainTabView"] > .ui-tabview-nav > li > a,
         [id$=":cartTabView"] > .ui-tabview-nav > li > a,
         [id$=":sniperTabView"] > .ui-tabview-nav > li > a {
-            height: 100% !important;
-            min-height: 100% !important;
-            max-height: 100% !important;
-            width: 100% !important;
+            height: 44px !important;
+            width: 44px !important;
+            min-height: 44px !important;
+            max-height: 44px !important;
             box-sizing: border-box !important;
-            padding: 0 10px !important;
+            padding: 0 !important;
             margin: 0 !important;
+            border-radius: 50% !important;
             float: none !important;
             display: inline-flex !important;
             align-items: center !important;
@@ -834,6 +889,7 @@
         }
 
         #mainTabView > .ui-tabview-nav > li > a .ratio-tab-icon,
+        #mainTabView > .ui-tabview-nav > li > a svg,
         #mainTabView > .ui-tabview-nav > li > a .grafica-tab-icon,
         #mainTabView > .ui-tabview-nav > li > a .backtest-tab-icon,
         #mainTabView > .ui-tabview-nav > li > a .hechos-tab-icon,
@@ -846,6 +902,7 @@
         #sniperTabView > .ui-tabview-nav > li > a .backtest-tab-icon,
         #sniperTabView > .ui-tabview-nav > li > a .hechos-tab-icon,
         #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .ratio-tab-icon,
+        #strategyRatiosWrapper .ui-tabs .ui-tabs-nav svg,
         #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
         #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
         #strategyRatiosWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
@@ -857,13 +914,104 @@
         #strategySniperWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
         #strategySniperWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
         #strategySniperWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon {
-            width: 34px !important;
-            height: 30px !important;
+            width: 33px !important;
+            height: 33px !important;
             object-fit: contain !important;
             display: inline-block !important;
             vertical-align: middle !important;
             margin: 0 !important;
             line-height: 1 !important;
+        }
+
+        .balance-tab-item {
+            list-style: none !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            overflow: hidden !important;
+        }
+
+        .btn-balance-nav {
+            height: 44px !important;
+            width: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer !important;
+            text-decoration: none !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+        }
+
+        .btn-balance-nav:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+        }
+
+        .btn-balance-nav svg {
+            width: 30px !important;
+            height: 30px !important;
+            display: block !important;
+            pointer-events: none !important;
+        }
+
+        /* Botones de acción en encabezado de calibración (cuenta) */
+        .aether-cuenta-header-box .ui-button {
+            width: 38px !important;
+            height: 38px !important;
+            min-width: 38px !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+        }
+
+        .aether-cuenta-header-box .ui-button .ui-icon,
+        .aether-cuenta-header-box .ui-button .pi {
+            font-size: 1.50rem !important;
+        }
+
+        /* Iluminación y sombreado 3D de alta visibilidad para botones del sistema */
+        .btn-logout,
+        #headerSecurityForm .btn-logout,
+        #logoutForm .btn-logout,
+        .floating-control-btn,
+        .device-indicator-badge,
+        .theme-toggle-btn {
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+        }
+
+        .btn-logout:hover,
+        #headerSecurityForm .btn-logout:hover,
+        #logoutForm .btn-logout:hover,
+        .floating-control-btn:hover,
+        .theme-toggle-btn:hover {
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18), 0 3px 6px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            transform: translateY(-2px) !important;
+        }
+
+        #strategySelectorBar a {
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+            transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+        }
+
+        #strategySelectorBar a:hover {
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16), 0 3px 6px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            transform: translateY(-2px) !important;
         }
     </style>
     <ui:insert name="head"></ui:insert>
@@ -981,25 +1129,28 @@
             </div>
 
             <div class="header-right">
-                <!-- Switcher de Tema: NeoMorphism / Emotional UI -->
-                <!-- Indicador Dinámico de Dispositivo Detectado -->
-                <div class="device-indicator-badge" id="deviceIndicatorBadge" title="Dispositivo Detectado: Computador">
-                    <i class="pi pi-desktop" id="deviceIcon" style="font-size: 1.05rem; color: var(--color-primary);"></i>
-                    <span id="deviceLabel" style="font-size: 0.88rem; font-weight: 700;">Computador</span>
+                <!-- Indicador Dinámico de Dispositivo Detectado (Solo Icono Flotante) -->
+                <div class="device-indicator-badge floating-control-btn" id="deviceIndicatorBadge" title="Dispositivo Detectado: Computador"
+                     style="width: 44px; height: 44px; min-width: 44px; border-radius: 50%; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8); background: var(--bg-surface); border: 1px solid var(--border-soft); cursor: default; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);">
+                    <i class="pi pi-desktop" id="deviceIcon" style="font-size: 1.75rem; color: var(--color-primary); margin: 0;"></i>
+                    <span id="deviceLabel" style="display: none;">Computador</span>
                 </div>
 
-                <div class="theme-toggle-wrapper" style="display: inline-flex; align-items: center;">
-                    <button type="button" class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleAtalaiaTheme()" title="Cambiar Tema (NeoMorphism / Emotional UI)">
-                        <i class="pi pi-palette" style="font-size: 1.2rem; margin-right: 6px;"></i>
-                        <span id="themeToggleLabel">NeoMorphism</span>
+                <!-- Control de Sonido de Operaciones (🔊 / 🔇) (Solo Icono Flotante) -->
+                <div class="audio-toggle-wrapper" style="display: inline-flex; align-items: center;">
+                    <button type="button" class="theme-toggle-btn floating-control-btn" id="atalaiaAudioToggleBtn" onclick="toggleAtalaiaAudio()" title="Sonido de Operaciones: Activado (Clic para silenciar)"
+                            style="width: 44px; height: 44px; min-width: 44px; border-radius: 50%; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8); transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);">
+                        <i class="pi pi-volume-up" id="atalaiaAudioIcon" style="font-size: 1.75rem; color: #16a34a; margin: 0;"></i>
+                        <span id="atalaiaAudioLabel" style="display: none;">Sonido</span>
                     </button>
                 </div>
 
-                <!-- Control de Sonido de Operaciones (🔊 / 🔇) -->
-                <div class="audio-toggle-wrapper" style="display: inline-flex; align-items: center;">
-                    <button type="button" class="theme-toggle-btn" id="atalaiaAudioToggleBtn" onclick="toggleAtalaiaAudio()" title="Sonido de Operaciones: Activado (Clic para silenciar)">
-                        <i class="pi pi-volume-up" id="atalaiaAudioIcon" style="font-size: 1.15rem; color: #16a34a; margin-right: 5px;"></i>
-                        <span id="atalaiaAudioLabel">Sonido</span>
+                <!-- Control de Tema Visual (🎨) (Solo Icono Flotante) -->
+                <div class="theme-toggle-wrapper" style="display: inline-flex; align-items: center;">
+                    <button type="button" class="theme-toggle-btn floating-control-btn" id="themeToggleBtn" onclick="toggleAtalaiaTheme()" title="Cambiar Tema Visual (Clic para alternar)"
+                            style="width: 44px; height: 44px; min-width: 44px; border-radius: 50%; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8); background: var(--bg-surface); border: 1px solid var(--border-soft); transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);">
+                        <i class="pi pi-palette" id="themeToggleIcon" style="font-size: 1.75rem; color: var(--color-primary); margin: 0;"></i>
+                        <span id="themeToggleLabel" style="display: none;">Tema</span>
                     </button>
                 </div>
 
@@ -1182,6 +1333,9 @@
             </div>
         </p:confirmDialog>
     </h:form>
+
+    <!-- DIÁLOGOS GLOBALES DE CUENTA (NUEVA CUENTA Y EDITAR CUENTA) REUTILIZABLES CON PERFIL -->
+    <ui:include src="/templates/cuentaDialogsComponent.xhtml" />
     <script type="text/javascript">
     // <![CDATA[
         // ── Helpers badge globales ───────────────────────────────────────────

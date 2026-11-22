@@ -131,6 +131,9 @@ class Cuenta(Base):
     comision = Column(Float, default=0.0)
     Concentradora = Column(Integer, default=0)
     indicadorMargen = Column(Float, default=200.0)
+    pctConservador = Column(Float, default=40.0)
+    pctModerado = Column(Float, default=30.0)
+    pctAgresivo = Column(Float, default=30.0)
 
 class SentinelSymbol(Base):
     """
@@ -182,6 +185,9 @@ class UserRatio(Base):
     fixedMaxA = Column(Float, nullable=True)
     fixedMinB = Column(Float, nullable=True)
     fixedMaxB = Column(Float, nullable=True)
+    origen = Column(String(20), default="MANUAL", nullable=False)
+    estadoRecomendacion = Column(String(20), default="MANUAL", nullable=False)
+    fechaRecomendacion = Column(DateTime, nullable=True)
 
 class UserCart(Base):
     """
@@ -216,6 +222,9 @@ class UserCart(Base):
     horaInicio = Column(String(5), default="08:00")
     horaFin = Column(String(5), default="16:00")
     usarTSL = Column(Boolean, default=True)
+    origen = Column(String(20), default="MANUAL", nullable=False)
+    estadoRecomendacion = Column(String(20), default="MANUAL", nullable=False)
+    fechaRecomendacion = Column(DateTime, nullable=True)
 
 class UserSniper(Base):
     """
@@ -247,6 +256,9 @@ class UserSniper(Base):
     horaInicio2 = Column(String(5), nullable=True, default=None)
     horaFin2 = Column(String(5), nullable=True, default=None)
     multiplicadorRiesgo = Column(Float, default=1.0, nullable=False)
+    origen = Column(String(20), default="MANUAL", nullable=False)
+    estadoRecomendacion = Column(String(20), default="MANUAL", nullable=False)
+    fechaRecomendacion = Column(DateTime, nullable=True)
 
 class UsuarioCuenta(Base):
     """
@@ -262,6 +274,34 @@ class UsuarioCuenta(Base):
     idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
     activo = Column(Boolean, default=True, nullable=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
+
+class Broker(Base):
+    """
+    Catálogo de brokers y proveedores de ejecución (Oanda, Forex.com, MT5, Excent Capital).
+    """
+    __tablename__ = "broker"
+
+    idBroker = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(100), unique=True, nullable=False)
+    activo = Column(Integer, default=1, nullable=False)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+
+class BrokerCuenta(Base):
+    """
+    Asociación y credenciales de acceso de una cuenta con su broker asignado.
+    """
+    __tablename__ = "brokercuenta"
+
+    idBrokerCuenta = Column(Integer, primary_key=True, autoincrement=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
+    idBroker = Column(Integer, ForeignKey("broker.idBroker"), nullable=False, index=True)
+    tipoConexion = Column(String(20), default="PRIMARIA", nullable=False)
+    loginUsuario = Column(String(150), nullable=True)
+    tokenAcceso = Column(String(255), nullable=True)
+    activo = Column(Integer, default=1, nullable=False)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    Servidor = Column(String(100), nullable=True)
+    Apikey = Column(String(100), nullable=True)
 
 # Crea las tablas si no existen en la BD "ATALAia" de forma resiliente
 def init_db(max_retries=15, delay=2):

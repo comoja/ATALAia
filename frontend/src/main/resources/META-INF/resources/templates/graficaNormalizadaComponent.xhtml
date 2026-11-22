@@ -47,9 +47,9 @@
                               style="display: flex; align-items: center; gap: 6px;">
                     <button type="button" class="aether-btn-subwindow" 
                             onclick="if(typeof resetChartZoom==='function') resetChartZoom('#{empty chartId ? 'signalBtNormalizedChart' : chartId}');"
-                            style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: 0.80rem; font-weight: 700; color: #475569; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+                            style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: 0.80rem; font-weight: 700; color: #475569; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;"
                             title="Restablecer Zoom y Paneo">
-                        <i class="pi pi-refresh" style="font-size: 1.25rem;"></i> Reset Zoom
+                        <i class="pi pi-search" style="font-size: 1.65rem;"></i>
                     </button>
                     <!-- Botón para expandir como subventana modal independiente -->
                     <h:panelGroup rendered="#{empty isDialog ? true : !isDialog}">

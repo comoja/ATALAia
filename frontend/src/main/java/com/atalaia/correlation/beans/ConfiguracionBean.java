@@ -28,10 +28,23 @@ public class ConfiguracionBean implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    @javax.inject.Inject
+    private SecurityBean securityBean;
+
     private List<CuentaDto> cuentas = new ArrayList<>();
     private List<SymbolDto> simbolos = new ArrayList<>();
     private List<EstrategiaSymbolDto> matrizRendimiento = new ArrayList<>();
     
+    // Filtro por usuario para el Administrador (manejo similar al reporte jerárquico)
+    private Integer selectedFiltroUsuarioId = null;
+    private List<javax.faces.model.SelectItem> usuariosFiltroCombo = new ArrayList<>();
+
+    public Integer getSelectedFiltroUsuarioId() { return selectedFiltroUsuarioId; }
+    public void setSelectedFiltroUsuarioId(Integer selectedFiltroUsuarioId) { this.selectedFiltroUsuarioId = selectedFiltroUsuarioId; }
+
+    public List<javax.faces.model.SelectItem> getUsuariosFiltroCombo() { return usuariosFiltroCombo; }
+    public void setUsuariosFiltroCombo(List<javax.faces.model.SelectItem> usuariosFiltroCombo) { this.usuariosFiltroCombo = usuariosFiltroCombo; }
+
     // Estado de la consola de Backtesting
     private String consoleLog = "Consola inactiva. Seleccione una prueba para iniciar...";
     private boolean running = false;
@@ -41,10 +54,30 @@ public class ConfiguracionBean implements Serializable {
 
     public void init() {
         log.info("Inicializando ConfiguracionBean...");
+        loadUsuariosFiltroCombo();
         loadCuentas();
         loadSimbolos();
         loadMatrizRendimiento();
         checkBacktestStatus();
+    }
+
+    public void loadUsuariosFiltroCombo() {
+        this.usuariosFiltroCombo.clear();
+        this.usuariosFiltroCombo.add(new javax.faces.model.SelectItem(null, "👥 Todos los Usuarios"));
+        try {
+            RestTemplate rt = new RestTemplate();
+            String uUrl = backendApiUrl + "/auth/usuarios";
+            com.fasterxml.jackson.databind.JsonNode uArr = rt.getForObject(uUrl, com.fasterxml.jackson.databind.JsonNode.class);
+            if (uArr != null && uArr.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode un : uArr) {
+                    int uid = un.path("idUsuario").asInt();
+                    String nom = un.path("nombreCompleto").asText(un.path("username").asText());
+                    this.usuariosFiltroCombo.add(new javax.faces.model.SelectItem(uid, nom));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("No se pudo cargar combo de usuarios para filtro en configuración: {}", e.getMessage());
+        }
     }
 
     public void onTabChange(org.primefaces.event.TabChangeEvent event) {
@@ -81,12 +114,23 @@ public class ConfiguracionBean implements Serializable {
 
     public void loadCuentas() {
         try {
+            boolean isAdmin = securityBean != null && securityBean.isAdmin();
+            Integer targetUserId = null;
+            if (isAdmin) {
+                // El administrador puede ver todas las cuentas (targetUserId = null) o filtrar por un usuario específico
+                targetUserId = this.selectedFiltroUsuarioId;
+            } else {
+                // Usuario regular: ve estrictamente solo sus cuentas asignadas
+                targetUserId = securityBean != null ? (securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario()) : 1;
+            }
+
             RestTemplate restTemplate = new RestTemplate();
-            String url = backendApiUrl + "/config/cuentas";
+            String url = backendApiUrl + "/config/cuentas" + (targetUserId != null && targetUserId > 0 ? "?idUsuario=" + targetUserId : "");
+            log.info("Cargando cuentas para configuración (isAdmin={}, targetUserId={}) desde {}", isAdmin, targetUserId, url);
             CuentaDto[] response = restTemplate.getForObject(url, CuentaDto[].class);
             if (response != null) {
                 this.cuentas = new ArrayList<>(Arrays.asList(response));
-                log.info("Cuentas cargadas desde el backend: {}", cuentas.size());
+                log.info("Cuentas cargadas en configuración: {}", cuentas.size());
             }
         } catch (Exception e) {
             log.error("Error al cargar cuentas: {}", e.getMessage());
@@ -96,6 +140,18 @@ public class ConfiguracionBean implements Serializable {
     }
 
     public void guardarCuenta(CuentaDto cuenta) {
+        if (cuenta != null) {
+            double c = cuenta.getPctConservador() != null ? cuenta.getPctConservador() : 0.0;
+            double m = cuenta.getPctModerado() != null ? cuenta.getPctModerado() : 0.0;
+            double a = cuenta.getPctAgresivo() != null ? cuenta.getPctAgresivo() : 0.0;
+            double sum = Math.round((c + m + a) * 100.0) / 100.0;
+            if (Math.abs(sum - 100.0) > 0.05) {
+                FacesContext.getCurrentInstance().addMessage(null,
+                    new FacesMessage(FacesMessage.SEVERITY_ERROR, "Validación de Perfil",
+                        "La suma de los porcentajes del perfil de inversionista debe ser exactamente 100% (Actual: " + sum + "%)."));
+                return;
+            }
+        }
         try {
             RestTemplate restTemplate = new RestTemplate();
             HttpHeaders headers = new HttpHeaders();
@@ -293,6 +349,60 @@ public class ConfiguracionBean implements Serializable {
         public Boolean isConcentradora() { return Boolean.TRUE.equals(concentradora); }
         public Boolean getConcentradora() { return concentradora; }
         public void setConcentradora(Boolean concentradora) { this.concentradora = concentradora; }
+
+        @JsonProperty("pctConservador")
+        private Double pctConservador = 40.0;
+
+        @JsonProperty("pctModerado")
+        private Double pctModerado = 30.0;
+
+        @JsonProperty("pctAgresivo")
+        private Double pctAgresivo = 30.0;
+
+        public Double getPctConservador() { return pctConservador != null ? pctConservador : 40.0; }
+        public void setPctConservador(Double pctConservador) { this.pctConservador = pctConservador; }
+
+        public Double getPctModerado() { return pctModerado != null ? pctModerado : 30.0; }
+        public void setPctModerado(Double pctModerado) { this.pctModerado = pctModerado; }
+
+        public Double getPctAgresivo() { return pctAgresivo != null ? pctAgresivo : 30.0; }
+        public void setPctAgresivo(Double pctAgresivo) { this.pctAgresivo = pctAgresivo; }
+
+        @JsonProperty("idUsuario")
+        private Integer idUsuario;
+
+        @JsonProperty("username")
+        private String username;
+
+        @JsonProperty("nombreUsuario")
+        private String nombreUsuario;
+
+        public Integer getIdUsuario() { return idUsuario; }
+        public void setIdUsuario(Integer idUsuario) { this.idUsuario = idUsuario; }
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+
+        public String getNombreUsuario() { return nombreUsuario != null ? nombreUsuario : (username != null ? username : ""); }
+        public void setNombreUsuario(String nombreUsuario) { this.nombreUsuario = nombreUsuario; }
+
+        @JsonProperty("idBroker")
+        private Integer idBroker;
+
+        @JsonProperty("nombreBroker")
+        private String nombreBroker;
+
+        @JsonProperty("brokerLogin")
+        private String brokerLogin;
+
+        public Integer getIdBroker() { return idBroker; }
+        public void setIdBroker(Integer idBroker) { this.idBroker = idBroker; }
+
+        public String getNombreBroker() { return nombreBroker != null ? nombreBroker : "Sin Bróker"; }
+        public void setNombreBroker(String nombreBroker) { this.nombreBroker = nombreBroker; }
+
+        public String getBrokerLogin() { return brokerLogin != null ? brokerLogin : ""; }
+        public void setBrokerLogin(String brokerLogin) { this.brokerLogin = brokerLogin; }
     }
 
     @Getter

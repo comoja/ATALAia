@@ -1,6 +1,7 @@
 from fastapi.responses import StreamingResponse
 import io
 import os
+import time
 import asyncio
 import sys
 rutaRaiz = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -9,7 +10,7 @@ if rutaRaiz not in sys.path:
 
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Tuple
 import subprocess
 from urllib.parse import unquote
 import logging
@@ -32,7 +33,7 @@ from backend.services.conciliacionService import obtenerConciliacionPosiciones
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UserSniper, UsuarioCuenta, Usuario
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UserSniper, UsuarioCuenta, Usuario, Broker, BrokerCuenta
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -486,6 +487,9 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "salirBreakeven": bool(getattr(ratio, 'salirBreakeven', False) if getattr(ratio, 'salirBreakeven', None) is not None else False),
         "tipoEntrada": getattr(ratio, 'tipoEntrada', 'Selectiva') or 'Selectiva',
         "accionCierre": getattr(ratio, 'accionCierre', 'Continua') or 'Continua',
+        "origen": getattr(ratio, 'origen', 'MANUAL') or 'MANUAL',
+        "estadoRecomendacion": getattr(ratio, 'estadoRecomendacion', 'MANUAL') or 'MANUAL',
+        "fechaRecomendacion": ratio.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(ratio, 'fechaRecomendacion', None) else None,
         "createdAt": ratio.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -1329,6 +1333,9 @@ class CrearCuentaRequest(BaseModel):
     comision: Optional[float] = Field(0.0, description="Comisión cobrada por administración y manejo de cuenta")
     concentradora: Optional[bool] = Field(False, description="Indica si la cuenta es concentradora (true/false)")
     indicadorMargen: Optional[float] = Field(200.0, description="Indicador de margen requerido (default 200%)")
+    pctConservador: Optional[float] = Field(40.0, description="Porcentaje perfil Conservador (Riesgo Bajo)")
+    pctModerado: Optional[float] = Field(30.0, description="Porcentaje perfil Moderado (Riesgo Medio)")
+    pctAgresivo: Optional[float] = Field(30.0, description="Porcentaje perfil Agresivo (Riesgo Alto)")
 
 @router.post("/cuentas/crear")
 def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db)):
@@ -1340,6 +1347,16 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
         if not nombre_clean:
             raise HTTPException(status_code=400, detail="El nombre de la cuenta no puede estar vacío.")
 
+        c = float(payload.pctConservador if payload.pctConservador is not None else 40.0)
+        m = float(payload.pctModerado if payload.pctModerado is not None else 30.0)
+        a = float(payload.pctAgresivo if payload.pctAgresivo is not None else 30.0)
+        sum_pct = round(c + m + a, 2)
+        if abs(sum_pct - 100.0) > 0.05:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La suma del perfil de inversionista debe ser exactamente 100% (Conservador: {c}%, Moderado: {m}%, Agresivo: {a}% = {sum_pct}%)."
+            )
+
         nueva_cuenta = Cuenta(
             Nombre=nombre_clean,
             correo=payload.correo.strip() if payload.correo and payload.correo.strip() else None,
@@ -1349,7 +1366,10 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
             riesgoPorOperacion=payload.riesgoPorOperacion,
             comision=payload.comision if payload.comision is not None else 0.0,
             Concentradora=1 if payload.concentradora else 0,
-            indicadorMargen=payload.indicadorMargen if payload.indicadorMargen is not None else 200.0
+            indicadorMargen=payload.indicadorMargen if payload.indicadorMargen is not None else 200.0,
+            pctConservador=c,
+            pctModerado=m,
+            pctAgresivo=a
         )
         db.add(nueva_cuenta)
         db.commit()
@@ -1387,7 +1407,10 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
             "ganancia": nueva_cuenta.ganancia,
             "riesgoPorOperacion": nueva_cuenta.riesgoPorOperacion,
             "comision": nueva_cuenta.comision,
-            "concentradora": bool(nueva_cuenta.Concentradora)
+            "concentradora": bool(nueva_cuenta.Concentradora),
+            "pctConservador": nueva_cuenta.pctConservador,
+            "pctModerado": nueva_cuenta.pctModerado,
+            "pctAgresivo": nueva_cuenta.pctAgresivo
         }
     except HTTPException as he:
         raise he
@@ -1398,6 +1421,7 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
 
 class EditarCuentaRequest(BaseModel):
     idCuenta: int = Field(..., description="ID de la cuenta a modificar")
+    idUsuario: Optional[int] = Field(None, description="ID del usuario asignado a la cuenta")
     nombre: Optional[str] = Field(None, description="Nombre de la cuenta")
     correo: Optional[str] = Field(None, description="Correo electrónico asociado a la cuenta")
     activo: Optional[bool] = Field(None, description="Estado activo de la cuenta")
@@ -1407,6 +1431,9 @@ class EditarCuentaRequest(BaseModel):
     comision: Optional[float] = Field(None, description="Comisión cobrada por administración y manejo de cuenta")
     concentradora: Optional[bool] = Field(None, description="Indica si la cuenta es concentradora (true/false)")
     indicadorMargen: Optional[float] = Field(None, description="Indicador de margen requerido")
+    pctConservador: Optional[float] = Field(None, description="Porcentaje perfil Conservador (Riesgo Bajo)")
+    pctModerado: Optional[float] = Field(None, description="Porcentaje perfil Moderado (Riesgo Medio)")
+    pctAgresivo: Optional[float] = Field(None, description="Porcentaje perfil Agresivo (Riesgo Alto)")
 
 @router.get("/cuentas/has-concentradora")
 def hasConcentradora(excludeId: Optional[int] = None, db: Session = Depends(get_db)):
@@ -1426,11 +1453,21 @@ def hasConcentradora(excludeId: Optional[int] = None, db: Session = Depends(get_
 @router.get("/cuentas/{idCuenta}")
 def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
     """
-    Obtiene los detalles completos de una cuenta por su ID.
+    Obtiene los detalles completos de una cuenta por su ID junto con el usuario asignado.
     """
     cuenta = db.query(Cuenta).filter(Cuenta.idCuenta == idCuenta).first()
     if not cuenta:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
+    uc = (
+        db.query(UsuarioCuenta.idUsuario, Usuario.username, Usuario.nombre, Usuario.apellidoPaterno)
+        .outerjoin(Usuario, Usuario.idUsuario == UsuarioCuenta.idUsuario)
+        .filter(UsuarioCuenta.idCuenta == idCuenta)
+        .first()
+    )
+    uid = uc[0] if uc else None
+    uname = uc[1] if uc else None
+    unom = (f"{uc[2] or ''} {uc[3] or ''}".strip() or uname) if uc and uc[1] else "Sin Asignar"
+
     return {
         "idCuenta": cuenta.idCuenta,
         "nombre": cuenta.Nombre,
@@ -1441,7 +1478,13 @@ def getCuentaDetalle(idCuenta: int, db: Session = Depends(get_db)):
         "riesgoPorOperacion": float(cuenta.riesgoPorOperacion or 3.0),
         "comision": float(cuenta.comision or 0.0),
         "concentradora": bool(cuenta.Concentradora),
-        "indicadorMargen": float(getattr(cuenta, "indicadorMargen", 200.0) or 200.0)
+        "indicadorMargen": float(getattr(cuenta, "indicadorMargen", 200.0) or 200.0),
+        "pctConservador": float(getattr(cuenta, "pctConservador", 40.0) or 40.0),
+        "pctModerado": float(getattr(cuenta, "pctModerado", 30.0) or 30.0),
+        "pctAgresivo": float(getattr(cuenta, "pctAgresivo", 30.0) or 30.0),
+        "idUsuario": uid,
+        "username": uname,
+        "nombreUsuario": unom
     }
 
 @router.get("/cuentas/{idCuenta}/margin-health")
@@ -1479,6 +1522,21 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
         if not cuenta:
             raise HTTPException(status_code=404, detail="Cuenta no encontrada.")
 
+        # Validar porcentajes si se envían
+        c = float(payload.pctConservador if payload.pctConservador is not None else (cuenta.pctConservador or 40.0))
+        m = float(payload.pctModerado if payload.pctModerado is not None else (cuenta.pctModerado or 30.0))
+        a = float(payload.pctAgresivo if payload.pctAgresivo is not None else (cuenta.pctAgresivo or 30.0))
+        if any(p is not None for p in [payload.pctConservador, payload.pctModerado, payload.pctAgresivo]):
+            sum_pct = round(c + m + a, 2)
+            if abs(sum_pct - 100.0) > 0.05:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La suma del perfil de inversionista debe ser exactamente 100% (Conservador: {c}%, Moderado: {m}%, Agresivo: {a}% = {sum_pct}%)."
+                )
+            cuenta.pctConservador = c
+            cuenta.pctModerado = m
+            cuenta.pctAgresivo = a
+
         if payload.nombre is not None and payload.nombre.strip():
             cuenta.Nombre = payload.nombre.strip()
         if payload.correo is not None:
@@ -1502,6 +1560,12 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
             cuenta.Concentradora = 1 if payload.concentradora else 0
         if payload.indicadorMargen is not None:
             cuenta.indicadorMargen = float(payload.indicadorMargen)
+        if payload.idUsuario is not None and payload.idUsuario > 0:
+            uc_entry = db.query(UsuarioCuenta).filter(UsuarioCuenta.idCuenta == cuenta.idCuenta).first()
+            if uc_entry:
+                uc_entry.idUsuario = payload.idUsuario
+            else:
+                db.add(UsuarioCuenta(idUsuario=payload.idUsuario, idCuenta=cuenta.idCuenta, activo=True))
 
         db.commit()
         db.refresh(cuenta)
@@ -1675,6 +1739,9 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "salirBreakeven": bool(getattr(r, "salirBreakeven", False) if getattr(r, "salirBreakeven", None) is not None else False),
             "tipoEntrada": getattr(r, "tipoEntrada", "Selectiva") or "Selectiva",
             "accionCierre": getattr(r, "accionCierre", "Continua") or "Continua",
+            "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
+            "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -2453,6 +2520,9 @@ class CuentaUpdate(BaseModel):
     comision: Optional[float] = 0.0
     Concentradora: Optional[int] = 0
     indicadorMargen: Optional[float] = 200.0
+    pctConservador: Optional[float] = 40.0
+    pctModerado: Optional[float] = 30.0
+    pctAgresivo: Optional[float] = 30.0
 
 class SymbolUpdate(BaseModel):
     symbol: str
@@ -2462,19 +2532,112 @@ class SymbolUpdate(BaseModel):
     precioMaximo: Optional[float] = None
     precioMinimo: Optional[float] = None
 
+@router.get("/config/brokers")
+def get_brokers(db: Session = Depends(get_db)):
+    """
+    Retorna el catálogo de brokers activos en el sistema (ej. Forex.com, Excent Capital, MetaTrader 5).
+    """
+    try:
+        brokers = db.query(Broker).filter(Broker.activo == 1).order_by(Broker.idBroker.asc()).all()
+        return [
+            {
+                "idBroker": b.idBroker,
+                "nombre": b.nombre,
+                "activo": int(b.activo or 0)
+            }
+            for b in brokers
+        ]
+    except Exception as e:
+        logger.error(f"Error consultando catálogo de brokers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/config/cuentas")
-def get_cuentas():
-    """Obtiene la lista de todas las cuentas configuradas mediante ConnectionPool."""
-    res = dbManager._call_connection_pool("GET", "/cuentas")
-    return res if res and isinstance(res, list) else []
+def get_cuentas(idUsuario: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Obtiene la lista de cuentas configuradas en el sistema con su broker y usuario asignado.
+    - Si se especifica idUsuario (> 0): retorna solo las cuentas asignadas a ese usuario.
+    - Si idUsuario es None o 0 (modo Administrador): retorna todas las cuentas junto con la
+      identificación del usuario que la maneja y su broker asignado.
+    """
+    try:
+        query = (
+            db.query(
+                Cuenta,
+                Usuario.idUsuario,
+                Usuario.username,
+                Usuario.nombre,
+                Usuario.apellidoPaterno,
+                BrokerCuenta.idBroker,
+                Broker.nombre.label("nombreBroker"),
+                BrokerCuenta.loginUsuario.label("brokerLogin")
+            )
+            .outerjoin(UsuarioCuenta, UsuarioCuenta.idCuenta == Cuenta.idCuenta)
+            .outerjoin(Usuario, Usuario.idUsuario == UsuarioCuenta.idUsuario)
+            .outerjoin(BrokerCuenta, (BrokerCuenta.idCuenta == Cuenta.idCuenta) & (BrokerCuenta.activo == 1))
+            .outerjoin(Broker, Broker.idBroker == BrokerCuenta.idBroker)
+        )
+        if idUsuario is not None and idUsuario > 0:
+            query = query.filter(UsuarioCuenta.idUsuario == idUsuario)
+        else:
+            # Excluir cuenta de sistema #1 en vista operativa general si no está asignada
+            query = query.filter(Cuenta.idCuenta > 1)
+
+        query = query.order_by(Usuario.idUsuario.asc(), Cuenta.idCuenta.asc())
+        cuentas_rows = query.all()
+
+        return [
+            {
+                "idCuenta": c.idCuenta,
+                "Nombre": c.Nombre,
+                "correo": c.correo,
+                "Capital": float(c.Capital or 0.0),
+                "ganancia": float(c.ganancia or 0.0),
+                "Activo": int(c.Activo or 0),
+                "riesgoPorOperacion": float(c.riesgoPorOperacion or 1.0),
+                "comision": float(c.comision or 0.0),
+                "Concentradora": int(c.Concentradora or 0),
+                "indicadorMargen": float(getattr(c, "indicadorMargen", 200.0) or 200.0),
+                "pctConservador": float(getattr(c, "pctConservador", 40.0) or 40.0),
+                "pctModerado": float(getattr(c, "pctModerado", 30.0) or 30.0),
+                "pctAgresivo": float(getattr(c, "pctAgresivo", 30.0) or 30.0),
+                "idUsuario": uid,
+                "username": uname,
+                "nombreUsuario": (f"{nom or ''} {ape or ''}".strip() or uname) if uname else "Sin Asignar",
+                "idBroker": id_broker,
+                "nombreBroker": nom_broker or "Sin Bróker",
+                "brokerLogin": brk_login or ""
+            }
+            for c, uid, uname, nom, ape, id_broker, nom_broker, brk_login in cuentas_rows
+        ]
+    except Exception as e:
+        logger.error(f"Error consultando cuentas (idUsuario={idUsuario}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/config/cuentas/guardar")
 def save_cuenta(payload: CuentaUpdate, db: Session = Depends(get_db)):
     """Actualiza los parámetros operativos de una cuenta mediante ConnectionPool y sincroniza usuarioCuenta."""
+    c = float(payload.pctConservador if payload.pctConservador is not None else 40.0)
+    m = float(payload.pctModerado if payload.pctModerado is not None else 30.0)
+    a = float(payload.pctAgresivo if payload.pctAgresivo is not None else 30.0)
+    sum_pct = round(c + m + a, 2)
+    if abs(sum_pct - 100.0) > 0.05:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La suma del perfil de inversionista debe ser exactamente 100% (Conservador: {c}%, Moderado: {m}%, Agresivo: {a}% = {sum_pct}%)."
+        )
+
     cuenta_dict = payload.model_dump()
     res = dbManager._call_connection_pool("PUT", f"/cuentas/{payload.idCuenta}", json_data=cuenta_dict)
     logger.info(f"Cuenta ID {payload.idCuenta} actualizada en ConnectionPool.")
     try:
+        db.execute(
+            text("""
+                UPDATE cuenta 
+                SET pctConservador = :c, pctModerado = :m, pctAgresivo = :a 
+                WHERE idCuenta = :id
+            """),
+            {"c": c, "m": m, "a": a, "id": payload.idCuenta}
+        )
         db.execute(
             text("UPDATE usuarioCuenta SET activo = :a WHERE idCuenta = :c"),
             {"a": 1 if payload.Activo else 0, "c": payload.idCuenta}
@@ -3216,6 +3379,10 @@ async def get_cruces_ema_pair_analysis(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_denominators_return_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+DENOMINATORS_CACHE_TTL_SEC = 600  # 10 minutos
+
+
 @router.get("/cruces-ema/denominators-return/{pairA:path}")
 async def get_cruces_ema_denominators_return(
     pairA: str,
@@ -3236,6 +3403,17 @@ async def get_cruces_ema_denominators_return(
     temporalidad y el período especificados.
     """
     pairA = unquote(pairA)
+    # Normalizar fechas para evitar desalineación de segundos/minutos en el cache key
+    norm_start = start_date[:13] if len(start_date) >= 13 else start_date
+    norm_end = end_date[:13] if len(end_date) >= 13 else end_date
+    cache_key = f"{pairA}|{timeframe}|{days}|{norm_start}|{norm_end}|{smaPeriod}|{sigmaWindow}|{idCuenta}|{capital}|{leverage}"
+    now_ts = time.time()
+    if cache_key in _denominators_return_cache:
+        cached_ts, cached_val = _denominators_return_cache[cache_key]
+        if now_ts - cached_ts < DENOMINATORS_CACHE_TTL_SEC:
+            logger.info(f"Retornando cache en memoria para denominadores de {pairA} ({timeframe}, {days}d)")
+            return cached_val
+
     try:
         # 1. Obtener todos los pares activos excepto el numerador
         pares_activos = db.query(RatioSymbol).filter(RatioSymbol.Activo == 1).all()
@@ -3289,13 +3467,20 @@ async def get_cruces_ema_denominators_return(
 
         returns_dict = {sym_b: data for sym_b, data in completed}
 
-        return {
+        res = {
             "status": "success",
             "pairA": pairA,
             "timeframe": timeframe,
             "days": days,
             "returns": returns_dict
         }
+        _denominators_return_cache[cache_key] = (now_ts, res)
+        if len(_denominators_return_cache) > 100:
+            exp_keys = [k for k, (ts, _) in _denominators_return_cache.items() if now_ts - ts > DENOMINATORS_CACHE_TTL_SEC]
+            for k in exp_keys:
+                _denominators_return_cache.pop(k, None)
+
+        return res
     except Exception as e:
         logger.error(f"Error en get_cruces_ema_denominators_return: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -5823,13 +6008,16 @@ def update_user_ratio_operar(payload: UserRatioOperarUpdate, db: Session = Depen
             raise HTTPException(status_code=404, detail="Ratio no encontrado")
 
         ratio.operar = bool(payload.operar)
+        if getattr(ratio, "estadoRecomendacion", None) == "NUEVA":
+            ratio.estadoRecomendacion = "REVISADA"
         db.commit()
         db.refresh(ratio)
-        logger.info(f"Generar Órdenes (operar) actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> operar={ratio.operar}")
+        logger.info(f"Generar Órdenes (operar) actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> operar={ratio.operar}, estadoRecomendacion={getattr(ratio, 'estadoRecomendacion', 'MANUAL')}")
         return {
             "status": "success",
             "message": "Generar Órdenes actualizado correctamente",
-            "operar": ratio.operar
+            "operar": ratio.operar,
+            "estadoRecomendacion": getattr(ratio, "estadoRecomendacion", "MANUAL")
         }
     except Exception as e:
         db.rollback()
@@ -5978,6 +6166,9 @@ def findUserCart(
         "horaInicio": str(item.horaInicio or "08:00") if hasattr(item, "horaInicio") and item.horaInicio else "08:00",
         "horaFin": str(item.horaFin or "16:00") if hasattr(item, "horaFin") and item.horaFin else "16:00",
         "usarTSL": bool(item.usarTSL) if hasattr(item, "usarTSL") and item.usarTSL is not None else True,
+        "origen": getattr(item, "origen", "MANUAL") or "MANUAL",
+        "estadoRecomendacion": getattr(item, "estadoRecomendacion", "MANUAL") or "MANUAL",
+        "fechaRecomendacion": item.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(item, "fechaRecomendacion", None) else None,
         "createdAt": item.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -6041,6 +6232,9 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "horaInicio": str(r.horaInicio or "08:00") if hasattr(r, "horaInicio") and r.horaInicio else "08:00",
             "horaFin": str(r.horaFin or "16:00") if hasattr(r, "horaFin") and r.horaFin else "16:00",
             "usarTSL": bool(r.usarTSL) if hasattr(r, "usarTSL") and r.usarTSL is not None else True,
+            "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
+            "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -6230,9 +6424,16 @@ def updateUserCartOperar(payload: UserCartOperarUpdate, db: Session = Depends(ge
         if not item:
             raise HTTPException(status_code=404, detail="Par CART no encontrado")
         item.operar = bool(payload.operar)
+        if getattr(item, "estadoRecomendacion", None) == "NUEVA":
+            item.estadoRecomendacion = "REVISADA"
         db.commit()
         db.refresh(item)
-        return {"status": "success", "message": "Generar Órdenes CART actualizado", "operar": item.operar}
+        return {
+            "status": "success",
+            "message": "Generar Órdenes CART actualizado",
+            "operar": item.operar,
+            "estadoRecomendacion": getattr(item, "estadoRecomendacion", "MANUAL")
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -6798,6 +6999,9 @@ def findUserSniper(
         "horaInicio2": str(item.horaInicio2).strip() if getattr(item, "horaInicio2", None) and str(item.horaInicio2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(item.horaInicio2) else None,
         "horaFin2": str(item.horaFin2).strip() if getattr(item, "horaFin2", None) and str(item.horaFin2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(item.horaFin2) else None,
         "multiplicadorRiesgo": float(getattr(item, "multiplicadorRiesgo", 1.0) if getattr(item, "multiplicadorRiesgo", None) is not None else 1.0),
+        "origen": getattr(item, "origen", "MANUAL") or "MANUAL",
+        "estadoRecomendacion": getattr(item, "estadoRecomendacion", "MANUAL") or "MANUAL",
+        "fechaRecomendacion": item.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(item, "fechaRecomendacion", None) else None,
         "createdAt": item.createdAt,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
@@ -6860,6 +7064,9 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
             "horaInicio2": str(r.horaInicio2).strip() if getattr(r, "horaInicio2", None) and str(r.horaInicio2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(r.horaInicio2) else None,
             "horaFin2": str(r.horaFin2).strip() if getattr(r, "horaFin2", None) and str(r.horaFin2).strip().lower() not in ["null", "none", "", "nan"] and ":" in str(r.horaFin2) else None,
             "multiplicadorRiesgo": float(getattr(r, "multiplicadorRiesgo", 1.0) if getattr(r, "multiplicadorRiesgo", None) is not None else 1.0),
+            "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
+            "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
             "createdAt": r.createdAt,
             "hasOpenTrades": has_open
         })
@@ -7044,9 +7251,16 @@ def updateUserSniperOperar(payload: UserSniperOperarUpdate, db: Session = Depend
         if not item:
             raise HTTPException(status_code=404, detail="Par SNIPER no encontrado")
         item.operar = bool(payload.operar)
+        if getattr(item, "estadoRecomendacion", None) == "NUEVA":
+            item.estadoRecomendacion = "REVISADA"
         db.commit()
         db.refresh(item)
-        return {"status": "success", "message": "Generar Órdenes SNIPER actualizado", "operar": item.operar}
+        return {
+            "status": "success",
+            "message": "Generar Órdenes SNIPER actualizado",
+            "operar": item.operar,
+            "estadoRecomendacion": getattr(item, "estadoRecomendacion", "MANUAL")
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -7393,12 +7607,13 @@ async def getSniperAnalysis(
                 "volume": float(row.get("volume", 0.0) or 0.0)
             })
 
-        # 7. Consultar trade activo en trades para esta cuenta y símbolo
+        # 7. Consultar trades activos en trades para esta cuenta y símbolo (soporte multi sub-órdenes)
         activeTrade = None
+        activeTradesList = []
         currentPx = float(df["close"].iloc[-1])
-        openTradeRow = None
+        openTradeRows = []
         if idCuenta:
-            openTradeRow = db.execute(text("""
+            openTradeRows = db.execute(text("""
                 SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
                        margin_used, pnl, openTime, candleTime, status, ticketId
                 FROM trades
@@ -7406,41 +7621,13 @@ async def getSniperAnalysis(
                   AND strategy = 'SNIPER'
                   AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR setup = :sym)
                   AND status = 'OPEN'
-                ORDER BY idTrade DESC
-                LIMIT 1
-            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
+                ORDER BY idTrade ASC
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
+        else:
+            openTradeRows = []
 
-        if not openTradeRow:
-            openTradeRow = db.execute(text("""
-                SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
-                       margin_used, pnl, openTime, candleTime, status, ticketId
-                FROM trades
-                WHERE strategy = 'SNIPER'
-                  AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR setup = :sym)
-                  AND status = 'OPEN'
-                ORDER BY idTrade DESC
-                LIMIT 1
-            """), {"sym": symbol}).mappings().fetchone()
-
-        if openTradeRow:
-            dirStr = str(openTradeRow["direction"] or "LARGO").upper()
-            isLong = "LARG" in dirStr or "BUY" in dirStr
-            entryPx = float(openTradeRow["entryPrice"] or currentPx)
-            slVal = float(openTradeRow["stopLoss"]) if openTradeRow.get("stopLoss") is not None else None
-            tpVal = float(openTradeRow["takeProfit"]) if openTradeRow.get("takeProfit") is not None else None
-            isBe = bool(openTradeRow.get("isBreakEven", 0))
-
-            pnlFloat, pipsVal, _, _ = calculate_unrealized_pnl(
-                symbol=symbol,
-                direction=dirStr,
-                entry_price=entryPx,
-                current_price=currentPx,
-                size=float(openTradeRow["size"] or 1000.0),
-                pip_size=pipSz
-            )
-
-            # Consultar configuración de userSNIPER para BreakEven y TSL
-            tradeAccId = openTradeRow.get("idCuenta") or idCuenta
+        if openTradeRows:
+            tradeAccId = openTradeRows[0].get("idCuenta") or idCuenta
             uRow = None
             if tradeAccId:
                 uRow = db.execute(text("""
@@ -7458,44 +7645,88 @@ async def getSniperAnalysis(
             hasBeCfg = bool(uRow["usarBreakEven"]) if (uRow and uRow.get("usarBreakEven") is not None) else False
             hasTslCfg = bool(uRow["usarTSL"]) if (uRow and uRow.get("usarTSL") is not None) else False
 
-            # BreakEven (si tiene configurado o ya fue asegurado)
-            hasBe = hasBeCfg or isBe
-            beTrigger = None
-            if hasBe and tpVal and entryPx:
-                beTrigger = entryPx + (tpVal - entryPx) * 0.50 if isLong else entryPx - (entryPx - tpVal) * 0.50
-            bePrice = (entryPx if isBe else beTrigger) if hasBe else None
+            totalSize = 0.0
+            totalMargin = 0.0
+            totalPnl = 0.0
+            weightedEntrySum = 0.0
+            ticketIds = []
 
-            # Trailing Stop Loss (si tiene configurado)
-            hasTsl = hasTslCfg
-            tslVal = None
-            if hasTsl:
-                atrVal = float((df["high"].tail(14) - df["low"].tail(14)).mean()) if len(df) >= 14 else (entryPx * 0.005)
-                slDist = atrVal * float(adaptiveCfg.get("slAtrMult", 1.5) if adaptiveCfg else 1.5)
-                tslVal = round(currentPx - slDist if isLong else currentPx + slDist, 5)
+            for row in openTradeRows:
+                rDir = str(row["direction"] or "LARGO").upper()
+                rIsLong = "LARG" in rDir or "BUY" in rDir
+                rEntryPx = float(row["entryPrice"] or currentPx)
+                rSl = float(row["stopLoss"]) if row.get("stopLoss") is not None else None
+                rTp = float(row["takeProfit"]) if row.get("takeProfit") is not None else None
+                rIsBe = bool(row.get("isBreakEven", 0))
+                rSize = float(row["size"] or 0.0)
+                rMargin = float(row["margin_used"] or 0.0)
 
-            dt_val = openTradeRow["openTime"] or openTradeRow["candleTime"]
-            activeTrade = {
-                "idTrade": openTradeRow["idTrade"],
-                "symbol": symbol,
-                "direction": dirStr,
-                "isLong": isLong,
-                "entryPrice": entryPx,
-                "currentPrice": currentPx,
-                "stopLoss": slVal,
-                "takeProfit": tpVal,
-                "isBreakEven": isBe,
-                "hasBe": hasBe,
-                "bePrice": bePrice,
-                "beTrigger": beTrigger,
-                "hasTsl": hasTsl,
-                "tslPrice": tslVal,
-                "size": float(openTradeRow["size"] or 1000.0),
-                "margin": float(openTradeRow["margin_used"] or 0.0),
-                "pnl": round(pnlFloat, 2),
-                "pips": round(pipsVal, 1),
-                "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
-                "ticketId": str(openTradeRow.get("ticketId") or "")
-            }
+                rPnl, rPips, _, _ = calculate_unrealized_pnl(
+                    symbol=symbol,
+                    direction=rDir,
+                    entry_price=rEntryPx,
+                    current_price=currentPx,
+                    size=rSize,
+                    pip_size=pipSz
+                )
+
+                rHasBe = hasBeCfg or rIsBe
+                rBeTrigger = None
+                if rHasBe and rTp and rEntryPx:
+                    rBeTrigger = rEntryPx + (rTp - rEntryPx) * 0.50 if rIsLong else rEntryPx - (rEntryPx - rTp) * 0.50
+                rBePrice = (rEntryPx if rIsBe else rBeTrigger) if rHasBe else None
+
+                rHasTsl = hasTslCfg
+                rTslVal = None
+                if rHasTsl:
+                    atrVal = float((df["high"].tail(14) - df["low"].tail(14)).mean()) if len(df) >= 14 else (rEntryPx * 0.005)
+                    slDist = atrVal * float(adaptiveCfg.get("slAtrMult", 1.5) if adaptiveCfg else 1.5)
+                    rTslVal = round(currentPx - slDist if rIsLong else currentPx + slDist, 5)
+
+                dt_val = row["openTime"] or row["candleTime"]
+                tkt_str = str(row.get("ticketId") or "")
+                if tkt_str:
+                    ticketIds.append(tkt_str)
+
+                itemTrade = {
+                    "idTrade": row["idTrade"],
+                    "symbol": symbol,
+                    "direction": rDir,
+                    "isLong": rIsLong,
+                    "entryPrice": rEntryPx,
+                    "currentPrice": currentPx,
+                    "stopLoss": rSl,
+                    "takeProfit": rTp,
+                    "isBreakEven": rIsBe,
+                    "hasBe": rHasBe,
+                    "bePrice": rBePrice,
+                    "beTrigger": rBeTrigger,
+                    "hasTsl": rHasTsl,
+                    "tslPrice": rTslVal,
+                    "size": rSize,
+                    "margin": rMargin,
+                    "pnl": round(rPnl, 2),
+                    "pips": round(rPips, 1),
+                    "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
+                    "ticketId": tkt_str
+                }
+                activeTradesList.append(itemTrade)
+
+                totalSize += rSize
+                totalMargin += rMargin
+                totalPnl += rPnl
+                weightedEntrySum += (rEntryPx * rSize)
+
+            # Trade consolidado resumen (activeTrade)
+            leadTrade = activeTradesList[0]
+            avgEntryPx = round(weightedEntrySum / totalSize, 5) if totalSize > 0 else leadTrade["entryPrice"]
+            activeTrade = dict(leadTrade)
+            activeTrade["size"] = totalSize
+            activeTrade["margin"] = round(totalMargin, 2)
+            activeTrade["pnl"] = round(totalPnl, 2)
+            activeTrade["entryPrice"] = avgEntryPx
+            activeTrade["ticketId"] = ", ".join(ticketIds)
+            activeTrade["subOrdersCount"] = len(activeTradesList)
 
         return {
             "status": "success",
@@ -7509,7 +7740,8 @@ async def getSniperAnalysis(
             "backtest": btResult,
             "structuralLevels": structLevels,
             "adaptiveConfig": adaptiveCfg,
-            "activeTrade": activeTrade
+            "activeTrade": activeTrade,
+            "activeTrades": activeTradesList
         }
     except HTTPException:
         raise
@@ -7603,6 +7835,52 @@ async def getSniperOptimalConfigEndpoint(
     except Exception as e:
         logger.error(f"Error en getSniperOptimalConfigEndpoint para {symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class MarcarRevisadaPayload(BaseModel):
+    strategy: str  # 'RATIO', 'CART' / 'RIDER', 'SNIPER'
+    id: int
+
+
+@router.post("/recommendations/marcar-revisada")
+def marcar_recomendacion_revisada(payload: MarcarRevisadaPayload, db: Session = Depends(get_db)):
+    """
+    Transiciona una recomendación del optimizador de 'NUEVA' a 'REVISADA' al ser inspeccionada
+    o configurada por el trader.
+    """
+    try:
+        strat = payload.strategy.upper().strip()
+        if "RATIO" in strat:
+            item = db.query(UserRatio).filter(UserRatio.id == payload.id).first()
+        elif "CART" in strat or "RIDER" in strat:
+            item = db.query(UserCart).filter(UserCart.id == payload.id).first()
+        elif "SNIPER" in strat:
+            item = db.query(UserSniper).filter(UserSniper.id == payload.id).first()
+        else:
+            raise HTTPException(status_code=400, detail=f"Estrategia '{payload.strategy}' no soportada")
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Registro de recomendación no encontrado")
+
+        if getattr(item, "estadoRecomendacion", None) == "NUEVA":
+            item.estadoRecomendacion = "REVISADA"
+            db.commit()
+            db.refresh(item)
+            logger.info(f"Recomendación #{payload.id} en {strat} marcada como REVISADA")
+
+        return {
+            "status": "success",
+            "id": item.id,
+            "strategy": strat,
+            "estadoRecomendacion": getattr(item, "estadoRecomendacion", "REVISADA")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al marcar recomendación revisada: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

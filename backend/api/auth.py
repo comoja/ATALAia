@@ -67,6 +67,9 @@ class UsuarioComboItem(BaseModel):
     """DTO liviano para el combo selector de usuarios en el dashboard."""
     idUsuario: int
     nombreCompleto: str
+    username: Optional[str] = None
+    idRole: Optional[int] = None
+    nameRole: Optional[str] = None
 
 class MenuResponse(BaseModel):
     idMenu: int
@@ -253,20 +256,24 @@ def getUsuariosCombo(db: Session = Depends(get_db)):
     logger.info("Cargando lista de usuarios para combo del dashboard")
     try:
         usuarios = (
-            db.query(Usuario)
+            db.query(Usuario, Role)
+            .outerjoin(Role, Usuario.idRole == Role.idRole)
             .filter(Usuario.status == 1)
             .order_by(Usuario.apellidoPaterno.asc(), Usuario.nombre.asc())
             .all()
         )
 
         listaUsuarios = []
-        for u in usuarios:
+        for u, r in usuarios:
             partes = [p for p in [u.nombre, u.apellidoPaterno, u.apellidoMaterno] if p]
             nombreCompleto = " ".join(partes) if partes else u.username
             listaUsuarios.append(
                 UsuarioComboItem(
                     idUsuario=u.idUsuario,
-                    nombreCompleto=nombreCompleto
+                    nombreCompleto=nombreCompleto,
+                    username=u.username,
+                    idRole=u.idRole,
+                    nameRole=r.nameRole if r else None
                 )
             )
         return listaUsuarios
