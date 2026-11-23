@@ -153,7 +153,7 @@ class UserRatio(Base):
     Tabla de relación entre usuario, cuenta y ratios guardados a analizar.
     """
     __tablename__ = "user_ratios"
-    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "numerador", "denominador", name="ukUserRatioPair"),)
+    __table_args__ = (UniqueConstraint("idCuenta", "numerador", "denominador", name="ukUserRatioPair"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
@@ -172,7 +172,7 @@ class UserRatio(Base):
         self.periodo = value
     EMARapida = Column(Integer, default=3)
     EMALenta = Column(Integer, default=20)
-    operar = Column(Boolean, default=False)
+    operar = Column(Boolean, default=True)
     cierreDivergencia = Column(Integer, default=2)
     tipoCierre = Column(String(20), default="Diferencia")
     umbralDiferencia = Column(Float, default=0.2)
@@ -195,7 +195,7 @@ class UserCart(Base):
     (Canal Adaptativo de Ruido por Tendencia).
     """
     __tablename__ = "userCART"
-    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "symbol", name="ukUserCartSymbol"),)
+    __table_args__ = (UniqueConstraint("idCuenta", "symbol", name="ukUserCartSymbol"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
@@ -208,7 +208,7 @@ class UserCart(Base):
     carWindow = Column(Integer, default=20)
     emaSugerida = Column(Integer, default=20, nullable=True)
     carMultiplier = Column(Float, default=1.0)
-    operar = Column(Boolean, default=False)
+    operar = Column(Boolean, default=True)
     tipoCierre = Column(String(20), default="Tolerante")
     umbralDiferencia = Column(Float, default=0.2)
     salirBreakeven = Column(Boolean, default=False)
@@ -232,7 +232,7 @@ class UserSniper(Base):
     (Smart Order Block, Momentum & Machine Learning Precision).
     """
     __tablename__ = "userSNIPER"
-    __table_args__ = (UniqueConstraint("idUsuario", "idCuenta", "symbol", name="ukUserSniperSymbol"),)
+    __table_args__ = (UniqueConstraint("idCuenta", "symbol", name="ukUserSniperSymbol"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
@@ -244,7 +244,7 @@ class UserSniper(Base):
     minConfidence = Column(Float, nullable=True)
     minRr = Column(Float, nullable=True)
     maxRr = Column(Float, nullable=True)
-    operar = Column(Boolean, default=False)
+    operar = Column(Boolean, default=True)
     borrado = Column(Boolean, default=False, nullable=False)
     accionCierre = Column(String(20), default="Continua")
     tipoCierre = Column(String(20), default="Estructural")

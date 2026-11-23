@@ -152,15 +152,13 @@
                                     </p:column>
                                     <p:column headerText="PAR"
                                         style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
-                                        style="width: 65px; min-width: 65px; max-width: 65px; padding: 2px 1px !important;"
-                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
                                         styleClass="col-par-fixed-single">
                                         <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
                                             <p:commandButton value="#{us.numerador}"
                                                 action="#{dashboardBean.onSelectUserSniper(us)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserSniperSelected();"
-                                                styleClass="aether-btn-par-trigger #{us.hasOpenTrades ? 'aether-btn-in-course' : 'aether-sniper-trigger'}"
-                                                title="#{us.hasOpenTrades ? 'Posición SNIPER en curso. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
+                                                styleClass="aether-btn-par-trigger #{us.hasOpenTrades ? (us.operar ? 'aether-btn-par-active-course' : 'aether-btn-par-inactive-course') : (us.operar ? 'aether-btn-par-active' : 'aether-btn-par-inactive')}"
+                                                title="#{us.hasOpenTrades ? (us.operar ? 'Activo (En curso). Cargar en Sección 2' : 'Inactivo (En curso). Cargar en Sección 2') : (us.operar ? 'Activo. Cargar en Sección 2' : 'Inactivo. Cargar en Sección 2')}" />
                                             <h:panelGroup rendered="#{us.nuevaRecomendacion}">
                                                 <span class="badge"
                                                     style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
@@ -195,15 +193,7 @@
                                             #{us.usarBreakEven ? 'BE' : 'OFF'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
-                                        <h:panelGroup layout="block"
-                                            style="#{us.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{us.hasOpenTrades ? (us.operar ? 'Posición SNIPER en Curso (Operando)' : 'Posición SNIPER en Curso (Inactiva)') : (us.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
-                                            <i class="#{us.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{us.hasOpenTrades ? '#ffffff' : (us.operar ? '#b47b2b' : '#ff3333')} !important; font-size: 1.55rem; font-weight: 900;"></i>
-                                        </h:panelGroup>
-                                    </p:column>
+
                                 </p:dataTable>
                             </p:tab>
 

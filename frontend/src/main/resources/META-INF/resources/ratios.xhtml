@@ -167,8 +167,8 @@
                                             <p:commandButton value="#{r.numerador} / #{r.denominador}"
                                                 action="#{dashboardBean.onSelectUserRatio(r)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserRatioSelected();"
-                                                styleClass="aether-btn-par-trigger #{r.hasOpenTrades ? 'aether-btn-in-course' : 'aether-ratio-trigger'}"
-                                                title="#{r.hasOpenTrades ? 'Posición en curso activa. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
+                                                styleClass="aether-btn-par-trigger #{r.hasOpenTrades ? (r.operar ? 'aether-btn-par-active-course' : 'aether-btn-par-inactive-course') : (r.operar ? 'aether-btn-par-active' : 'aether-btn-par-inactive')}"
+                                                title="#{r.hasOpenTrades ? (r.operar ? 'Activo (En curso). Cargar en Sección 2' : 'Inactivo (En curso). Cargar en Sección 2') : (r.operar ? 'Activo. Cargar en Sección 2' : 'Inactivo. Cargar en Sección 2')}" />
                                             <h:panelGroup rendered="#{r.nuevaRecomendacion}">
                                                 <span class="badge"
                                                     style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
@@ -213,15 +213,7 @@
                                             #{r.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op"
-                                        style="width: 34px; text-align: center; padding: 2px 1px !important;">
-                                        <h:panelGroup layout="block"
-                                            style="#{r.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{r.hasOpenTrades ? (r.operar ? 'Posición en Curso (Operando)' : 'Posición en Curso (Inactiva)') : (r.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
-                                            <i class="#{r.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{r.hasOpenTrades ? '#ffffff' : (r.operar ? '#3b82f6' : '#ff3333')} !important; font-size: 1.50rem; font-weight: 900;"></i>
-                                        </h:panelGroup>
-                                    </p:column>
+
                                 </p:dataTable>
                             </p:tab>
 

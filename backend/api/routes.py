@@ -177,7 +177,7 @@ class UserRatioCreate(BaseModel):
     dias: Optional[int] = Field(None, description="Periodo / Días hacia atrás (legacy)")
     EMARapida: Optional[int] = Field(3, description="Periodo de EMA Rápida / SMA")
     EMALenta: Optional[int] = Field(20, description="Periodo de EMA Lenta")
-    operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este ratio")
+    operar: Optional[bool] = Field(True, description="Indica si se generan órdenes para este ratio")
     cierreDivergencia: Optional[Union[bool, int, str]] = Field(2, description="0=Cruce, 1=Divergencia, 2=Diferencia")
     tipoCierre: Optional[str] = Field("Tolerante", description="Sincrono, Reactivo o Tolerante")
     umbralDiferencia: Optional[float] = Field(0.2, description="Umbral para Diferencia (default: 0.2)")
@@ -207,14 +207,16 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
             uc = db.query(UsuarioCuenta).filter(UsuarioCuenta.idUsuario == payload.idUsuario, UsuarioCuenta.activo == True).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
             cuentaId = uc.idCuenta if uc else 1
 
+        # Buscar si ya existe por el par (o pares) en la cuenta (incluso si estaba marcado como borrado)
         query = db.query(UserRatio).filter(
-            UserRatio.idUsuario == payload.idUsuario,
-            UserRatio.numerador == payload.numerador,
-            UserRatio.denominador == payload.denominador
+            UserRatio.idCuenta == cuentaId,
+            (
+                (UserRatio.numerador == payload.numerador) & (UserRatio.denominador == payload.denominador)
+            ) | (
+                (UserRatio.numerador == payload.denominador) & (UserRatio.denominador == payload.numerador)
+            )
         )
-        if payload.idCuenta:
-            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
-        existingRatio = query.first()
+        existingRatio = query.order_by(UserRatio.id.desc()).first()
 
         emaRapida = payload.EMARapida if payload.EMARapida is not None else 3
         emaLenta = payload.EMALenta if payload.EMALenta is not None else 20
@@ -360,6 +362,7 @@ async def saveUserRatio(payload: UserRatioCreate, db: Session = Depends(get_db))
                 logger.warning(f"No se pudieron calcular los limites estaticos para {numerador}/{denominador}: {ex_lim}")
 
         if existingRatio:
+            existingRatio.idUsuario = payload.idUsuario
             existingRatio.idCuenta = cuentaId
             existingRatio.Temporalidad = temporalidad_val
             existingRatio.periodo = periodo_val
@@ -427,8 +430,7 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
     denominador = unquote(unquote(str(denominador or ""))).strip()
     query = db.query(UserRatio).filter(
         UserRatio.numerador == numerador,
-        UserRatio.denominador == denominador,
-        (UserRatio.borrado == False) | (UserRatio.borrado == None)
+        UserRatio.denominador == denominador
     )
     if idCuenta:
         query = query.filter(UserRatio.idCuenta == idCuenta)
@@ -440,8 +442,7 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
     if not ratio:
         query_inv = db.query(UserRatio).filter(
             UserRatio.numerador == denominador,
-            UserRatio.denominador == numerador,
-            (UserRatio.borrado == False) | (UserRatio.borrado == None)
+            UserRatio.denominador == numerador
         )
         if idCuenta:
             query_inv = query_inv.filter(UserRatio.idCuenta == idCuenta)
@@ -6094,7 +6095,7 @@ class UserCartCreate(BaseModel):
     carWindow: Optional[int] = Field(20, description="Ventana de cálculo de ruido CAR")
     emaSugerida: Optional[int] = Field(None, description="Ventana EMA sugerida por el optimizador sabatino")
     carMultiplier: Optional[float] = Field(1.0, description="Multiplicador sigma del canal CAR")
-    operar: Optional[bool] = Field(False, description="Indica si genera órdenes automáticas")
+    operar: Optional[bool] = Field(True, description="Indica si genera órdenes automáticas")
     tipoCierre: Optional[str] = Field("Tolerante", description="Régimen de salida")
     umbralDiferencia: Optional[float] = Field(0.20, description="Umbral de diferencia")
     salirBreakeven: Optional[bool] = Field(False, description="Indica salida en Break-Even")
@@ -6130,7 +6131,7 @@ class UserSniperCreate(BaseModel):
     minConfidence: Optional[float] = Field(75.0, description="Umbral mínimo de confianza ML (%)")
     minRr: Optional[float] = Field(1.2, description="Risk-Reward mínimo adaptativo")
     maxRr: Optional[float] = Field(1.5, description="Risk-Reward máximo adaptativo")
-    operar: Optional[bool] = Field(False, description="Indica si se generan órdenes para este par SNIPER")
+    operar: Optional[bool] = Field(True, description="Indica si se generan órdenes para este par SNIPER")
     accionCierre: Optional[str] = Field("Continua", description="Acción al cerrar posición (Continua o Para)")
     tipoCierre: Optional[str] = Field("Estructural", description="Tipo de cierre de posición")
     usarBreakEven: Optional[bool] = Field(True, description="Mueve a BreakEven al alcanzar 50% de recorrido")
@@ -6169,8 +6170,7 @@ def findUserCart(
     """
     symbol = unquote(unquote(str(symbol or ""))).strip()
     query = db.query(UserCart).filter(
-        UserCart.symbol == symbol,
-        (UserCart.borrado == False) | (UserCart.borrado == None)
+        UserCart.symbol == symbol
     )
     if idCuenta:
         query = query.filter(UserCart.idCuenta == idCuenta)
@@ -6327,12 +6327,12 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
                 }
             )
 
+        # Buscar si ya existe por el par en la cuenta (incluso si estaba marcado como borrado)
         query = db.query(UserCart).filter(
-            UserCart.idUsuario == payload.idUsuario,
             UserCart.idCuenta == cuentaId,
             UserCart.symbol == payload.symbol
         )
-        existing = query.first()
+        existing = query.order_by(UserCart.id.desc()).first()
 
         temporalidad_val = payload.Temporalidad or "1h"
         periodo_val = int(payload.periodo) if isinstance(payload.periodo, int) else (int(payload.dias) if payload.dias else 180)
@@ -6353,6 +6353,7 @@ async def saveUserCart(payload: UserCartCreate, db: Session = Depends(get_db)):
         ema_sugerida = int(payload.emaSugerida) if payload.emaSugerida is not None else None
 
         if existing:
+            existing.idUsuario = payload.idUsuario
             existing.Temporalidad = temporalidad_val
             existing.periodo = periodo_val
             existing.EMARapida = ema_rapida
@@ -6987,8 +6988,7 @@ def findUserSniper(
 
     symbol = unquote(unquote(str(symbol or ""))).strip()
     query = db.query(UserSniper).filter(
-        UserSniper.symbol == symbol,
-        (UserSniper.borrado == False) | (UserSniper.borrado == None)
+        UserSniper.symbol == symbol
     )
     if idCuenta:
         query = query.filter(UserSniper.idCuenta == idCuenta)
@@ -7152,12 +7152,12 @@ async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db
             ).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
             cuentaId = uc.idCuenta if uc else 1
 
+        # Buscar si ya existe por el par en la cuenta (incluso si estaba marcado como borrado)
         query = db.query(UserSniper).filter(
-            UserSniper.idUsuario == payload.idUsuario,
             UserSniper.idCuenta == cuentaId,
             UserSniper.symbol == payload.symbol
         )
-        existing = query.first()
+        existing = query.order_by(UserSniper.id.desc()).first()
 
         temporalidad_val = payload.Temporalidad or "15min"
         periodo_val = int(payload.periodo or 180)
@@ -7185,6 +7185,7 @@ async def saveUserSniper(payload: UserSniperCreate, db: Session = Depends(get_db
         mult_riesgo = float(payload.multiplicadorRiesgo if payload.multiplicadorRiesgo is not None else 1.0)
 
         if existing:
+            existing.idUsuario = payload.idUsuario
             existing.Temporalidad = temporalidad_val
             existing.periodo = periodo_val
             existing.minConfidence = min_conf

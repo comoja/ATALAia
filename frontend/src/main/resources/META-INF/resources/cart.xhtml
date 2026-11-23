@@ -148,8 +148,8 @@
                                             <p:commandButton value="#{uc.numerador}"
                                                 action="#{dashboardBean.onSelectUserCart(uc)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserCartSelected();"
-                                                styleClass="aether-btn-par-trigger #{uc.hasOpenTrades ? 'aether-btn-in-course' : 'aether-cart-trigger'}"
-                                                title="#{uc.hasOpenTrades ? 'Posición RIDER en curso. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
+                                                styleClass="aether-btn-par-trigger #{uc.hasOpenTrades ? (uc.operar ? 'aether-btn-par-active-course' : 'aether-btn-par-inactive-course') : (uc.operar ? 'aether-btn-par-active' : 'aether-btn-par-inactive')}"
+                                                title="#{uc.hasOpenTrades ? (uc.operar ? 'Activo (En curso). Cargar en Sección 2' : 'Inactivo (En curso). Cargar en Sección 2') : (uc.operar ? 'Activo. Cargar en Sección 2' : 'Inactivo. Cargar en Sección 2')}" />
                                             <h:panelGroup rendered="#{uc.nuevaRecomendacion}">
                                                 <span class="badge"
                                                     style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
@@ -185,15 +185,7 @@
                                             #{uc.usarTSL ? 'TSL' : 'CAR'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
-                                        <h:panelGroup layout="block"
-                                            style="#{uc.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{uc.hasOpenTrades ? (uc.operar ? 'Posición RIDER en Curso (Operando)' : 'Posición RIDER en Curso (Inactiva)') : (uc.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
-                                            <i class="#{uc.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{uc.hasOpenTrades ? '#ffffff' : (uc.operar ? '#3b82f6' : '#ff3333')} !important; font-size: 1.55rem; font-weight: 900;"></i>
-                                        </h:panelGroup>
-                                    </p:column>
+
                                 </p:dataTable>
                             </p:tab>
 

@@ -1252,17 +1252,69 @@
                 color: #ffffff !important;
                 border-color: #b47b2b !important;
             }
-            /* Estado en curso (color destacado verde esmeralda con texto blanco) */
+            /* Estado 1: Activo y sin posición (Verde tenue) */
+            .aether-btn-par-active {
+                background: #f0fdf4 !important;
+                color: #166534 !important;
+                border: 1px solid #bbf7d0 !important;
+            }
+            .aether-btn-par-active:hover {
+                background: #dcfce7 !important;
+                color: #14532d !important;
+                border-color: #86efac !important;
+            }
+            .aether-btn-par-active .ui-button-text {
+                color: #166534 !important;
+            }
+
+            /* Estado 2: Inactivo y sin posición (Rojo tenue) */
+            .aether-btn-par-inactive {
+                background: #fef2f2 !important;
+                color: #991b1b !important;
+                border: 1px solid #fecaca !important;
+            }
+            .aether-btn-par-inactive:hover {
+                background: #fee2e2 !important;
+                color: #7f1d1d !important;
+                border-color: #fca5a5 !important;
+            }
+            .aether-btn-par-inactive .ui-button-text {
+                color: #991b1b !important;
+            }
+
+            /* Estado 3: Activo con posición en curso (Verde fuerte) */
+            .aether-btn-par-active-course,
             .aether-btn-in-course {
                 background: #16a34a !important;
                 color: #ffffff !important;
                 border: 1px solid #15803d !important;
                 box-shadow: 0 0 5px rgba(22, 163, 74, 0.45) !important;
             }
+            .aether-btn-par-active-course:hover,
             .aether-btn-in-course:hover {
                 background: #15803d !important;
                 color: #ffffff !important;
                 border-color: #166534 !important;
+            }
+            .aether-btn-par-active-course .ui-button-text,
+            .aether-btn-in-course .ui-button-text {
+                color: #ffffff !important;
+            }
+
+            /* Estado 4: Inactivo pero con posición en curso (Rojo fuerte) */
+            .aether-btn-par-inactive-course {
+                background: #dc2626 !important;
+                color: #ffffff !important;
+                border: 1px solid #b91c1c !important;
+                box-shadow: 0 0 5px rgba(220, 38, 38, 0.45) !important;
+            }
+            .aether-btn-par-inactive-course:hover {
+                background: #b91c1c !important;
+                color: #ffffff !important;
+                border-color: #991b1b !important;
+            }
+            .aether-btn-par-inactive-course .ui-button-text {
+                color: #ffffff !important;
             }
 
             /* Columnas de longitud fija para PAR en Sección 1 */

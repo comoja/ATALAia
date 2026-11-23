@@ -3143,7 +3143,7 @@ public class DashboardBean implements Serializable {
     // --- Temporada y Periodo Histórico ---
     private String timeframe = "1d";
     private Integer daysBack = 180;
-    private Boolean operar = false;
+    private Boolean operar = true;
     private Boolean ratioExistsInDb = false;
     private boolean hasActiveTradesInDb = false;
 
@@ -4595,7 +4595,9 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             if (this.currentRatioId != null) {
                 payload.put("id", this.currentRatioId);
-            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null
+                    && this.selectedPair != null && this.selectedPair.equalsIgnoreCase(this.selectedUserRatio.getNumerador())
+                    && this.selectedPair2 != null && this.selectedPair2.equalsIgnoreCase(this.selectedUserRatio.getDenominador())) {
                 payload.put("id", this.selectedUserRatio.getId());
             }
             payload.put("idUsuario", userId);
@@ -4904,8 +4906,8 @@ public class DashboardBean implements Serializable {
                         }
                         if (item.has("EMARapida") && !item.get("EMARapida").isNull()) dto.setEmaRapida(item.get("EMARapida").asInt());
                         if (item.has("EMALenta") && !item.get("EMALenta").isNull()) dto.setEmaLenta(item.get("EMALenta").asInt());
-                        if (item.has("operar") && !item.get("operar").isNull()) dto.setOperar(item.get("operar").asBoolean());
-                        else dto.setOperar(false);
+                        if (item.has("operar") && !item.get("operar").isNull()) dto.setOperar(item.get("operar").asBoolean(true));
+                        else dto.setOperar(true);
                         if (item.has("hasOpenTrades") && !item.get("hasOpenTrades").isNull()) dto.setHasOpenTrades(item.get("hasOpenTrades").asBoolean());
                         else dto.setHasOpenTrades(false);
                         if (item.has("tipoCierre") && !item.get("tipoCierre").isNull()) {
@@ -5247,7 +5249,9 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             if (this.currentRatioId != null) {
                 payload.put("id", this.currentRatioId);
-            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null) {
+            } else if (this.selectedUserRatio != null && this.selectedUserRatio.getId() != null
+                    && this.selectedPair != null && this.selectedPair.equalsIgnoreCase(this.selectedUserRatio.getNumerador())
+                    && this.selectedPair2 != null && this.selectedPair2.equalsIgnoreCase(this.selectedUserRatio.getDenominador())) {
                 payload.put("id", this.selectedUserRatio.getId());
             }
             payload.put("idUsuario", userId);
@@ -6945,7 +6949,7 @@ public class DashboardBean implements Serializable {
     private Integer cartCarWindow = 20;
     private Integer cartEmaSugerida = 20;
     private Double cartCarMultiplier = 1.0;
-    private boolean cartOperar = false;
+    private boolean cartOperar = true;
     private String cartAccionCierre = "Continua";
     private boolean cartFiltroHorario = true;
     private String cartHoraInicio = "08:00";
@@ -7003,7 +7007,7 @@ public class DashboardBean implements Serializable {
     private Double sniperMinConfidence = 75.0;
     private Double sniperMinRr = 1.2;
     private Double sniperMaxRr = 1.5;
-    private boolean sniperOperar = false;
+    private boolean sniperOperar = true;
     private String sniperAccionCierre = "Continua";
     private String sniperTipoCierre = "Estructural";
     private boolean sniperUsarBreakEven = true;
@@ -7380,7 +7384,7 @@ public class DashboardBean implements Serializable {
                         } else {
                             dto.setCarMultiplier(1.0);
                         }
-                        dto.setOperar(item.path("operar").asBoolean(false));
+                        dto.setOperar(item.path("operar").asBoolean(true));
                         dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
                         dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
                         dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
@@ -7475,7 +7479,7 @@ public class DashboardBean implements Serializable {
                     this.cartCarWindow = node.path("carWindow").asInt(20);
                     this.cartEmaSugerida = node.path("emaSugerida").asInt(this.cartCarWindow != null ? this.cartCarWindow : 20);
                     this.cartCarMultiplier = node.path("carMultiplier").asDouble(1.0);
-                    this.cartOperar = node.path("operar").asBoolean(false);
+                    this.cartOperar = node.path("operar").asBoolean(true);
                     this.cartAccionCierre = node.path("accionCierre").asText("Continua");
                     this.cartFiltroHorario = node.path("filtroHorario").asBoolean(true);
                     this.cartHoraInicio = node.path("horaInicio").asText("08:00");
@@ -7641,7 +7645,8 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             if (this.currentCartId != null) {
                 payload.put("id", this.currentCartId);
-            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null
+                    && this.selectedCartPair != null && this.selectedCartPair.equalsIgnoreCase(this.selectedUserCart.getNumerador())) {
                 payload.put("id", this.selectedUserCart.getId());
             }
             payload.put("idUsuario", userId != null ? userId : 1);
@@ -7688,7 +7693,8 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             if (this.currentCartId != null) {
                 payload.put("id", this.currentCartId);
-            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null
+                    && this.selectedCartPair != null && this.selectedCartPair.equalsIgnoreCase(this.selectedUserCart.getNumerador())) {
                 payload.put("id", this.selectedUserCart.getId());
             }
             payload.put("idUsuario", userId != null ? userId : 1);
@@ -7725,7 +7731,8 @@ public class DashboardBean implements Serializable {
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
             if (this.currentCartId != null) {
                 payload.put("id", this.currentCartId);
-            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null) {
+            } else if (this.selectedUserCart != null && this.selectedUserCart.getId() != null
+                    && this.selectedCartPair != null && this.selectedCartPair.equalsIgnoreCase(this.selectedUserCart.getNumerador())) {
                 payload.put("id", this.selectedUserCart.getId());
             }
             payload.put("idUsuario", userId != null ? userId : 1);
@@ -8327,7 +8334,7 @@ public class DashboardBean implements Serializable {
                         dto.setMinConfidence(item.path("minConfidence").asDouble(75.0));
                         dto.setMinRr(item.path("minRr").asDouble(1.2));
                         dto.setMaxRr(item.path("maxRr").asDouble(1.5));
-                        dto.setOperar(item.path("operar").asBoolean(false));
+                        dto.setOperar(item.path("operar").asBoolean(true));
                         dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
                         dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
                         dto.setTipoCierre(item.path("tipoCierre").asText("Estructural"));
@@ -8436,7 +8443,7 @@ public class DashboardBean implements Serializable {
                 this.sniperMinConfidence = node.path("minConfidence").asDouble(75.0);
                 this.sniperMinRr = node.path("minRr").asDouble(1.2);
                 this.sniperMaxRr = node.path("maxRr").asDouble(1.5);
-                this.sniperOperar = node.path("operar").asBoolean(false);
+                this.sniperOperar = node.path("operar").asBoolean(true);
                 this.sniperAccionCierre = node.path("accionCierre").asText("Continua");
                 this.sniperTipoCierre = node.path("tipoCierre").asText("Estructural");
                 this.sniperUsarBreakEven = node.path("usarBreakEven").asBoolean(true);
@@ -8689,6 +8696,12 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentSniperId != null) {
+                payload.put("id", this.currentSniperId);
+            } else if (this.selectedUserSniper != null && this.selectedUserSniper.getId() != null
+                    && this.selectedSniperPair != null && this.selectedSniperPair.equalsIgnoreCase(this.selectedUserSniper.getNumerador())) {
+                payload.put("id", this.selectedUserSniper.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", effAccId);
             payload.put("symbol", this.selectedSniperPair);
@@ -8747,6 +8760,12 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentSniperId != null) {
+                payload.put("id", this.currentSniperId);
+            } else if (this.selectedUserSniper != null && this.selectedUserSniper.getId() != null
+                    && this.selectedSniperPair != null && this.selectedSniperPair.equalsIgnoreCase(this.selectedUserSniper.getNumerador())) {
+                payload.put("id", this.selectedUserSniper.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", effAccId);
             payload.put("symbol", this.selectedSniperPair);
@@ -8788,6 +8807,12 @@ public class DashboardBean implements Serializable {
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (this.currentSniperId != null) {
+                payload.put("id", this.currentSniperId);
+            } else if (this.selectedUserSniper != null && this.selectedUserSniper.getId() != null
+                    && this.selectedSniperPair != null && this.selectedSniperPair.equalsIgnoreCase(this.selectedUserSniper.getNumerador())) {
+                payload.put("id", this.selectedUserSniper.getId());
+            }
             payload.put("idUsuario", userId != null ? userId : 1);
             payload.put("idCuenta", this.selectedAccountId);
             payload.put("symbol", this.selectedSniperPair);
