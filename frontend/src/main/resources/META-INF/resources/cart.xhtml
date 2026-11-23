@@ -136,29 +136,33 @@
                                     style="width: 100%; margin-bottom: 2px; cursor: pointer;">
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onCartRowSelect}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserCartSelected();" />
-                                    <p:column headerText="ID" sortBy="#{uc.id}"
+                                    <p:column headerText="ID"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{uc.id}"
                                             style="font-size: 0.95rem; font-weight: 800; color: #0f766e;" />
                                     </p:column>
-                                    <p:column headerText="PAR" sortBy="#{uc.numerador}"
-                                        style="font-weight: 700; width: auto; min-width: max-content; white-space: nowrap;"
-                                        styleClass="col-par-flexible">
-                                        <div style="display: flex; align-items: center; gap: 4px; white-space: nowrap;">
-                                            <h:outputText value="#{uc.numerador}"
-                                                style="font-size: 1.05rem; font-weight: 800; color: #0f766e; white-space: nowrap;" />
+                                    <p:column headerText="PAR"
+                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
+                                        styleClass="col-par-fixed-single">
+                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
+                                            <p:commandButton value="#{uc.numerador}"
+                                                action="#{dashboardBean.onSelectUserCart(uc)}" process="@this"
+                                                update=":aetherForm" oncomplete="handleUserCartSelected();"
+                                                styleClass="aether-btn-par-trigger #{uc.hasOpenTrades ? 'aether-btn-in-course' : 'aether-cart-trigger'}"
+                                                title="#{uc.hasOpenTrades ? 'Posición RIDER en curso. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
                                             <h:panelGroup rendered="#{uc.nuevaRecomendacion}">
-                                                <span class="badge" style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4); white-space: nowrap;"
-                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨ NUEVA</span>
+                                                <span class="badge"
+                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
+                                                    title="Recomendación Óptima Nueva del Optimizador.">✨</span>
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
-                                    <p:column headerText="TF" sortBy="#{uc.temporalidad}"
+                                    <p:column headerText="TF"
                                         style="width: 44px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{uc.temporalidad}"
                                             style="font-size: 1.0rem; font-weight: 800;" />
                                     </p:column>
-                                    <p:column headerText="CAR" sortBy="#{uc.emaLenta}"
+                                    <p:column headerText="CAR"
                                         style="width: 78px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; display: inline-block; white-space: nowrap; #{uc.emaLenta ne uc.emaSugerida ? 'background: rgba(239, 68, 68, 0.18); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
@@ -166,14 +170,14 @@
                                             RIDE #{uc.emaLenta}/#{uc.emaSugerida}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Fin" sortBy="#{uc.accionCierre}"
+                                    <p:column headerText="Fin"
                                         style="width: 48px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}">
                                             #{uc.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="TSL" sortBy="#{uc.usarTSL}"
+                                    <p:column headerText="TSL"
                                         style="width: 48px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
@@ -181,22 +185,14 @@
                                             #{uc.usarTSL ? 'TSL' : 'CAR'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op" sortBy="#{uc.operar}"
+                                    <p:column headerText="Op"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:panelGroup layout="block"
-                                            style="#{uc.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{uc.hasOpenTrades ? 'Posición RIDER en Curso' : (uc.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
+                                            style="#{uc.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
+                                            title="#{uc.hasOpenTrades ? (uc.operar ? 'Posición RIDER en Curso (Operando)' : 'Posición RIDER en Curso (Inactiva)') : (uc.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
                                             <i class="#{uc.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{uc.operar ? (uc.hasOpenTrades ? '#93c5fd' : '#3b82f6') : '#ff3333'} !important; font-size: 1.55rem; font-weight: 900;"></i>
+                                                style="color: #{uc.hasOpenTrades ? '#ffffff' : (uc.operar ? '#3b82f6' : '#ff3333')} !important; font-size: 1.55rem; font-weight: 900;"></i>
                                         </h:panelGroup>
-                                    </p:column>
-                                    <p:column style="width: 34px; text-align: center; padding: 2px 1px !important;">
-                                        <p:commandButton icon="pi pi-arrow-right"
-                                            action="#{dashboardBean.onSelectUserCart(uc)}" process="@this"
-                                            update=":aetherForm" oncomplete="handleUserCartSelected();"
-                                            styleClass="aether-btn-primary"
-                                            style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
-                                            title="Cargar par RIDER a configuración y ver gráfica" />
                                     </p:column>
                                 </p:dataTable>
                             </p:tab>
@@ -926,7 +922,10 @@
                         onTabShow="if (index === 1) setTimeout(renderCartBtPriceChart, 50); else if (index === 2) setTimeout(renderCartBtEquityChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES RIDER -->
-                        <p:tab title="Bitácora detallada de Trades">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora detallada de Trades
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <p:dataTable id="cartSignalTradesTable" value="#{dashboardBean.cartBtTradesList}"
                                     var="st" scrollable="true" scrollHeight="320px" styleClass="aether-trades-table aether-table-compact"
@@ -1079,7 +1078,10 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS REALES Y CANAL CAR (BACKTEST) -->
-                        <p:tab title="Gráfica del Par, Canal CAR y Entradas/Cierres">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Par, Canal CAR y Entradas/Cierres
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
@@ -1114,7 +1116,10 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD BACKTEST CART -->
-                        <p:tab title="Gráfica de Curva de Equidad">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div style="height: 440px; width: 100%; position: relative;">
                                     <canvas id="cartBtEquityChart"></canvas>
@@ -1234,7 +1239,10 @@
                         onTabShow="if (index === 1) setTimeout(renderCartRealTradesEquityChart, 50); if (index === 2) setTimeout(renderCartHechosChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DE ÓRDENES REALES CART -->
-                        <p:tab title="Bitácora de Órdenes Reales">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora de Órdenes Reales
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
@@ -1264,7 +1272,8 @@
                                             update=":aetherForm:cartTabView:cartMovimientosWrapper :aetherForm:cartRealTradesEquityCurveJsonData"
                                             oncomplete="setTimeout(renderCartRealTradesEquityChart, 60); setTimeout(renderCartHechosChart, 60);"
                                             styleClass="ui-button-outlined ui-button-success"
-                                            style="font-size: 0.85rem; padding: 5px 8px;" />
+                                            style="font-size: 0.85rem; padding: 5px 8px;"
+                                            title="Actualizar Movimientos" />
                                     </div>
                                 </div>
 
@@ -1344,7 +1353,10 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: CURVA DE EQUIDAD REAL CART -->
-                        <p:tab title="Gráfica de Curva de Equidad Real">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad Real
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div style="height: 420px; width: 100%; position: relative;">
                                     <canvas id="cartRealTradesEquityChart"></canvas>
@@ -1353,7 +1365,10 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: GRÁFICA DEL PAR Y CAR (HECHOS) -->
-                        <p:tab title="Gráfica del Par y CAR (Hechos)">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Par y CAR (Hechos)
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div style="height: 460px; width: 100%; position: relative;">
                                     <canvas id="cartHechosChart"></canvas>

@@ -3098,6 +3098,13 @@ public class DashboardBean implements Serializable {
     private UserRatioDto selectedUserRatio;
 
     public List<UserRatioDto> getUserRatiosList() {
+        if (userRatiosList != null && userRatiosList.size() > 1) {
+            userRatiosList.sort((a, b) -> {
+                String pairA = (a.getNumerador() != null ? a.getNumerador() : "") + " / " + (a.getDenominador() != null ? a.getDenominador() : "");
+                String pairB = (b.getNumerador() != null ? b.getNumerador() : "") + " / " + (b.getDenominador() != null ? b.getDenominador() : "");
+                return pairA.compareToIgnoreCase(pairB);
+            });
+        }
         return userRatiosList;
     }
 
@@ -7085,7 +7092,16 @@ public class DashboardBean implements Serializable {
         }
     }
 
-    public List<UserRatioDto> getUserCartList() { return userCartList; }
+    public List<UserRatioDto> getUserCartList() {
+        if (userCartList != null && userCartList.size() > 1) {
+            userCartList.sort((a, b) -> {
+                String pairA = a.getNumerador() != null ? a.getNumerador() : "";
+                String pairB = b.getNumerador() != null ? b.getNumerador() : "";
+                return pairA.compareToIgnoreCase(pairB);
+            });
+        }
+        return userCartList;
+    }
     public void setUserCartList(List<UserRatioDto> userCartList) { this.userCartList = userCartList; }
     public UserRatioDto getSelectedUserCart() { return selectedUserCart; }
     public void setSelectedUserCart(UserRatioDto selectedUserCart) { this.selectedUserCart = selectedUserCart; }
@@ -8029,7 +8045,16 @@ public class DashboardBean implements Serializable {
         }
     }
 
-    public List<UserRatioDto> getUserSniperList() { return userSniperList; }
+    public List<UserRatioDto> getUserSniperList() {
+        if (userSniperList != null && userSniperList.size() > 1) {
+            userSniperList.sort((a, b) -> {
+                String pairA = a.getNumerador() != null ? a.getNumerador() : "";
+                String pairB = b.getNumerador() != null ? b.getNumerador() : "";
+                return pairA.compareToIgnoreCase(pairB);
+            });
+        }
+        return userSniperList;
+    }
     public void setUserSniperList(List<UserRatioDto> userSniperList) { this.userSniperList = userSniperList; }
 
     public long getNuevasRecomendacionesRatiosCount() {

@@ -40,6 +40,12 @@ from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_marg
 from backend.services.signal_engine import signalEngine
 from backend.services.trade_executor import check_account_margin_health, check_projected_margin
 from middleware.utils.communications import alertaInmediata
+from middleware.utils.time_utils import (
+    is_market_closed,
+    is_crypto_symbol,
+    is_symbol_market_open,
+    is_ratio_market_open
+)
 
 # Configuración de Logging
 logging.basicConfig(
@@ -845,7 +851,18 @@ def sendRatioWebhookOrders(dbSession, idCuenta: int, orders: List[Dict[str, Any]
                 tokenAcceso=tokenAcceso
             )
 
+            # Validación previa atómica de mercado abierto para aperturas
+            closed_legs = [o.get("symbol") for o in orders if o.get("action", "").lower() != "close" and not is_symbol_market_open(o.get("symbol"))]
+            if closed_legs:
+                logger.warning(f"⏸️ [MERCADO CERRADO PRE-VUELO] El lote contiene patas con mercado cerrado ({closed_legs}). Se omite el envío a Webhook para Cuenta #{idCuenta} para prevenir desbalance.")
+                return executionResults
+
             for idx, ordInfo in enumerate(orders):
+                symbol = ordInfo.get("symbol")
+                if not is_symbol_market_open(symbol) and ordInfo.get("action", "").lower() != "close":
+                    logger.warning(f"⏸️ [MERCADO CERRADO] No se envía orden de {ordInfo.get('action')} para {symbol} al Webhook (mercado cerrado).")
+                    continue
+
                 if idx > 0:
                     logger.info(f"⏳ [Webhook] Pausando 5.0s antes de enviar la siguiente orden ({ordInfo.get('symbol')}) para respetar candado anti-spam...")
                     time.sleep(5.0)
@@ -962,6 +979,11 @@ def openSingleRatioTradePair(
     3. Si la cuenta NO tiene broker activo en brokercuenta:
        - NO OPERA: Se cancela la apertura y no se registra ninguna operación.
     """
+    # Validar mercado abierto
+    if not is_ratio_market_open(numerador, denominador):
+        logger.warning(f"⏸️ [MERCADO CERRADO] Apertura cancelada para {setupName}: el mercado está cerrado.")
+        return False
+
     import requests
     from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
 
@@ -1103,6 +1125,12 @@ def openSingleRatioTradePair(
 
     # CASO 1: Cuenta con Broker Conectado (FOREX.com / Webhook) - EJECUCIÓN TRANSACCIONAL ESTRICTA
     if activeBrokers:
+        # Validación pre-vuelo: asegurar que TODOS los símbolos de la secuencia tengan mercado abierto
+        closed_lots = [lot.get("symbol") for lot in lotsToExecute if not is_symbol_market_open(lot.get("symbol"))]
+        if closed_lots:
+            logger.warning(f"⏸️ [MERCADO CERRADO PRE-VUELO] Las patas {closed_lots} en setup '{setupName}' se encuentran con mercado cerrado. Se suspende la apertura del ratio completo para Cuenta #{idCuenta} ({accountName}) para prevenir desbalance.")
+            return False
+
         confirmedBrokerLots = []
         allConfirmed = True
 
@@ -1138,7 +1166,7 @@ def openSingleRatioTradePair(
                     "time": time.time(),
                     "action": act,
                     "ticker": sym,
-                    "entry": px,
+                    "entry": 0.0 if signalType == "MANUAL" else px,
                     "quantity": sz,
                     "tp": 0.0,
                     "sl": 0.0,
@@ -1431,6 +1459,14 @@ def closeRatioTrades(
     if not openTrades:
         return False
 
+    # Validar mercado abierto
+    parts = [p.strip() for p in setupName.split("-")]
+    num = parts[0] if len(parts) > 0 else ""
+    den = parts[1] if len(parts) > 1 else ""
+    if num and den and not is_ratio_market_open(num, den):
+        logger.warning(f"⏸️ [MERCADO CERRADO] Cierre cancelado para {setupName}: el mercado está cerrado.")
+        return False
+
     import calendar
     nowDt = datetime.now()
     nowStr = nowDt
@@ -1666,6 +1702,7 @@ def closeRatioTrades(
     })
 
     dbSession.commit()
+
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
     newCapital = float(accountData.get("capital", 0.0)) + netReintegration
 
@@ -1726,6 +1763,11 @@ def openSingleCoverageTrade(
     3. Inicializa el estado de seguimiento de la cobertura.
     4. Envía notificación por Telegram.
     """
+    # Validar mercado abierto
+    if not is_crypto_symbol(symbol) and is_market_closed():
+        logger.warning(f"⏸️ [MERCADO CERRADO] Cobertura cancelada para {symbol} ({setupName}): el mercado está cerrado.")
+        return None
+
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
     accountCapital = float(accountData.get("capital", 0.0))
     margenRate = float(symData.get("margenRate", 0.0025))
@@ -1900,6 +1942,13 @@ def closeSingleCoverageTrade(
     """
     accountName = str(accountData.get("nombre", f"Cuenta #{idCuenta}"))
     sym = coverageTrade["symbol"]
+
+    # Validar mercado abierto
+    if not is_crypto_symbol(sym) and is_market_closed():
+        logger.warning(f"⏸️ [MERCADO CERRADO] Cierre de cobertura cancelado para {sym} ({setupName}): el mercado está cerrado.")
+        if returnDetail:
+            return False, "MERCADO_CERRADO"
+        return False
     tId = coverageTrade.get("ticketId")
     idTrade = coverageTrade["idTrade"]
     size = float(coverageTrade["size"])
@@ -2012,13 +2061,19 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
     numerador = ratioRecord["numerador"]
     denominador = ratioRecord["denominador"]
     setupName = f"{numerador} - {denominador}"
+
+    # Validar si el mercado está abierto para este ratio
+    if not is_ratio_market_open(numerador, denominador):
+        now = datetime.now()
+        if now.minute == 0 and now.second < 15:
+            logger.info(f"⏸️ [MERCADO CERRADO] Mercado Forex/Tradicional cerrado para {setupName}. Evaluación suspendida hasta apertura.")
+        return
+
     periodo = ratioRecord.get("Temporalidad") or ratioRecord.get("periodo")
     dias = ratioRecord.get("periodo") if isinstance(ratioRecord.get("periodo"), int) else ratioRecord.get("dias") or 180
     emaRapida = ratioRecord["EMARapida"] or 2
     emaLenta = ratioRecord["EMALenta"] or 20
 
-    import pandas as pd
-    from datetime import datetime, timedelta
     createdAtStr = ratioRecord.get("createdAt")
     createdAtDt = None
     if createdAtStr:
@@ -3059,6 +3114,16 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
     - Ratios en 1d o mayor: solo se evalúan en el censo horario (is_hourly_tick=True).
     """
     cycle_type = "HORARIO (1h y Diario)" if is_hourly_tick else "INTRA-HORA (5 min para 1h)"
+
+    # Si el mercado tradicional está cerrado, verificar si hay ratios cripto activos que operen 24/7
+    if is_market_closed():
+        with getDatabaseSession() as dbSession:
+            activeRatios = fetchActiveUserRatios(dbSession)
+            has_crypto = any(is_ratio_market_open(r.get("numerador", ""), r.get("denominador", "")) for r in activeRatios)
+        if not has_crypto:
+            logger.info(f"⏸️ [MERCADO CERRADO] Mercado Forex cerrado (fin de semana / rollover 17:00-18:00 NY). Se suspende censo {cycle_type} de ratios hasta apertura (18:00 NY / 17:00 CDMX).")
+            return 0
+
     logger.info("=================================================================")
     logger.info(f"📡 [microRatio] INICIANDO CENSO {cycle_type} DE RATIOS...")
     startTime = time.time()

@@ -158,6 +158,18 @@ class SystemMonitorService:
             "description": "Modelo RandomForest (300 árboles) para predicción de probabilidad. Reentrenamiento: Domingos 05:00 AM."
         },
         {
+            "id": "weekend_orchestrator",
+            "name": "Orquestador Fin de Semana",
+            "unit": None,
+            "is_system": False,
+            "is_process": True,
+            "process_match": "weekendOrchestrator.py",
+            "port": None,
+            "category": "Orquestación Sabatina",
+            "icon": "pi pi-calendar-plus",
+            "description": "Pipeline sabatino: calibración Ratios, Rider, Sniper, selección de portafolio óptimo y reportes semanales."
+        },
+        {
             "id": "ngrok",
             "name": "Ngrok Tunnel (WebHook)",
             "unit": "ngrok",
@@ -414,6 +426,9 @@ class SystemMonitorService:
 
         if svc_lower in ["all", "connectionpool", "cp"]:
             add_from_cmd("ConnectionPool", ["journalctl", "--user", "-u", "atalaia-1-connectionpool", "-n", "20", "--no-pager"])
+
+        if svc_lower in ["all", "weekend_orchestrator", "orchestrator", "weekend"]:
+            add_from_file("WeekendOrchestrator", f"{base_dir}/logs/weekendOrchestrator.log", 35)
 
         if svc_lower in ["webhook"]:
             add_from_cmd("WebHook", ["journalctl", "--user", "-u", "atalaia-3-webhook", "-n", "30", "--no-pager"])

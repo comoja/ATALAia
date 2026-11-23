@@ -1713,13 +1713,14 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             UserRatio.idUsuario == idUsuario,
             (UserRatio.borrado == False) | (UserRatio.borrado == None)
         )
-    ratios = query.order_by(UserRatio.id.desc()).all()
+    ratios = query.order_by(UserRatio.numerador.asc(), UserRatio.denominador.asc()).all()
 
     from sqlalchemy import text
     results = []
     for r in ratios:
         has_open = False
-        if r.idCuenta:
+        target_account = r.idCuenta or idCuenta
+        if target_account:
             s1 = f"{r.numerador} - {r.denominador}"
             s2 = f"{r.denominador} - {r.numerador}"
             cnt = db.execute(text("""
@@ -1727,7 +1728,7 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
                 WHERE idCuenta = :idc 
                   AND (setup = :s1 OR setup = :s2)
                   AND status = 'OPEN'
-            """), {"idc": r.idCuenta, "s1": s1, "s2": s2}).scalar()
+            """), {"idc": target_account, "s1": s1, "s2": s2}).scalar()
             if cnt and cnt > 0:
                 has_open = True
 
@@ -5852,6 +5853,47 @@ def api_run_sniper_ml_retrain():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/system/actions/run-weekend-orchestrator")
+def api_run_weekend_orchestrator():
+    """
+    Ejecuta el Orquestador Maestro de Fin de Semana (weekendOrchestrator.py --run-now)
+    en segundo plano para recalibrar estrategias, portafolios y generar sugerencias.
+    """
+    try:
+        import subprocess
+        python_bin = "/home/jcolinm/.venvs/Sistema/bin/python3"
+        script_path = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/weekendOrchestrator.py"
+        log_file = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia/logs/weekendOrchestrator.log"
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "/home/jcolinm/datos_mysql/DATOS/Sistema/ATALAia"
+        
+        # Verificar si ya está en ejecución
+        chk = subprocess.run(["pgrep", "-f", "weekendOrchestrator.py.*--run-now"], capture_output=True, text=True)
+        if chk.returncode == 0 and chk.stdout.strip():
+            return {
+                "status": "warning",
+                "message": "El Orquestador Maestro ya se encuentra en ejecución en segundo plano.",
+                "running": True
+            }
+
+        f_out = open(log_file, "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            [python_bin, script_path, "--run-now"],
+            stdout=f_out,
+            stderr=subprocess.STDOUT,
+            env=env
+        )
+        return {
+            "status": "success",
+            "message": f"Pipeline del Orquestador Maestro iniciado exitosamente en segundo plano (PID: {proc.pid}).",
+            "pid": proc.pid,
+            "running": True
+        }
+    except Exception as e:
+        logger.error(f"Error ejecutando Orquestador Maestro: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/system/actions/clear-logs")
 def api_clear_system_logs():
     """
@@ -6202,19 +6244,20 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             UserCart.idUsuario == idUsuario,
             (UserCart.borrado == False) | (UserCart.borrado == None)
         )
-    items = query.order_by(UserCart.id.desc()).all()
+    items = query.order_by(UserCart.symbol.asc()).all()
 
     results = []
     for r in items:
         has_open = False
-        if r.idCuenta:
+        target_account = r.idCuenta or idCuenta
+        if target_account:
             cnt = db.execute(text("""
                 SELECT COUNT(*) FROM trades
                 WHERE idCuenta = :idc
-                  AND strategy LIKE '%CART%'
+                  AND (strategy = 'RIDER' OR strategy LIKE '%CART%' OR strategy LIKE '%RIDER%')
                   AND (symbol = :sym OR setup = :sym)
                   AND status = 'OPEN'
-            """), {"idc": r.idCuenta, "sym": r.symbol}).scalar()
+            """), {"idc": target_account, "sym": r.symbol}).scalar()
             if cnt and cnt > 0:
                 has_open = True
 
@@ -7043,19 +7086,20 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
             UserSniper.idUsuario == idUsuario,
             (UserSniper.borrado == False) | (UserSniper.borrado == None)
         )
-    items = query.order_by(UserSniper.id.desc()).all()
+    items = query.order_by(UserSniper.symbol.asc()).all()
 
     results = []
     for r in items:
         has_open = False
-        if r.idCuenta:
+        target_account = r.idCuenta or idCuenta
+        if target_account:
             cnt = db.execute(text("""
                 SELECT COUNT(*) FROM trades
                 WHERE idCuenta = :idc
                   AND strategy = 'SNIPER'
                   AND (symbol = :sym OR setup = :sym)
                   AND status = 'OPEN'
-            """), {"idc": r.idCuenta, "sym": r.symbol}).scalar()
+            """), {"idc": target_account, "sym": r.symbol}).scalar()
             if cnt and cnt > 0:
                 has_open = True
 

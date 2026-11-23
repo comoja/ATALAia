@@ -27,6 +27,13 @@ from sqlalchemy import text
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from middleware.utils.cryptoUtils import buildEncryptedAccountToken, encryptValue
 from middleware.utils.communications import alertaInmediata
+from middleware.utils.time_utils import is_market_closed
+
+def is_crypto_symbol(symbol: Optional[str]) -> bool:
+    if not symbol:
+        return False
+    s = symbol.upper().replace("/", "").replace("-", "")
+    return any(c in s for c in ["BTC", "ETH", "SOL", "XRP", "CRYPTO", "DOGE"])
 
 logger = logging.getLogger("trade_executor")
 if not logger.handlers:
@@ -359,6 +366,12 @@ def execute_single_asset_entry(
     now = datetime.now()
     candleDt = candleDt or now
 
+    # 0. Validar mercado abierto
+    if not is_crypto_symbol(symbol) and is_market_closed():
+        msg = f"⏸️ [MERCADO CERRADO] Mercado para {symbol} cerrado actualmente (fin de semana/rollover). Se suspende apertura de orden."
+        logger.warning(msg)
+        return {"success": False, "error": msg}
+
     # 1. Validar salud de margen actual
     accRow = dbSession.execute(
         text("SELECT Nombre, Capital, COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc LIMIT 1"),
@@ -597,6 +610,12 @@ def execute_single_asset_close(
     """
     symbol = tradeRow["symbol"]
     tId = str(tradeRow.get("ticketId") or "")
+
+    # 0. Validar mercado abierto
+    if not is_crypto_symbol(symbol) and is_market_closed():
+        msg = f"⏸️ [MERCADO CERRADO] Mercado para {symbol} cerrado actualmente (fin de semana/rollover). Se suspende cierre de orden."
+        logger.warning(msg)
+        return {"success": False, "error": msg}
     idTrade = int(tradeRow["idTrade"])
     sz = float(tradeRow.get("size") or 1.0)
     direction = str(tradeRow.get("direction") or "LARGO").upper()

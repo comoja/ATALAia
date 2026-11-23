@@ -1191,6 +1191,96 @@
                 white-space: nowrap !important;
             }
 
+            /* Botón interactivo del PAR en Sección 1 */
+            .aether-btn-par-trigger {
+                width: 100% !important;
+                text-align: center !important;
+                justify-content: center !important;
+                border-radius: 4px !important;
+                font-weight: 800 !important;
+                font-size: 0.95rem !important;
+                padding: 0 2px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                cursor: pointer !important;
+                transition: all 0.15s ease-in-out !important;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+                height: 22px !important;
+                line-height: 20px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+            }
+            .aether-btn-par-trigger .ui-button-text {
+                padding: 0 2px !important;
+                font-size: 0.95rem !important;
+                font-weight: 800 !important;
+                text-align: center !important;
+                display: block !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+                width: 100% !important;
+            }
+            .aether-ratio-trigger {
+                background: #f0f9ff !important;
+                color: #0369a1 !important;
+                border: 1px solid #bae6fd !important;
+            }
+            .aether-ratio-trigger:hover {
+                background: #0284c7 !important;
+                color: #ffffff !important;
+                border-color: #0284c7 !important;
+            }
+            .aether-cart-trigger {
+                background: #f0fdfa !important;
+                color: #0f766e !important;
+                border: 1px solid #99f6e4 !important;
+            }
+            .aether-cart-trigger:hover {
+                background: #0f766e !important;
+                color: #ffffff !important;
+                border-color: #0f766e !important;
+            }
+            .aether-sniper-trigger {
+                background: #fefce8 !important;
+                color: #854d0e !important;
+                border: 1px solid #fef08a !important;
+            }
+            .aether-sniper-trigger:hover {
+                background: #b47b2b !important;
+                color: #ffffff !important;
+                border-color: #b47b2b !important;
+            }
+            /* Estado en curso (color destacado verde esmeralda con texto blanco) */
+            .aether-btn-in-course {
+                background: #16a34a !important;
+                color: #ffffff !important;
+                border: 1px solid #15803d !important;
+                box-shadow: 0 0 5px rgba(22, 163, 74, 0.45) !important;
+            }
+            .aether-btn-in-course:hover {
+                background: #15803d !important;
+                color: #ffffff !important;
+                border-color: #166534 !important;
+            }
+
+            /* Columnas de longitud fija para PAR en Sección 1 */
+            .col-par-fixed-ratios {
+                width: 120px !important;
+                min-width: 120px !important;
+                max-width: 120px !important;
+                white-space: nowrap !important;
+                box-sizing: border-box !important;
+            }
+            .col-par-fixed-single {
+                width: 56px !important;
+                min-width: 56px !important;
+                max-width: 56px !important;
+                white-space: nowrap !important;
+                box-sizing: border-box !important;
+            }
+
             #userRatiosTable thead th,
             #userCartTable thead th,
             #userSniperTable thead th {
@@ -1817,22 +1907,15 @@
                         </div>
                     </div>
 
-                    <!-- PRECIOS DE MERCADO ACTUALES -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
-                        <div style="background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.35); border-radius: 8px; padding: 10px 14px;">
-                            <div style="font-size: 0.90rem; color: #0284c7; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Pata A (#{dashboardBean.entradaManualDireccionA}): #{dashboardBean.entradaManualNumerador}
+                    <!-- EJECUCIÓN A MERCADO (SIN PRECIO FIJO) -->
+                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
+                        <i class="pi pi-bolt" style="font-size: 1.35rem; color: #16a34a; flex-shrink: 0;"></i>
+                        <div>
+                            <div style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
+                                Ejecución a Mercado (Sin Precio Fijo)
                             </div>
-                            <div style="font-size: 1.30rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
-                                Px: #{dashboardBean.entradaManualPriceA}
-                            </div>
-                        </div>
-                        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 10px 14px;">
-                            <div style="font-size: 0.90rem; color: #d97706; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Pata B (#{dashboardBean.entradaManualDireccionB}): #{dashboardBean.entradaManualDenominador}
-                            </div>
-                            <div style="font-size: 1.30rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
-                                Px: #{dashboardBean.entradaManualPriceB}
+                            <div style="font-size: 0.85rem; color: #475569; margin-top: 2px;">
+                                El precio de cada pata se calculará y ejecutará dinámicamente a mercado en FOREX.com al instante exacto del envío.
                             </div>
                         </div>
                     </div>
@@ -1846,7 +1929,7 @@
                             </div>
                             <p:inputNumber value="#{dashboardBean.entradaManualCantidadA}" decimalPlaces="2" thousandSeparator=","
                                 style="width: 100%; font-size: 1.25rem; font-weight: 800;">
-                                <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualCantidadAChange}" update="panelDetallesEntrada" />
+                                <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualCantidadAChange}" update="panelDetallesEntrada :entradaManualRatioForm:btnConfirmarEntradaManual" />
                             </p:inputNumber>
                             <div style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 8px; font-weight: 600;">
                                 <span>Nocional: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualNotionalA}</b></span>
@@ -1933,9 +2016,11 @@
                             <span>#{dashboardBean.entradaManualWarningMessage != null ? dashboardBean.entradaManualWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador de Margen Mínimo permitido.'}</span>
                         </h:panelGroup>
                     </div>
+                </h:panelGroup>
 
-                    <!-- BOTONES DE ACCIÓN DEL MODAL -->
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                <!-- BOTONES DE ACCIÓN DEL MODAL EN FOOTER FACET (EVITA DESMONTE POR AJAX AL CAMBIAR CANTIDAD) -->
+                <f:facet name="footer">
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
                         <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
                             onclick="PF('entradaManualRatioDlg').hide();"
                             style="color: #64748b; font-weight: 700; font-size: 0.95rem; padding: 8px 16px;" />
@@ -1945,13 +2030,15 @@
                             action="#{dashboardBean.ejecutarEntradaManualRatio}"
                             disabled="#{!dashboardBean.entradaManualAllowed}"
                             process="@form"
-                            update=":aetherForm :aetherForm:growl :entradaManualRatioForm:panelDetallesEntrada"
+                            update=":aetherForm :aetherForm:growl :entradaManualRatioForm"
+                            onclick="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').show(); }"
+                            oncomplete="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').hide(); } if (window.PF &amp;&amp; PF('entradaManualRatioDlg')) { PF('entradaManualRatioDlg').hide(); }"
                             styleClass="aether-btn-primary"
                             style="font-weight: 800; font-size: 1.0rem; border-radius: 6px; padding: 8px 22px; #{dashboardBean.entradaManualAllowed ? 'background: #10b981 !important; border-color: #10b981 !important; color: white !important;' : 'opacity: 0.55;'}"
                             icon="pi pi-send"
                             title="#{dashboardBean.entradaManualAllowed ? 'Enviar ordenes balanceadas a FOREX.com' : 'Bloqueado: Margen proyectado insuficiente'}" />
                     </div>
-                </h:panelGroup>
+                </f:facet>
             </p:dialog>
         </h:form>
 

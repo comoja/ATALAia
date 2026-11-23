@@ -50,21 +50,87 @@ def is_market_closed(dt=None):
     weekday_ny = now_ny.weekday() # 0=Monday, ..., 6=Sunday
     hour_ny = now_ny.hour
     
-    # 1. Descanso Diario (Rollover/Settlement): 17:00 - 18:00 NY
-    # Nota: El domingo no hay rollover previo porque es la apertura del mercado.
-    if 17 <= hour_ny < 18 and weekday_ny != 6:
+    # 1. Descanso Diario (Rollover/Settlement): 17:00 - 18:00 NY (todos los días)
+    if 17 <= hour_ny < 18:
         # logger.info(f"⏳ [NY] Horario de Rollover (17:00-18:00) - No opera")
         return True
 
-    # 2. Cierre de Fin de Semana (Viernes 17:00 NY - Domingo 17:00 NY)
+    # 2. Cierre de Fin de Semana (Viernes 17:00 NY - Domingo 18:00 NY / 17:00 CDMX)
     if weekday_ny == 4 and hour_ny >= 17: # Viernes tarde
         return True
     if weekday_ny == 5: # Sábado
         return True
-    if weekday_ny == 6 and hour_ny < 17: # Domingo mañana (Apertura a las 17:00 NY)
+    if weekday_ny == 6 and hour_ny < 18: # Domingo hasta apertura oficial a las 18:00 NY (17:00 CDMX)
         return True
 
     return False
+
+MEXICAN_IPC_STOCKS = {
+    "AC", "ALSEA", "AMX", "BBAJIO", "BIMBO", "CEMEX", "CUERVO", "FEMSA",
+    "GAP", "GCC", "GFNORTE", "GMEXICO", "GRUMA", "KIMBER", "KOF", "LIVEPOL",
+    "MEGACABLE", "OMA", "ORBIA", "PENOLES", "PINFRA", "TLEVISA", "VESTA", "WALMEX"
+}
+
+def is_crypto_symbol(symbol: str) -> bool:
+    if not symbol:
+        return False
+    s = str(symbol).upper().replace("/", "").replace("-", "").replace("_", "").strip()
+    return any(c in s for c in ["BTC", "ETH", "SOL", "XRP", "CRYPTO", "DOGE"])
+
+def is_symbol_market_open(symbol: str, dt=None) -> bool:
+    """
+    Determina si el mercado para un activo específico está abierto actualmente:
+    - Criptomonedas (BTC, ETH, etc.): Abiertas 24/7/365.
+    - Emisoras Mexicanas (BMV): Lunes a Viernes 08:30 - 15:00 CDMX (09:30 - 16:00 NY).
+    - Acciones / ETFs US (NYSE, NASDAQ como EWW, AAPL, SPY): Lunes a Viernes 09:30 - 16:00 NY. Cierra fin de semana completo.
+    - Forex / Metales / Otros: Domingo 18:00 NY a Viernes 17:00 NY (con rollover diario 17:00-18:00 NY).
+    """
+    if not symbol:
+        return True
+    clean = str(symbol).upper().replace("/", "").replace("_", "").replace("-", "").strip()
+    if is_crypto_symbol(clean):
+        return True
+
+    ny_tz = pytz.timezone('America/New_York')
+    local_tz = pytz.timezone(TIMEZONE)
+    if dt is None:
+        now_ny = datetime.now(ny_tz)
+    else:
+        now_ny = dt.astimezone(ny_tz) if dt.tzinfo else local_tz.localize(dt).astimezone(ny_tz)
+
+    weekday = now_ny.weekday()  # 0=Lunes, ..., 6=Domingo
+    hour = now_ny.hour
+    minute = now_ny.minute
+
+    # Sábado: Cerrado para todo mercado tradicional
+    if weekday == 5:
+        return False
+
+    # Acciones (BMV o US Stocks / ETFs como EWW)
+    is_mexican = clean in MEXICAN_IPC_STOCKS
+    is_us_stock = clean in {"EWW", "AAPL", "AMZN", "MSFT", "GOOGL", "TSLA", "SPY", "QQQ", "NVDA"} or (
+        not any(fx in clean for fx in ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "MXN", "SGD", "HKD"])
+    )
+
+    if is_mexican or is_us_stock:
+        # Domingo completo: CERRADO
+        if weekday == 6:
+            return False
+        # Horario de negociación bursátil regular: 09:30 a 16:00 NY
+        if hour < 9 or (hour == 9 and minute < 30) or hour >= 16:
+            return False
+        return True
+
+    # Forex / Metales / Materias primas estándar
+    return not is_market_closed(dt)
+
+def is_ratio_market_open(numerador: str, denominador: str, dt=None) -> bool:
+    """
+    En una estrategia de Ratio (pares balanceados), AMBOS mercados deben estar
+    abiertos simultáneamente para poder evaluar y operar el ciclo.
+    Si cualquiera de las dos patas está cerrada, se pausa la señal para evitar desbalance.
+    """
+    return is_symbol_market_open(numerador, dt) and is_symbol_market_open(denominador, dt)
 
 def isRestTime(dt=None):
     """
@@ -215,8 +281,8 @@ def get_seconds_until_market_opens(dt=None) -> float:
             if diff > 0:
                 return diff
             
-    # Caso 2: Cierre fin de semana (Viernes 17:00 NY a Domingo 17:00 NY)
-    # Abre el Domingo a las 17:00 NY
+    # Caso 2: Cierre fin de semana (Viernes 17:00 NY a Domingo 18:00 NY / 17:00 CDMX)
+    # Abre el Domingo a las 18:00 NY (17:00 CDMX)
     weekdayNy = nowNy.weekday()
     hourNy = nowNy.hour
     
@@ -225,18 +291,17 @@ def get_seconds_until_market_opens(dt=None) -> float:
         isWeekend = True
     elif weekdayNy == 5: # Sábado
         isWeekend = True
-    elif weekdayNy == 6 and hourNy < 17: # Domingo mañana
+    elif weekdayNy == 6 and hourNy < 18: # Domingo antes de apertura
         isWeekend = True
         
     if isWeekend:
-        # Calcular próximo Domingo a las 17:00 NY
+        # Calcular próximo Domingo a las 18:00 NY
         daysToSunday = (6 - weekdayNy) % 7
-        if daysToSunday == 0 and hourNy >= 17:
-            # Si ya es domingo después de las 17:00 (no debería entrar aquí)
+        if daysToSunday == 0 and hourNy >= 18:
             daysToSunday = 7
             
         sundayTargetNy = nowNy + timedelta(days=daysToSunday)
-        sundayTargetNy = sundayTargetNy.replace(hour=17, minute=0, second=0, microsecond=0)
+        sundayTargetNy = sundayTargetNy.replace(hour=18, minute=0, second=0, microsecond=0)
         
         diff = (sundayTargetNy - nowNy).total_seconds()
         if diff > 0:
@@ -244,7 +309,7 @@ def get_seconds_until_market_opens(dt=None) -> float:
             
     # Caso 3: Rollover diario (17:00 NY a 18:00 NY)
     # Abre a las 18:00 NY de ese día
-    if 17 <= hourNy < 18 and weekdayNy != 6:
+    if 17 <= hourNy < 18:
         targetNy = nowNy.replace(hour=18, minute=0, second=0, microsecond=0)
         diff = (targetNy - nowNy).total_seconds()
         if diff > 0:

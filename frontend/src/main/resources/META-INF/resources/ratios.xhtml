@@ -155,37 +155,39 @@
                                     style="width: 100%; margin-bottom: 2px; cursor: pointer;">
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onRowSelect}" process="@this"
                                         update=":aetherForm" oncomplete="handleUserRatioSelected();" />
-                                    <p:column headerText="ID" sortBy="#{r.id}"
+                                    <p:column headerText="ID"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{r.id}"
                                             style="font-size: 0.95rem; font-weight: 800; color: #0284c7;" />
                                     </p:column>
-                                    <p:column headerText="Ratio" sortBy="#{r.numerador}"
-                                        style="font-weight: 700; width: auto; min-width: max-content; white-space: nowrap;"
-                                        styleClass="col-par-flexible">
-                                        <div style="display: flex; align-items: center; gap: 4px; white-space: nowrap;">
-                                            <h:outputText value="#{r.numerador} / #{r.denominador}"
-                                                style="font-size: 1.05rem; font-weight: 800; white-space: nowrap;"
-                                                title="#{r.numerador} / #{r.denominador}" />
+                                    <p:column headerText="Ratio"
+                                        style="width: 120px; min-width: 120px; max-width: 120px; padding: 2px 1px !important;"
+                                        styleClass="col-par-fixed-ratios">
+                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
+                                            <p:commandButton value="#{r.numerador} / #{r.denominador}"
+                                                action="#{dashboardBean.onSelectUserRatio(r)}" process="@this"
+                                                update=":aetherForm" oncomplete="handleUserRatioSelected();"
+                                                styleClass="aether-btn-par-trigger #{r.hasOpenTrades ? 'aether-btn-in-course' : 'aether-ratio-trigger'}"
+                                                title="#{r.hasOpenTrades ? 'Posición en curso activa. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
                                             <h:panelGroup rendered="#{r.nuevaRecomendacion}">
                                                 <span class="badge"
-                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4); white-space: nowrap;"
-                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨ NUEVA</span>
+                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
+                                                    title="Recomendación Óptima Nueva del Optimizador.">✨</span>
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
-                                    <p:column headerText="TF" sortBy="#{r.temporalidad}"
+                                    <p:column headerText="TF"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{r.temporalidad}"
                                             style="font-size: 1.0rem; font-weight: 800;" />
                                     </p:column>
-                                    <p:column headerText="RIDE" sortBy="#{r.emaRapida}"
+                                    <p:column headerText="RIDE"
                                         style="width: 38px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{r.emaRapida}"
                                             style="font-size: 1.0rem; font-weight: 800;"
                                             title="Rastreador de Inercia por Decaimiento Exponencial: #{r.emaRapida}" />
                                     </p:column>
-                                    <p:column headerText="VR" sortBy="#{r.tipoCierre}"
+                                    <p:column headerText="VR"
                                         style="width: 44px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'background: rgba(168, 85, 247, 0.15); color: #9333ea; border: 1px solid #c084fc;' : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'background: rgba(14, 165, 233, 0.15); color: #0284c7; border: 1px solid #38bdf8;' : 'background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fbbf24;')}"
@@ -195,7 +197,7 @@
                                             'Sinc')}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Entrada" sortBy="#{r.tipoEntrada}"
+                                    <p:column headerText="Entrada"
                                         style="width: 46px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoEntrada eq 'Selectiva' ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(100, 116, 139, 0.15); color: #475569; border: 1px solid #94a3b8;'}"
@@ -203,7 +205,7 @@
                                             #{r.tipoEntrada eq 'Selectiva' ? 'Sel' : 'Exh'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Fin" sortBy="#{r.accionCierre}"
+                                    <p:column headerText="Fin"
                                         style="width: 42px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
@@ -211,22 +213,14 @@
                                             #{r.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op" sortBy="#{r.operar}"
+                                    <p:column headerText="Op"
                                         style="width: 34px; text-align: center; padding: 2px 1px !important;">
                                         <h:panelGroup layout="block"
-                                            style="#{r.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{r.hasOpenTrades ? 'Posición en Curso (Operación Activa)' : (r.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
+                                            style="#{r.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
+                                            title="#{r.hasOpenTrades ? (r.operar ? 'Posición en Curso (Operando)' : 'Posición en Curso (Inactiva)') : (r.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
                                             <i class="#{r.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{r.operar ? (r.hasOpenTrades ? '#93c5fd' : '#3b82f6') : '#ff3333'} !important; font-size: 1.50rem; font-weight: 900;"></i>
+                                                style="color: #{r.hasOpenTrades ? '#ffffff' : (r.operar ? '#3b82f6' : '#ff3333')} !important; font-size: 1.50rem; font-weight: 900;"></i>
                                         </h:panelGroup>
-                                    </p:column>
-                                    <p:column style="width: 34px; text-align: center; padding: 2px 1px !important;">
-                                        <p:commandButton icon="pi pi-arrow-right"
-                                            action="#{dashboardBean.onSelectUserRatio(r)}" process="@this"
-                                            update=":aetherForm" oncomplete="handleUserRatioSelected();"
-                                            styleClass="aether-btn-primary"
-                                            style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
-                                            title="Cargar ratio a configuración y ver gráfica" />
                                     </p:column>
                                 </p:dataTable>
                             </p:tab>
@@ -1446,7 +1440,10 @@ line-height: 1.2;">
                         onTabShow="if (index === 1) setTimeout(renderSignalBtNormalizedChart, 50); else if (index === 2) setTimeout(renderSignalComparisonChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES -->
-                        <p:tab title="Bitácora detallada de Trades">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora detallada de Trades
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -1753,7 +1750,10 @@ line-height: 1.2;">
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS NORMALIZADOS DEL BACKTEST (SUBVENTANA REUTILIZABLE) -->
-                        <p:tab title="Gráfica de Precios Normalizados">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Precios Normalizados
+                            </f:facet>
                             <ui:include src="/templates/graficaNormalizadaComponent.xhtml">
                                 <ui:param name="chartId" value="signalBtNormalizedChart" />
                                 <ui:param name="dataInputId" value="signalBtHistoryJsonData" />
@@ -1770,7 +1770,10 @@ line-height: 1.2;">
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: GRÁFICA DE CURVAS DE EQUIDAD -->
-                        <p:tab title="Gráfica de Curva de Equidad">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                            </f:facet>
                             <div
                                 style="background: #ffffff; border-radius: 8px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
                                 <div
@@ -2017,7 +2020,10 @@ line-height: 1.2;">
                         onTabShow="if (index === 1) setTimeout(renderRealTradesEquityChart, 50); if (index === 2) setTimeout(renderHechosRatioChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DE TRADES REALES -->
-                        <p:tab title="Bitácora de Órdenes Reales">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora de Órdenes Reales
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
@@ -2229,7 +2235,10 @@ line-height: 1.2;">
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE CURVA DE EQUIDAD REAL -->
-                        <p:tab title="Gráfica de Curva de Equidad Real">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad Real
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -2250,7 +2259,10 @@ line-height: 1.2;">
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: GRÁFICA DEL RATIO (HECHOS) -->
-                        <p:tab title="Gráfica del Ratio (Hechos)">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Ratio (Hechos)
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <!-- Encabezado de una sola línea con total de posiciones cerradas y abiertas -->
                                 <div

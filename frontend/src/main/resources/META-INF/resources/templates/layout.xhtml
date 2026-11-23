@@ -1129,13 +1129,6 @@
             </div>
 
             <div class="header-right">
-                <!-- Indicador Dinámico de Dispositivo Detectado (Solo Icono Flotante) -->
-                <div class="device-indicator-badge floating-control-btn" id="deviceIndicatorBadge" title="Dispositivo Detectado: Computador"
-                     style="width: 44px; height: 44px; min-width: 44px; border-radius: 50%; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8); background: var(--bg-surface); border: 1px solid var(--border-soft); cursor: default; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);">
-                    <i class="pi pi-desktop" id="deviceIcon" style="font-size: 1.75rem; color: var(--color-primary); margin: 0;"></i>
-                    <span id="deviceLabel" style="display: none;">Computador</span>
-                </div>
-
                 <!-- Control de Sonido de Operaciones (🔊 / 🔇) (Solo Icono Flotante) -->
                 <div class="audio-toggle-wrapper" style="display: inline-flex; align-items: center;">
                     <button type="button" class="theme-toggle-btn floating-control-btn" id="atalaiaAudioToggleBtn" onclick="toggleAtalaiaAudio()" title="Sonido de Operaciones: Activado (Clic para silenciar)"
@@ -1379,13 +1372,6 @@
             
             document.documentElement.setAttribute("data-device", type);
             window.ATALAIA_DEVICE = type;
-            
-            var badge = document.getElementById("deviceIndicatorBadge");
-            var lbl = document.getElementById("deviceLabel");
-            var ico = document.getElementById("deviceIcon");
-            if (badge) badge.setAttribute("title", "Dispositivo detectado: " + label);
-            if (lbl) lbl.textContent = label;
-            if (ico) ico.className = icon;
             
             // En móvil o tablet, colapsar sidebar al entrar si no se ha toggleado manualmente
             if ((type === "mobile" || type === "tablet") && !sessionStorage.getItem("userToggledSidebar")) {

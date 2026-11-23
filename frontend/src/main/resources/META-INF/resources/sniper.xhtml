@@ -74,8 +74,7 @@
                                 </div>
                                 <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
                                     style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
-                                    <p:commandButton icon="pi pi-pencil"
-                                        action="#{dashboardBean.prepararEditarCuenta}"
+                                    <p:commandButton icon="pi pi-pencil" action="#{dashboardBean.prepararEditarCuenta}"
                                         disabled="#{dashboardBean.readOnly || dashboardBean.selectedAccountId == null}"
                                         process="@this" update=":editarCuentaForm:editarCuentaDlg"
                                         styleClass="aether-btn-secondary"
@@ -91,18 +90,14 @@
                                             oncomplete="handleUserSniperSelected();"
                                             listener="#{dashboardBean.onCuentaChange}" />
                                     </p:selectOneMenu>
-                                    <p:commandButton icon="pi pi-plus"
-                                        action="#{dashboardBean.prepararNuevaCuenta}"
-                                        rendered="#{securityBean.canCreateAccount}"
-                                        disabled="#{dashboardBean.readOnly}" process="@this"
-                                        update=":nuevaCuentaForm:nuevaCuentaDlg"
-                                        oncomplete="PF('nuevaCuentaDlg').show();"
-                                        styleClass="aether-btn-primary"
+                                    <p:commandButton icon="pi pi-plus" action="#{dashboardBean.prepararNuevaCuenta}"
+                                        rendered="#{securityBean.canCreateAccount}" disabled="#{dashboardBean.readOnly}"
+                                        process="@this" update=":nuevaCuentaForm:nuevaCuentaDlg"
+                                        oncomplete="PF('nuevaCuentaDlg').show();" styleClass="aether-btn-primary"
                                         style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes dar de alta cuentas para otro usuario' : 'Dar de Alta Nueva Cuenta'}" />
-                                    <p:commandButton icon="pi pi-refresh"
-                                        action="#{dashboardBean.refreshDashboard}" process="@this"
-                                        update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                    <p:commandButton icon="pi pi-refresh" action="#{dashboardBean.refreshDashboard}"
+                                        process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();"
                                         styleClass="aether-btn-secondary"
                                         style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="Actualizar datos y pares SNIPER" />
@@ -150,45 +145,49 @@
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onSniperRowSelect}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();" />
 
-                                    <p:column headerText="ID" sortBy="#{us.id}"
+                                    <p:column headerText="ID"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{us.id}"
                                             style="font-size: 0.95rem; font-weight: 800; color: #b47b2b;" />
                                     </p:column>
-                                    <p:column headerText="PAR" sortBy="#{us.numerador}"
-                                        style="font-weight: 700; width: auto; min-width: max-content; white-space: nowrap;"
-                                        styleClass="col-par-flexible">
-                                        <div style="display: flex; align-items: center; gap: 4px; white-space: nowrap;">
-                                            <h:outputText value="#{us.numerador}"
-                                                style="font-size: 1.05rem; font-weight: 800; color: #b47b2b; white-space: nowrap;"
-                                                title="#{us.numerador}" />
+                                    <p:column headerText="PAR"
+                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
+                                        style="width: 65px; min-width: 65px; max-width: 65px; padding: 2px 1px !important;"
+                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
+                                        styleClass="col-par-fixed-single">
+                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
+                                            <p:commandButton value="#{us.numerador}"
+                                                action="#{dashboardBean.onSelectUserSniper(us)}" process="@this"
+                                                update=":aetherForm" oncomplete="handleUserSniperSelected();"
+                                                styleClass="aether-btn-par-trigger #{us.hasOpenTrades ? 'aether-btn-in-course' : 'aether-sniper-trigger'}"
+                                                title="#{us.hasOpenTrades ? 'Posición SNIPER en curso. Cargar en Sección 2' : 'Cargar en Sección 2 y desplegar gráfica'}" />
                                             <h:panelGroup rendered="#{us.nuevaRecomendacion}">
                                                 <span class="badge"
-                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 900; padding: 1px 4px; border-radius: 4px; letter-spacing: 0.3px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.4); white-space: nowrap;"
-                                                    title="Recomendación Óptima Nueva del Optimizador. Haz clic para revisar o activar.">✨ NUEVA</span>
+                                                    style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
+                                                    title="Recomendación Óptima Nueva del Optimizador.">✨</span>
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
-                                    <p:column headerText="TF" sortBy="#{us.temporalidad}"
+                                    <p:column headerText="TF"
                                         style="width: 44px; text-align: center; padding: 2px 1px !important;">
                                         <h:outputText value="#{us.temporalidad}"
                                             style="font-size: 1.0rem; font-weight: 800;" />
                                     </p:column>
-                                    <p:column headerText="Conf" sortBy="#{us.minConfidence}"
+                                    <p:column headerText="Conf"
                                         style="width: 52px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(180, 123, 43, 0.12); color: #8c5d1e; border: 1px solid #d4a373; display: inline-block; line-height: 1.1;">
                                             #{us.minConfidence}%
                                         </span>
                                     </p:column>
-                                    <p:column headerText="R:R" sortBy="#{us.minRr}"
+                                    <p:column headerText="R:R"
                                         style="width: 46px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid #bae6fd; display: inline-block; line-height: 1.1;">
                                             #{us.minRr}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="BE" sortBy="#{us.usarBreakEven}"
+                                    <p:column headerText="BE"
                                         style="width: 48px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarBreakEven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
@@ -196,22 +195,14 @@
                                             #{us.usarBreakEven ? 'BE' : 'OFF'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Op" sortBy="#{us.operar}"
+                                    <p:column headerText="Op"
                                         style="width: 36px; text-align: center; padding: 2px 1px !important;">
                                         <h:panelGroup layout="block"
-                                            style="#{us.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 1px 2px rgba(0,0,0,0.2);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
-                                            title="#{us.hasOpenTrades ? 'Posición SNIPER en Curso' : (us.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
+                                            style="#{us.hasOpenTrades ? 'background: #16a34a; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; box-shadow: 0 0 6px rgba(22, 163, 74, 0.6);' : 'display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;'}"
+                                            title="#{us.hasOpenTrades ? (us.operar ? 'Posición SNIPER en Curso (Operando)' : 'Posición SNIPER en Curso (Inactiva)') : (us.operar ? 'Operar: Activado' : 'Operar: Desactivado')}">
                                             <i class="#{us.operar ? 'pi pi-check' : 'pi pi-times'}"
-                                                style="color: #{us.operar ? (us.hasOpenTrades ? '#fde68a' : '#b47b2b') : '#ff3333'} !important; font-size: 1.55rem; font-weight: 900;"></i>
+                                                style="color: #{us.hasOpenTrades ? '#ffffff' : (us.operar ? '#b47b2b' : '#ff3333')} !important; font-size: 1.55rem; font-weight: 900;"></i>
                                         </h:panelGroup>
-                                    </p:column>
-                                    <p:column style="width: 34px; text-align: center; padding: 2px 1px !important;">
-                                        <p:commandButton icon="pi pi-arrow-right"
-                                            action="#{dashboardBean.onSelectUserSniper(us)}" process="@this"
-                                            update=":aetherForm" oncomplete="handleUserSniperSelected();"
-                                            styleClass="aether-btn-primary"
-                                            style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; border-radius: 6px !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; background: #b47b2b !important; border-color: #b47b2b !important;"
-                                            title="Cargar par SNIPER a configuración y ver gráfica" />
                                     </p:column>
                                 </p:dataTable>
                             </p:tab>
@@ -424,8 +415,8 @@
                                                 oncomplete="handleUserSniperSelected();" styleClass="aether-btn-primary"
                                                 style="flex: 2; background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
 
-                                            <p:commandButton id="btnBorrarSniper" value="Borrar SNIPER" icon="pi pi-trash"
-                                                action="#{dashboardBean.borrarSniper}"
+                                            <p:commandButton id="btnBorrarSniper" value="Borrar SNIPER"
+                                                icon="pi pi-trash" action="#{dashboardBean.borrarSniper}"
                                                 disabled="#{dashboardBean.readOnly or dashboardBean.sniperEditBlocked}"
                                                 rendered="#{dashboardBean.sniperExistsInDb}" process="@this"
                                                 update=":aetherForm :aetherForm:growl"
@@ -1002,7 +993,11 @@
                         onTabShow="if (index === 1) setTimeout(renderSniperBtPriceChart, 50); else if (index === 2) setTimeout(renderSniperBtEquityChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES SNIPER -->
-                        <p:tab title="Bitácora detallada de Trades">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora
+                                detallada de Trades
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <p:dataTable id="sniperSignalTradesTable" value="#{dashboardBean.sniperBtTradesList}"
                                     var="st" scrollable="true" scrollHeight="340px"
@@ -1073,7 +1068,12 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS Y OPERACIONES SIMULADAS (BACKTEST) -->
-                        <p:tab title="Gráfica del Par y Operaciones Simuladas">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Par y Operaciones
+                                Simuladas
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
@@ -1109,7 +1109,11 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD BACKTEST SNIPER -->
-                        <p:tab title="Gráfica de Curva de Equidad">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -1188,8 +1192,45 @@
                         onTabShow="if (index === 1) setTimeout(renderSniperHechosChart, 50); else if (index === 2) setTimeout(renderSniperRealTradesEquityChart, 50);">
 
                         <!-- SUB-PESTAÑA 1: BITÁCORA DE TRADES REALES -->
-                        <p:tab title="Bitácora de Trades Reales">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora de
+                                Trades Reales
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                                    <span style="font-weight: 800; font-size: 1.18rem; color: #1e293b;">
+                                        <i class="pi pi-list" style="margin-right: 6px; color: #b47b2b;"></i>Órdenes
+                                        Reales Ejecutadas (Estrategia SNIPER)
+                                    </span>
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <span
+                                            style="font-size: 0.92rem; font-weight: 800; color: #334155;">Desde:</span>
+                                        <p:datePicker id="sniperMovStartDate"
+                                            value="#{dashboardBean.sniperRealTradesStartDate}" pattern="yyyy-MM-dd"
+                                            showIcon="true" style="width: 170px;" />
+                                        <span
+                                            style="font-size: 0.92rem; font-weight: 800; color: #334155;">Hasta:</span>
+                                        <p:datePicker id="sniperMovEndDate"
+                                            value="#{dashboardBean.sniperRealTradesEndDate}" pattern="yyyy-MM-dd"
+                                            showIcon="true" style="width: 170px;" />
+                                        <p:commandButton value="Filtrar" icon="pi pi-filter"
+                                            actionListener="#{dashboardBean.loadSniperRealTradesMovimientos}"
+                                            process="@this sniperMovStartDate sniperMovEndDate"
+                                            update=":aetherForm:sniperTabView:sniperRealTradesWrapper :aetherForm:sniperRealTradesJsonData :aetherForm:sniperRealTradesEquityCurveJsonData"
+                                            oncomplete="setTimeout(renderSniperRealTradesEquityChart, 60); setTimeout(renderSniperHechosChart, 60);"
+                                            styleClass="ui-button-warning"
+                                            style="font-size: 0.85rem; padding: 4px 12px; font-weight: 700; background: #b47b2b !important; border-color: #b47b2b !important;" />
+                                        <p:commandButton icon="pi pi-refresh"
+                                            actionListener="#{dashboardBean.loadSniperRealTradesMovimientos}"
+                                            update=":aetherForm:sniperTabView:sniperRealTradesWrapper :aetherForm:sniperRealTradesJsonData :aetherForm:sniperRealTradesEquityCurveJsonData"
+                                            oncomplete="setTimeout(renderSniperRealTradesEquityChart, 60); setTimeout(renderSniperHechosChart, 60);"
+                                            styleClass="ui-button-outlined"
+                                            style="font-size: 0.85rem; padding: 5px 8px; color: #8c5d1e; border-color: #b47b2b;"
+                                            title="Actualizar Movimientos" />
+                                    </div>
+                                </div>
                                 <p:dataTable id="sniperRealTradesTable" value="#{dashboardBean.sniperRealTradesList}"
                                     var="tr" emptyMessage="No hay operaciones registradas para SNIPER" scrollable="true"
                                     scrollHeight="380px" styleClass="aether-trades-table aether-table-compact"
@@ -1247,7 +1288,12 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 2: GRÁFICA DEL PAR Y OPERACIONES (HECHOS) -->
-                        <p:tab title="Gráfica del Par y Operaciones (Hechos)">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-line"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Par y Operaciones
+                                (Hechos)
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
@@ -1283,7 +1329,12 @@
                         </p:tab>
 
                         <!-- SUB-PESTAÑA 3: CURVA DE EQUIDAD REAL SNIPER -->
-                        <p:tab title="Gráfica de Curva de Equidad Real">
+                        <p:tab>
+                            <f:facet name="title">
+                                <i class="pi pi-chart-bar"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                                Real
+                            </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">

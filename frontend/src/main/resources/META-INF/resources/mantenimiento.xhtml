@@ -461,6 +461,7 @@
                             <f:selectItem itemLabel="microCart (CART &amp; CAR)" itemValue="microcart" />
                             <f:selectItem itemLabel="microSniper (Estrategia SNIPER)" itemValue="microsniper" />
                             <f:selectItem itemLabel="SNIPER ML (auto_retrain)" itemValue="sniper_ml" />
+                            <f:selectItem itemLabel="Orquestador Fin de Semana" itemValue="weekend_orchestrator" />
                             <f:selectItem itemLabel="Backend FastAPI Core" itemValue="backend" />
                             <f:selectItem itemLabel="MT5 Wine Bridge" itemValue="mt5bridge" />
                             <f:selectItem itemLabel="ConnectionPool API" itemValue="connectionpool" />
@@ -569,6 +570,19 @@
                                          update="@form :servicesGridForm :terminalForm"
                                          styleClass="aether-btn-primary"
                                          style="background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%) !important; border-color: #b47b2b !important;" />
+                    </div>
+
+                    <div class="action-row">
+                        <div>
+                            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">Orquestador Maestro de Fin de Semana (weekendOrchestrator.py)</div>
+                            <div style="font-size: 0.88rem; color: var(--text-muted);">Ejecuta el pipeline sabatino completo: calibración de Ratios, Rider, Sniper, selección del portafolio semanal óptimo y reportes institucionales.</div>
+                        </div>
+                        <p:commandButton value="Ejecutar Orquestador" 
+                                         icon="pi pi-calendar-plus"
+                                         action="#{mantenimientoBean.runWeekendOrchestrator()}"
+                                         update="@form :servicesGridForm :terminalForm"
+                                         styleClass="aether-btn-primary"
+                                         style="background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important; border-color: #2563EB !important;" />
                     </div>
 
                     <div class="action-row">

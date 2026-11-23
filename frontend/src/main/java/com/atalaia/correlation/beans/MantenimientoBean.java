@@ -222,6 +222,22 @@ public class MantenimientoBean implements Serializable {
         }
     }
 
+    public void runWeekendOrchestrator() {
+        try {
+            String url = backendApiUrl + "/system/actions/run-weekend-orchestrator";
+            getRestTemplate().postForObject(url, null, String.class);
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_INFO, "Orquestador Maestro", 
+                    "Pipeline sabatino de fin de semana iniciado en segundo plano. Monitorea el avance en la consola terminal."));
+            this.selectedServiceFilter = "weekend_orchestrator";
+            refreshAll();
+        } catch (Exception e) {
+            FacesContext.getCurrentInstance().addMessage(null, 
+                new FacesMessage(FacesMessage.SEVERITY_ERROR, "Error en Orquestador", 
+                    "Fallo al ejecutar el Orquestador Maestro: " + e.getMessage()));
+        }
+    }
+
     public void clearAllLogs() {
         try {
             String url = backendApiUrl + "/system/actions/clear-logs";

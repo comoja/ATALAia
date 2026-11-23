@@ -55,6 +55,39 @@ BASE_WEIGHTS = {
 MAX_SIMULTANEOUS_MARGIN_PCT = 30.0  # Máximo 30% de margen retenido simultáneo
 
 
+def is_instrument_tradable_for_broker(symbol: str, brokerId: int, symMetadata: dict) -> bool:
+    """Verifica si el símbolo está habilitado y mapeado para ser operado en el broker de la cuenta."""
+    meta = symMetadata.get(symbol.strip())
+    if not meta:
+        return False
+    # Para cuentas conectadas a FOREX.com (idBroker == 2):
+    if brokerId == 2:
+        id_forex = meta.get("idForex")
+        if not id_forex or int(id_forex) <= 0:
+            return False
+    return True
+
+
+def is_ratio_regime_compatible(pairA: str, pairB: str, symMetadata: dict) -> bool:
+    """
+    Verifica que los regímenes y horarios de mercado de ambas patas del ratio sean compatibles.
+    Evita mezclar activos 24/5 (Forex) con activos bursátiles de horario restringido (Acciones/ETFs).
+    """
+    metaA = symMetadata.get(pairA.strip(), {})
+    metaB = symMetadata.get(pairB.strip(), {})
+    tipoA = str(metaA.get("tipo", "")).upper()
+    tipoB = str(metaB.get("tipo", "")).upper()
+
+    if tipoA == "CRYPTO" and tipoB == "CRYPTO":
+        return True
+    forex_types = {"MONEDA", "EXOTIC", "METALES"}
+    if tipoA in forex_types and tipoB in forex_types:
+        return True
+    if tipoA == "ACCION" and tipoB == "ACCION":
+        return True
+    return False
+
+
 def loadGlobalPortfolio() -> Dict[str, Any]:
     """Carga la cartera óptima multiactivo más reciente."""
     if os.path.exists(GLOBAL_PORTFOLIO_JSON):
@@ -149,7 +182,18 @@ def optimizeSingleAccount(dbSession, accountRow: Dict[str, Any], globalPortfolio
             "allocations": []
         }
 
-    # 1. Consultar estrategias autorizadas en cuentaestrategia
+    # 1. Consultar broker y estrategias autorizadas
+    sqlBroker = text("""
+        SELECT bc.idBroker, b.nombre AS brokerNombre, bc.loginUsuario
+        FROM brokercuenta bc
+        JOIN broker b ON bc.idBroker = b.idBroker
+        WHERE bc.idCuenta = :id AND bc.activo = 1
+        LIMIT 1
+    """)
+    brokerRow = dbSession.execute(sqlBroker, {"id": idCuenta}).mappings().fetchone()
+    brokerId = brokerRow["idBroker"] if brokerRow else 2  # 2=Forex.com default
+    brokerName = brokerRow["brokerNombre"] if brokerRow else "Forex.com"
+
     sqlStrat = text("SELECT strategy FROM cuentaestrategia WHERE idCuenta = :id")
     strats = [r[0].lower().strip() for r in dbSession.execute(sqlStrat, {"id": idCuenta}).fetchall()]
 
@@ -184,30 +228,55 @@ def optimizeSingleAccount(dbSession, accountRow: Dict[str, Any], globalPortfolio
     allocations = []
     total_est_margin = 0.0
 
-    # microRatio Allocation
+    # microRatio Allocation (filtrado por operabilidad en broker y compatibilidad horaria)
     if "microRatio" in normalized_weights:
         w = normalized_weights["microRatio"]
         cap_ratio = capital * w
-        top_ratios = globalPortfolio.get("microRatio", [])[:2]
-        for r in top_ratios:
+        valid_ratios = []
+        for r in globalPortfolio.get("microRatio", []):
+            pA = r.get("pairA", "")
+            pB = r.get("pairB", "")
+            if not is_instrument_tradable_for_broker(pA, brokerId, symMetadata):
+                logger.info(f"🚫 Cuenta #{idCuenta} ({nombre}): Se descarta ratio {r['symbol']} ({pA} no operable en {brokerName}).")
+                continue
+            if not is_instrument_tradable_for_broker(pB, brokerId, symMetadata):
+                logger.info(f"🚫 Cuenta #{idCuenta} ({nombre}): Se descarta ratio {r['symbol']} ({pB} no operable en {brokerName}).")
+                continue
+            if not is_ratio_regime_compatible(pA, pB, symMetadata):
+                logger.info(f"🚫 Cuenta #{idCuenta} ({nombre}): Se descarta ratio {r['symbol']} por incompatibilidad de horarios entre {pA} y {pB}.")
+                continue
+            valid_ratios.append(r)
+            if len(valid_ratios) >= 2:
+                break
+
+        for r in valid_ratios:
             allocations.append({
                 "strategy": "microRatio",
                 "symbol": r["symbol"],
                 "pairA": r.get("pairA", "GBP/SGD"),
                 "pairB": r.get("pairB", "GBP/CHF"),
                 "timeframe": r.get("timeframe", "1h"),
-                "allocatedCapital": round(cap_ratio / len(top_ratios), 2),
+                "allocatedCapital": round(cap_ratio / max(len(valid_ratios), 1), 2),
                 "lots": 1000.0,  # Unidades base de ratio
                 "estMargin": round(cap_ratio * 0.04, 2)
             })
             total_est_margin += cap_ratio * 0.04
 
-    # microRider Allocation
+    # microRider Allocation (filtrado por operabilidad en broker)
     if "microRider" in normalized_weights:
         w = normalized_weights["microRider"]
         cap_cart = capital * w
-        top_carts = globalPortfolio.get("microRider", [])[:2]
-        for c in top_carts:
+        valid_carts = []
+        for c in globalPortfolio.get("microRider", []):
+            sym = c["symbol"]
+            if not is_instrument_tradable_for_broker(sym, brokerId, symMetadata):
+                logger.info(f"🚫 Cuenta #{idCuenta} ({nombre}): Se descarta CART en {sym} (no operable en {brokerName}).")
+                continue
+            valid_carts.append(c)
+            if len(valid_carts) >= 2:
+                break
+
+        for c in valid_carts:
             sym = c["symbol"]
             meta = symMetadata.get(sym, {})
             lot_sz = calculatePositionLotSize(capital, riskPct, sym, meta)
@@ -216,18 +285,27 @@ def optimizeSingleAccount(dbSession, accountRow: Dict[str, Any], globalPortfolio
                 "strategy": "microRider",
                 "symbol": sym,
                 "timeframe": c.get("timeframe", "1h"),
-                "allocatedCapital": round(cap_cart / len(top_carts), 2),
+                "allocatedCapital": round(cap_cart / max(len(valid_carts), 1), 2),
                 "lots": lot_sz,
                 "estMargin": est_m
             })
             total_est_margin += est_m
 
-    # microSniper Allocation
+    # microSniper Allocation (filtrado por operabilidad en broker)
     if "microSniper" in normalized_weights:
         w = normalized_weights["microSniper"]
         cap_sniper = capital * w
-        top_snipers = globalPortfolio.get("microSniper", [])[:2]
-        for s in top_snipers:
+        valid_snipers = []
+        for s in globalPortfolio.get("microSniper", []):
+            sym = s["symbol"]
+            if not is_instrument_tradable_for_broker(sym, brokerId, symMetadata):
+                logger.info(f"🚫 Cuenta #{idCuenta} ({nombre}): Se descarta SNIPER en {sym} (no operable en {brokerName}).")
+                continue
+            valid_snipers.append(s)
+            if len(valid_snipers) >= 2:
+                break
+
+        for s in valid_snipers:
             sym = s["symbol"]
             meta = symMetadata.get(sym, {})
             lot_sz = calculatePositionLotSize(capital, riskPct, sym, meta)
@@ -236,7 +314,7 @@ def optimizeSingleAccount(dbSession, accountRow: Dict[str, Any], globalPortfolio
                 "strategy": "microSniper",
                 "symbol": sym,
                 "timeframe": s.get("timeframe", "5m"),
-                "allocatedCapital": round(cap_sniper / len(top_snipers), 2),
+                "allocatedCapital": round(cap_sniper / max(len(valid_snipers), 1), 2),
                 "lots": lot_sz,
                 "estMargin": est_m
             })
@@ -340,8 +418,18 @@ def optimizeAllAccounts(applyToDb: bool = False) -> List[Dict[str, Any]]:
         globalPortfolio = loadGlobalPortfolio()
 
         # Metadata de símbolos
-        sqlSyms = text("SELECT symbol, margen, min_lots, pip, tipo FROM symbols")
-        symMetadata = {r[0].strip(): {"margen": r[1], "min_lots": r[2], "pip": r[3], "tipo": r[4]} for r in db.execute(sqlSyms).fetchall()}
+        sqlSyms = text("SELECT symbol, margen, min_lots, pip, tipo, idForex, FOREX, broker FROM symbols")
+        symMetadata = {
+            r[0].strip(): {
+                "margen": r[1],
+                "min_lots": r[2],
+                "pip": r[3],
+                "tipo": r[4],
+                "idForex": r[5],
+                "FOREX": r[6],
+                "broker": r[7]
+            } for r in db.execute(sqlSyms).fetchall()
+        }
 
         # Cuentas activas
         sqlAccs = text("SELECT idCuenta, Nombre, Capital, Activo, riesgoPorOperacion, comision, brokerType, Concentradora FROM cuenta WHERE Activo = 1")
