@@ -2843,10 +2843,45 @@ public class DashboardBean implements Serializable {
                     org.primefaces.PrimeFaces.current().ajax().update("aetherForm");
                 }
 
-                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
-                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
-                                "Parametrizaciones Copiadas",
-                                "Se copiaron exitosamente " + itemsACopiar.size() + " configuraciones a tu cuenta."));
+                int copiedCount = 0;
+                int omittedCount = 0;
+                List<String> omittedList = new ArrayList<>();
+                try {
+                    if (response.getBody() != null) {
+                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        com.fasterxml.jackson.databind.JsonNode respNode = mapper.readTree(response.getBody());
+                        if (respNode.has("copiedCount")) {
+                            copiedCount = respNode.get("copiedCount").asInt();
+                        }
+                        if (respNode.has("omittedCount")) {
+                            omittedCount = respNode.get("omittedCount").asInt();
+                        }
+                        if (respNode.has("omittedItems") && respNode.get("omittedItems").isArray()) {
+                            for (com.fasterxml.jackson.databind.JsonNode oItem : respNode.get("omittedItems")) {
+                                omittedList.add(oItem.asText());
+                            }
+                        }
+                    }
+                } catch (Exception parseEx) {
+                    log.warn("No se pudo parsear detalle de respuesta al copiar: {}", parseEx.getMessage());
+                }
+
+                if (omittedCount > 0 && copiedCount == 0) {
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                    "Copia No Realizada",
+                                    "No se copiaron los elementos (" + String.join(", ", omittedList) + ") porque la cuenta destino tiene posiciones abiertas actualmente."));
+                } else if (omittedCount > 0 && copiedCount > 0) {
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                    "Copia Parcial",
+                                    "Se copiaron " + copiedCount + " parametrización(es). Se omitieron " + omittedCount + " (" + String.join(", ", omittedList) + ") debido a que la cuenta destino tiene posiciones abiertas."));
+                } else {
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                    "Parametrizaciones Copiadas",
+                                    "Se copiaron exitosamente " + copiedCount + " configuraciones a tu cuenta."));
+                }
             } else {
                 javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                         new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
@@ -3320,6 +3355,20 @@ public class DashboardBean implements Serializable {
         public Boolean getUsarBreakEven() { return usarBreakEven != null ? usarBreakEven : true; }
         public Boolean isUsarBreakEven() { return usarBreakEven != null ? usarBreakEven : true; }
         public void setUsarBreakEven(Boolean usarBreakEven) { this.usarBreakEven = usarBreakEven; }
+
+        private Double fixedMinA;
+        private Double fixedMaxA;
+        private Double fixedMinB;
+        private Double fixedMaxB;
+
+        public Double getFixedMinA() { return fixedMinA; }
+        public void setFixedMinA(Double fixedMinA) { this.fixedMinA = fixedMinA; }
+        public Double getFixedMaxA() { return fixedMaxA; }
+        public void setFixedMaxA(Double fixedMaxA) { this.fixedMaxA = fixedMaxA; }
+        public Double getFixedMinB() { return fixedMinB; }
+        public void setFixedMinB(Double fixedMinB) { this.fixedMinB = fixedMinB; }
+        public Double getFixedMaxB() { return fixedMaxB; }
+        public void setFixedMaxB(Double fixedMaxB) { this.fixedMaxB = fixedMaxB; }
 
         @Override
         public boolean equals(Object o) {
@@ -5273,6 +5322,10 @@ public class DashboardBean implements Serializable {
                         if (item.has("estadoRecomendacion") && !item.get("estadoRecomendacion").isNull()) dto.setEstadoRecomendacion(item.get("estadoRecomendacion").asText());
                         if (item.has("fechaRecomendacion") && !item.get("fechaRecomendacion").isNull()) dto.setFechaRecomendacion(item.get("fechaRecomendacion").asText());
                         if (item.has("createdAt") && !item.get("createdAt").isNull()) dto.setCreatedAt(item.get("createdAt").asText());
+                        if (item.has("fixedMinA") && !item.get("fixedMinA").isNull()) dto.setFixedMinA(item.get("fixedMinA").asDouble());
+                        if (item.has("fixedMaxA") && !item.get("fixedMaxA").isNull()) dto.setFixedMaxA(item.get("fixedMaxA").asDouble());
+                        if (item.has("fixedMinB") && !item.get("fixedMinB").isNull()) dto.setFixedMinB(item.get("fixedMinB").asDouble());
+                        if (item.has("fixedMaxB") && !item.get("fixedMaxB").isNull()) dto.setFixedMaxB(item.get("fixedMaxB").asDouble());
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
                             dto.setBorrado(isBorrado);
@@ -5401,6 +5454,10 @@ public class DashboardBean implements Serializable {
         } else {
             this.startDate = null;
         }
+        this.signalBtFixedMinA = ratio.getFixedMinA();
+        this.signalBtFixedMaxA = ratio.getFixedMaxA();
+        this.signalBtFixedMinB = ratio.getFixedMinB();
+        this.signalBtFixedMaxB = ratio.getFixedMaxB();
         this.operar = Boolean.TRUE.equals(ratio.getOperar());
         this.setTipoCierre(ratio.getTipoCierre() != null ? ratio.getTipoCierre() : "Tolerante");
         this.umbralDiferencia = ratio.getUmbralDiferencia() != null ? ratio.getUmbralDiferencia() : 0.2;
@@ -5529,6 +5586,26 @@ public class DashboardBean implements Serializable {
                         this.salirBreakeven = rootNode.get("salirBreakeven").asBoolean();
                     } else {
                         this.salirBreakeven = false;
+                    }
+                    if (rootNode.has("fixedMinA") && !rootNode.get("fixedMinA").isNull()) {
+                        this.signalBtFixedMinA = rootNode.get("fixedMinA").asDouble();
+                    } else {
+                        this.signalBtFixedMinA = null;
+                    }
+                    if (rootNode.has("fixedMaxA") && !rootNode.get("fixedMaxA").isNull()) {
+                        this.signalBtFixedMaxA = rootNode.get("fixedMaxA").asDouble();
+                    } else {
+                        this.signalBtFixedMaxA = null;
+                    }
+                    if (rootNode.has("fixedMinB") && !rootNode.get("fixedMinB").isNull()) {
+                        this.signalBtFixedMinB = rootNode.get("fixedMinB").asDouble();
+                    } else {
+                        this.signalBtFixedMinB = null;
+                    }
+                    if (rootNode.has("fixedMaxB") && !rootNode.get("fixedMaxB").isNull()) {
+                        this.signalBtFixedMaxB = rootNode.get("fixedMaxB").asDouble();
+                    } else {
+                        this.signalBtFixedMaxB = null;
                     }
                     log.info("✅ Configuración recuperada de BD para {}/{}: timeframe={}, dias={}, EMARapida={}, EMALenta={}, operar={}",
                             selectedPair, selectedPair2, timeframe, daysBack, smaPeriodParam, emaSlowPeriodParam, operar);

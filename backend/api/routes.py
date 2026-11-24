@@ -598,7 +598,11 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "origen": getattr(ratio, 'origen', 'MANUAL') or 'MANUAL',
         "estadoRecomendacion": getattr(ratio, 'estadoRecomendacion', 'MANUAL') or 'MANUAL',
         "fechaRecomendacion": ratio.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(ratio, 'fechaRecomendacion', None) else None,
-        "createdAt": ratio.createdAt,
+        "createdAt": ratio.createdAt.strftime("%Y-%m-%d %H:%M:%S") if getattr(ratio, 'createdAt', None) else None,
+        "fixedMinA": float(ratio.fixedMinA) if ratio.fixedMinA is not None else None,
+        "fixedMaxA": float(ratio.fixedMaxA) if ratio.fixedMaxA is not None else None,
+        "fixedMinB": float(ratio.fixedMinB) if ratio.fixedMinB is not None else None,
+        "fixedMaxB": float(ratio.fixedMaxB) if ratio.fixedMaxB is not None else None,
         "hasOpenTrades": has_open_trades,
         "openTradesCount": open_count
     }
@@ -1901,8 +1905,12 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "accionCierre": getattr(r, "accionCierre", "Continua") or "Continua",
             "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
             "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
-            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
-            "createdAt": r.createdAt,
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "fechaRecomendacion", None), "strftime") else (str(r.fechaRecomendacion) if getattr(r, "fechaRecomendacion", None) else None),
+            "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "createdAt", None), "strftime") else (str(r.createdAt) if getattr(r, "createdAt", None) else None),
+            "fixedMinA": float(r.fixedMinA) if getattr(r, "fixedMinA", None) is not None else None,
+            "fixedMaxA": float(r.fixedMaxA) if getattr(r, "fixedMaxA", None) is not None else None,
+            "fixedMinB": float(r.fixedMinB) if getattr(r, "fixedMinB", None) is not None else None,
+            "fixedMaxB": float(r.fixedMaxB) if getattr(r, "fixedMaxB", None) is not None else None,
             "hasOpenTrades": has_open
         })
     return results
@@ -6463,8 +6471,10 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "usarTSL": bool(r.usarTSL) if hasattr(r, "usarTSL") and r.usarTSL is not None else True,
             "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
             "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
-            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
-            "createdAt": r.createdAt,
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "fechaRecomendacion", None), "strftime") else (str(r.fechaRecomendacion) if getattr(r, "fechaRecomendacion", None) else None),
+            "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "createdAt", None), "strftime") else (str(r.createdAt) if getattr(r, "createdAt", None) else None),
+            "fixedMin": float(r.fixedMin) if getattr(r, "fixedMin", None) is not None else None,
+            "fixedMax": float(r.fixedMax) if getattr(r, "fixedMax", None) is not None else None,
             "hasOpenTrades": has_open
         })
     return results
@@ -7311,8 +7321,8 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
             "multiplicadorRiesgo": float(getattr(r, "multiplicadorRiesgo", 1.0) if getattr(r, "multiplicadorRiesgo", None) is not None else 1.0),
             "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
             "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
-            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if getattr(r, "fechaRecomendacion", None) else None,
-            "createdAt": r.createdAt,
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "fechaRecomendacion", None), "strftime") else (str(r.fechaRecomendacion) if getattr(r, "fechaRecomendacion", None) else None),
+            "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "createdAt", None), "strftime") else (str(r.createdAt) if getattr(r, "createdAt", None) else None),
             "hasOpenTrades": has_open
         })
     return results
@@ -8327,6 +8337,7 @@ class CopiarParametrizacionesRequest(BaseModel):
 def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, db: Session = Depends(get_db)):
     """
     Copia las parametrizaciones de los items seleccionados desde la cuenta origen a la cuenta destino:
+    - Si el destino tiene posiciones abiertas (status = 'OPEN') en trades para ese item, NO se copia/sobreescribe.
     - Si el item no existe en la cuenta destino, se inserta con el siguiente ID autonumérico.
     - Si ya existe en la cuenta destino, se sobreescriben sus parametrizaciones conservando el ID existente.
     - Solo se copian las parametrizaciones.
@@ -8336,14 +8347,48 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
         copiedCount = 0
         updatedCount = 0
         insertedCount = 0
+        omittedItems = []
 
         if strat in ["RATIOS", "RATIO"]:
             for itemStr in payload.items:
-                parts = itemStr.split("/")
+                if " / " in itemStr:
+                    parts = itemStr.split(" / ")
+                elif " - " in itemStr:
+                    parts = itemStr.split(" - ")
+                elif "/" in itemStr:
+                    parts = itemStr.split("/")
+                else:
+                    continue
                 if len(parts) != 2:
                     continue
                 num = parts[0].strip()
                 den = parts[1].strip()
+
+                # Validar si el destino tiene posiciones abiertas en trades
+                s1 = f"{num} - {den}"
+                s2 = f"{den} - {num}"
+                s3 = f"{num.replace('/', '')} - {den.replace('/', '')}"
+                s4 = f"{den.replace('/', '')} - {num.replace('/', '')}"
+                s5 = f"{num}/{den}"
+                s6 = f"{den}/{num}"
+
+                openTradesCount = db.execute(text("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE idCuenta = :idc
+                      AND (setup = :s1 OR setup = :s2 OR setup = :s3 OR setup = :s4 OR setup = :s5 OR setup = :s6)
+                      AND status = 'OPEN'
+                """), {
+                    "idc": payload.idCuentaDestino,
+                    "s1": s1, "s2": s2, "s3": s3, "s4": s4, "s5": s5, "s6": s6
+                }).scalar() or 0
+
+                if openTradesCount > 0:
+                    logger.warning(
+                        f"Omitiendo copia de ratio {itemStr} a cuenta #{payload.idCuentaDestino}: "
+                        f"tiene {openTradesCount} posición(es) abierta(s)."
+                    )
+                    omittedItems.append(itemStr)
+                    continue
 
                 sourceRow = db.query(UserRatio).filter(
                     UserRatio.idCuenta == payload.idCuentaOrigen,
@@ -8364,6 +8409,7 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     destRow.periodo = sourceRow.periodo
                     destRow.EMARapida = sourceRow.EMARapida
                     destRow.EMALenta = sourceRow.EMALenta
+                    destRow.operar = sourceRow.operar
                     destRow.cierreDivergencia = sourceRow.cierreDivergencia
                     destRow.tipoCierre = sourceRow.tipoCierre
                     destRow.umbralDiferencia = sourceRow.umbralDiferencia
@@ -8374,7 +8420,10 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     destRow.fixedMaxA = sourceRow.fixedMaxA
                     destRow.fixedMinB = sourceRow.fixedMinB
                     destRow.fixedMaxB = sourceRow.fixedMaxB
+                    destRow.createdAt = sourceRow.createdAt
                     destRow.origen = sourceRow.origen
+                    destRow.estadoRecomendacion = sourceRow.estadoRecomendacion
+                    destRow.fechaRecomendacion = sourceRow.fechaRecomendacion
                     destRow.borrado = False
                     updatedCount += 1
                 else:
@@ -8398,7 +8447,10 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                         fixedMaxA=sourceRow.fixedMaxA,
                         fixedMinB=sourceRow.fixedMinB,
                         fixedMaxB=sourceRow.fixedMaxB,
+                        createdAt=sourceRow.createdAt,
                         origen=sourceRow.origen,
+                        estadoRecomendacion=sourceRow.estadoRecomendacion,
+                        fechaRecomendacion=sourceRow.fechaRecomendacion,
                         borrado=False
                     )
                     db.add(newRow)
@@ -8409,6 +8461,23 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
             for itemStr in payload.items:
                 sym = itemStr.strip()
                 if not sym:
+                    continue
+
+                # Validar si el destino tiene posiciones abiertas en trades
+                openTradesCount = db.execute(text("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE idCuenta = :idc
+                      AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
+                      AND (symbol = :sym OR setup = :sym)
+                      AND status = 'OPEN'
+                """), {"idc": payload.idCuentaDestino, "sym": sym}).scalar() or 0
+
+                if openTradesCount > 0:
+                    logger.warning(
+                        f"Omitiendo copia de CART {sym} a cuenta #{payload.idCuentaDestino}: "
+                        f"tiene {openTradesCount} posición(es) abierta(s)."
+                    )
+                    omittedItems.append(sym)
                     continue
 
                 sourceRow = db.query(UserCart).filter(
@@ -8442,6 +8511,8 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     destRow.usarTSL = sourceRow.usarTSL
                     destRow.fixedMin = sourceRow.fixedMin
                     destRow.fixedMax = sourceRow.fixedMax
+                    destRow.createdAt = sourceRow.createdAt
+                    destRow.operar = sourceRow.operar
                     destRow.origen = sourceRow.origen
                     destRow.borrado = False
                     updatedCount += 1
@@ -8469,6 +8540,7 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                         usarTSL=sourceRow.usarTSL,
                         fixedMin=sourceRow.fixedMin,
                         fixedMax=sourceRow.fixedMax,
+                        createdAt=sourceRow.createdAt,
                         origen=sourceRow.origen,
                         borrado=False
                     )
@@ -8480,6 +8552,23 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
             for itemStr in payload.items:
                 sym = itemStr.strip()
                 if not sym:
+                    continue
+
+                # Validar si el destino tiene posiciones abiertas en trades
+                openTradesCount = db.execute(text("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE idCuenta = :idc
+                      AND strategy = 'SNIPER'
+                      AND (symbol = :sym OR setup = :sym)
+                      AND status = 'OPEN'
+                """), {"idc": payload.idCuentaDestino, "sym": sym}).scalar() or 0
+
+                if openTradesCount > 0:
+                    logger.warning(
+                        f"Omitiendo copia de SNIPER {sym} a cuenta #{payload.idCuentaDestino}: "
+                        f"tiene {openTradesCount} posición(es) abierta(s)."
+                    )
+                    omittedItems.append(sym)
                     continue
 
                 sourceRow = db.query(UserSniper).filter(
@@ -8510,6 +8599,10 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     destRow.horaInicio2 = sourceRow.horaInicio2
                     destRow.horaFin2 = sourceRow.horaFin2
                     destRow.multiplicadorRiesgo = sourceRow.multiplicadorRiesgo
+                    destRow.createdAt = sourceRow.createdAt
+                    destRow.operar = sourceRow.operar
+                    destRow.estadoRecomendacion = sourceRow.estadoRecomendacion
+                    destRow.fechaRecomendacion = sourceRow.fechaRecomendacion
                     destRow.origen = sourceRow.origen
                     destRow.borrado = False
                     updatedCount += 1
@@ -8534,6 +8627,9 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                         horaInicio2=sourceRow.horaInicio2,
                         horaFin2=sourceRow.horaFin2,
                         multiplicadorRiesgo=sourceRow.multiplicadorRiesgo,
+                        createdAt=sourceRow.createdAt,
+                        estadoRecomendacion=sourceRow.estadoRecomendacion,
+                        fechaRecomendacion=sourceRow.fechaRecomendacion,
                         origen=sourceRow.origen,
                         borrado=False
                     )
@@ -8546,14 +8642,16 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
         db.commit()
         logger.info(
             f"✅ Copia de parametrizaciones {strat}: origen #{payload.idCuentaOrigen} -> destino #{payload.idCuentaDestino}. "
-            f"Total: {copiedCount} ({insertedCount} nuevos, {updatedCount} actualizados)"
+            f"Total: {copiedCount} ({insertedCount} nuevos, {updatedCount} actualizados, {len(omittedItems)} omitidos por posición abierta)"
         )
         return {
             "status": "success",
-            "message": f"Se procesaron {copiedCount} item(s): {insertedCount} insertado(s) y {updatedCount} actualizado(s).",
+            "message": f"Se procesaron {copiedCount} item(s): {insertedCount} insertado(s), {updatedCount} actualizado(s), {len(omittedItems)} omitido(s) por posición abierta.",
             "copiedCount": copiedCount,
             "insertedCount": insertedCount,
-            "updatedCount": updatedCount
+            "updatedCount": updatedCount,
+            "omittedCount": len(omittedItems),
+            "omittedItems": omittedItems
         }
     except HTTPException:
         raise
