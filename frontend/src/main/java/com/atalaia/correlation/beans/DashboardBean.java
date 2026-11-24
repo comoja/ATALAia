@@ -26,6 +26,7 @@ import org.primefaces.model.charts.line.LineChartDataSet;
 import org.primefaces.model.charts.line.LineChartModel;
 import org.primefaces.model.charts.line.LineChartOptions;
 import org.primefaces.model.charts.data.NumericPoint;
+import org.primefaces.model.DualListModel;
 
 @Named("dashboardBean")
 @ViewScoped
@@ -2521,6 +2522,344 @@ public class DashboardBean implements Serializable {
                             "Error", "Fallo al comunicar con el servidor: " + e.getMessage()));
         }
     }
+
+    // =========================================================================
+    // DTO Y METODOS PARA COPIAR PARAMETRIZACIONES ENTRE CUENTAS
+    // =========================================================================
+    public static class UsuarioOrigenDto implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        private Integer idUsuario;
+        private String nombre;
+        private String username;
+
+        public UsuarioOrigenDto() {}
+
+        public UsuarioOrigenDto(Integer idUsuario, String nombre, String username) {
+            this.idUsuario = idUsuario;
+            this.nombre = nombre;
+            this.username = username;
+        }
+
+        public Integer getIdUsuario() { return idUsuario; }
+        public void setIdUsuario(Integer idUsuario) { this.idUsuario = idUsuario; }
+
+        public String getNombre() { return nombre; }
+        public void setNombre(String nombre) { this.nombre = nombre; }
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+    }
+
+    public static class CuentaOrigenDto implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+        private Integer idCuenta;
+        private String nombreCuenta;
+        private String nombreUsuario;
+        private String label;
+
+        public CuentaOrigenDto() {}
+
+        public CuentaOrigenDto(Integer idCuenta, String nombreCuenta, String nombreUsuario, String label) {
+            this.idCuenta = idCuenta;
+            this.nombreCuenta = nombreCuenta;
+            this.nombreUsuario = nombreUsuario;
+            this.label = label;
+        }
+
+        public Integer getIdCuenta() { return idCuenta; }
+        public void setIdCuenta(Integer idCuenta) { this.idCuenta = idCuenta; }
+
+        public String getNombreCuenta() { return nombreCuenta; }
+        public void setNombreCuenta(String nombreCuenta) { this.nombreCuenta = nombreCuenta; }
+
+        public String getNombreUsuario() { return nombreUsuario; }
+        public void setNombreUsuario(String nombreUsuario) { this.nombreUsuario = nombreUsuario; }
+
+        public String getLabel() { return label; }
+        public void setLabel(String label) { this.label = label; }
+    }
+
+    private List<UsuarioOrigenDto> usuariosOrigenCombo = new ArrayList<>();
+    private Integer selectedUsuarioOrigenId;
+    private List<CuentaOrigenDto> cuentasOrigenCombo = new ArrayList<>();
+    private Integer selectedCuentaOrigenId;
+    private DualListModel<String> pickListEstrategia = new DualListModel<>(new ArrayList<>(), new ArrayList<>());
+    private List<String> initialSourceItems = new ArrayList<>();
+    private String estrategiaACopiar = "RATIOS";
+
+    public List<UsuarioOrigenDto> getUsuariosOrigenCombo() { return usuariosOrigenCombo; }
+    public void setUsuariosOrigenCombo(List<UsuarioOrigenDto> usuariosOrigenCombo) { this.usuariosOrigenCombo = usuariosOrigenCombo; }
+
+    public Integer getSelectedUsuarioOrigenId() { return selectedUsuarioOrigenId; }
+    public void setSelectedUsuarioOrigenId(Integer selectedUsuarioOrigenId) { this.selectedUsuarioOrigenId = selectedUsuarioOrigenId; }
+
+    public List<CuentaOrigenDto> getCuentasOrigenCombo() { return cuentasOrigenCombo; }
+    public void setCuentasOrigenCombo(List<CuentaOrigenDto> cuentasOrigenCombo) { this.cuentasOrigenCombo = cuentasOrigenCombo; }
+
+    public Integer getSelectedCuentaOrigenId() { return selectedCuentaOrigenId; }
+    public void setSelectedCuentaOrigenId(Integer selectedCuentaOrigenId) { this.selectedCuentaOrigenId = selectedCuentaOrigenId; }
+
+    public DualListModel<String> getPickListEstrategia() {
+        if (pickListEstrategia == null) {
+            pickListEstrategia = new DualListModel<>(new ArrayList<>(), new ArrayList<>());
+        }
+        return pickListEstrategia;
+    }
+    public void setPickListEstrategia(DualListModel<String> pickListEstrategia) { this.pickListEstrategia = pickListEstrategia; }
+
+    public String getEstrategiaACopiar() { return estrategiaACopiar; }
+    public void setEstrategiaACopiar(String estrategiaACopiar) { this.estrategiaACopiar = estrategiaACopiar; }
+
+    public void abrirDialogoCopiarEstrategia(String estrategia) {
+        if (estrategia != null && !estrategia.trim().isEmpty()) {
+            this.estrategiaACopiar = estrategia.trim().toUpperCase();
+        } else {
+            this.estrategiaACopiar = this.activeStrategy != null ? this.activeStrategy : "RATIOS";
+        }
+        log.info("Abriendo diálogo para copiar parametrizaciones de estrategia: {}", this.estrategiaACopiar);
+        cargarUsuariosOrigen();
+
+        Integer currentUid = getEffectiveUserId();
+        boolean userFound = false;
+        if (this.usuariosOrigenCombo != null) {
+            for (UsuarioOrigenDto u : this.usuariosOrigenCombo) {
+                if (u.getIdUsuario() != null && u.getIdUsuario().equals(currentUid)) {
+                    this.selectedUsuarioOrigenId = u.getIdUsuario();
+                    userFound = true;
+                    break;
+                }
+            }
+        }
+        if (!userFound && this.usuariosOrigenCombo != null && !this.usuariosOrigenCombo.isEmpty()) {
+            this.selectedUsuarioOrigenId = this.usuariosOrigenCombo.get(0).getIdUsuario();
+        }
+
+        onUsuarioOrigenChange();
+    }
+
+    private Integer getEffectiveUserId() {
+        Integer uid = null;
+        if (securityBean != null) {
+            uid = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+        }
+        return uid != null ? uid : 1;
+    }
+
+    public void cargarUsuariosOrigen() {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/estrategias/usuarios-origen";
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UsuarioOrigenDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UsuarioOrigenDto dto = new UsuarioOrigenDto();
+                        if (item.has("idUsuario")) dto.setIdUsuario(item.get("idUsuario").asInt());
+                        if (item.has("nombre")) dto.setNombre(item.get("nombre").asText());
+                        if (item.has("username")) dto.setUsername(item.get("username").asText());
+                        list.add(dto);
+                    }
+                }
+            }
+            this.usuariosOrigenCombo = list;
+            log.info("Usuarios origen cargados para copia: {}", list.size());
+        } catch (Exception e) {
+            log.error("Error al cargar usuarios origen para copiar parametrizaciones: {}", e.getMessage(), e);
+            this.usuariosOrigenCombo = new ArrayList<>();
+        }
+    }
+
+    public void onUsuarioOrigenChange() {
+        log.info("Usuario origen cambiado a: {}", this.selectedUsuarioOrigenId);
+        cargarCuentasUsuarioOrigen();
+        if (this.cuentasOrigenCombo != null && !this.cuentasOrigenCombo.isEmpty()) {
+            this.selectedCuentaOrigenId = this.cuentasOrigenCombo.get(0).getIdCuenta();
+        } else {
+            this.selectedCuentaOrigenId = null;
+        }
+        cargarPickListEstrategia();
+    }
+
+    public void cargarCuentasUsuarioOrigen() {
+        try {
+            if (this.selectedUsuarioOrigenId == null) {
+                this.cuentasOrigenCombo = new ArrayList<>();
+                return;
+            }
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/estrategias/cuentas-usuario/" + this.selectedUsuarioOrigenId;
+            if (this.selectedAccountId != null) {
+                url += "?excludeAccountId=" + this.selectedAccountId;
+            }
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<CuentaOrigenDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        CuentaOrigenDto dto = new CuentaOrigenDto();
+                        if (item.has("idCuenta")) dto.setIdCuenta(item.get("idCuenta").asInt());
+                        if (item.has("nombreCuenta")) dto.setNombreCuenta(item.get("nombreCuenta").asText());
+                        if (item.has("label")) dto.setLabel(item.get("label").asText());
+                        list.add(dto);
+                    }
+                }
+            }
+            this.cuentasOrigenCombo = list;
+            log.info("Cuentas del usuario {} cargadas: {}", this.selectedUsuarioOrigenId, list.size());
+        } catch (Exception e) {
+            log.error("Error al cargar cuentas del usuario {}: {}", this.selectedUsuarioOrigenId, e.getMessage(), e);
+            this.cuentasOrigenCombo = new ArrayList<>();
+        }
+    }
+
+    public void onCuentaOrigenChange() {
+        log.info("Cuenta origen seleccionada cambió a: {}", this.selectedCuentaOrigenId);
+        cargarPickListEstrategia();
+    }
+
+    public void cargarPickListEstrategia() {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String strat = this.estrategiaACopiar != null ? this.estrategiaACopiar : "RATIOS";
+
+            // 1. Cargar items de la cuenta DESTINO (para que aparezcan los que ya tiene)
+            List<String> targetList = new ArrayList<>();
+            if (this.selectedAccountId != null) {
+                String destUrl = backendUrl + "/api/v1/estrategias/items-cuenta/" + strat + "/" + this.selectedAccountId;
+                try {
+                    String destResp = restTemplate.getForObject(destUrl, String.class);
+                    if (destResp != null && !destResp.isEmpty()) {
+                        JsonNode destNode = mapper.readTree(destResp);
+                        if (destNode.isArray()) {
+                            for (JsonNode item : destNode) {
+                                targetList.add(item.asText());
+                            }
+                        }
+                    }
+                } catch (Exception exDest) {
+                    log.error("Error al cargar items de cuenta destino #{}: {}", this.selectedAccountId, exDest.getMessage());
+                }
+            }
+
+            // 2. Cargar items de la cuenta ORIGEN
+            List<String> sourceList = new ArrayList<>();
+            if (this.selectedCuentaOrigenId != null) {
+                String srcUrl = backendUrl + "/api/v1/estrategias/items-cuenta/" + strat + "/" + this.selectedCuentaOrigenId;
+                try {
+                    String srcResp = restTemplate.getForObject(srcUrl, String.class);
+                    if (srcResp != null && !srcResp.isEmpty()) {
+                        JsonNode srcNode = mapper.readTree(srcResp);
+                        if (srcNode.isArray()) {
+                            for (JsonNode item : srcNode) {
+                                sourceList.add(item.asText());
+                            }
+                        }
+                    }
+                } catch (Exception exSrc) {
+                    log.error("Error al cargar items de cuenta origen #{}: {}", this.selectedCuentaOrigenId, exSrc.getMessage());
+                }
+            }
+
+            this.initialSourceItems = new ArrayList<>(sourceList);
+            this.pickListEstrategia = new DualListModel<>(sourceList, targetList);
+            log.info("PickList cargado: Origen ({})={}, Destino ({})={}",
+                    this.selectedCuentaOrigenId, sourceList.size(), this.selectedAccountId, targetList.size());
+        } catch (Exception e) {
+            log.error("Error al construir picklist para estrategia: {}", e.getMessage(), e);
+            this.initialSourceItems = new ArrayList<>();
+            this.pickListEstrategia = new DualListModel<>(new ArrayList<>(), new ArrayList<>());
+        }
+    }
+
+    public void ejecutarCopiaParametrizaciones() {
+        try {
+            if (this.selectedCuentaOrigenId == null) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Cuenta Origen No Seleccionada",
+                                "Por favor selecciona una cuenta origen."));
+                return;
+            }
+            if (this.selectedAccountId == null) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Cuenta Destino No Seleccionada",
+                                "No se ha detectado una cuenta destino activa."));
+                return;
+            }
+
+            // Determinar qué items fueron trasladados desde Origen hacia Destino
+            List<String> itemsACopiar = new ArrayList<>();
+            List<String> currentSource = (this.pickListEstrategia != null && this.pickListEstrategia.getSource() != null)
+                    ? this.pickListEstrategia.getSource() : new ArrayList<>();
+
+            for (String item : this.initialSourceItems) {
+                if (!currentSource.contains(item)) {
+                    itemsACopiar.add(item);
+                }
+            }
+
+            if (itemsACopiar.isEmpty()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_WARN,
+                                "Sin Elementos Seleccionados",
+                                "Por favor traslada al menos un par desde Origen hacia la derecha (Destino) para copiar sus parametrizaciones."));
+                return;
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("idCuentaOrigen", this.selectedCuentaOrigenId);
+            payload.put("idCuentaDestino", this.selectedAccountId);
+            payload.put("idUsuarioDestino", getEffectiveUserId());
+            payload.put("estrategia", this.estrategiaACopiar != null ? this.estrategiaACopiar : "RATIOS");
+            payload.put("items", itemsACopiar);
+
+            org.springframework.http.HttpEntity<Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/estrategias/copiar-parametrizaciones";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                String strat = this.estrategiaACopiar != null ? this.estrategiaACopiar.toUpperCase() : "RATIOS";
+                if ("RATIOS".equals(strat) || "RATIO".equals(strat)) {
+                    loadUserRatiosList();
+                } else if ("CART".equals(strat) || "RIDER".equals(strat)) {
+                    loadUserCartList();
+                } else if ("SNIPER".equals(strat)) {
+                    loadUserSniperList();
+                }
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('dlgCopiarEstrategia').hide();");
+                if (org.primefaces.PrimeFaces.current() != null && org.primefaces.PrimeFaces.current().isAjaxRequest()) {
+                    org.primefaces.PrimeFaces.current().ajax().update("aetherForm");
+                }
+
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Parametrizaciones Copiadas",
+                                "Se copiaron exitosamente " + itemsACopiar.size() + " configuraciones a tu cuenta."));
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Copiar", "El servidor retornó un código de error: " + response.getStatusCode()));
+            }
+        } catch (Exception e) {
+            log.error("Excepción al ejecutar copia de parametrizaciones: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error de Comunicación", "Fallo al comunicar con el backend: " + e.getMessage()));
+        }
+    }
+
     private Integer selectedAccountId;
     
     private String ratioToClose;

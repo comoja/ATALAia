@@ -1914,6 +1914,99 @@
             </p:dialog>
         </h:form>
 
+        <!-- DIÁLOGO MODAL: COPIAR PARAMETRIZACIONES DE OTRA CUENTA -->
+        <h:form id="copiarEstrategiaForm">
+            <p:dialog id="dlgCopiarEstrategia" widgetVar="dlgCopiarEstrategia" modal="true" responsive="true"
+                width="740" minWidth="600" maxWidth="880" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
+                resizable="false" styleClass="aether-dialog">
+                <f:facet name="header">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="pi pi-copy" style="font-size: 1.55rem; color: #0284c7;"></i>
+                        <div>
+                            <div style="font-size: 1.25rem; font-weight: 900; color: #0f172a;">
+                                Copiar Parametrizaciones — <span style="color: #0284c7;">#{dashboardBean.estrategiaACopiar}</span>
+                            </div>
+                            <div style="font-size: 0.92rem; color: #475569; font-weight: 700; margin-top: 2px;">
+                                Cuenta Destino: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> (ID: #{dashboardBean.selectedAccountId})
+                            </div>
+                        </div>
+                    </div>
+                </f:facet>
+
+                <div style="padding: 10px 4px; display: flex; flex-direction: column; gap: 14px;">
+                    <!-- CABECERA DE LA VENTANA: COMBOS DE USUARIO Y CUENTA ORIGEN -->
+                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 240px;">
+                            <label style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-user" style="color: #0284c7;"></i>
+                                <span>Usuario Origen:</span>
+                            </label>
+                            <p:selectOneMenu id="comboUsuarioOrigen" value="#{dashboardBean.selectedUsuarioOrigenId}" style="width: 100%;">
+                                <f:selectItems value="#{dashboardBean.usuariosOrigenCombo}" var="usr"
+                                    itemLabel="#{usr.nombre}" itemValue="#{usr.idUsuario}" />
+                                <p:ajax listener="#{dashboardBean.onUsuarioOrigenChange}" update="comboCuentaOrigen pickListWrapper" />
+                            </p:selectOneMenu>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 240px;">
+                            <label style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-database" style="color: #0284c7;"></i>
+                                <span>Cuenta Origen:</span>
+                            </label>
+                            <p:selectOneMenu id="comboCuentaOrigen" value="#{dashboardBean.selectedCuentaOrigenId}" style="width: 100%;">
+                                <f:selectItem itemLabel="-- Selecciona una cuenta --" itemValue="" noSelectionOption="true" />
+                                <f:selectItems value="#{dashboardBean.cuentasOrigenCombo}" var="cta"
+                                    itemLabel="#{cta.label}" itemValue="#{cta.idCuenta}" />
+                                <p:ajax listener="#{dashboardBean.onCuentaOrigenChange}" update="pickListWrapper" />
+                            </p:selectOneMenu>
+                        </div>
+                    </div>
+
+                    <!-- INSTANT CHECKBOX PICKLIST -->
+                    <h:panelGroup id="pickListWrapper" layout="block" style="width: 100%;">
+                        <div style="margin-bottom: 6px; font-size: 0.85rem; color: #64748b; font-weight: 600;">
+                            Selecciona los pares con la casilla de verificación en Origen y trasládalos a la derecha para copiarlos a tu cuenta:
+                        </div>
+                        <p:pickList id="pickListEstrategia" value="#{dashboardBean.pickListEstrategia}" var="item"
+                            itemLabel="#{item}" itemValue="#{item}"
+                            showCheckbox="true"
+                            responsive="true"
+                            showSourceControls="false" showTargetControls="false"
+                            showSourceFilter="true" showTargetFilter="true" filterMatchMode="contains"
+                            style="width: 100%;">
+                            <f:facet name="sourceCaption">
+                                <span style="font-weight: 800; color: #475569;">Pares en Cuenta Origen</span>
+                            </f:facet>
+                            <f:facet name="targetCaption">
+                                <span style="font-weight: 800; color: #0284c7;">Pares en Cuenta Destino (#{dashboardBean.selectedAccountName})</span>
+                            </f:facet>
+                        </p:pickList>
+                    </h:panelGroup>
+
+                    <!-- AVISO INFORMATIVO -->
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #1e40af;">
+                        <i class="pi pi-info-circle" style="font-size: 1.1rem; color: #3b82f6;"></i>
+                        <span>
+                            Solo se copiarán las parametrizaciones. Si el par ya existe en tu lista, se sobreescribirá conservando su ID; si no existe, se insertará como nuevo.
+                        </span>
+                    </div>
+
+                    <!-- BOTONES DE ACCIÓN -->
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                        <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                            onclick="PF('dlgCopiarEstrategia').hide();"
+                            style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
+                        <p:commandButton id="btnEjecutarCopia" value="Copiar Parametrizaciones"
+                            action="#{dashboardBean.ejecutarCopiaParametrizaciones}" process="@form"
+                            update=":aetherForm :aetherForm:growl"
+                            styleClass="ui-button-primary"
+                            icon="pi pi-check"
+                            style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 6px 16px;"
+                            title="Copiar parametrizaciones seleccionadas a la cuenta actual" />
+                    </div>
+                </div>
+            </p:dialog>
+        </h:form>
+
         <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR CANTIDAD (RATIO) -->
         <h:form id="entradaManualRatioForm">
             <p:dialog id="entradaManualRatioDlg" widgetVar="entradaManualRatioDlg" modal="true" responsive="true"

@@ -130,6 +130,15 @@
                                             style="font-weight: 700; font-size: 1.15rem; color: #0284c7; white-space: nowrap; display: flex; align-items: center; gap: 4px;">
                                             1. Pares de la Cuenta
                                         </span>
+                                        <p:commandLink action="#{dashboardBean.abrirDialogoCopiarEstrategia('RATIOS')}"
+                                            process="@this"
+                                            update=":copiarEstrategiaForm:dlgCopiarEstrategia"
+                                            oncomplete="PF('dlgCopiarEstrategia').show();"
+                                            onclick="event.stopPropagation();"
+                                            title="Copiar parametrizaciones de otra cuenta"
+                                            style="padding: 3px 6px; border-radius: 5px; background: rgba(2, 132, 199, 0.1); color: #0284c7; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease; border: 1px solid rgba(2, 132, 199, 0.25);">
+                                            <i class="pi pi-copy" style="font-size: 1.05rem;"></i>
+                                        </p:commandLink>
                                     </div>
                                 </f:facet>
 

@@ -8152,6 +8152,418 @@ def marcar_recomendacion_revisada(payload: MarcarRevisadaPayload, db: Session = 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =========================================================================
+# COPIAR PARAMETRIZACIONES DE ESTRATEGIAS ENTRE CUENTAS
+# =========================================================================
+
+@router.get("/estrategias/usuarios-origen")
+def getUsuariosOrigen(db: Session = Depends(get_db)):
+    """
+    Obtiene la lista de usuarios activos para el combo de usuario en la modal de copia,
+    ordenados alfabéticamente por su nombre.
+    """
+    try:
+        users = db.query(Usuario).filter(Usuario.status == 1).order_by(Usuario.nombre.asc()).all()
+        return [
+            {
+                "idUsuario": u.idUsuario,
+                "nombre": f"{u.nombre} {u.apellidoPaterno or ''}".strip(),
+                "username": u.username
+            }
+            for u in users
+        ]
+    except Exception as e:
+        logger.error(f"Error al obtener usuarios origen: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/estrategias/cuentas-usuario/{idUsuario}")
+def getCuentasUsuario(idUsuario: int, excludeAccountId: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Obtiene las cuentas activas asociadas al usuario especificado,
+    ordenadas alfabéticamente por el nombre de la cuenta.
+    Permite opcionalmente excluir la cuenta destino activa.
+    """
+    try:
+        if excludeAccountId:
+            query = text("""
+                SELECT c.idCuenta, c.Nombre as nombreCuenta
+                FROM usuarioCuenta uc
+                JOIN cuenta c ON uc.idCuenta = c.idCuenta
+                WHERE uc.idUsuario = :idUsuario AND uc.activo = 1 AND c.Activo = 1
+                  AND c.idCuenta != :excludeId
+                ORDER BY c.Nombre ASC
+            """)
+            rows = db.execute(query, {"idUsuario": idUsuario, "excludeId": excludeAccountId}).fetchall()
+        else:
+            query = text("""
+                SELECT c.idCuenta, c.Nombre as nombreCuenta
+                FROM usuarioCuenta uc
+                JOIN cuenta c ON uc.idCuenta = c.idCuenta
+                WHERE uc.idUsuario = :idUsuario AND uc.activo = 1 AND c.Activo = 1
+                ORDER BY c.Nombre ASC
+            """)
+            rows = db.execute(query, {"idUsuario": idUsuario}).fetchall()
+
+        return [
+            {
+                "idCuenta": r[0],
+                "nombreCuenta": str(r[1] or "").strip(),
+                "label": str(r[1] or "").strip()
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"Error al obtener cuentas del usuario {idUsuario}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/estrategias/cuentas-origen/{idUsuario}")
+def getCuentasOrigen(idUsuario: int, db: Session = Depends(get_db)):
+    """
+    Obtiene las cuentas activas que no pertenecen al usuario especificado,
+    ordenadas alfabéticamente por el nombre de la cuenta.
+    """
+    try:
+        userAccountRows = db.execute(
+            text("SELECT idCuenta FROM usuarioCuenta WHERE idUsuario = :idUsuario AND activo = 1"),
+            {"idUsuario": idUsuario}
+        ).fetchall()
+        userAccountIds = [r[0] for r in userAccountRows]
+
+        if userAccountIds:
+            query = text("""
+                SELECT c.idCuenta, c.Nombre as nombreCuenta, COALESCE(u.nombre, '') as nombreUsuario
+                FROM cuenta c
+                LEFT JOIN usuarioCuenta uc ON c.idCuenta = uc.idCuenta AND uc.activo = 1
+                LEFT JOIN usuario u ON uc.idUsuario = u.idUsuario
+                WHERE c.Activo = 1 AND c.idCuenta NOT IN :excludeIds
+                ORDER BY c.Nombre ASC
+            """)
+            rows = db.execute(query, {"excludeIds": tuple(userAccountIds)}).fetchall()
+        else:
+            query = text("""
+                SELECT c.idCuenta, c.Nombre as nombreCuenta, COALESCE(u.nombre, '') as nombreUsuario
+                FROM cuenta c
+                LEFT JOIN usuarioCuenta uc ON c.idCuenta = uc.idCuenta AND uc.activo = 1
+                LEFT JOIN usuario u ON uc.idUsuario = u.idUsuario
+                WHERE c.Activo = 1
+                ORDER BY c.Nombre ASC
+            """)
+            rows = db.execute(query).fetchall()
+
+        result = []
+        for r in rows:
+            nombreCuenta = str(r[1] or "").strip()
+            nombreUsuario = str(r[2] or "").strip()
+            label = f"{nombreCuenta} ({nombreUsuario})" if nombreUsuario else nombreCuenta
+            result.append({
+                "idCuenta": r[0],
+                "nombreCuenta": nombreCuenta,
+                "nombreUsuario": nombreUsuario,
+                "label": label
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error al obtener cuentas origen: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/estrategias/items-cuenta/{estrategia}/{idCuenta}")
+def getItemsCuentaEstrategia(estrategia: str, idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene los items/pares configurados en la cuenta origen para la estrategia indicada.
+    """
+    try:
+        strat = (estrategia or "").strip().upper()
+        items = []
+        if strat in ["RATIOS", "RATIO"]:
+            rows = db.query(UserRatio).filter(
+                UserRatio.idCuenta == idCuenta,
+                (UserRatio.borrado == False) | (UserRatio.borrado == None)
+            ).order_by(UserRatio.numerador.asc(), UserRatio.denominador.asc()).all()
+            for r in rows:
+                itemStr = f"{r.numerador} / {r.denominador}"
+                if itemStr not in items:
+                    items.append(itemStr)
+        elif strat in ["CART", "RIDER"]:
+            rows = db.query(UserCart).filter(
+                UserCart.idCuenta == idCuenta,
+                (UserCart.borrado == False) | (UserCart.borrado == None)
+            ).order_by(UserCart.symbol.asc()).all()
+            for r in rows:
+                sym = str(r.symbol or "").strip()
+                if sym and sym not in items:
+                    items.append(sym)
+        elif strat == "SNIPER":
+            rows = db.query(UserSniper).filter(
+                UserSniper.idCuenta == idCuenta,
+                (UserSniper.borrado == False) | (UserSniper.borrado == None)
+            ).order_by(UserSniper.symbol.asc()).all()
+            for r in rows:
+                sym = str(r.symbol or "").strip()
+                if sym and sym not in items:
+                    items.append(sym)
+        else:
+            raise HTTPException(status_code=400, detail=f"Estrategia '{estrategia}' no soportada")
+
+        return items
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al obtener items de cuenta para estrategia: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CopiarParametrizacionesRequest(BaseModel):
+    idCuentaOrigen: int = Field(..., description="ID de la cuenta origen")
+    idCuentaDestino: int = Field(..., description="ID de la cuenta destino")
+    idUsuarioDestino: int = Field(..., description="ID del usuario destino")
+    estrategia: str = Field(..., description="Estrategia: RATIOS, CART, SNIPER")
+    items: List[str] = Field(..., description="Lista de items a copiar")
+
+
+@router.post("/estrategias/copiar-parametrizaciones")
+def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, db: Session = Depends(get_db)):
+    """
+    Copia las parametrizaciones de los items seleccionados desde la cuenta origen a la cuenta destino:
+    - Si el item no existe en la cuenta destino, se inserta con el siguiente ID autonumérico.
+    - Si ya existe en la cuenta destino, se sobreescriben sus parametrizaciones conservando el ID existente.
+    - Solo se copian las parametrizaciones.
+    """
+    try:
+        strat = (payload.estrategia or "").strip().upper()
+        copiedCount = 0
+        updatedCount = 0
+        insertedCount = 0
+
+        if strat in ["RATIOS", "RATIO"]:
+            for itemStr in payload.items:
+                parts = itemStr.split("/")
+                if len(parts) != 2:
+                    continue
+                num = parts[0].strip()
+                den = parts[1].strip()
+
+                sourceRow = db.query(UserRatio).filter(
+                    UserRatio.idCuenta == payload.idCuentaOrigen,
+                    UserRatio.numerador == num,
+                    UserRatio.denominador == den
+                ).first()
+                if not sourceRow:
+                    continue
+
+                destRow = db.query(UserRatio).filter(
+                    UserRatio.idCuenta == payload.idCuentaDestino,
+                    UserRatio.numerador == num,
+                    UserRatio.denominador == den
+                ).first()
+
+                if destRow:
+                    destRow.Temporalidad = sourceRow.Temporalidad
+                    destRow.periodo = sourceRow.periodo
+                    destRow.EMARapida = sourceRow.EMARapida
+                    destRow.EMALenta = sourceRow.EMALenta
+                    destRow.cierreDivergencia = sourceRow.cierreDivergencia
+                    destRow.tipoCierre = sourceRow.tipoCierre
+                    destRow.umbralDiferencia = sourceRow.umbralDiferencia
+                    destRow.salirBreakeven = sourceRow.salirBreakeven
+                    destRow.tipoEntrada = sourceRow.tipoEntrada
+                    destRow.accionCierre = sourceRow.accionCierre
+                    destRow.fixedMinA = sourceRow.fixedMinA
+                    destRow.fixedMaxA = sourceRow.fixedMaxA
+                    destRow.fixedMinB = sourceRow.fixedMinB
+                    destRow.fixedMaxB = sourceRow.fixedMaxB
+                    destRow.origen = sourceRow.origen
+                    destRow.borrado = False
+                    updatedCount += 1
+                else:
+                    newRow = UserRatio(
+                        idUsuario=payload.idUsuarioDestino,
+                        idCuenta=payload.idCuentaDestino,
+                        numerador=num,
+                        denominador=den,
+                        Temporalidad=sourceRow.Temporalidad,
+                        periodo=sourceRow.periodo,
+                        EMARapida=sourceRow.EMARapida,
+                        EMALenta=sourceRow.EMALenta,
+                        operar=sourceRow.operar,
+                        cierreDivergencia=sourceRow.cierreDivergencia,
+                        tipoCierre=sourceRow.tipoCierre,
+                        umbralDiferencia=sourceRow.umbralDiferencia,
+                        salirBreakeven=sourceRow.salirBreakeven,
+                        tipoEntrada=sourceRow.tipoEntrada,
+                        accionCierre=sourceRow.accionCierre,
+                        fixedMinA=sourceRow.fixedMinA,
+                        fixedMaxA=sourceRow.fixedMaxA,
+                        fixedMinB=sourceRow.fixedMinB,
+                        fixedMaxB=sourceRow.fixedMaxB,
+                        origen=sourceRow.origen,
+                        borrado=False
+                    )
+                    db.add(newRow)
+                    insertedCount += 1
+                copiedCount += 1
+
+        elif strat in ["CART", "RIDER"]:
+            for itemStr in payload.items:
+                sym = itemStr.strip()
+                if not sym:
+                    continue
+
+                sourceRow = db.query(UserCart).filter(
+                    UserCart.idCuenta == payload.idCuentaOrigen,
+                    UserCart.symbol == sym
+                ).first()
+                if not sourceRow:
+                    continue
+
+                destRow = db.query(UserCart).filter(
+                    UserCart.idCuenta == payload.idCuentaDestino,
+                    UserCart.symbol == sym
+                ).first()
+
+                if destRow:
+                    destRow.Temporalidad = sourceRow.Temporalidad
+                    destRow.periodo = sourceRow.periodo
+                    destRow.EMARapida = sourceRow.EMARapida
+                    destRow.EMALenta = sourceRow.EMALenta
+                    destRow.carWindow = sourceRow.carWindow
+                    destRow.emaSugerida = sourceRow.emaSugerida
+                    destRow.carMultiplier = sourceRow.carMultiplier
+                    destRow.tipoCierre = sourceRow.tipoCierre
+                    destRow.umbralDiferencia = sourceRow.umbralDiferencia
+                    destRow.salirBreakeven = sourceRow.salirBreakeven
+                    destRow.tipoEntrada = sourceRow.tipoEntrada
+                    destRow.accionCierre = sourceRow.accionCierre
+                    destRow.filtroHorario = sourceRow.filtroHorario
+                    destRow.horaInicio = sourceRow.horaInicio
+                    destRow.horaFin = sourceRow.horaFin
+                    destRow.usarTSL = sourceRow.usarTSL
+                    destRow.fixedMin = sourceRow.fixedMin
+                    destRow.fixedMax = sourceRow.fixedMax
+                    destRow.origen = sourceRow.origen
+                    destRow.borrado = False
+                    updatedCount += 1
+                else:
+                    newRow = UserCart(
+                        idUsuario=payload.idUsuarioDestino,
+                        idCuenta=payload.idCuentaDestino,
+                        symbol=sym,
+                        Temporalidad=sourceRow.Temporalidad,
+                        periodo=sourceRow.periodo,
+                        EMARapida=sourceRow.EMARapida,
+                        EMALenta=sourceRow.EMALenta,
+                        carWindow=sourceRow.carWindow,
+                        emaSugerida=sourceRow.emaSugerida,
+                        carMultiplier=sourceRow.carMultiplier,
+                        operar=sourceRow.operar,
+                        tipoCierre=sourceRow.tipoCierre,
+                        umbralDiferencia=sourceRow.umbralDiferencia,
+                        salirBreakeven=sourceRow.salirBreakeven,
+                        tipoEntrada=sourceRow.tipoEntrada,
+                        accionCierre=sourceRow.accionCierre,
+                        filtroHorario=sourceRow.filtroHorario,
+                        horaInicio=sourceRow.horaInicio,
+                        horaFin=sourceRow.horaFin,
+                        usarTSL=sourceRow.usarTSL,
+                        fixedMin=sourceRow.fixedMin,
+                        fixedMax=sourceRow.fixedMax,
+                        origen=sourceRow.origen,
+                        borrado=False
+                    )
+                    db.add(newRow)
+                    insertedCount += 1
+                copiedCount += 1
+
+        elif strat == "SNIPER":
+            for itemStr in payload.items:
+                sym = itemStr.strip()
+                if not sym:
+                    continue
+
+                sourceRow = db.query(UserSniper).filter(
+                    UserSniper.idCuenta == payload.idCuentaOrigen,
+                    UserSniper.symbol == sym
+                ).first()
+                if not sourceRow:
+                    continue
+
+                destRow = db.query(UserSniper).filter(
+                    UserSniper.idCuenta == payload.idCuentaDestino,
+                    UserSniper.symbol == sym
+                ).first()
+
+                if destRow:
+                    destRow.Temporalidad = sourceRow.Temporalidad
+                    destRow.periodo = sourceRow.periodo
+                    destRow.minConfidence = sourceRow.minConfidence
+                    destRow.minRr = sourceRow.minRr
+                    destRow.maxRr = sourceRow.maxRr
+                    destRow.accionCierre = sourceRow.accionCierre
+                    destRow.tipoCierre = sourceRow.tipoCierre
+                    destRow.usarBreakEven = sourceRow.usarBreakEven
+                    destRow.usarTSL = sourceRow.usarTSL
+                    destRow.filtroHorario = sourceRow.filtroHorario
+                    destRow.horaInicio = sourceRow.horaInicio
+                    destRow.horaFin = sourceRow.horaFin
+                    destRow.horaInicio2 = sourceRow.horaInicio2
+                    destRow.horaFin2 = sourceRow.horaFin2
+                    destRow.multiplicadorRiesgo = sourceRow.multiplicadorRiesgo
+                    destRow.origen = sourceRow.origen
+                    destRow.borrado = False
+                    updatedCount += 1
+                else:
+                    newRow = UserSniper(
+                        idUsuario=payload.idUsuarioDestino,
+                        idCuenta=payload.idCuentaDestino,
+                        symbol=sym,
+                        Temporalidad=sourceRow.Temporalidad,
+                        periodo=sourceRow.periodo,
+                        minConfidence=sourceRow.minConfidence,
+                        minRr=sourceRow.minRr,
+                        maxRr=sourceRow.maxRr,
+                        operar=sourceRow.operar,
+                        accionCierre=sourceRow.accionCierre,
+                        tipoCierre=sourceRow.tipoCierre,
+                        usarBreakEven=sourceRow.usarBreakEven,
+                        usarTSL=sourceRow.usarTSL,
+                        filtroHorario=sourceRow.filtroHorario,
+                        horaInicio=sourceRow.horaInicio,
+                        horaFin=sourceRow.horaFin,
+                        horaInicio2=sourceRow.horaInicio2,
+                        horaFin2=sourceRow.horaFin2,
+                        multiplicadorRiesgo=sourceRow.multiplicadorRiesgo,
+                        origen=sourceRow.origen,
+                        borrado=False
+                    )
+                    db.add(newRow)
+                    insertedCount += 1
+                copiedCount += 1
+        else:
+            raise HTTPException(status_code=400, detail=f"Estrategia '{payload.estrategia}' no soportada")
+
+        db.commit()
+        logger.info(
+            f"✅ Copia de parametrizaciones {strat}: origen #{payload.idCuentaOrigen} -> destino #{payload.idCuentaDestino}. "
+            f"Total: {copiedCount} ({insertedCount} nuevos, {updatedCount} actualizados)"
+        )
+        return {
+            "status": "success",
+            "message": f"Se procesaron {copiedCount} item(s): {insertedCount} insertado(s) y {updatedCount} actualizado(s).",
+            "copiedCount": copiedCount,
+            "insertedCount": insertedCount,
+            "updatedCount": updatedCount
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al copiar parametrizaciones de estrategia: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 
