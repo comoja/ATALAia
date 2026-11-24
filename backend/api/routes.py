@@ -107,6 +107,112 @@ def get_db():
     finally:
         db.close()
 
+# Cache en memoria para posiciones y tokens de Excent Capital
+_excent_positions_cache: Dict[int, Tuple[float, Dict[str, Any]]] = {}
+_excent_token_cache: Dict[str, Tuple[float, str]] = {}
+
+def get_excent_positions_map(idCuenta: int, db: Session) -> Dict[str, Dict[str, Any]]:
+    """
+    Obtiene las posiciones abiertas en vivo desde la API de Excent Capital para la cuenta especificada.
+    Utiliza una caché en memoria de 3 segundos para evitar saturar la API del broker en peticiones simultáneas.
+    Devuelve un diccionario mapeado por ticketId/UUID de la posición.
+    """
+    now = time.time()
+    cached = _excent_positions_cache.get(idCuenta)
+    if cached and (now - cached[0] < 3.0):
+        return cached[1]
+
+    try:
+        sql_broker = text("""
+            SELECT bc.loginUsuario, bc.tokenAcceso, bc.Apikey, bc.Servidor, b.nombre AS nombreBroker, bc.idBroker
+            FROM brokercuenta bc
+            JOIN broker b ON bc.idBroker = b.idBroker
+            WHERE bc.idCuenta = :idc AND bc.activo = 1
+            LIMIT 1
+        """)
+        row = db.execute(sql_broker, {"idc": idCuenta}).fetchone()
+        if not row:
+            return {}
+
+        id_broker = row.idBroker
+        nombre_broker = str(row.nombreBroker or "").lower()
+        if id_broker != 4 and "excent" not in nombre_broker:
+            return {}
+
+        login_user = str(row.loginUsuario or "").strip()
+        token_pwd = str(row.tokenAcceso or "").strip()
+        api_key = str(row.Apikey or "").strip()
+        api_url = str(row.Servidor or "https://api.excentcapital.com/api/v1").strip().rstrip("/")
+
+        target_uuid = ""
+        if "|" in api_key:
+            target_uuid = api_key.split("|")[1].strip()
+        elif len(api_key) == 36 and api_key.count("-") == 4:
+            target_uuid = api_key
+
+        if not login_user or not token_pwd:
+            return {}
+
+        import httpx
+        token_entry = _excent_token_cache.get(login_user)
+        access_token = None
+        if token_entry and (now < token_entry[0]):
+            access_token = token_entry[1]
+        else:
+            token_res = httpx.post(
+                f"{api_url}/core/token/",
+                json={"email": login_user, "password": token_pwd},
+                headers={"Content-Type": "application/json"},
+                timeout=5.0
+            )
+            if token_res.status_code == 200:
+                access_token = token_res.json().get("access")
+                _excent_token_cache[login_user] = (now + 3000.0, access_token)
+            else:
+                return {}
+
+        if not access_token:
+            return {}
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        pos_url = f"{api_url}/positions/trading-positions/"
+        if target_uuid:
+            pos_url += f"?tradingAccount={target_uuid}"
+
+        pos_res = httpx.get(pos_url, headers=headers, timeout=5.0)
+        if pos_res.status_code == 200:
+            p_data = pos_res.json()
+            p_list = p_data if isinstance(p_data, list) else p_data.get("results", [])
+            pos_map = {}
+            for p in p_list:
+                uuid = str(p.get("uuid") or "").strip()
+                pid = str(p.get("id") or "").strip()
+                p_obj = {
+                    "uuid": uuid,
+                    "id": pid,
+                    "symbolName": p.get("symbolName"),
+                    "volume": float(p.get("volume") or 0.0),
+                    "openPrice": float(p.get("openPrice") or 0.0),
+                    "currentPrice": float(p.get("currentPrice") or 0.0),
+                    "profit": float(p.get("profit") or 0.0),
+                    "netProfit": float(p.get("netProfit") or 0.0),
+                    "marginRequired": float(p.get("marginRequired") or 0.0) if p.get("marginRequired") is not None else None,
+                    "buy": bool(p.get("buy"))
+                }
+                if uuid:
+                    pos_map[uuid] = p_obj
+                if pid:
+                    pos_map[pid] = p_obj
+            _excent_positions_cache[idCuenta] = (now, pos_map)
+            return pos_map
+    except Exception as e:
+        logger.warning(f"⚠️ [EXCENT] Error consultando posiciones en vivo para cuenta {idCuenta}: {e}")
+
+    return {}
+
 @router.get("/correlation/{pair_name:path}")
 async def get_pair_correlation(
     pair_name: str,
@@ -596,7 +702,7 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     from sqlalchemy import text
     sql = text("""
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction, 
-               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime
+               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime, ticketId
         FROM trades
         WHERE idCuenta = :idc 
           AND status = 'OPEN' 
@@ -609,6 +715,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     if not rows:
         return []
         
+    excent_positions = get_excent_positions_map(idCuenta, db)
+
     by_setup = {}
     for r in rows:
         setup = r.setup or "RATIO"
@@ -672,6 +780,8 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
         dirA = ""
         dirB = ""
         trade_items = []
+        lastLivePriceA = None
+        lastLivePriceB = None
         
         for t in t_list:
             sym = t.symbol
@@ -679,20 +789,40 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             size = float(t.size or 0)
             entry = float(t.entryPrice or 0)
             margin = float(t.margin_used or 0)
-            tot_margin += margin
             
             cur_px, qc, pip_sz = sym_cache.get((sym, direction), sym_cache.get((sym, "LARGO"), (entry, "USD", 0.0001)))
             
             is_long = "LARG" in direction or "BUY" in direction or "LONG" in direction
-            # Cálculo centralizado de PnL no realizado (Panel 2 y 3)
-            item_pnl_usd, pips, pip_val_usd, mov = calculate_unrealized_pnl(
-                symbol=sym,
-                direction=direction,
-                entry_price=entry,
-                current_price=cur_px,
-                size=size,
-                pip_size=pip_sz
-            )
+
+            # Sincronización en vivo con Excent Capital si la posición proviene de dicho broker
+            ticket = str(getattr(t, "ticketId", "") or "").strip()
+            ep = excent_positions.get(ticket) if (excent_positions and ticket) else None
+
+            if ep:
+                if ep.get("currentPrice"):
+                    cur_px = ep["currentPrice"]
+                    if sym == pairA:
+                        lastLivePriceA = cur_px
+                    elif sym == pairB:
+                        lastLivePriceB = cur_px
+                item_pnl_usd = round(float(ep.get("netProfit", 0.0)), 2)
+                mov = round(cur_px - entry, 6) if is_long else round(entry - cur_px, 6)
+                pips = round(mov / pip_sz, 1) if pip_sz > 0 else 0.0
+                pip_val_usd = round(abs(item_pnl_usd / pips), 5) if pips != 0 else 0.0
+                if ep.get("marginRequired") is not None and ep["marginRequired"] > 0:
+                    margin = float(ep["marginRequired"])
+            else:
+                # Cálculo centralizado de PnL no realizado (Panel 2 y 3)
+                item_pnl_usd, pips, pip_val_usd, mov = calculate_unrealized_pnl(
+                    symbol=sym,
+                    direction=direction,
+                    entry_price=entry,
+                    current_price=cur_px,
+                    size=size,
+                    pip_size=pip_sz
+                )
+
+            tot_margin += margin
             
             is_coverage = 'COBERTURA' in str(t.strategy or '').upper()
 
@@ -728,8 +858,10 @@ def getActiveTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
                 "pnl": round(item_pnl_usd, 2),
                 "openTime": str(t.openTime)
             })
-            
-
+        if lastLivePriceA is not None:
+            curA = lastLivePriceA
+        if lastLivePriceB is not None:
+            curB = lastLivePriceB
 
         # Excluir coberturas del cálculo de tamaño, precio promedio ponderado y dirección de la canasta principal
         main_trades_A = [t for t in t_list if t.symbol == pairA and 'COBERTURA' not in str(t.strategy or '').upper()]
@@ -1060,15 +1192,30 @@ def getBalanceGeneralGlobal(idUsuario: Optional[int] = None, db: Session = Depen
         dir_label = "COMPRA" if is_long else "VENTA"
         strat = str(getattr(t, 'strategy', None) or "RATIO ATALAia").strip()
 
-        # Cálculo centralizado de PnL no realizado (Balance General Global)
-        pnl, pips, pip_val_usd, _mov = calculate_unrealized_pnl(
-            symbol=sym,
-            direction=d,
-            entry_price=entry,
-            current_price=cur_px,
-            size=sz,
-            pip_size=pip_sz
-        )
+        # Checar si proviene de Excent Capital
+        t_idc = getattr(t, "idCuenta", None)
+        t_ticket = str(getattr(t, "ticketId", "") or "").strip()
+        ep = None
+        if t_idc and t_ticket:
+            pos_map = get_excent_positions_map(t_idc, db)
+            ep = pos_map.get(t_ticket)
+
+        if ep:
+            if ep.get("currentPrice"):
+                cur_px = ep["currentPrice"]
+            pnl = round(float(ep.get("netProfit", 0.0)), 2)
+            if ep.get("marginRequired") is not None and ep["marginRequired"] > 0:
+                mg = float(ep["marginRequired"])
+        else:
+            # Cálculo centralizado de PnL no realizado (Balance General Global)
+            pnl, pips, pip_val_usd, _mov = calculate_unrealized_pnl(
+                symbol=sym,
+                direction=d,
+                entry_price=entry,
+                current_price=cur_px,
+                size=sz,
+                pip_size=pip_sz
+            )
         total_pnl += pnl
         total_margin += mg
 
@@ -6537,7 +6684,7 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     """
     sql = text("""
         SELECT idTrade, idCuenta, strategy, setup, symbol, direction,
-               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime, status
+               openTime, size, entryPrice, margin_used, pnl, intervalo, candleTime, status, ticketId
         FROM trades
         WHERE idCuenta = :idc
           AND status = 'OPEN'
@@ -6547,6 +6694,8 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     rows = db.execute(sql, {"idc": idCuenta}).fetchall()
     if not rows:
         return []
+
+    excent_positions = get_excent_positions_map(idCuenta, db)
 
     by_symbol = {}
     for r in rows:
@@ -6579,26 +6728,31 @@ def getActiveCartTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             mg = float(t.margin_used or 0.0)
             d_str = str(t.direction or "LARGO").upper()
             dir_str = d_str
-            tot_margin += mg
-            tot_size += sz
-            w_entry += ep * sz
 
-            live_px_dir = get_live_price_from_mt5(sym, direction=d_str)
-            if live_px_dir is not None:
-                cur_px = float(live_px_dir)
+            ticket = str(getattr(t, "ticketId", "") or "").strip()
+            ex_pos = excent_positions.get(ticket) if (excent_positions and ticket) else None
+
+            if ex_pos:
+                cur_px = float(ex_pos["currentPrice"]) if ex_pos.get("currentPrice") else float(ep or 1.0)
+                item_pnl = round(float(ex_pos.get("netProfit", 0.0)), 2)
+                if ex_pos.get("marginRequired") is not None and ex_pos["marginRequired"] > 0:
+                    mg = float(ex_pos["marginRequired"])
             else:
-                row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
-                cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
-            last_px = cur_px
+                live_px_dir = get_live_price_from_mt5(sym, direction=d_str)
+                if live_px_dir is not None:
+                    cur_px = float(live_px_dir)
+                else:
+                    row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                    cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
 
-            item_pnl, pips, _, _ = calculate_unrealized_pnl(
-                symbol=sym,
-                direction=d_str,
-                entry_price=ep,
-                current_price=cur_px,
-                size=sz,
-                pip_size=pip_size
-            )
+                item_pnl, pips, _, _ = calculate_unrealized_pnl(
+                    symbol=sym,
+                    direction=d_str,
+                    entry_price=ep,
+                    current_price=cur_px,
+                    size=sz,
+                    pip_size=pip_size
+                )
             tot_pnl += item_pnl
             dt_val = t.openTime or t.candleTime
             if dt_val:
@@ -7377,6 +7531,8 @@ def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     if not rows:
         return []
 
+    excent_positions = get_excent_positions_map(idCuenta, db)
+
     by_symbol = {}
     for r in rows:
         sym = r["symbol"] or r["setup"] or "SNIPER"
@@ -7404,28 +7560,38 @@ def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
             mg = float(t["margin_used"] or 0.0)
             d_str = str(t["direction"] or "LARGO").upper()
             dir_str = d_str
+
+            ticket = str(t.get("ticketId") or "").strip()
+            ex_pos = excent_positions.get(ticket) if (excent_positions and ticket) else None
+
+            if ex_pos:
+                cur_px = float(ex_pos["currentPrice"]) if ex_pos.get("currentPrice") else float(ep or 1.0)
+                item_pnl = round(float(ex_pos.get("netProfit", 0.0)), 2)
+                if ex_pos.get("marginRequired") is not None and ex_pos["marginRequired"] > 0:
+                    mg = float(ex_pos["marginRequired"])
+            else:
+                live_px = get_live_price_from_mt5(sym, direction=d_str)
+                if live_px is not None:
+                    cur_px = float(live_px)
+                else:
+                    row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                    cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
+                if p_offset != 0.0:
+                    cur_px = cur_px + p_offset
+
+                item_pnl, _, _, _ = calculate_unrealized_pnl(
+                    symbol=sym,
+                    direction=d_str,
+                    entry_price=ep,
+                    current_price=cur_px,
+                    size=sz,
+                    pip_size=pip_size
+                )
+
+            last_px = cur_px
             tot_margin += mg
             tot_size += sz
             w_entry += ep * sz
-
-            live_px = get_live_price_from_mt5(sym, direction=d_str)
-            if live_px is not None:
-                cur_px = float(live_px)
-            else:
-                row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
-                cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
-            if p_offset != 0.0:
-                cur_px = cur_px + p_offset
-            last_px = cur_px
-
-            item_pnl, _, _, _ = calculate_unrealized_pnl(
-                symbol=sym,
-                direction=d_str,
-                entry_price=ep,
-                current_price=cur_px,
-                size=sz,
-                pip_size=pip_size
-            )
             tot_pnl += item_pnl
             dt_val = t["openTime"] or t["candleTime"]
             if dt_val:
@@ -7720,6 +7886,7 @@ async def getSniperAnalysis(
 
         if openTradeRows:
             tradeAccId = openTradeRows[0].get("idCuenta") or idCuenta
+            pos_map = get_excent_positions_map(tradeAccId, db) if tradeAccId else {}
             uRow = None
             if tradeAccId:
                 uRow = db.execute(text("""
@@ -7753,14 +7920,28 @@ async def getSniperAnalysis(
                 rSize = float(row["size"] or 0.0)
                 rMargin = float(row["margin_used"] or 0.0)
 
-                rPnl, rPips, _, _ = calculate_unrealized_pnl(
-                    symbol=symbol,
-                    direction=rDir,
-                    entry_price=rEntryPx,
-                    current_price=currentPx,
-                    size=rSize,
-                    pip_size=pipSz
-                )
+                tkt_str = str(row.get("ticketId") or "").strip()
+                if tkt_str:
+                    ticketIds.append(tkt_str)
+
+                ex_pos = pos_map.get(tkt_str) if (pos_map and tkt_str) else None
+                if ex_pos:
+                    if ex_pos.get("currentPrice"):
+                        currentPx = float(ex_pos["currentPrice"])
+                    rPnl = round(float(ex_pos.get("netProfit", 0.0)), 2)
+                    if ex_pos.get("marginRequired") is not None and ex_pos["marginRequired"] > 0:
+                        rMargin = float(ex_pos["marginRequired"])
+                    mov = round(currentPx - rEntryPx, 6) if rIsLong else round(rEntryPx - currentPx, 6)
+                    rPips = round(mov / pipSz, 1) if pipSz > 0 else 0.0
+                else:
+                    rPnl, rPips, _, _ = calculate_unrealized_pnl(
+                        symbol=symbol,
+                        direction=rDir,
+                        entry_price=rEntryPx,
+                        current_price=currentPx,
+                        size=rSize,
+                        pip_size=pipSz
+                    )
 
                 rHasBe = hasBeCfg or rIsBe
                 rBeTrigger = None
@@ -7776,9 +7957,6 @@ async def getSniperAnalysis(
                     rTslVal = round(currentPx - slDist if rIsLong else currentPx + slDist, 5)
 
                 dt_val = row["openTime"] or row["candleTime"]
-                tkt_str = str(row.get("ticketId") or "")
-                if tkt_str:
-                    ticketIds.append(tkt_str)
 
                 itemTrade = {
                     "idTrade": row["idTrade"],

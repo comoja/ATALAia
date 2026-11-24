@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from Webhook.services.forex_client import ForexClient
+from Webhook.services.excent_client import ExcentClient
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +55,16 @@ async def obtenerConciliacionPosiciones(
             c.Nombre AS nombreCuenta, 
             bc.loginUsuario, 
             bc.tokenAcceso, 
+            bc.idBroker,
+            b.nombre AS nombreBroker,
+            bc.Apikey,
+            bc.Servidor,
             COALESCE(u.idUsuario, 0) AS idUsuario, 
             COALESCE(u.nombre, 'Sin Asignar') AS nombreUsuario, 
             COALESCE(u.email, 'sin_correo') AS emailUsuario
         FROM cuenta c
         JOIN brokercuenta bc ON bc.idCuenta = c.idCuenta AND bc.activo = 1
+        JOIN broker b ON bc.idBroker = b.idBroker
         LEFT JOIN usuarioCuenta uc ON uc.idCuenta = c.idCuenta AND uc.activo = 1
         LEFT JOIN usuario u ON u.idUsuario = uc.idUsuario
         WHERE c.Activo = 1 {user_filter_sql}
@@ -153,16 +159,75 @@ async def obtenerConciliacionPosiciones(
             t_copy["ticketIdSingle"] = f"ATALAIA-NO-TICKET-{t_copy['idTrade']}"
             atalaia_orphan_trades.append(t_copy)
 
-    # 4. Consultar posiciones abiertas en FOREX.com para cada login único
+    # 4. Consultar posiciones abiertas en brokers (FOREX.com y Excent Capital)
     forex_positions_by_ticket = {}
-    unique_logins = {}
+    unique_forex_logins = {}
+    excent_accounts_to_check = []
+
     for c in cuentas_raw:
+        id_broker = c.get("idBroker")
+        nombre_broker = str(c.get("nombreBroker") or "").lower()
+        is_excent = (id_broker == 4) or ("excent" in nombre_broker)
+
         login = c["loginUsuario"]
         token = c["tokenAcceso"]
-        if login and login not in unique_logins:
-            unique_logins[login] = token
 
-    for login, token in unique_logins.items():
+        if is_excent:
+            excent_accounts_to_check.append(c)
+        else:
+            if login and login not in unique_forex_logins:
+                unique_forex_logins[login] = token
+
+    # 4.1 Posiciones en Excent Capital
+    for c in excent_accounts_to_check:
+        login = c["loginUsuario"]
+        token = c["tokenAcceso"]
+        api_key = c.get("Apikey") or ""
+        servidor = c.get("Servidor") or ""
+        try:
+            ex_client = ExcentClient(
+                username=login,
+                password=token,
+                apiUrl=servidor if servidor else None,
+                appKey=api_key if api_key else None
+            )
+            auth_ok = await ex_client.authenticateUser()
+            if auth_ok:
+                target_uuid = ex_client.accountUuid
+                open_pos = await ex_client.getOpenPositions(target_uuid)
+                logger.info(f"📥 [CONCILIACIÓN] Excent Capital login '{login}': {len(open_pos)} posiciones abiertas recibidas.")
+                for p in open_pos:
+                    pos_uuid = str(p.get("uuid") or "").strip()
+                    if not pos_uuid:
+                        continue
+                    p_dict = dict(p)
+                    p_dict["loginUsuario"] = login
+                    p_dict["TradingAccountId"] = target_uuid
+                    p_dict["OrderId"] = pos_uuid
+                    p_dict["Direction"] = "BUY" if p.get("buy") else "SELL"
+                    # En Excent, volume es en lotes (0.03 = 3000 unidades)
+                    vol = float(p.get("volume") or 0.0)
+                    p_dict["Quantity"] = vol * 100000.0 if vol < 50.0 else vol
+                    p_dict["Price"] = float(p.get("openPrice") or 0.0)
+                    p_dict["CurrentPrice"] = float(p.get("currentPrice") or 0.0)
+                    p_dict["Profit"] = float(p.get("netProfit") or p.get("profit") or 0.0)
+                    p_dict["CreatedDateTimeUTC"] = str(p.get("creationDate") or "-")
+
+                    sym_raw = str(p.get("symbolName") or "").strip()
+                    if len(sym_raw) == 6 and "/" not in sym_raw:
+                        sym_formatted = f"{sym_raw[:3]}/{sym_raw[3:]}"
+                    else:
+                        sym_formatted = sym_raw
+                    p_dict["symbolResuelto"] = sym_formatted
+
+                    forex_positions_by_ticket[pos_uuid] = p_dict
+            else:
+                logger.error(f"❌ [CONCILIACIÓN] Falló autenticación en Excent Capital para {login}")
+        except Exception as exEx:
+            logger.error(f"❌ [CONCILIACIÓN] Excepción consultando Excent Capital para {login}: {exEx}", exc_info=True)
+
+    # 4.2 Posiciones en FOREX.com
+    for login, token in unique_forex_logins.items():
         try:
             client = ForexClient(username=login, password=token)
             auth_ok = await client.authenticate()
