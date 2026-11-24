@@ -500,6 +500,21 @@
                         <h:outputText value="#{sym.symbol}" />
                     </p:column>
                     
+                    <p:column style="text-align: center; width: 120px;">
+                        <f:facet name="header">
+                            <h:outputText id="hdrSymExc" value="Excent" />
+                            <p:tooltip for="hdrSymExc" value="Ticker con el que se identifica y viaja la orden a Excent Capital (ej. NDXUSD, SPXUSD, AAPL)" position="top" />
+                        </f:facet>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:outputText value="#{sym.excent != null and sym.excent != '' ? sym.excent : '-'}" style="font-weight: 700; color: #0284c7;" />
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputText value="#{sym.excent}" style="width: 100%; text-transform: uppercase;" placeholder="Ticker Excent" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                    
                     <p:column>
                         <f:facet name="header">
                             <h:panelGroup id="hdrSymLot" layout="block">Lote Mínimo<br/>/ Unidades</h:panelGroup>

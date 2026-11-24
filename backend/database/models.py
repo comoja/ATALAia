@@ -99,6 +99,7 @@ class Symbol(Base):
     broker = Column(Integer, default=0)
     precioMaximo = Column(Float, nullable=True)
     precioMinimo = Column(Float, nullable=True)
+    Excent = Column(String(100), nullable=True)
     FOREX = Column(String(20), nullable=True)
     MT5 = Column(String(20), nullable=True)
     TradingView = Column(String(20), nullable=True)
@@ -147,6 +148,7 @@ class SentinelSymbol(Base):
     broker = Column(Integer, default=0)
     precioMaximo = Column(Float, nullable=True)
     precioMinimo = Column(Float, nullable=True)
+    Excent = Column(String(100), nullable=True)
 
 class UserRatio(Base):
     """

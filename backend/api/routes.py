@@ -2544,6 +2544,8 @@ class SymbolUpdate(BaseModel):
     broker: int
     precioMaximo: Optional[float] = None
     precioMinimo: Optional[float] = None
+    Excent: Optional[str] = None
+    excent: Optional[str] = None
 
 @router.get("/config/brokers")
 def get_brokers(db: Session = Depends(get_db)):
@@ -2667,13 +2669,37 @@ def get_simbolos():
     return res if res and isinstance(res, list) else []
 
 @router.post("/config/simbolos/guardar")
-def save_simbolo(payload: SymbolUpdate):
-    """Actualiza la configuración operativa de un símbolo mediante ConnectionPool."""
+def save_simbolo(payload: SymbolUpdate, db: Session = Depends(get_db)):
+    """Actualiza la configuración operativa de un símbolo tanto en ConnectionPool como en MySQL symbols."""
     from urllib.parse import quote
     safe_sym = quote(payload.symbol, safe='')
     sym_dict = payload.model_dump()
-    res = dbManager._call_connection_pool("PUT", f"/sentinel-symbols/{safe_sym}", json_data=sym_dict)
-    logger.info(f"Símbolo {payload.symbol} actualizado en ConnectionPool.")
+    try:
+        dbManager._call_connection_pool("PUT", f"/sentinel-symbols/{safe_sym}", json_data=sym_dict)
+    except Exception as exPool:
+        logger.warning(f"Aviso actualizando en ConnectionPool: {exPool}")
+
+    try:
+        target_excent = payload.Excent if payload.Excent is not None else payload.excent
+        update_vals = {
+            "activoSentinel": payload.Activo,
+            "min_lots": payload.min_lots,
+            "broker": payload.broker,
+            "precioMaximo": payload.precioMaximo,
+            "precioMinimo": payload.precioMinimo
+        }
+        if target_excent is not None:
+            update_vals["Excent"] = target_excent.strip().upper()
+        
+        set_clauses = [f"{k} = :{k}" for k in update_vals.keys()]
+        sql = f"UPDATE symbols SET {', '.join(set_clauses)} WHERE symbol = :symbol"
+        update_vals["symbol"] = payload.symbol
+        db.execute(text(sql), update_vals)
+        db.commit()
+    except Exception as exDb:
+        logger.error(f"Error actualizando tabla symbols directamente para {payload.symbol}: {exDb}")
+
+    logger.info(f"Símbolo {payload.symbol} actualizado correctamente.")
     return {"status": "success", "message": "Símbolo actualizado correctamente"}
 
 
@@ -4229,9 +4255,10 @@ def open_manual_ratio(
     )
 
     if not opened:
+        targetBroker = (accountData.get("brokerType") if accountData else None) or "el broker"
         raise HTTPException(
             status_code=500,
-            detail="Fallo al ejecutar la orden en el broker. Verifique logs del Webhook/FOREX.com."
+            detail=f"Fallo al ejecutar la orden en {targetBroker}. Verifique logs del Webhook."
         )
 
     return {

@@ -419,6 +419,9 @@ public class ConfiguracionBean implements Serializable {
         private Integer broker;
         private Double precioMaximo;
         private Double precioMinimo;
+
+        @JsonProperty("Excent")
+        private String excent;
     }
 
     @Getter
