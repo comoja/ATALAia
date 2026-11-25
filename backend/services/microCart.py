@@ -1403,7 +1403,7 @@ def checkRealtimeSlopeConfirmation(dbSession, symbol: str, direction: str, curre
                 FROM candles
                 WHERE symbol = :sym AND timeframe = '1min'
                 ORDER BY timestamp DESC
-                LIMIT 6
+                LIMIT 20
             ) sub
             ORDER BY timestamp ASC
         """)
@@ -1415,24 +1415,24 @@ def checkRealtimeSlopeConfirmation(dbSession, symbol: str, direction: str, curre
         if len(closes) < 2:
             return True, 0.0, "Velas insuficientes"
 
-        # Comparar precio actual con velas recientes (hace 4-5 min y hace 2-3 min)
-        pOld = closes[0]  # Hace ~5 minutos
-        pMid = closes[len(closes) // 2]  # Hace ~2-3 minutos
+        # Comparar precio actual con ventana de ~15min y ventana de ~5min
+        p15m = closes[0]  # Hace ~15-20 minutos
+        p5m = closes[-5] if len(closes) >= 5 else closes[0]  # Hace ~5 minutos
 
-        delta5m = currentPx - pOld
-        deltaMid = currentPx - pMid
+        delta15m = currentPx - p15m
+        delta5m = currentPx - p5m
 
         isBuy = direction.upper() in ["LARGO", "COMPRA", "BUY"]
         if isBuy:
             # LARGO: Requiere pendiente positiva (precio subiendo, dP/dt > 0)
-            if delta5m < 0 or deltaMid < 0:
-                return False, delta5m, f"Pendiente micro 1m NEGATIVA (5m delta: {delta5m:+.2f}, mid: {deltaMid:+.2f}). Bloqueada compra en retroceso."
-            return True, delta5m, f"Pendiente positiva confirmada (+{delta5m:.2f})"
+            if delta5m < 0 or delta15m < 0:
+                return False, delta5m, f"Pendiente micro 1m NEGATIVA (5m delta: {delta5m:+.3f}, 15m delta: {delta15m:+.3f}). Bloqueada compra en retroceso."
+            return True, delta5m, f"Pendiente positiva confirmada (+{delta5m:.3f})"
         else:
-            # CORTO: Requiere pendiente negativa (precio bajando, dP/dt < 0)
-            if delta5m > 0 or deltaMid > 0:
-                return False, delta5m, f"Pendiente micro 1m POSITIVA (5m delta: {delta5m:+.2f}, mid: {deltaMid:+.2f}). Bloqueada venta en rebote."
-            return True, delta5m, f"Pendiente negativa confirmada ({delta5m:.2f})"
+            # CORTO: Requiere pendiente estrictamente NEGATIVA (precio bajando, dP/dt < 0)
+            if delta5m > 0 or delta15m > 0:
+                return False, delta5m, f"Pendiente micro 1m POSITIVA (5m delta: {delta5m:+.3f}, 15m delta: {delta15m:+.3f}). Bloqueada venta en rebote."
+            return True, delta5m, f"Pendiente negativa confirmada ({delta5m:.3f})"
     except Exception as e:
         logger.warning(f"Error evaluando checkRealtimeSlopeConfirmation para {symbol}: {e}")
         return True, 0.0, f"Error confirmacion: {e}"
@@ -1705,19 +1705,25 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         isOutsideSell = bool(px is not None and cMin is not None and px < cMin)
 
         # 1. Filtro estricto de expansión del canal (evitar entrar si el precio está reingresando/rebotando hacia el CAR):
-        # Para COMPRA: si ya estaba afuera, el precio debe estar alejándose al alza del CAR superior (px > prevPx y distancia creciendo)
-        if isOutsideBuy and prevPx is not None and prevCMax is not None and prevPx > prevCMax:
-            currDistBuy = px - cMax
-            prevDistBuy = prevPx - prevCMax
-            if px <= prevPx or currDistBuy < prevDistBuy:
+        # Para COMPRA: el precio debe estar alejándose al alza del CAR superior; si retrocede a la baja, se bloquea
+        if isOutsideBuy:
+            if (prevPx is not None and px <= prevPx) or (openVal is not None and px < openVal):
                 isOutsideBuy = False  # Retroceso hacia el CAR superior (pendiente negativa hacia el canal)
+            elif prevPx is not None and prevCMax is not None and prevPx > prevCMax:
+                currDistBuy = px - cMax
+                prevDistBuy = prevPx - prevCMax
+                if currDistBuy < prevDistBuy:
+                    isOutsideBuy = False
 
-        # Para VENTA: si ya estaba afuera, el precio debe estar alejándose a la baja del CAR inferior (px < prevPx y distancia creciendo)
-        if isOutsideSell and prevPx is not None and prevCMin is not None and prevPx < prevCMin:
-            currDistSell = cMin - px
-            prevDistSell = prevCMin - prevPx
-            if px >= prevPx or currDistSell < prevDistSell:
+        # Para VENTA: el precio debe estar alejándose a la baja del CAR inferior; si rebota al alza, se bloquea
+        if isOutsideSell:
+            if (prevPx is not None and px >= prevPx) or (openVal is not None and px > openVal):
                 isOutsideSell = False  # Rebote hacia el CAR inferior (pendiente positiva hacia el canal)
+            elif prevPx is not None and prevCMin is not None and prevPx < prevCMin:
+                currDistSell = cMin - px
+                prevDistSell = prevCMin - prevPx
+                if currDistSell < prevDistSell:
+                    isOutsideSell = False
 
         # 2. Confirmación instantánea de micro-pendiente (dP/dt en tiempo real con velas 1m):
         slopeReason = ""

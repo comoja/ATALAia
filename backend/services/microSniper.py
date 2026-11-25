@@ -853,22 +853,47 @@ def evaluateSingleSniper(dbSession, sniperRecord: Dict[str, Any], botInstance: S
                 isBe = True
                 slPx = newSl
 
-        # B. Trailing Stop Loss opcional (si usarTSL está habilitado y ya aseguró BE)
-        if usarTSL and isBe and slPx:
+        # B. Trailing Stop Loss opcional (solo avanza hacia el TP y nunca retrocede)
+        canTsl = usarTSL and slPx and (isBe or not usarBreakEven)
+        if canTsl:
             adaptiveCfg = getAdaptiveConfigForSymbol(dbSession, symbol)
-            atrVal = float(df["high"].iloc[-14:] - df["low"].iloc[-14:]).mean() if len(df) >= 14 else 0.0010
+            atrVal = float((df["high"].iloc[-14:] - df["low"].iloc[-14:]).mean()) if len(df) >= 14 else 0.0010
             slDistance = atrVal * float(adaptiveCfg.get("slAtrMult", 1.5))
+
+            # Anclar al extremo más favorable alcanzado por el trade desde su apertura
+            trOpenTime = firstTr.get("openTime") or firstTr.get("candleTime")
+            bestHigh = highVal
+            bestLow = lowVal
+            if trOpenTime and hasattr(df.index, "__ge__"):
+                try:
+                    tsOpen = pd.to_datetime(trOpenTime)
+                    dfIdx = df.index.tz_localize(None) if (hasattr(df.index, "tz") and df.index.tz is not None) else df.index
+                    dfSince = df[dfIdx >= tsOpen]
+                    if len(dfSince) > 0:
+                        bestHigh = max(float(dfSince["high"].max()), highVal)
+                        bestLow = min(float(dfSince["low"].min()), lowVal)
+                except Exception:
+                    pass
+
             if isLong:
-                candidateSl = highVal - slDistance
+                candidateSl = bestHigh - slDistance
+                if tpPx is not None:
+                    candidateSl = min(candidateSl, tpPx)
+                # El TSL solo avanza hacia el TP (hacia arriba) y nunca retrocede
                 if candidateSl > slPx:
                     dbSession.execute(text("UPDATE trades SET stopLoss = :nsl WHERE idTrade = :idt"), {"nsl": candidateSl, "idt": firstTr["idTrade"]})
                     dbSession.commit()
+                    logger.info(f"📈 [SNIPER] TSL avanzado para #{firstTr['idTrade']} en {symbol} (LARGO): SL movido de {slPx:.5f} a {candidateSl:.5f} hacia TP ({tpPx})")
                     slPx = candidateSl
             else:
-                candidateSl = lowVal + slDistance
+                candidateSl = bestLow + slDistance
+                if tpPx is not None:
+                    candidateSl = max(candidateSl, tpPx)
+                # El TSL solo avanza hacia el TP (hacia abajo) y nunca retrocede
                 if candidateSl < slPx:
                     dbSession.execute(text("UPDATE trades SET stopLoss = :nsl WHERE idTrade = :idt"), {"nsl": candidateSl, "idt": firstTr["idTrade"]})
                     dbSession.commit()
+                    logger.info(f"📉 [SNIPER] TSL avanzado para #{firstTr['idTrade']} en {symbol} (CORTO): SL movido de {slPx:.5f} a {candidateSl:.5f} hacia TP ({tpPx})")
                     slPx = candidateSl
 
         # C. Verificación de Cierre por Take Profit

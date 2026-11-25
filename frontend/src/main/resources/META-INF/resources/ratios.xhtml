@@ -200,7 +200,7 @@
                                         style="width: 44px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
                                             style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'background: rgba(168, 85, 247, 0.15); color: #9333ea; border: 1px solid #c084fc;' : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'background: rgba(14, 165, 233, 0.15); color: #0284c7; border: 1px solid #38bdf8;' : 'background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fbbf24;')}"
-                                            title="#{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? ('Régimen Tolerante (VR &#8804; ' += r.umbralDiferencia += ')') : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'Régimen Reactivo' : 'Régimen Síncrono')} | Break-Even: #{r.salirBreakeven ? 'SI' : 'NO'}">
+                                            title="#{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? ('Régimen Tolerante (VR &#8804; ' += r.umbralDiferencia += ')') : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'Régimen Reactivo' : 'Régimen Síncrono')} | Break-Even: #{r.salirBreakeven ? 'SI' : 'NO'} | TSL: #{r.usarTSL ? 'SI' : 'NO'}">
                                             #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'Tol' :
                                             (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'Reac' :
                                             'Sinc')}
@@ -380,7 +380,7 @@
                                                 </ui:fragment>
                                             </h:panelGroup>
 
-                                            <!-- Checkbox Break-Even al lado derecho del monto de diferencia (Modificable en todo momento) -->
+                                            <!-- Checkboxes Break-Even y TSL al lado derecho del monto de diferencia (Modificables en todo momento) -->
                                             <div style="display: flex; align-items: center; gap: 5px; height: 31px; padding: 2px 8px; background: rgba(15, 23, 42, 0.04); border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; white-space: nowrap;"
                                                 title="Permitir salida en Break-Even ($0.00) al vencer el límite de ciclos (Modificable en todo momento)">
                                                 <p:selectBooleanCheckbox id="salirBreakevenCheck"
@@ -391,7 +391,19 @@
                                                         oncomplete="renderAetherChart(); renderSignalComparisonChart();" />
                                                 </p:selectBooleanCheckbox>
                                                 <span
-                                                    style="font-size: 0.78rem; font-weight: 800; color: #334155; user-select: none;">Break-Even</span>
+                                                    style="font-size: 0.78rem; font-weight: 800; color: #334155; user-select: none;">BE</span>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 5px; height: 31px; padding: 2px 8px; background: rgba(15, 23, 42, 0.04); border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; white-space: nowrap;"
+                                                title="Usar Trailing Stop Loss dinámico (Modificable en todo momento)">
+                                                <p:selectBooleanCheckbox id="ratioUsarTslCheck"
+                                                    value="#{dashboardBean.ratioUsarTSL}"
+                                                    disabled="#{dashboardBean.readOnly}">
+                                                    <p:ajax listener="#{dashboardBean.onRatioTslChange}"
+                                                        update=":aetherForm:mainTabView:leftAccordion :aetherForm:growl"
+                                                        oncomplete="renderAetherChart(); renderSignalComparisonChart();" />
+                                                </p:selectBooleanCheckbox>
+                                                <span
+                                                    style="font-size: 0.78rem; font-weight: 800; color: #334155; user-select: none;">TSL</span>
                                             </div>
                                         </div>
                                     </div>

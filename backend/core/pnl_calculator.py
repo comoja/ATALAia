@@ -108,8 +108,8 @@ def calculate_margin(
     px = float(price or 0.0)
     mf = float(margin_factor or 0.5)
     sym = str(symbol or "").strip().upper().replace("/", "")
-    if "XAG" in sym:
-        rate = 1.0  # El CFD de Plata (XAG) en FOREX.com requiere 100% de margen
+    if "XAG" in sym and mf >= 99.0:
+        rate = 1.0  # El CFD de Plata (XAG) requiere 100% de margen solo si esta configurado explicitamente en 100%
     else:
         rate = (mf / 100.0) if mf >= 0.05 else mf
 

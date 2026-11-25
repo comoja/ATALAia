@@ -186,6 +186,14 @@
                                             #{uc.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
+                                    <p:column headerText="BE"
+                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.salirBreakeven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="#{uc.salirBreakeven ? 'Salida en Break-Even Activa' : 'Break-Even Desactivado'}">
+                                            #{uc.salirBreakeven ? 'BE' : 'OFF'}
+                                        </span>
+                                    </p:column>
                                     <p:column headerText="TSL"
                                         style="width: 48px; text-align: center; padding: 2px 1px !important;">
                                         <span class="badge"
@@ -405,9 +413,26 @@
                                     </h:panelGroup>
                                 </div>
 
-                                <!-- Check Trailing Stop Loss (TSL) -->
+                                <!-- Checks Break-Even (BE) y Trailing Stop Loss (TSL) (Modificables en todo momento) -->
                                 <div
                                     style="margin-bottom: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed #e2e8f0;">
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <i class="pi pi-check-circle" style="color: #10b981; font-size: 1.05rem;"></i>
+                                            <div>
+                                                <div style="font-weight: 800; font-size: 0.92rem; color: #1e293b;">Salida en Break-Even (BE)</div>
+                                                <div style="font-size: 0.75rem; color: #64748b; line-height: 1.2;">
+                                                    Cierra en $0.00 de pérdida asegurando capital al cumplir objetivos mínimos (Modificable en todo momento).
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p:selectBooleanCheckbox id="cartSalirBreakevenSwitch"
+                                            value="#{dashboardBean.cartSalirBreakeven}"
+                                            disabled="#{dashboardBean.readOnly}">
+                                            <p:ajax listener="#{dashboardBean.onCartBreakEvenChange}" process="@this" update=":aetherForm:cartTabView:cartLeftAccordion :aetherForm:growl"
+                                                oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();" />
+                                        </p:selectBooleanCheckbox>
+                                    </div>
                                     <div style="display: flex; align-items: center; justify-content: space-between;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <i class="pi pi-shield" style="color: #6366f1; font-size: 1.05rem;"></i>
@@ -416,14 +441,14 @@
                                                     Trailing Stop Loss (TSL)</div>
                                                 <div style="font-size: 0.75rem; color: #64748b; line-height: 1.2;">
                                                     Si se desactiva, el trade solo cerrará cuando el precio reingrese al
-                                                    interior del canal CAR.
+                                                    interior del canal CAR (Modificable en todo momento).
                                                 </div>
                                             </div>
                                         </div>
                                         <p:selectBooleanCheckbox id="cartUsarTslSwitch"
                                             value="#{dashboardBean.cartUsarTSL}"
-                                            disabled="#{dashboardBean.cartEditBlocked}">
-                                            <p:ajax process="@this" update=":aetherForm"
+                                            disabled="#{dashboardBean.readOnly}">
+                                            <p:ajax listener="#{dashboardBean.onCartTslChange}" process="@this" update=":aetherForm:cartTabView:cartLeftAccordion :aetherForm:growl"
                                                 oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();" />
                                         </p:selectBooleanCheckbox>
                                     </div>

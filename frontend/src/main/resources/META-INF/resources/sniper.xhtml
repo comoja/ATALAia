@@ -202,6 +202,14 @@
                                             #{us.usarBreakEven ? 'BE' : 'OFF'}
                                         </span>
                                     </p:column>
+                                    <p:column headerText="TSL"
+                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="Trailing Stop Loss: #{us.usarTSL ? 'Activo' : 'Inactivo'}">
+                                            #{us.usarTSL ? 'TSL' : 'OFF'}
+                                        </span>
+                                    </p:column>
 
                                 </p:dataTable>
                             </p:tab>
@@ -318,24 +326,34 @@
                                         </div>
                                     </div>
 
-                                    <!-- BreakEven y Trailing Stop Loss -->
+                                    <!-- BreakEven y Trailing Stop Loss (Modificable en todo momento) -->
                                     <div
                                         style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: rgba(180, 123, 43, 0.06); padding: 8px; border-radius: 8px; border: 1px solid rgba(180, 123, 43, 0.2);">
                                         <div
                                             style="display: flex; align-items: center; justify-content: space-between;">
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem;"
-                                                title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit">BreakEven
+                                                title="Mueve Stop Loss a precio de entrada cuando el precio avanza 50% hacia el Take Profit (Modificable en todo momento)">BreakEven
                                                 (50%):</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarBreakEven}"
-                                                disabled="#{dashboardBean.sniperEditBlocked}" />
+                                            <p:selectBooleanCheckbox id="sniperUsarBeCheck"
+                                                value="#{dashboardBean.sniperUsarBreakEven}"
+                                                disabled="#{dashboardBean.readOnly}">
+                                                <p:ajax listener="#{dashboardBean.onSniperBreakEvenChange}" process="@this"
+                                                    update=":aetherForm:sniperTabView:sniperLeftAccordion :aetherForm:growl"
+                                                    oncomplete="renderSniperChart();" />
+                                            </p:selectBooleanCheckbox>
                                         </div>
                                         <div
                                             style="display: flex; align-items: center; justify-content: space-between;">
                                             <label style="font-weight: 700; color: #334155; font-size: 0.85rem;"
-                                                title="Activa Trailing Stop Loss una vez asegurado el BreakEven">Trailing
+                                                title="Activa Trailing Stop Loss una vez asegurado el BreakEven (Modificable en todo momento)">Trailing
                                                 SL:</label>
-                                            <p:selectBooleanCheckbox value="#{dashboardBean.sniperUsarTSL}"
-                                                disabled="#{dashboardBean.sniperEditBlocked}" />
+                                            <p:selectBooleanCheckbox id="sniperUsarTslCheck"
+                                                value="#{dashboardBean.sniperUsarTSL}"
+                                                disabled="#{dashboardBean.readOnly}">
+                                                <p:ajax listener="#{dashboardBean.onSniperTslChange}" process="@this"
+                                                    update=":aetherForm:sniperTabView:sniperLeftAccordion :aetherForm:growl"
+                                                    oncomplete="renderSniperChart();" />
+                                            </p:selectBooleanCheckbox>
                                         </div>
                                     </div>
 

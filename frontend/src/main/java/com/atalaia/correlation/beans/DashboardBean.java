@@ -3049,6 +3049,61 @@ public class DashboardBean implements Serializable {
         }
     }
 
+    private Boolean ratioUsarTSL = true;
+    public Boolean getRatioUsarTSL() { return ratioUsarTSL != null ? ratioUsarTSL : true; }
+    public Boolean isRatioUsarTSL() { return ratioUsarTSL != null ? ratioUsarTSL : true; }
+    public void setRatioUsarTSL(Boolean ratioUsarTSL) { this.ratioUsarTSL = ratioUsarTSL; }
+    public Boolean getRatioUsarTsl() { return getRatioUsarTSL(); }
+    public Boolean isRatioUsarTsl() { return isRatioUsarTSL(); }
+    public void setRatioUsarTsl(Boolean ratioUsarTsl) { setRatioUsarTSL(ratioUsarTsl); }
+
+    public void onRatioTslChange() {
+        log.info("▶ Ratio Usar TSL cambiado a: {} para {}/{} (Cuenta: {})", this.ratioUsarTSL, this.selectedPair, this.selectedPair2, this.selectedAccountId);
+        actualizarRatioTsl();
+    }
+
+    public void actualizarRatioTsl() {
+        try {
+            if (this.selectedPair == null || this.selectedPair2 == null) return;
+
+            Integer userId = null;
+            if (securityBean != null) {
+                userId = securityBean.getSelectedUserId() != null ? securityBean.getSelectedUserId() : securityBean.getIdUsuario();
+            }
+            if (userId == null) {
+                userId = 1;
+            }
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("numerador", this.selectedPair);
+            payload.put("denominador", this.selectedPair2);
+            payload.put("usarTSL", Boolean.TRUE.equals(this.ratioUsarTSL));
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-ratios/update-tsl";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserRatiosList();
+                String estado = Boolean.TRUE.equals(this.ratioUsarTSL) ? "Activado" : "Desactivado";
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Trailing Stop Loss", "TSL " + estado + " para " + this.selectedPair + "/" + this.selectedPair2));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar ratioUsarTSL: {}", e.getMessage());
+        }
+    }
+
     private String tipoEntrada = "Selectiva";
     public String getTipoEntrada() { return tipoEntrada != null ? tipoEntrada : "Selectiva"; }
     public void setTipoEntrada(String tipoEntrada) { this.tipoEntrada = tipoEntrada; }
@@ -5005,6 +5060,7 @@ public class DashboardBean implements Serializable {
             payload.put("tipoEntrada", this.tipoEntrada != null ? this.tipoEntrada : "Selectiva");
             payload.put("accionCierre", this.accionCierre != null ? this.accionCierre : "Continua");
             payload.put("salirBreakeven", Boolean.TRUE.equals(this.salirBreakeven));
+            payload.put("usarTSL", Boolean.TRUE.equals(this.ratioUsarTSL));
             if (this.startDate != null) {
                 boolean isIntradayTf = (timeframe != null && (timeframe.equalsIgnoreCase("1h") || timeframe.equalsIgnoreCase("4h") || timeframe.equalsIgnoreCase("15min") || timeframe.equalsIgnoreCase("30min") || timeframe.equalsIgnoreCase("5min")));
                 java.text.SimpleDateFormat sdfStart = isIntradayTf
@@ -5318,6 +5374,8 @@ public class DashboardBean implements Serializable {
                         else dto.setAccionCierre("Continua");
                         if (item.has("salirBreakeven") && !item.get("salirBreakeven").isNull()) dto.setSalirBreakeven(item.get("salirBreakeven").asBoolean());
                         else dto.setSalirBreakeven(false);
+                        if (item.has("usarTSL") && !item.get("usarTSL").isNull()) dto.setUsarTSL(item.get("usarTSL").asBoolean(true));
+                        else dto.setUsarTSL(true);
                         if (item.has("origen") && !item.get("origen").isNull()) dto.setOrigen(item.get("origen").asText());
                         if (item.has("estadoRecomendacion") && !item.get("estadoRecomendacion").isNull()) dto.setEstadoRecomendacion(item.get("estadoRecomendacion").asText());
                         if (item.has("fechaRecomendacion") && !item.get("fechaRecomendacion").isNull()) dto.setFechaRecomendacion(item.get("fechaRecomendacion").asText());
@@ -5465,6 +5523,7 @@ public class DashboardBean implements Serializable {
         this.tipoEntrada = ratio.getTipoEntrada() != null ? ratio.getTipoEntrada() : "Selectiva";
         this.accionCierre = ratio.getAccionCierre() != null ? ratio.getAccionCierre() : "Continua";
         this.salirBreakeven = ratio.getSalirBreakeven() != null ? ratio.getSalirBreakeven() : false;
+        this.ratioUsarTSL = ratio.getUsarTSL() != null ? ratio.getUsarTSL() : true;
         this.hasActiveTradesInDb = Boolean.TRUE.equals(ratio.getHasOpenTrades());
         this.ratioExistsInDb = true;
         this.activeAccordionIndex = "1";
@@ -7371,6 +7430,7 @@ public class DashboardBean implements Serializable {
     private String cartHoraInicio = "08:00";
     private String cartHoraFin = "16:00";
     private boolean cartUsarTSL = true;
+    private boolean cartSalirBreakeven = false;
     private String cartOptimalHoraInicio = "08:00";
     private String cartOptimalHoraFin = "16:00";
     private String cartOptimalHoursLabel = "08:00 - 16:00 CST (Sesión recomendada)";
@@ -7568,6 +7628,57 @@ public class DashboardBean implements Serializable {
     public boolean isCartUsarTsl() { return cartUsarTSL; }
     public boolean getCartUsarTsl() { return cartUsarTSL; }
     public void setCartUsarTsl(boolean cartUsarTsl) { this.cartUsarTSL = cartUsarTsl; }
+    public boolean isCartSalirBreakeven() { return cartSalirBreakeven; }
+    public boolean getCartSalirBreakeven() { return cartSalirBreakeven; }
+    public void setCartSalirBreakeven(boolean cartSalirBreakeven) { this.cartSalirBreakeven = cartSalirBreakeven; }
+
+    public void onCartBreakEvenChange() {
+        log.info("▶ CART BreakEven cambiado a: {} para {} (Cuenta: {})", this.cartSalirBreakeven, this.selectedCartPair, this.selectedAccountId);
+        actualizarCartBeTsl();
+    }
+
+    public void onCartTslChange() {
+        log.info("▶ CART TSL cambiado a: {} para {} (Cuenta: {})", this.cartUsarTSL, this.selectedCartPair, this.selectedAccountId);
+        actualizarCartBeTsl();
+    }
+
+    public void actualizarCartBeTsl() {
+        try {
+            if (this.selectedCartPair == null || this.selectedCartPair.trim().isEmpty()) return;
+
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedCartPair);
+            payload.put("salirBreakeven", this.cartSalirBreakeven);
+            payload.put("usarTSL", this.cartUsarTSL);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-cart/update-be-tsl";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserCartList();
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "RIDER / CART", "BE y TSL actualizados para " + this.selectedCartPair + " (BE: " + (this.cartSalirBreakeven ? "ON" : "OFF") + ", TSL: " + (this.cartUsarTSL ? "ON" : "OFF") + ")"));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar CART BE/TSL: {}", e.getMessage());
+        }
+    }
     public String getCartOptimalHoraInicio() { return cartOptimalHoraInicio != null ? cartOptimalHoraInicio : "08:00"; }
     public void setCartOptimalHoraInicio(String cartOptimalHoraInicio) { this.cartOptimalHoraInicio = cartOptimalHoraInicio; }
     public String getCartOptimalHoraFin() { return cartOptimalHoraFin != null ? cartOptimalHoraFin : "16:00"; }
@@ -7807,6 +7918,7 @@ public class DashboardBean implements Serializable {
                         dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
                         dto.setHoraFin(item.path("horaFin").asText("16:00"));
                         dto.setUsarTSL(item.path("usarTSL").asBoolean(true));
+                        dto.setSalirBreakeven(item.path("salirBreakeven").asBoolean(false));
                         dto.setOrigen(item.path("origen").asText("MANUAL"));
                         dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
                         dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
@@ -7849,6 +7961,7 @@ public class DashboardBean implements Serializable {
         this.cartHoraInicio = cartDto.getHoraInicio() != null ? cartDto.getHoraInicio() : "08:00";
         this.cartHoraFin = cartDto.getHoraFin() != null ? cartDto.getHoraFin() : "16:00";
         this.cartUsarTSL = cartDto.getUsarTSL() != null ? cartDto.getUsarTSL() : true;
+        this.cartSalirBreakeven = cartDto.getSalirBreakeven() != null ? cartDto.getSalirBreakeven() : false;
         this.cartExistsInDb = true;
         this.cartHasActiveTradesInDb = Boolean.TRUE.equals(cartDto.getHasOpenTrades());
         this.activeCartAccordionIndex = "1";
@@ -8079,6 +8192,7 @@ public class DashboardBean implements Serializable {
             payload.put("horaInicio", this.cartHoraInicio != null ? this.cartHoraInicio : "08:00");
             payload.put("horaFin", this.cartHoraFin != null ? this.cartHoraFin : "16:00");
             payload.put("usarTSL", this.cartUsarTSL);
+            payload.put("salirBreakeven", this.cartSalirBreakeven);
 
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = new org.springframework.http.HttpEntity<>(payload, headers);
             restTemplate.postForEntity(backendUrl + "/api/v1/user-cart/guardar", entity, String.class);
@@ -8575,6 +8689,54 @@ public class DashboardBean implements Serializable {
     public void setSniperUsarBreakEven(boolean sniperUsarBreakEven) { this.sniperUsarBreakEven = sniperUsarBreakEven; }
     public boolean isSniperUsarTSL() { return sniperUsarTSL; }
     public void setSniperUsarTSL(boolean sniperUsarTSL) { this.sniperUsarTSL = sniperUsarTSL; }
+
+    public void onSniperBreakEvenChange() {
+        log.info("▶ SNIPER BreakEven cambiado a: {} para {} (Cuenta: {})", this.sniperUsarBreakEven, this.selectedSniperPair, this.selectedAccountId);
+        actualizarSniperBeTsl();
+    }
+
+    public void onSniperTslChange() {
+        log.info("▶ SNIPER TSL cambiado a: {} para {} (Cuenta: {})", this.sniperUsarTSL, this.selectedSniperPair, this.selectedAccountId);
+        actualizarSniperBeTsl();
+    }
+
+    public void actualizarSniperBeTsl() {
+        try {
+            if (this.selectedSniperPair == null || this.selectedSniperPair.trim().isEmpty()) return;
+
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            if (this.selectedAccountId == null && this.userAccountsCombo != null && !this.userAccountsCombo.isEmpty()) {
+                this.selectedAccountId = this.userAccountsCombo.get(0).getIdCuenta();
+            }
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", this.selectedAccountId);
+            payload.put("symbol", this.selectedSniperPair);
+            payload.put("usarBreakEven", this.sniperUsarBreakEven);
+            payload.put("usarTSL", this.sniperUsarTSL);
+
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            String url = backendUrl + "/api/v1/user-sniper/update-be-tsl";
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                loadUserSniperList();
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "SNIPER", "BE y TSL actualizados para " + this.selectedSniperPair + " (BE: " + (this.sniperUsarBreakEven ? "ON" : "OFF") + ", TSL: " + (this.sniperUsarTSL ? "ON" : "OFF") + ")"));
+            }
+        } catch (Exception e) {
+            log.error("Error al actualizar SNIPER BE/TSL: {}", e.getMessage());
+        }
+    }
     public boolean isSniperFiltroHorario() { return sniperFiltroHorario; }
     public void setSniperFiltroHorario(boolean sniperFiltroHorario) { this.sniperFiltroHorario = sniperFiltroHorario; }
     public String getSniperHoraInicio() { return sniperHoraInicio != null ? sniperHoraInicio : "08:00"; }

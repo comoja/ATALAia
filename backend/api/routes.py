@@ -593,6 +593,7 @@ def findUserRatio(idUsuario: Optional[int] = None, numerador: str = "", denomina
         "tipoCierre": getattr(ratio, 'tipoCierre', 'Tolerante') or 'Tolerante',
         "umbralDiferencia": float(getattr(ratio, 'umbralDiferencia', 0.2) or 0.2),
         "salirBreakeven": bool(getattr(ratio, 'salirBreakeven', False) if getattr(ratio, 'salirBreakeven', None) is not None else False),
+        "usarTSL": bool(getattr(ratio, 'usarTSL', True) if getattr(ratio, 'usarTSL', None) is not None else True),
         "tipoEntrada": getattr(ratio, 'tipoEntrada', 'Selectiva') or 'Selectiva',
         "accionCierre": getattr(ratio, 'accionCierre', 'Continua') or 'Continua',
         "origen": getattr(ratio, 'origen', 'MANUAL') or 'MANUAL',
@@ -1901,6 +1902,7 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "tipoCierre": getattr(r, "tipoCierre", "Tolerante") or "Tolerante",
             "umbralDiferencia": float(getattr(r, "umbralDiferencia", 0.2) or 0.2),
             "salirBreakeven": bool(getattr(r, "salirBreakeven", False) if getattr(r, "salirBreakeven", None) is not None else False),
+            "usarTSL": bool(getattr(r, "usarTSL", True) if getattr(r, "usarTSL", None) is not None else True),
             "tipoEntrada": getattr(r, "tipoEntrada", "Selectiva") or "Selectiva",
             "accionCierre": getattr(r, "accionCierre", "Continua") or "Continua",
             "origen": getattr(r, "origen", "MANUAL") or "MANUAL",
@@ -6166,11 +6168,46 @@ def update_user_ratio_breakeven(payload: UserRatioBreakevenUpdate, db: Session =
         ratio.salirBreakeven = bool(payload.salirBreakeven)
         db.commit()
         db.refresh(ratio)
-        logger.info(f"Break-Even actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {numerador}/{denominador} -> salirBreakeven={ratio.salirBreakeven}")
+        logger.info(f"Break-Even actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> salirBreakeven={ratio.salirBreakeven}")
         return {"status": "success", "message": "Break-Even actualizado correctamente", "salirBreakeven": ratio.salirBreakeven}
     except Exception as e:
         db.rollback()
         logger.error(f"Error al actualizar salirBreakeven: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserRatioTslUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    numerador: str = Field(..., description="Símbolo numerador (Par A)")
+    denominador: str = Field(..., description="Símbolo denominador (Par B)")
+    usarTSL: bool = Field(..., description="Indica si se usa Trailing Stop Loss")
+
+@router.post("/user-ratios/update-tsl")
+def updateUserRatioTsl(payload: UserRatioTslUpdate, db: Session = Depends(get_db)):
+    """
+    Permite modificar usarTSL en user_ratios en cualquier momento, incluso con posiciones abiertas.
+    """
+    try:
+        query = db.query(UserRatio).filter(
+            UserRatio.idUsuario == payload.idUsuario,
+            UserRatio.numerador == payload.numerador,
+            UserRatio.denominador == payload.denominador
+        )
+        if payload.idCuenta:
+            query = query.filter(UserRatio.idCuenta == payload.idCuenta)
+        ratio = query.first()
+        if not ratio:
+            raise HTTPException(status_code=404, detail="Ratio no encontrado")
+        
+        ratio.usarTSL = bool(payload.usarTSL)
+        db.commit()
+        db.refresh(ratio)
+        logger.info(f"TSL actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.numerador}/{payload.denominador} -> usarTSL={ratio.usarTSL}")
+        return {"status": "success", "message": "TSL actualizado correctamente", "usarTSL": ratio.usarTSL}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar TSL en ratio: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -6684,6 +6721,49 @@ def updateUserCartOperar(payload: UserCartOperarUpdate, db: Session = Depends(ge
         }
     except Exception as e:
         db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserCartBeTslUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo del par CART")
+    salirBreakeven: Optional[bool] = Field(None, description="Indica si sale en Break-Even")
+    usarTSL: Optional[bool] = Field(None, description="Indica si usa Trailing Stop Loss")
+
+@router.post("/user-cart/update-be-tsl")
+def updateUserCartBeTsl(payload: UserCartBeTslUpdate, db: Session = Depends(get_db)):
+    """
+    Permite modificar salirBreakeven y/o usarTSL en userCART en cualquier momento, incluso con posiciones abiertas.
+    """
+    try:
+        query = db.query(UserCart).filter(
+            UserCart.idUsuario == payload.idUsuario,
+            UserCart.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserCart.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Par CART no encontrado")
+        
+        if payload.salirBreakeven is not None:
+            item.salirBreakeven = bool(payload.salirBreakeven)
+        if payload.usarTSL is not None:
+            item.usarTSL = bool(payload.usarTSL)
+            
+        db.commit()
+        db.refresh(item)
+        logger.info(f"BE/TSL CART actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.symbol} -> salirBreakeven={item.salirBreakeven}, usarTSL={item.usarTSL}")
+        return {
+            "status": "success",
+            "message": "BE/TSL CART actualizado correctamente",
+            "salirBreakeven": bool(item.salirBreakeven),
+            "usarTSL": bool(item.usarTSL)
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar BE/TSL CART: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -7522,6 +7602,49 @@ def updateUserSniperOperar(payload: UserSniperOperarUpdate, db: Session = Depend
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UserSniperBeTslUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo del par SNIPER")
+    usarBreakEven: Optional[bool] = Field(None, description="Indica si usa Break-Even")
+    usarTSL: Optional[bool] = Field(None, description="Indica si usa Trailing Stop Loss")
+
+@router.post("/user-sniper/update-be-tsl")
+def updateUserSniperBeTsl(payload: UserSniperBeTslUpdate, db: Session = Depends(get_db)):
+    """
+    Permite modificar usarBreakEven y/o usarTSL en userSNIPER en cualquier momento, incluso con posiciones abiertas.
+    """
+    try:
+        query = db.query(UserSniper).filter(
+            UserSniper.idUsuario == payload.idUsuario,
+            UserSniper.symbol == payload.symbol
+        )
+        if payload.idCuenta:
+            query = query.filter(UserSniper.idCuenta == payload.idCuenta)
+        item = query.first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Par SNIPER no encontrado")
+        
+        if payload.usarBreakEven is not None:
+            item.usarBreakEven = bool(payload.usarBreakEven)
+        if payload.usarTSL is not None:
+            item.usarTSL = bool(payload.usarTSL)
+            
+        db.commit()
+        db.refresh(item)
+        logger.info(f"BE/TSL SNIPER actualizado para usuario {payload.idUsuario} (cuenta {payload.idCuenta}): {payload.symbol} -> usarBreakEven={item.usarBreakEven}, usarTSL={item.usarTSL}")
+        return {
+            "status": "success",
+            "message": "BE/TSL SNIPER actualizado correctamente",
+            "usarBreakEven": bool(item.usarBreakEven),
+            "usarTSL": bool(item.usarTSL)
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al actualizar BE/TSL SNIPER: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/trades/active-summary-sniper/{idCuenta}")
 def getActiveSniperTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
     """
@@ -7964,7 +8087,35 @@ async def getSniperAnalysis(
                 if rHasTsl:
                     atrVal = float((df["high"].tail(14) - df["low"].tail(14)).mean()) if len(df) >= 14 else (rEntryPx * 0.005)
                     slDist = atrVal * float(adaptiveCfg.get("slAtrMult", 1.5) if adaptiveCfg else 1.5)
-                    rTslVal = round(currentPx - slDist if rIsLong else currentPx + slDist, 5)
+
+                    # Anclar TSL al extremo más favorable alcanzado desde la apertura: solo avanza hacia el TP y nunca retrocede
+                    dt_val_open = row["openTime"] or row["candleTime"]
+                    df_trade = None
+                    if dt_val_open is not None and hasattr(df.index, "__ge__"):
+                        try:
+                            ts_open = pd.to_datetime(dt_val_open)
+                            df_idx = df.index.tz_localize(None) if (hasattr(df.index, "tz") and df.index.tz is not None) else df.index
+                            df_trade = df[df_idx >= ts_open]
+                        except Exception:
+                            df_trade = None
+
+                    if df_trade is None or len(df_trade) == 0:
+                        df_trade = df.tail(1)
+
+                    if rIsLong:
+                        bestHigh = max(float(df_trade["high"].max()), currentPx) if len(df_trade) > 0 else currentPx
+                        candidateTsl = round(bestHigh - slDist, 5)
+                        if rTp is not None:
+                            candidateTsl = min(candidateTsl, rTp)
+                        # Solo avanza hacia el TP (hacia arriba) y nunca retrocede por debajo del SL
+                        rTslVal = max(rSl, candidateTsl) if rSl is not None else candidateTsl
+                    else:
+                        bestLow = min(float(df_trade["low"].min()), currentPx) if len(df_trade) > 0 else currentPx
+                        candidateTsl = round(bestLow + slDist, 5)
+                        if rTp is not None:
+                            candidateTsl = max(candidateTsl, rTp)
+                        # Solo avanza hacia el TP (hacia abajo) y nunca retrocede por encima del SL
+                        rTslVal = min(rSl, candidateTsl) if rSl is not None else candidateTsl
 
                 dt_val = row["openTime"] or row["candleTime"]
 

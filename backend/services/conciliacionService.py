@@ -45,6 +45,19 @@ async def obtenerConciliacionPosiciones(
         if r[0] and str(r[0]).isdigit():
             market_to_sym[int(r[0])] = str(r[1]).strip()
 
+    # 1.1 Mapeo de Excent Ticker a Símbolo
+    excent_sym_rows = dbSession.execute(text("""
+        SELECT Excent, symbol FROM sentinelsymbol WHERE Excent IS NOT NULL AND Excent != ''
+        UNION 
+        SELECT Excent, symbol FROM symbols WHERE Excent IS NOT NULL AND Excent != ''
+    """)).fetchall()
+    
+    excent_to_sym = {}
+    for r in excent_sym_rows:
+        if r[0]:
+            clean_k = str(r[0]).strip().upper().replace("/", "").replace("_", "")
+            excent_to_sym[clean_k] = str(r[1]).strip()
+
     # 2. Cuentas activas con credenciales en brokercuenta
     user_filter_sql = "AND uc.idUsuario = :uid" if idUsuarioFiltro else ""
     user_filter_param = {"uid": idUsuarioFiltro} if idUsuarioFiltro else {}
@@ -205,20 +218,35 @@ async def obtenerConciliacionPosiciones(
                     p_dict["TradingAccountId"] = target_uuid
                     p_dict["OrderId"] = pos_uuid
                     p_dict["Direction"] = "BUY" if p.get("buy") else "SELL"
-                    # En Excent, volume es en lotes (0.03 = 3000 unidades)
+                    
+                    # En Excent, volume es en lotes directos (ej. 0.03, 0.10, 0.15, 1.0)
                     vol = float(p.get("volume") or 0.0)
-                    p_dict["Quantity"] = vol * 100000.0 if vol < 50.0 else vol
-                    p_dict["Price"] = float(p.get("openPrice") or 0.0)
-                    p_dict["CurrentPrice"] = float(p.get("currentPrice") or 0.0)
-                    p_dict["Profit"] = float(p.get("netProfit") or p.get("profit") or 0.0)
-                    p_dict["CreatedDateTimeUTC"] = str(p.get("creationDate") or "-")
+                    p_dict["rawVolume"] = vol
+                    p_dict["volumeLots"] = vol
+                    p_dict["isExcent"] = True
 
                     sym_raw = str(p.get("symbolName") or "").strip()
-                    if len(sym_raw) == 6 and "/" not in sym_raw:
+                    clean_ex = sym_raw.upper().replace("/", "").replace("_", "")
+                    if clean_ex in excent_to_sym:
+                        sym_formatted = excent_to_sym[clean_ex]
+                    elif len(sym_raw) == 6 and "/" not in sym_raw:
                         sym_formatted = f"{sym_raw[:3]}/{sym_raw[3:]}"
                     else:
                         sym_formatted = sym_raw
                     p_dict["symbolResuelto"] = sym_formatted
+
+                    # Si es par de divisas forex estándar (ej. EUR/GBP, AUD/CAD), 1 lote = 100,000 unidades nominales.
+                    # Para metales (XAU, XAG), criptos o índices, el volumen es directo en contratos/lotes.
+                    is_forex_fx_pair = ("/" in sym_formatted and len(sym_formatted) == 7 and not any(k in sym_formatted.upper() for k in ["XAU", "XAG", "BTC", "ETH"]))
+                    if is_forex_fx_pair:
+                        p_dict["Quantity"] = vol * 100000.0 if vol < 50.0 else vol
+                    else:
+                        p_dict["Quantity"] = vol
+
+                    p_dict["Price"] = float(p.get("openPrice") or 0.0)
+                    p_dict["CurrentPrice"] = float(p.get("currentPrice") or 0.0)
+                    p_dict["Profit"] = float(p.get("netProfit") or p.get("profit") or 0.0)
+                    p_dict["CreatedDateTimeUTC"] = str(p.get("creationDate") or "-")
 
                     forex_positions_by_ticket[pos_uuid] = p_dict
             else:
@@ -300,12 +328,39 @@ async def obtenerConciliacionPosiciones(
             if is_multi_chunk:
                 forex_trade_qty = sum(float(forex_positions_by_ticket[sub_tk].get("Quantity", 0.0)) for sub_tk in trade_tickets if sub_tk in forex_positions_by_ticket)
                 total_trade_qty = float(t.get("size") or 0.0)
-                if abs(total_trade_qty - forex_trade_qty) <= 0.001:
+                vol_matches = (
+                    abs(total_trade_qty - forex_trade_qty) <= 0.001 or
+                    abs(total_trade_qty - (forex_trade_qty * 100000.0)) <= 0.01 or
+                    abs((total_trade_qty * 100000.0) - forex_trade_qty) <= 0.01
+                )
+                if vol_matches:
                     qty_a = qty_f  # Coincide con la fracción de este sub-lote
                 else:
                     diffs.append(f"Volumen total difiere: ATALAia={total_trade_qty:g} vs FOREX={forex_trade_qty:g}")
             else:
-                if abs(qty_a - qty_f) > 0.001:
+                raw_vol = float(f.get("rawVolume", qty_f))
+                # Coincidencia flexible de volumen:
+                # 1. Coincidencia directa (mismo número en unidades o lotes)
+                # 2. Coincidencia con rawVolume del bróker (en caso de que ATALAia guarde lotes directos)
+                # 3. Factor 100,000 (unidades nominales Forex vs lotes)
+                vol_matches = (
+                    abs(qty_a - qty_f) <= 0.001 or
+                    abs(qty_a - raw_vol) <= 0.001 or
+                    abs(qty_a - (qty_f * 100000.0)) <= 0.01 or
+                    abs((qty_a * 100000.0) - qty_f) <= 0.01 or
+                    abs(qty_a - (raw_vol * 100000.0)) <= 0.01 or
+                    abs((qty_a * 100000.0) - raw_vol) <= 0.01
+                )
+
+                if vol_matches:
+                    # Normalizar visualización para que ambos lados muestren la misma magnitud armónica
+                    if abs(qty_a - raw_vol) <= 0.001:
+                        qty_f = qty_a
+                    elif abs(qty_a - (qty_f * 100000.0)) <= 0.01:
+                        qty_f = qty_a
+                    elif abs((qty_a * 100000.0) - qty_f) <= 0.01:
+                        qty_a = qty_f
+                else:
                     diffs.append(f"Volumen difiere: ATALAia={qty_a:g} vs FOREX={qty_f:g}")
 
             if diffs:
