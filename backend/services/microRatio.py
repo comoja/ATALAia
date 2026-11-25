@@ -77,12 +77,25 @@ def ensureStrategyRegistered(dbSession) -> None:
     """Asegura que la estrategia RATIO ATALAia esté registrada en strategyconfig."""
     try:
         dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('RATIO ATALAia', 1)"))
-        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA', 1)"))
-        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA INICIAL', 1)"))
+        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA', 0)"))
+        dbSession.execute(text("INSERT IGNORE INTO strategyconfig (strategy, enabled) VALUES ('COBERTURA INICIAL', 0)"))
         dbSession.commit()
     except Exception as e:
         dbSession.rollback()
         logger.warning(f"Error asegurando estrategia en strategyconfig: {e}")
+
+
+def isStrategyEnabled(dbSession, strategyName: str) -> bool:
+    """Verifica si una estrategia está habilitada en strategyconfig (enabled = 1)."""
+    try:
+        val = dbSession.execute(
+            text("SELECT enabled FROM strategyconfig WHERE strategy = :st LIMIT 1"),
+            {"st": strategyName}
+        ).scalar()
+        return bool(val == 1 or val is True)
+    except Exception as e:
+        logger.warning(f"Error consultando strategyconfig para '{strategyName}': {e}")
+        return False
 
 
 def getDatabaseSession():
@@ -1763,6 +1776,11 @@ def openSingleCoverageTrade(
     3. Inicializa el estado de seguimiento de la cobertura.
     4. Envía notificación por Telegram.
     """
+    # Validar que la cobertura esté habilitada globalmente en strategyconfig
+    if not isStrategyEnabled(dbSession, strategyName):
+        logger.info(f"⏸️ [{strategyName}] Apertura de cobertura ignorada para {symbol} ({setupName}): estrategia '{strategyName}' desactivada.")
+        return None
+
     # Validar mercado abierto
     if not is_crypto_symbol(symbol) and is_market_closed():
         logger.warning(f"⏸️ [MERCADO CERRADO] Cobertura cancelada para {symbol} ({setupName}): el mercado está cerrado.")
@@ -2445,8 +2463,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
 
         # 3.2 GESTIÓN DE COBERTURAS POR PRECIO (+1% ENTRADA / TRAILING STOP LOSS 2/3 NATR)
         # REGLA ESTRICTA: Cuenta #3 (Raúl Colin) completamente excluida y protegida.
-        ENABLE_COBERTURAS = True
-        isProtectionMode = bool(regularTrades) and (detectedWaves >= maxAllowedCycles) and ENABLE_COBERTURAS and (idCuenta != 3)
+        coberturasEnabled = isStrategyEnabled(dbSession, "COBERTURA") and (idCuenta != 3)
+        isProtectionMode = bool(regularTrades) and (idCuenta != 3)
         if isProtectionMode:
             legsToEvaluate = [
                 ("A", numerador, symDataA, latestPriceA),
@@ -2482,6 +2500,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
 
                 # CASO 1: NO HAY COBERTURA ACTIVA (ni de protección ni inicial) -> EVALUAR ENTRADA AL 1% ADVERSO
                 if not legCobTrades and not legCobIniTrades:
+                    if not coberturasEnabled or (detectedWaves < maxAllowedCycles):
+                        continue
                     # Si el precio recuperó a la zona segura, habilitar la siguiente re-entrada
                     if isSafeZone and not cobState.get("safeZoneRecovered", True):
                         cobState["safeZoneRecovered"] = True
@@ -2754,7 +2774,8 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
                             dbOpenTrades = [t for t in dbOpenTrades if t.get("idTrade") != cobIni.get("idTrade")]
 
             # --- PARTE B: APERTURA DE COBERTURA INICIAL POR CRUCE CONTRARIO AL RIDE ---
-            if regularTrades and len(signalsList) >= 2:
+            coberturaInicialEnabled = isStrategyEnabled(dbSession, "COBERTURA INICIAL") and (idCuenta != 3)
+            if coberturaInicialEnabled and regularTrades and len(signalsList) >= 2:
                 prevSig = signalsList[-2]
                 currSig = signalsList[-1]
 

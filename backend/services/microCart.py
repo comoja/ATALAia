@@ -1188,9 +1188,9 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                     rates = json.loads(resp.read().decode()).get('rates', [])
                     if rates and len(rates) >= 20:
                         df_mt5 = pd.DataFrame(rates)
-                        # MT5 broker server time is EET (UTC+2). Restar 7200 segundos alinea a UTC epoch exacto.
-                        # datetime.fromtimestamp formatea fielmente en la zona horaria local del sistema (CDMX UTC-6).
-                        df_mt5['timestamp'] = [datetime.fromtimestamp(int(r['time']) - 7200) for r in rates]
+                        # El timestamp Unix devuelto por MT5 Bridge representa el epoch estándar.
+                        # datetime.fromtimestamp lo alinea exactamente a la hora local del sistema (CDMX UTC-6).
+                        df_mt5['timestamp'] = [datetime.fromtimestamp(int(r['time'])) for r in rates]
                         df_mt5 = df_mt5.drop_duplicates(subset=['timestamp'], keep='last').set_index('timestamp')
                         df_mt5['closePrice'] = pd.to_numeric(df_mt5['close'], errors='coerce')
                         if 'high' in df_mt5.columns:
@@ -1701,44 +1701,72 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
         currentRvol = latestSig.get("rvol", 1.0)
         hasValidVolume = bool(currentRvol is None or currentRvol >= 0.8)
 
-        isOutsideBuy = bool(px is not None and cMax is not None and px > cMax)
-        isOutsideSell = bool(px is not None and cMin is not None and px < cMin)
+        # Posición física del precio respecto al CAR (Regla fundamental e inviolable de RIDER / CART):
+        # 1. Por ARRIBA del CAR (px > cMax): SÓLO se permiten operaciones en LARGO (compras por ruptura alcista).
+        #    CORTOS quedan ESTRICTAMENTE PROHIBIDOS.
+        # 2. Por DEBAJO del CAR (px < cMin): SÓLO se permiten operaciones en CORTO (ventas por ruptura bajista).
+        #    LARGOS quedan ESTRICTAMENTE PROHIBIDOS.
+        # 3. DENTRO del CAR (cMin <= px <= cMax): El activo está en zona de ruido. NO se permite ninguna entrada.
+        isAboveCar = bool(px is not None and cMax is not None and px > cMax)
+        isBelowCar = bool(px is not None and cMin is not None and px < cMin)
+
+        # La señal previa de vela (hasBuy / hasSell) solo es admisible si el precio actual sigue fuera del CAR del lado respectivo.
+        # Si el precio reingresó al canal o está del lado contrario, se invalida inmediatamente.
+        if not isAboveCar:
+            hasBuy = False
+            isOutsideBuy = False
+        else:
+            isOutsideBuy = True
+
+        if not isBelowCar:
+            hasSell = False
+            isOutsideSell = False
+        else:
+            isOutsideSell = True
 
         # 1. Filtro estricto de expansión del canal (evitar entrar si el precio está reingresando/rebotando hacia el CAR):
-        # Para COMPRA: el precio debe estar alejándose al alza del CAR superior; si retrocede a la baja, se bloquea
+        # Para COMPRA (por arriba del CAR): el precio debe estar alejándose al alza del CAR superior; si retrocede a la baja, se bloquea
         if isOutsideBuy:
             if (prevPx is not None and px <= prevPx) or (openVal is not None and px < openVal):
                 isOutsideBuy = False  # Retroceso hacia el CAR superior (pendiente negativa hacia el canal)
+                hasBuy = False
             elif prevPx is not None and prevCMax is not None and prevPx > prevCMax:
                 currDistBuy = px - cMax
                 prevDistBuy = prevPx - prevCMax
                 if currDistBuy < prevDistBuy:
                     isOutsideBuy = False
+                    hasBuy = False
 
-        # Para VENTA: el precio debe estar alejándose a la baja del CAR inferior; si rebota al alza, se bloquea
+        # Para VENTA (por debajo del CAR): el precio debe estar alejándose a la baja del CAR inferior; si rebota al alza, se bloquea
         if isOutsideSell:
             if (prevPx is not None and px >= prevPx) or (openVal is not None and px > openVal):
                 isOutsideSell = False  # Rebote hacia el CAR inferior (pendiente positiva hacia el canal)
+                hasSell = False
             elif prevPx is not None and prevCMin is not None and prevPx < prevCMin:
                 currDistSell = cMin - px
                 prevDistSell = prevCMin - prevPx
                 if currDistSell < prevDistSell:
                     isOutsideSell = False
+                    hasSell = False
 
         # 2. Confirmación instantánea de micro-pendiente (dP/dt en tiempo real con velas 1m):
         slopeReason = ""
-        if (hasBuy or isOutsideBuy) and px is not None:
+        if isOutsideBuy and px is not None:
             slopeOkBuy, dBuy, reasonBuy = checkRealtimeSlopeConfirmation(dbSession, symbol, "LARGO", px)
             if not slopeOkBuy:
                 isSlopePositive = False
+                isOutsideBuy = False
+                hasBuy = False
                 slopeReason = reasonBuy
             else:
                 slopeReason = reasonBuy
 
-        if (hasSell or isOutsideSell) and px is not None:
+        if isOutsideSell and px is not None:
             slopeOkSell, dSell, reasonSell = checkRealtimeSlopeConfirmation(dbSession, symbol, "CORTO", px)
             if not slopeOkSell:
                 isSlopeNegative = False
+                isOutsideSell = False
+                hasSell = False
                 slopeReason = reasonSell
             else:
                 slopeReason = reasonSell
@@ -1759,16 +1787,18 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
                 if ("CORTO" in lastDir or "VENTA" in lastDir) and isOutsideSell:
                     if lastEntry > 0 and px >= lastEntry:
                         isOutsideSell = False
+                        hasSell = False
                         slopeReason = f"Bloqueada reentrada en CORTO a Px={px:.2f} >= entrada previa ({lastEntry:.2f}) tras pérdida"
 
                 # Si la última operación cerrada fue un LARGO perdedor, no reentrar en LARGO si el precio actual está por debajo de la entrada previa
                 if ("LARGO" in lastDir or "COMPRA" in lastDir) and isOutsideBuy:
                     if lastEntry > 0 and px <= lastEntry:
                         isOutsideBuy = False
+                        hasBuy = False
                         slopeReason = f"Bloqueada reentrada en LARGO a Px={px:.2f} <= entrada previa ({lastEntry:.2f}) tras pérdida"
 
-        effectiveBuy = bool((hasBuy or isOutsideBuy) and isSlopePositive and hasValidVolume)
-        effectiveSell = bool((hasSell or isOutsideSell) and isSlopeNegative and hasValidVolume)
+        effectiveBuy = bool(isAboveCar and isOutsideBuy and isSlopePositive and hasValidVolume)
+        effectiveSell = bool(isBelowCar and isOutsideSell and isSlopeNegative and hasValidVolume)
 
         if shouldLogStatus(idCuenta, symbol, 30.0) or effectiveBuy or effectiveSell:
             logger.info(
@@ -1823,8 +1853,15 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             )
             return
 
-        directionStr = "LARGO" if effectiveBuy else "CORTO"
-        actionStr = "buy" if effectiveBuy else "sell"
+        if effectiveBuy and not effectiveSell:
+            directionStr = "LARGO"
+            actionStr = "buy"
+        elif effectiveSell and not effectiveBuy:
+            directionStr = "CORTO"
+            actionStr = "sell"
+        else:
+            logger.warning(f"⚠️ [CART] Señales contradictorias o indefinidas (Buy={effectiveBuy}, Sell={effectiveSell}) para {symbol}. Cancelando apertura.")
+            return
         rowAcc = dbSession.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).fetchone()
         cap = float(rowAcc[0] or 1000.0) if rowAcc else 1000.0
         riesgoPct = float(rowAcc[1] or 1.0) if rowAcc else 1.0
