@@ -55,25 +55,25 @@
                     <p:panel styleClass="aether-panel">
                         <f:facet name="header">
                             <div
-                                style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span
-                                        style="font-weight: 800; color: #0d9488; font-size: 1.15rem; display: inline-flex; align-items: center; gap: 10px;">
-                                        <i class="pi pi-cog" style="font-size: 2.6rem; color: #0d9488; vertical-align: middle;"></i>CALIBRACION</span>
+                                style="display: flex; align-items: center; justify-content: flex-start; width: 100%; flex-wrap: nowrap; gap: 8px;">
+                                <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0;">
+                                    <span class="aether-calibracion-title"
+                                        style="font-weight: 700; color: #0d9488; font-size: 1.25rem; letter-spacing: -0.2px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                        <i class="pi pi-cog" style="font-size: 1.25rem; color: #0d9488; vertical-align: middle;"></i>Calibración</span>
                                 </div>
                                 <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
-                                    style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                                    style="display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; flex-wrap: nowrap;">
                                     <p:commandButton icon="pi pi-pencil"
                                         action="#{dashboardBean.prepararEditarCuenta}"
                                         disabled="#{dashboardBean.readOnly || dashboardBean.selectedAccountId == null}"
                                         process="@this" update=":editarCuentaForm:editarCuentaDlg"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes editar cuentas de otro usuario' : 'Editar Valores de la Cuenta'}" />
                                     <p:selectOneMenu id="cartCuentaSelector"
                                         value="#{dashboardBean.selectedAccountId}"
                                         styleClass="aether-input aether-cuenta-selector"
-                                        style="min-width: 155px; max-width: 230px; width: 185px; height: 32px !important; line-height: 32px !important; font-size: 1.05rem !important;">
+                                        style="min-width: 110px; max-width: 165px; width: 145px; height: 28px !important; line-height: 28px !important; font-size: 0.95rem !important;">
                                         <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
                                             itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
                                         <p:ajax process="@this" update=":aetherForm"
@@ -87,14 +87,14 @@
                                         update=":nuevaCuentaForm:nuevaCuentaDlg"
                                         oncomplete="PF('nuevaCuentaDlg').show();"
                                         styleClass="aether-btn-primary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="Dar de Alta Nueva Cuenta" />
                                     <p:commandButton icon="pi pi-refresh"
                                         action="#{dashboardBean.refreshDashboard}" process="@this"
                                         update=":aetherForm"
                                         oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart(); renderCartRealTradesEquityChart(); renderCartHechosChart();"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="Actualizar datos y saldos de capital" />
                                 </div>
                             </div>
@@ -146,14 +146,14 @@
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onCartRowSelect}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserCartSelected();" />
                                     <p:column headerText="ID"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{uc.id}"
-                                            style="font-size: 0.95rem; font-weight: 800; color: #0f766e;" />
+                                            style="font-size: 0.85rem; font-weight: 700; color: #0f766e;" />
                                     </p:column>
                                     <p:column headerText="PAR"
-                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
+                                        style="width: 70px; min-width: 70px; max-width: 70px; padding: 1px 1px !important;"
                                         styleClass="col-par-fixed-single">
-                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; width: 100%;">
                                             <p:commandButton value="#{uc.numerador}"
                                                 action="#{dashboardBean.onSelectUserCart(uc)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserCartSelected();"
@@ -167,37 +167,37 @@
                                         </div>
                                     </p:column>
                                     <p:column headerText="TF"
-                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{uc.temporalidad}"
-                                            style="font-size: 1.0rem; font-weight: 800;" />
+                                            style="font-size: 0.85rem; font-weight: 700;" />
                                     </p:column>
                                     <p:column headerText="CAR"
-                                        style="width: 78px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; display: inline-block; white-space: nowrap; #{uc.emaLenta ne uc.emaSugerida ? 'background: rgba(239, 68, 68, 0.18); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; white-space: nowrap; #{uc.emaLenta ne uc.emaSugerida ? 'background: rgba(239, 68, 68, 0.18); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
                                             title="RIDE Actual: #{uc.emaLenta} | RIDE Sugerido: #{uc.emaSugerida} #{uc.emaLenta ne uc.emaSugerida ? '(Requiere Calibración)' : '(Óptimo)'}">
                                             RIDE #{uc.emaLenta}/#{uc.emaSugerida}
                                         </span>
                                     </p:column>
                                     <p:column headerText="Fin"
-                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}">
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}">
                                             #{uc.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
                                     <p:column headerText="BE"
-                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.salirBreakeven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.salirBreakeven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
                                             title="#{uc.salirBreakeven ? 'Salida en Break-Even Activa' : 'Break-Even Desactivado'}">
                                             #{uc.salirBreakeven ? 'BE' : 'OFF'}
                                         </span>
                                     </p:column>
                                     <p:column headerText="TSL"
-                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
                                             title="#{uc.usarTSL ? 'Trailing Stop Loss Activo' : 'Sin TSL (Solo Cierre al Reingreso del CAR)'}">
                                             #{uc.usarTSL ? 'TSL' : 'CAR'}
                                         </span>
@@ -798,6 +798,11 @@
                                         style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35);"></span>
                                     <span id="cartLiveText" style="font-size: 1.22rem;">En Vivo (10s)</span>
                                 </button>
+                                <p:commandButton icon="pi pi-refresh" title="Refrescar gráfica RIDER"
+                                    action="#{dashboardBean.analyzeCartPair}" process="@this"
+                                    update=":aetherForm:cartHistoryJsonData :aetherForm:cartActiveTradesJsonData :aetherForm:cartActiveCycleSummaryJsonData"
+                                    oncomplete="renderCartChart();" styleClass="aether-btn-secondary"
+                                    style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
                                 <button type="button" onclick="resetChartZoom('cartChart');"
                                     title="Restablecer Zoom"
                                     style="display: inline-flex; align-items: center; justify-content: center; height: 32px; width: 36px; padding: 0; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #334155; cursor: pointer;">
@@ -1782,19 +1787,21 @@
                     }
                 }
 
-                // Helper para encontrar la vela de precio más cercana temporalmente
+                // Helper para encontrar la vela que contiene temporalmente el evento o la más cercana
                 function findClosestCandle(targetTs) {
                     if (!targetTs || !priceSeries || priceSeries.length === 0) return null;
-                    var minDiff = Infinity;
-                    var bestIdx = -1;
                     for (var ci = 0; ci < priceSeries.length; ci++) {
-                        var diff = Math.abs(priceSeries[ci].x - targetTs);
-                        if (diff < minDiff) {
-                            minDiff = diff;
-                            bestIdx = ci;
+                        var currX = priceSeries[ci].x;
+                        var nextX = (ci + 1 < priceSeries.length) ? priceSeries[ci + 1].x : Infinity;
+                        if (targetTs >= currX && targetTs < nextX) {
+                            return { idx: ci, x: priceSeries[ci].x, y: priceSeries[ci].y, high: priceSeries[ci].high, low: priceSeries[ci].low };
                         }
                     }
-                    return bestIdx >= 0 ? { idx: bestIdx, x: priceSeries[bestIdx].x, y: priceSeries[bestIdx].y } : null;
+                    if (targetTs < priceSeries[0].x) {
+                        return { idx: 0, x: priceSeries[0].x, y: priceSeries[0].y };
+                    }
+                    var lastIdx = priceSeries.length - 1;
+                    return { idx: lastIdx, x: priceSeries[lastIdx].x, y: priceSeries[lastIdx].y };
                 }
 
                 // Colección de trades a procesar
@@ -2034,9 +2041,9 @@
                             hasActivePosition = true;
                         }
 
-                        // Coincidir puntos de entrada y salida exactamente con la gráfica del precio (priceSeries)
-                        var chartEntryPx = (candleEntry && candleEntry.y !== null && candleEntry.y !== undefined) ? Number(candleEntry.y) : entryPx;
-                        var chartExitPx = (candleExit && candleExit.y !== null && candleExit.y !== undefined) ? Number(candleExit.y) : exitPx;
+                        // Priorizar el precio real ejecutado (entryPx/exitPx) para los marcadores exactos en la gráfica
+                        var chartEntryPx = (entryPx !== null && !isNaN(entryPx) && entryPx > 0) ? Number(entryPx) : ((candleEntry && candleEntry.y !== null && candleEntry.y !== undefined) ? Number(candleEntry.y) : null);
+                        var chartExitPx = (exitPx !== null && !isNaN(exitPx) && exitPx > 0) ? Number(exitPx) : ((candleExit && candleExit.y !== null && candleExit.y !== undefined) ? Number(candleExit.y) : null);
 
                         if (entryTs && (minHistTs === null || entryTs >= minHistTs)) {
                             // LÍNEA VERTICAL PUNTEADA DE ENTRADA (SÓLO PARA ENTRADA VIGENTE)

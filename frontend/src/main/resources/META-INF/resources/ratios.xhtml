@@ -69,24 +69,25 @@
                     <p:panel styleClass="aether-panel">
                         <f:facet name="header">
                             <div
-                                style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span
-                                        style="font-weight: 800; color: #0284c7; font-size: 1.15rem; display: inline-flex; align-items: center; gap: 10px;"><i
+                                style="display: flex; align-items: center; justify-content: flex-start; width: 100%; flex-wrap: nowrap; gap: 8px;">
+                                <div
+                                    style="display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0;">
+                                    <span class="aether-calibracion-title"
+                                        style="font-weight: 700; color: #0284c7; font-size: 1.25rem; letter-spacing: -0.2px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;"><i
                                             class="pi pi-cog"
-                                            style="font-size: 2.6rem; color: #0284c7; vertical-align: middle;"></i>CALIBRACION</span>
+                                            style="font-size: 1.25rem; color: #0284c7; vertical-align: middle;"></i>Calibración</span>
                                 </div>
                                 <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
-                                    style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                                    style="display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; flex-wrap: nowrap;">
                                     <p:commandButton icon="pi pi-pencil" action="#{dashboardBean.prepararEditarCuenta}"
                                         disabled="#{dashboardBean.readOnly || dashboardBean.selectedAccountId == null}"
                                         process="@this" update=":editarCuentaForm:editarCuentaDlg"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes editar cuentas de otro usuario' : 'Editar Valores de la Cuenta'}" />
                                     <p:selectOneMenu id="cuentaSelector" value="#{dashboardBean.selectedAccountId}"
                                         styleClass="aether-input aether-cuenta-selector"
-                                        style="min-width: 155px; max-width: 230px; width: 185px; height: 32px !important; line-height: 32px !important; font-size: 1.05rem !important;">
+                                        style="min-width: 110px; max-width: 165px; width: 145px; height: 28px !important; line-height: 28px !important; font-size: 0.95rem !important;">
                                         <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
                                             itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
                                         <p:ajax process="@this" update=":aetherForm" oncomplete="renderAetherChart()"
@@ -96,26 +97,17 @@
                                         rendered="#{securityBean.canCreateAccount}" disabled="#{dashboardBean.readOnly}"
                                         process="@this" update=":nuevaCuentaForm:nuevaCuentaDlg"
                                         oncomplete="PF('nuevaCuentaDlg').show();" styleClass="aether-btn-primary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes dar de alta cuentas para otro usuario' : 'Dar de Alta Nueva Cuenta'}" />
                                     <p:commandButton icon="pi pi-refresh" action="#{dashboardBean.refreshDashboard}"
                                         process="@this" update=":aetherForm"
                                         oncomplete="renderAetherChart(); renderSignalComparisonChart(); renderRealTradesEquityChart();"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="Actualizar datos y saldos de capital (Modo Request)" />
                                 </div>
                             </div>
                         </f:facet>
-
-                        <!-- ACCESO RÁPIDO EN CELULAR A LA PESTAÑA DE LA GRÁFICA -->
-                        <div class="mobile-chart-shortcut" style="display: none; padding: 6px 6px 4px 6px;">
-                            <button type="button" class="aether-btn-primary" onclick="switchToMobileChartTab();"
-                                style="width: 100%; padding: 10px 14px; font-weight: 800; font-size: 0.95rem; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
-                                <i class="pi pi-chart-line" style="font-size: 1.15rem;"></i>
-                                <span>Ver Gráfica del Ratio en Pestaña 📈</span>
-                            </button>
-                        </div>
 
                         <p:accordionPanel id="leftAccordion" multiple="false"
                             activeIndex="#{dashboardBean.activeAccordionIndex}" styleClass="aether-accordion"
@@ -131,8 +123,7 @@
                                             1. Pares de la Cuenta
                                         </span>
                                         <p:commandLink action="#{dashboardBean.abrirDialogoCopiarEstrategia('RATIOS')}"
-                                            process="@this"
-                                            update=":copiarEstrategiaForm:dlgCopiarEstrategia"
+                                            process="@this" update=":copiarEstrategiaForm:dlgCopiarEstrategia"
                                             oncomplete="PF('dlgCopiarEstrategia').show();"
                                             onclick="event.stopPropagation();"
                                             title="Copiar parametrizaciones de otra cuenta"
@@ -164,42 +155,41 @@
                                     style="width: 100%; margin-bottom: 2px; cursor: pointer;">
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onRowSelect}" process="@this"
                                         update=":aetherForm" oncomplete="handleUserRatioSelected();" />
-                                    <p:column headerText="ID"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
+                                    <p:column headerText="ID" style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{r.id}"
-                                            style="font-size: 0.95rem; font-weight: 800; color: #0284c7;" />
+                                            style="font-size: 1.0rem; font-weight: 700; color: #0284c7;" />
                                     </p:column>
                                     <p:column headerText="Ratio"
-                                        style="width: 120px; min-width: 120px; max-width: 120px; padding: 2px 1px !important;"
+                                        style="width: 118px; min-width: 118px; max-width: 118px; padding: 1px 1px !important;"
                                         styleClass="col-par-fixed-ratios">
-                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
-                                            <p:commandButton value="#{r.numerador} / #{r.denominador}"
+                                        <div
+                                            style="display: flex; align-items: center; justify-content: center; gap: 2px; width: 100%;">
+                                            <p:commandButton value="#{r.numerador} - #{r.denominador}"
                                                 action="#{dashboardBean.onSelectUserRatio(r)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserRatioSelected();"
                                                 styleClass="aether-btn-par-trigger #{r.hasOpenTrades ? (r.operar ? 'aether-btn-par-active-course' : 'aether-btn-par-inactive-course') : (r.operar ? 'aether-btn-par-active' : 'aether-btn-par-inactive')}"
                                                 title="#{r.hasOpenTrades ? (r.operar ? 'Activo (En curso). Cargar en Sección 2' : 'Inactivo (En curso). Cargar en Sección 2') : (r.operar ? 'Activo. Cargar en Sección 2' : 'Inactivo. Cargar en Sección 2')}" />
                                             <h:panelGroup rendered="#{r.nuevaRecomendacion}">
-                                                <span class="badge"
+                                                 <span class="badge"
                                                     style="background: #f59e0b; color: #ffffff; font-size: 0.65rem; font-weight: 900; padding: 1px 3px; border-radius: 4px; white-space: nowrap;"
                                                     title="Recomendación Óptima Nueva del Optimizador.">✨</span>
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
-                                    <p:column headerText="TF"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
-                                        <h:outputText value="#{r.temporalidad}"
-                                            style="font-size: 1.0rem; font-weight: 800;" />
-                                    </p:column>
-                                    <p:column headerText="RIDE"
-                                        style="width: 38px; text-align: center; padding: 2px 1px !important;">
-                                        <h:outputText value="#{r.emaRapida}"
-                                            style="font-size: 1.0rem; font-weight: 800;"
-                                            title="Rastreador de Inercia por Decaimiento Exponencial: #{r.emaRapida}" />
-                                    </p:column>
-                                    <p:column headerText="VR"
-                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
+                                    <p:column headerText="% G/P" style="text-align: center; width: 54px; min-width: 54px; max-width: 54px; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'background: rgba(168, 85, 247, 0.15); color: #9333ea; border: 1px solid #c084fc;' : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'background: rgba(14, 165, 233, 0.15); color: #0284c7; border: 1px solid #38bdf8;' : 'background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fbbf24;')}"
+                                            style="font-size: 0.90rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.closedTrades gt 0 ? (r.pnlPct gt 0 ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : (r.pnlPct lt 0 ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #94a3b8;')) : 'background: rgba(100, 116, 139, 0.08); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="Ganancia/Pérdida (PnL): #{r.netProfit >= 0 ? '+' : ''}$#{r.netProfit} USD | Efectividad: #{r.winRate}% (#{r.winningTrades} Ganadas / #{r.closedTrades} Cerradas)#{r.hasOpenTrades ? (' | PnL Flotante: ' += (r.openPnl >= 0 ? '+' : '') += '$' += r.openPnl += ' USD') : ''}">
+                                            #{r.formattedPnlPct}
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="TF" style="text-align: center; padding: 1px 1px !important;">
+                                        <h:outputText value="#{r.temporalidad}"
+                                            style="font-size: 1.0rem; font-weight: 700;" />
+                                    </p:column>
+                                    <p:column headerText="VR" style="text-align: center; padding: 1px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 1.0rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'background: rgba(168, 85, 247, 0.15); color: #9333ea; border: 1px solid #c084fc;' : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'background: rgba(14, 165, 233, 0.15); color: #0284c7; border: 1px solid #38bdf8;' : 'background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #fbbf24;')}"
                                             title="#{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? ('Régimen Tolerante (VR &#8804; ' += r.umbralDiferencia += ')') : (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'Régimen Reactivo' : 'Régimen Síncrono')} | Break-Even: #{r.salirBreakeven ? 'SI' : 'NO'} | TSL: #{r.usarTSL ? 'SI' : 'NO'}">
                                             #{r.tipoCierre eq 'Tolerante' or r.tipoCierre eq 'Diferencia' ? 'Tol' :
                                             (r.tipoCierre eq 'Reactivo' or r.tipoCierre eq 'Divergencia' ? 'Reac' :
@@ -207,17 +197,16 @@
                                         </span>
                                     </p:column>
                                     <p:column headerText="Entrada"
-                                        style="width: 46px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoEntrada eq 'Selectiva' ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(100, 116, 139, 0.15); color: #475569; border: 1px solid #94a3b8;'}"
+                                            style="font-size: 1.0rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.tipoEntrada eq 'Selectiva' ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(100, 116, 139, 0.15); color: #475569; border: 1px solid #94a3b8;'}"
                                             title="#{r.tipoEntrada eq 'Selectiva' ? 'Entrada Selectiva (Mayor alejamiento y par contrario fuera de bandas)' : 'Entrada Exhaustiva (Reglas clásicas)'}">
                                             #{r.tipoEntrada eq 'Selectiva' ? 'Sel' : 'Exh'}
                                         </span>
                                     </p:column>
-                                    <p:column headerText="Fin"
-                                        style="width: 42px; text-align: center; padding: 2px 1px !important;">
+                                    <p:column headerText="Fin" style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
+                                            style="font-size: 1.0rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
                                             title="#{r.accionCierre eq 'Para' ? 'Cierra y Para (Desactiva operar al cerrar)' : 'Cierra y Continúa (Sigue operando ciclos)'}">
                                             #{r.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
@@ -1129,8 +1118,8 @@
                                 </h:panelGroup>
                             </div>
 
-                            <!-- LADO DERECHO: PARES SELECCIONADOS Y BOTÓN DESHABILITAR RATIOS HASTA LA DERECHA -->
-                            <div style="display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0;">
+                            <!-- LADO DERECHO: PARES SELECCIONADOS, BOTÓN ACTUALIZAR Y BOTÓN DESHABILITAR RATIOS -->
+                            <div style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: nowrap;">
                                 <div id="pairsHeaderTitle"
                                     style="display: inline-flex; align-items: center; font-weight: 900; white-space: nowrap; font-size: 1.25rem;">
                                     <span
@@ -1140,6 +1129,11 @@
                                     <span
                                         style="color: #ff8c00; font-size: 1.25rem; font-weight: 900;">#{dashboardBean.selectedPair2}</span>
                                 </div>
+                                <p:commandButton id="btnRefreshRatioChart" icon="pi pi-refresh" title="Refrescar gráfica de Ratio"
+                                    action="#{dashboardBean.analyzePair}" process="@this"
+                                    update=":aetherForm:historyJsonData :aetherForm:activeTradesJson"
+                                    oncomplete="renderAetherChart();" styleClass="aether-btn-secondary"
+                                    style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
                                 <p:commandButton id="btnDisableUserRatios" icon="pi pi-power-off" process="@this"
                                     disabled="#{dashboardBean.readOnly}"
                                     update=":disableAllRatiosForm:disableAllRatiosDlg"
@@ -1166,21 +1160,6 @@
                 </f:facet>
                 <div id="mobileChartMountPoint" class="mobile-chart-mount-point"
                     style="padding: 8px 10px; height: 100%; box-sizing: border-box;">
-                    <!-- Barra de navegación rápida móvil -->
-                    <div class="mobile-chart-nav-bar"
-                        style="display: none; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px;">
-                        <button type="button" class="aether-btn-secondary" onclick="switchToCalibrationTab();"
-                            style="padding: 7px 12px; font-weight: 700; font-size: 0.88rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <i class="pi pi-arrow-left"></i>
-                            <span>Volver a Calibración</span>
-                        </button>
-                        <button type="button" class="aether-btn-primary" onclick="renderAetherChart();"
-                            style="padding: 7px 12px; font-weight: 700; font-size: 0.88rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;"
-                            title="Refrescar Gráfica">
-                            <i class="pi pi-refresh"></i>
-                            <span>Actualizar</span>
-                        </button>
-                    </div>
                 </div>
             </p:tab>
 
@@ -1455,7 +1434,8 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 1: BITÁCORA DETALLADA DE TRADES -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora detallada de Trades
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora
+                                detallada de Trades
                             </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
@@ -1765,7 +1745,9 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE PRECIOS NORMALIZADOS DEL BACKTEST (SUBVENTANA REUTILIZABLE) -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Precios Normalizados
+                                <i class="pi pi-chart-line"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Precios
+                                Normalizados
                             </f:facet>
                             <ui:include src="/templates/graficaNormalizadaComponent.xhtml">
                                 <ui:param name="chartId" value="signalBtNormalizedChart" />
@@ -1785,7 +1767,8 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 3: GRÁFICA DE CURVAS DE EQUIDAD -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                                <i class="pi pi-chart-bar"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
                             </f:facet>
                             <div
                                 style="background: #ffffff; border-radius: 8px; padding: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
@@ -2035,7 +2018,8 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 1: BITÁCORA DE TRADES REALES -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora de Órdenes Reales
+                                <i class="pi pi-list" style="margin-right: 6px; vertical-align: middle;"></i>Bitácora de
+                                Órdenes Reales
                             </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
@@ -2250,7 +2234,9 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 2: GRÁFICA DE CURVA DE EQUIDAD REAL -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-chart-bar" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad Real
+                                <i class="pi pi-chart-bar"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica de Curva de Equidad
+                                Real
                             </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <div
@@ -2274,7 +2260,8 @@ line-height: 1.2;">
                         <!-- SUB-PESTAÑA 3: GRÁFICA DEL RATIO (HECHOS) -->
                         <p:tab>
                             <f:facet name="title">
-                                <i class="pi pi-chart-line" style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Ratio (Hechos)
+                                <i class="pi pi-chart-line"
+                                    style="margin-right: 6px; vertical-align: middle;"></i>Gráfica del Ratio (Hechos)
                             </f:facet>
                             <div style="background: #ffffff; border-radius: 8px; padding: 14px;">
                                 <!-- Encabezado de una sola línea con total de posiciones cerradas y abiertas -->

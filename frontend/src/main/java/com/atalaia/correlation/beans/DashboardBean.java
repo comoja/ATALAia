@@ -3425,6 +3425,46 @@ public class DashboardBean implements Serializable {
         public Double getFixedMaxB() { return fixedMaxB; }
         public void setFixedMaxB(Double fixedMaxB) { this.fixedMaxB = fixedMaxB; }
 
+        private Double pnlPct = 0.0;
+        private Double netProfit = 0.0;
+        private Double openPnl = 0.0;
+        private Integer closedTrades = 0;
+        private Integer openTrades = 0;
+        private Integer winningTrades = 0;
+        private Double winRate = 0.0;
+
+        public Double getPnlPct() { return pnlPct != null ? pnlPct : 0.0; }
+        public void setPnlPct(Double pnlPct) { this.pnlPct = pnlPct; }
+
+        public Double getNetProfit() { return netProfit != null ? netProfit : 0.0; }
+        public void setNetProfit(Double netProfit) { this.netProfit = netProfit; }
+
+        public Double getOpenPnl() { return openPnl != null ? openPnl : 0.0; }
+        public void setOpenPnl(Double openPnl) { this.openPnl = openPnl; }
+
+        public Integer getClosedTrades() { return closedTrades != null ? closedTrades : 0; }
+        public void setClosedTrades(Integer closedTrades) { this.closedTrades = closedTrades; }
+
+        public Integer getOpenTrades() { return openTrades != null ? openTrades : 0; }
+        public void setOpenTrades(Integer openTrades) { this.openTrades = openTrades; }
+
+        public Integer getWinningTrades() { return winningTrades != null ? winningTrades : 0; }
+        public void setWinningTrades(Integer winningTrades) { this.winningTrades = winningTrades; }
+
+        public Double getWinRate() { return winRate != null ? winRate : 0.0; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+
+        public String getFormattedPnlPct() {
+            if (pnlPct == null) return "0.0%";
+            String sign = pnlPct > 0 ? "+" : "";
+            return sign + String.format(java.util.Locale.US, "%.1f%%", pnlPct);
+        }
+
+        public String getPnlPctColor() {
+            if (pnlPct == null || Math.abs(pnlPct) < 0.001) return "#64748b";
+            return pnlPct > 0 ? "#16a34a" : "#dc2626";
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -5384,6 +5424,13 @@ public class DashboardBean implements Serializable {
                         if (item.has("fixedMaxA") && !item.get("fixedMaxA").isNull()) dto.setFixedMaxA(item.get("fixedMaxA").asDouble());
                         if (item.has("fixedMinB") && !item.get("fixedMinB").isNull()) dto.setFixedMinB(item.get("fixedMinB").asDouble());
                         if (item.has("fixedMaxB") && !item.get("fixedMaxB").isNull()) dto.setFixedMaxB(item.get("fixedMaxB").asDouble());
+                        if (item.has("pnlPct") && !item.get("pnlPct").isNull()) dto.setPnlPct(item.get("pnlPct").asDouble());
+                        if (item.has("netProfit") && !item.get("netProfit").isNull()) dto.setNetProfit(item.get("netProfit").asDouble());
+                        if (item.has("openPnl") && !item.get("openPnl").isNull()) dto.setOpenPnl(item.get("openPnl").asDouble());
+                        if (item.has("closedTrades") && !item.get("closedTrades").isNull()) dto.setClosedTrades(item.get("closedTrades").asInt());
+                        if (item.has("openTrades") && !item.get("openTrades").isNull()) dto.setOpenTrades(item.get("openTrades").asInt());
+                        if (item.has("winningTrades") && !item.get("winningTrades").isNull()) dto.setWinningTrades(item.get("winningTrades").asInt());
+                        if (item.has("winRate") && !item.get("winRate").isNull()) dto.setWinRate(item.get("winRate").asDouble());
                         if (item.has("borrado") && !item.get("borrado").isNull()) {
                             boolean isBorrado = item.get("borrado").asBoolean();
                             dto.setBorrado(isBorrado);
@@ -8805,12 +8852,15 @@ public class DashboardBean implements Serializable {
                 && !sniperActiveTradesJson.equals("null") && !sniperActiveTradesJson.equals("[]")) {
             return sniperActiveTradesJson;
         }
-        if (sniperActiveCycleSummary != null && sniperActiveCycleSummary.getTradesJson() != null && !sniperActiveCycleSummary.getTradesJson().equals("[]")) {
+        if (sniperActiveCycleSummary != null && sniperActiveCycleSummary.isHasActiveCycle()
+                && sniperActiveCycleSummary.getTradesJson() != null && !sniperActiveCycleSummary.getTradesJson().equals("[]")) {
             return sniperActiveCycleSummary.getTradesJson();
         }
         return "[]";
     }
-    public void setSniperActiveTradesJson(String sniperActiveTradesJson) { this.sniperActiveTradesJson = sniperActiveTradesJson; }
+    public void setSniperActiveTradesJson(String sniperActiveTradesJson) {
+        // No-op para compatibilidad con JSF Update Model phase y evitar retener operaciones viejas entre cambios de pares
+    }
     public String getSniperActiveCycleSummaryJson() { return sniperActiveCycleSummaryJson != null ? sniperActiveCycleSummaryJson : "{}"; }
     public void setSniperActiveCycleSummaryJson(String sniperActiveCycleSummaryJson) { this.sniperActiveCycleSummaryJson = sniperActiveCycleSummaryJson; }
 
@@ -9001,6 +9051,8 @@ public class DashboardBean implements Serializable {
         this.sniperMultiplicadorRiesgo = dto.getMultiplicadorRiesgo() != null ? dto.getMultiplicadorRiesgo() : 1.0;
         this.sniperExistsInDb = true;
         this.sniperHasActiveTradesInDb = Boolean.TRUE.equals(dto.getHasOpenTrades());
+        this.sniperActiveTradesJson = "[]";
+        this.sniperActiveCycleSummary = new ActiveCycleSummaryDto();
         if (this.activeSniperAccordionIndex == null) {
             this.activeSniperAccordionIndex = "0";
         }
@@ -9093,6 +9145,11 @@ public class DashboardBean implements Serializable {
                 JsonNode hist = root.path("history");
                 this.sniperHistoryJson = hist.isArray() ? mapper.writeValueAsString(hist) : "[]";
 
+                JsonNode actTradesNode = root.path("activeTrades");
+                this.sniperActiveTradesJson = (actTradesNode.isArray() && actTradesNode.size() > 0)
+                        ? mapper.writeValueAsString(actTradesNode)
+                        : "[]";
+
                 this.sniperBtInitialCapital = root.path("initialCapital").asDouble(1000.0);
                 this.sniperBtAllocationPct = root.path("allocationPct").asDouble(1.0);
 
@@ -9146,6 +9203,13 @@ public class DashboardBean implements Serializable {
                     mDto.setNetProfit(mNode.path("netProfit").asDouble(0.0));
                     mDto.setTotalReturnPct(mNode.path("totalReturnPct").asDouble(0.0));
                     mDto.setProfitFactor(mNode.path("profitFactor").asDouble(0.0));
+                    mDto.setSharpeRatio(mNode.path("sharpeRatio").asDouble(0.0));
+                    mDto.setMaxDrawdown(mNode.path("maxDrawdown").asDouble(0.0));
+                    mDto.setFinalCapital(mNode.path("finalCapital").asDouble(this.sniperBtInitialCapital));
+                    this.sniperBtMetrics = mDto;
+                }
+            }
+        } catch (Exception e) {
             log.error("Error en analyzeSniperPair: {}", e.getMessage());
         }
     }

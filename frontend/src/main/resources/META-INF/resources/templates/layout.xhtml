@@ -497,6 +497,99 @@
             .user-profile {
                 padding: 4px 6px !important;
             }
+
+            /* Modales ocultos NUNCA se muestran en ningún dispositivo */
+            .ui-dialog[style*="display: none"],
+            .ui-dialog[style*="display:none"],
+            .ui-dialog.ui-overlay-hidden {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* ── Responsividad Universal de Ventanas Modales (Dialogs) en Celular cuando están VISIBLES ── */
+            .ui-dialog:not(.aether-loading-dialog):not([style*="display: none"]):not([style*="display:none"]) {
+                width: 95vw !important;
+                max-width: 95vw !important;
+                min-width: 0 !important;
+                left: 2.5vw !important;
+                right: 2.5vw !important;
+                top: 3vh !important;
+                max-height: 94vh !important;
+                height: auto !important;
+                box-sizing: border-box !important;
+                margin: 0 !important;
+                position: fixed !important;
+                transform: none !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar {
+                flex-shrink: 0 !important;
+                padding: 10px 14px !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar .ui-dialog-title {
+                font-size: 1.05rem !important;
+                white-space: normal !important;
+                word-break: break-word !important;
+                padding-right: 28px !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar-close {
+                top: 8px !important;
+                right: 8px !important;
+                width: 32px !important;
+                height: 32px !important;
+                min-width: 32px !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-content {
+                flex: 1 1 auto !important;
+                max-height: calc(94vh - 110px) !important;
+                overflow-y: auto !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                padding: 10px 8px !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-footer {
+                flex-shrink: 0 !important;
+                padding: 8px 10px !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-dialog-footer > div {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                justify-content: flex-end !important;
+                gap: 8px !important;
+                width: 100% !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) input[type="text"],
+            .ui-dialog:not(.aether-loading-dialog) .ui-inputtext,
+            .ui-dialog:not(.aether-loading-dialog) .ui-selectonemenu,
+            .ui-dialog:not(.aether-loading-dialog) .ui-inputnumber {
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .ui-dialog:not(.aether-loading-dialog) .ui-datatable,
+            .ui-dialog:not(.aether-loading-dialog) .ui-datatable-tablewrapper,
+            .ui-dialog:not(.aether-loading-dialog) .ui-datatable-scrollable-body {
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                box-sizing: border-box !important;
+            }
         }
 
         /* ===================================================================

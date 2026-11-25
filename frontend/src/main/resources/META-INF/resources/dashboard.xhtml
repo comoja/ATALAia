@@ -86,7 +86,7 @@
 
             .dashboard-grid {
                 display: grid;
-                grid-template-columns: 460px 1fr;
+                grid-template-columns: 446px 1fr;
                 gap: 16px;
                 padding: 0px 0px;
                 flex: 1;
@@ -138,16 +138,18 @@
                 margin-right: 6px !important;
             }
 
-            /* Títulos del acordeón y valor del combo IDÉNTICOS a 1.25rem para igualar '2. Calibración del Ratio' */
+            /* Títulos del acordeón, título Calibración y valor del combo IDÉNTICOS a 1.25rem con la misma fuente y peso */
             .aether-accordion .ui-accordion-header,
             .aether-accordion .ui-accordion-header a,
             .aether-accordion .ui-accordion-header .ui-accordion-header-text,
             .aether-tab-title-text,
+            .aether-panel .ui-panel-titlebar .aether-calibracion-title,
             .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-label {
                 font-size: 1.25rem !important;
                 font-weight: 700 !important;
                 color: #1e293b !important;
                 letter-spacing: -0.2px !important;
+                font-family: inherit !important;
             }
 
             .aether-tab-title-container {
@@ -159,17 +161,89 @@
                 gap: 6px !important;
             }
 
-            .aether-cuenta-header-box {
-                cursor: default !important;
+            .aether-panel .ui-panel-titlebar {
+                padding: 4px 8px !important;
+                min-height: 42px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
             }
 
-            /* Reducción únicamente del OBJETO (marco compacto y sin padding excedente, conservando el font en 1.05rem) */
+            .aether-panel .ui-panel-titlebar>div {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                flex-wrap: nowrap !important;
+                width: 100% !important;
+                gap: 8px !important;
+                box-sizing: border-box !important;
+            }
+
+            /* 1. Título Calibración: Mismo tamaño (1.25rem), peso (700) y fuente que las 3 secciones */
+            .aether-panel .ui-panel-titlebar .aether-calibracion-title {
+                font-size: 1.25rem !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.2px !important;
+                font-family: inherit !important;
+                white-space: nowrap !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 6px !important;
+            }
+
+            /* 2, 4 y 5. Iconos PrimeFaces en los 5 objetos de la cabecera: Mismo tamaño (1.25rem) y 100% visibles */
+            .aether-panel .ui-panel-titlebar .ui-icon,
+            .aether-panel .ui-panel-titlebar .pi,
+            .aether-cuenta-header-box .ui-icon,
+            .aether-cuenta-header-box .pi {
+                font-family: 'primeicons' !important;
+                font-style: normal !important;
+                font-weight: normal !important;
+                font-size: 1.25rem !important;
+                display: inline-block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                line-height: 1 !important;
+                -webkit-font-smoothing: antialiased !important;
+                -moz-osx-font-smoothing: grayscale !important;
+            }
+
+            .aether-cuenta-header-box {
+                cursor: default !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                flex-wrap: nowrap !important;
+                gap: 4px !important;
+                flex-shrink: 0 !important;
+                white-space: nowrap !important;
+            }
+
+            .aether-cuenta-header-box .ui-button {
+                width: 34px !important;
+                height: 34px !important;
+                min-width: 34px !important;
+                padding: 0 !important;
+                border-radius: 50% !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                flex-shrink: 0 !important;
+            }
+
+            .aether-cuenta-header-box .ui-button.ui-button-icon-only .ui-button-text {
+                display: none !important;
+            }
+
+            /* 3. Selector de Cuenta: Mismo tamaño (1.25rem), peso (700) y fuente que las 3 secciones */
             .aether-cuenta-header-box .aether-cuenta-selector {
-                width: 185px !important;
-                min-width: 155px !important;
-                max-width: 230px !important;
-                height: 28px !important;
-                line-height: 28px !important;
+                width: 155px !important;
+                min-width: 120px !important;
+                max-width: 180px !important;
+                height: 32px !important;
+                line-height: 32px !important;
                 border: 1px solid #cbd5e1 !important;
                 border-radius: 6px !important;
                 background-color: #ffffff !important;
@@ -177,21 +251,28 @@
                 align-items: center !important;
                 box-sizing: border-box !important;
                 padding: 0 !important;
+                flex-shrink: 1 !important;
             }
 
             .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-label {
-                height: 28px !important;
-                line-height: 28px !important;
+                height: 32px !important;
+                line-height: 32px !important;
                 padding: 0 24px 0 8px !important;
                 margin: 0 !important;
-                font-size: 1.15rem !important;
+                font-size: 1.25rem !important;
                 font-weight: 700 !important;
+                letter-spacing: -0.2px !important;
+                color: #1e293b !important;
+                font-family: inherit !important;
                 box-sizing: border-box !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
             }
 
             .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-trigger {
                 width: 22px !important;
-                height: 28px !important;
+                height: 32px !important;
                 top: 0 !important;
                 right: 0 !important;
                 display: flex !important;
@@ -410,7 +491,7 @@
            ========================================================================== */
             @media (max-width: 1200px) {
                 .dashboard-grid {
-                    grid-template-columns: 380px 1fr;
+                    grid-template-columns: 370px 1fr;
                     gap: 12px;
                 }
 
@@ -450,30 +531,347 @@
 
             @media (max-width: 768px) {
 
+                html,
+                body {
+                    overflow-x: hidden !important;
+                    overflow-y: auto !important;
+                    height: auto !important;
+                    width: 100% !important;
+                    max-width: 100vw !important;
+                }
+
+                .app-content {
+                    width: 100% !important;
+                    max-width: 100vw !important;
+                    overflow-x: hidden !important;
+                    padding: 0 !important;
+                }
+
+                #aetherForm {
+                    width: 100% !important;
+                    max-width: 100vw !important;
+                    overflow-x: hidden !important;
+                }
+
+                #strategyRatiosWrapper,
+                #strategyCartWrapper,
+                #strategySniperWrapper {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    box-sizing: border-box !important;
+                    overflow-x: hidden !important;
+                }
+
                 /* Mostrar pestaña exclusiva de gráfica en celular */
                 .ui-tabs .ui-tabs-nav li.mobile-chart-tab-header {
                     display: inline-block !important;
                 }
 
-                .mobile-chart-shortcut {
-                    display: block !important;
-                }
-
+                .mobile-chart-shortcut,
                 .mobile-chart-nav-bar {
-                    display: flex !important;
+                    display: none !important;
                 }
 
-                /* En celular la cuadrícula contiene solo el panel de calibración */
+                .ui-tabs .ui-tabs-panels {
+                    padding: 4px 2px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    overflow-x: hidden !important;
+                }
+
+                .ui-tabs .ui-tabs-panel {
+                    padding: 0 !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    box-sizing: border-box !important;
+                    overflow-x: hidden !important;
+                }
+
+                /* En celular la ventana de calibración llena la pantalla sin desbordarse */
                 .dashboard-grid {
-                    grid-template-columns: 1fr !important;
-                    gap: 12px !important;
-                    overflow: visible !important;
+                    grid-template-columns: 100% !important;
+                    gap: 10px !important;
+                    overflow-x: hidden !important;
+                    overflow-y: visible !important;
                     height: auto !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    box-sizing: border-box !important;
                 }
 
                 .dashboard-grid>.aether-panel {
                     height: auto !important;
-                    overflow: visible !important;
+                    overflow: hidden !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    box-sizing: border-box !important;
+                }
+
+                .dashboard-grid>.aether-panel>.ui-panel-content {
+                    padding: 4px 2px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    overflow-x: hidden !important;
+                }
+
+                .aether-panel .ui-panel-titlebar {
+                    padding: 4px 6px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+
+                .aether-panel .ui-panel-titlebar>div {
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: space-between !important;
+                    flex-wrap: nowrap !important;
+                    gap: 6px !important;
+                    width: 100% !important;
+                }
+
+                .aether-panel .ui-panel-titlebar .aether-calibracion-title {
+                    font-size: 1.15rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: -0.2px !important;
+                }
+
+                .aether-panel .ui-panel-titlebar i.pi-cog {
+                    font-size: 1.15rem !important;
+                }
+
+                .aether-cuenta-header-box .ui-icon,
+                .aether-cuenta-header-box .pi {
+                    font-size: 1.15rem !important;
+                }
+
+                .aether-cuenta-header-box {
+                    display: inline-flex !important;
+                    align-items: center !important;
+                    justify-content: flex-start !important;
+                    flex-wrap: nowrap !important;
+                    gap: 3px !important;
+                    flex-shrink: 0 !important;
+                }
+
+                .aether-cuenta-header-box .ui-button {
+                    width: 32px !important;
+                    height: 32px !important;
+                    min-width: 32px !important;
+                }
+
+                .aether-cuenta-header-box .aether-cuenta-selector {
+                    width: 135px !important;
+                    min-width: 95px !important;
+                    max-width: 155px !important;
+                    height: 28px !important;
+                    line-height: 28px !important;
+                }
+
+                .aether-cuenta-header-box .aether-cuenta-selector .ui-selectonemenu-label {
+                    height: 28px !important;
+                    line-height: 28px !important;
+                    font-size: 1.15rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: -0.2px !important;
+                    font-family: inherit !important;
+                }
+
+                .aether-accordion .ui-accordion-header {
+                    padding: 4px 6px !important;
+                    min-height: 34px !important;
+                }
+
+                .aether-accordion .ui-accordion-header,
+                .aether-accordion .ui-accordion-header a,
+                .aether-accordion .ui-accordion-header .ui-accordion-header-text,
+                .aether-tab-title-text {
+                    font-size: 1.15rem !important;
+                    font-weight: 700 !important;
+                    letter-spacing: -0.2px !important;
+                }
+
+                /* ── SECCIÓN 2: Configuración / Calibración en Móvil (Objetos uniformes a 1.12rem) ── */
+                .aether-panel #tabCalibration .ui-selectonemenu,
+                .aether-panel #tabCartCalibration .ui-selectonemenu,
+                .aether-panel #tabCalibSniper .ui-selectonemenu,
+                .aether-panel #tabCalibration .ui-selectonemenu-label,
+                .aether-panel #tabCartCalibration .ui-selectonemenu-label,
+                .aether-panel #tabCalibSniper .ui-selectonemenu-label,
+                .aether-panel #tabCalibration .ui-inputnumber input,
+                .aether-panel #tabCartCalibration .ui-inputnumber input,
+                .aether-panel #tabCalibSniper .ui-inputnumber input,
+                .aether-panel #tabCalibration .aether-input,
+                .aether-panel #tabCartCalibration .aether-input,
+                .aether-panel #tabCalibSniper .aether-input,
+                .aether-panel #tabCalibration .ui-inputfield,
+                .aether-panel #tabCartCalibration .ui-inputfield,
+                .aether-panel #tabCalibSniper .ui-inputfield,
+                .aether-panel #tabCalibration .ui-spinner input,
+                .aether-panel #tabCartCalibration .ui-spinner input,
+                .aether-panel #tabCalibSniper .ui-spinner input,
+                .aether-panel #tabCalibration .ui-calendar input,
+                .aether-panel #tabCartCalibration .ui-calendar input,
+                .aether-panel #tabCalibSniper .ui-calendar input {
+                    font-size: 1.12rem !important;
+                    font-weight: 700 !important;
+                    height: 32px !important;
+                    line-height: 30px !important;
+                    box-sizing: border-box !important;
+                }
+
+                .aether-panel #tabCalibration .ui-selectonebutton .ui-button .ui-button-text,
+                .aether-panel #tabCartCalibration .ui-selectonebutton .ui-button .ui-button-text,
+                .aether-panel #tabCalibSniper .ui-selectonebutton .ui-button .ui-button-text {
+                    font-size: 1.05rem !important;
+                    font-weight: 700 !important;
+                }
+
+                .aether-panel #tabCalibration .ui-button .ui-button-text,
+                .aether-panel #tabCartCalibration .ui-button .ui-button-text,
+                .aether-panel #tabCalibSniper .ui-button .ui-button-text,
+                .aether-panel #tabCalibration .aether-btn-primary,
+                .aether-panel #tabCalibration .aether-btn-secondary,
+                .aether-panel #tabCartCalibration .aether-btn-primary,
+                .aether-panel #tabCartCalibration .aether-btn-secondary,
+                .aether-panel #tabCalibSniper .aether-btn-primary,
+                .aether-panel #tabCalibSniper .aether-btn-secondary {
+                    font-size: 1.08rem !important;
+                    font-weight: 700 !important;
+                }
+
+                /* Labels en Sección 2 en móvil (legibles y proporcionados) */
+                .aether-panel #tabCalibration .control-label,
+                .aether-panel #tabCartCalibration .control-label,
+                .aether-panel #tabCalibSniper .control-label,
+                .aether-panel #tabCalibration label,
+                .aether-panel #tabCartCalibration label,
+                .aether-panel #tabCalibSniper label {
+                    font-size: 0.88rem !important;
+                    font-weight: 700 !important;
+                    color: var(--text-muted) !important;
+                }
+
+                /* ── SECCIÓN 3: Posiciones en Curso en Móvil (Responsivo y fuentes legibles) ── */
+                .aether-panel #tabAllActivePositions,
+                .aether-panel #tabCartActivePositions,
+                .aether-panel #tabSniperActivePositions {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    box-sizing: border-box !important;
+                }
+
+                /* Tarjetas resumen globales (4 métricas) pasan a grid de 2x2 en móvil */
+                .aether-panel #tabAllActivePositions div[style*="repeat(4, 1fr)"],
+                .aether-panel #tabCartActivePositions div[style*="repeat(4, 1fr)"],
+                .aether-panel #tabSniperActivePositions div[style*="repeat(4, 1fr)"] {
+                    display: grid !important;
+                    grid-template-columns: repeat(2, 1fr) !important;
+                    gap: 8px !important;
+                }
+
+                /* Título de tarjetas en Sección 3 */
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.82rem"],
+                .aether-panel #tabCartActivePositions div[style*="font-size: 0.82rem"],
+                .aether-panel #tabSniperActivePositions div[style*="font-size: 0.82rem"] {
+                    font-size: 0.98rem !important;
+                    font-weight: 800 !important;
+                }
+
+                /* Labels / subtítulos descriptivos en Sección 3 */
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.62rem"],
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.65rem"],
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.68rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 0.62rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 0.65rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 0.68rem"],
+                .aether-panel #tabCartActivePositions div[style*="font-size: 0.62rem"],
+                .aether-panel #tabCartActivePositions div[style*="font-size: 0.65rem"],
+                .aether-panel #tabCartActivePositions span[style*="font-size: 0.62rem"],
+                .aether-panel #tabCartActivePositions span[style*="font-size: 0.65rem"],
+                .aether-panel #tabSniperActivePositions div[style*="font-size: 0.62rem"],
+                .aether-panel #tabSniperActivePositions div[style*="font-size: 0.65rem"],
+                .aether-panel #tabSniperActivePositions span[style*="font-size: 0.62rem"],
+                .aether-panel #tabSniperActivePositions span[style*="font-size: 0.65rem"] {
+                    font-size: 0.82rem !important;
+                    font-weight: 700 !important;
+                    line-height: 1.25 !important;
+                }
+
+                /* Valores numéricos principales en Sección 3 */
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.95rem"],
+                .aether-panel #tabAllActivePositions div[style*="font-size: 1.02rem"],
+                .aether-panel #tabAllActivePositions div[style*="font-size: 1.05rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 0.95rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 1.02rem"],
+                .aether-panel #tabAllActivePositions span[style*="font-size: 1.05rem"],
+                .aether-panel #tabCartActivePositions div[style*="font-size: 0.95rem"],
+                .aether-panel #tabCartActivePositions div[style*="font-size: 1.05rem"],
+                .aether-panel #tabCartActivePositions span[style*="font-size: 0.95rem"],
+                .aether-panel #tabCartActivePositions span[style*="font-size: 1.05rem"],
+                .aether-panel #tabSniperActivePositions div[style*="font-size: 0.95rem"],
+                .aether-panel #tabSniperActivePositions div[style*="font-size: 1.05rem"],
+                .aether-panel #tabSniperActivePositions span[style*="font-size: 0.95rem"],
+                .aether-panel #tabSniperActivePositions span[style*="font-size: 1.05rem"] {
+                    font-size: 1.15rem !important;
+                    font-weight: 900 !important;
+                    line-height: 1.25 !important;
+                }
+
+                /* Enlaces y símbolos de las posiciones en Sección 3 */
+                .aether-panel #tabAllActivePositions a[style*="font-size: 1.15rem"],
+                .aether-panel #tabCartActivePositions a[style*="font-size: 1.05rem"],
+                .aether-panel #tabSniperActivePositions a[style*="font-size: 1.05rem"] {
+                    font-size: 1.18rem !important;
+                    font-weight: 900 !important;
+                }
+
+                /* Badges de operaciones y dirección en Sección 3 */
+                .aether-panel #tabAllActivePositions a[style*="border-radius: 12px"],
+                .aether-panel #tabCartActivePositions span[style*="border-radius: 4px"],
+                .aether-panel #tabSniperActivePositions span[style*="border-radius: 4px"] {
+                    font-size: 0.84rem !important;
+                    font-weight: 800 !important;
+                    padding: 3px 8px !important;
+                }
+
+                /* Línea sintética de ratio entrada vs actual */
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.74rem"] {
+                    font-size: 0.84rem !important;
+                    font-weight: 700 !important;
+                }
+
+                .aether-panel #tabAllActivePositions div[style*="font-size: 0.74rem"] b {
+                    font-size: 0.98rem !important;
+                    font-weight: 800 !important;
+                }
+
+                /* Tabla de desglose de patas en Sección 3 (Ratios) */
+                .aether-panel #tabAllActivePositions div[style*="border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 0.84rem;"] {
+                    overflow-x: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    padding: 6px 8px !important;
+                }
+
+                .aether-panel #tabAllActivePositions div[style*="grid-template-columns: 1.5fr 1.3fr 1.3fr 1.1fr 1.1fr 1.1fr"] {
+                    min-width: 320px !important;
+                    gap: 4px !important;
+                }
+
+                .aether-panel #tabAllActivePositions div[style*="grid-template-columns: 1.5fr 1.3fr 1.3fr 1.1fr 1.1fr 1.1fr"] span,
+                .aether-panel #tabAllActivePositions div[style*="grid-template-columns: 1.5fr 1.3fr 1.3fr 1.1fr 1.1fr 1.1fr"] a {
+                    font-size: 0.85rem !important;
+                    font-weight: 700 !important;
+                }
+
+                .aether-panel .ui-accordion-content {
+                    padding: 5px 4px !important;
                 }
 
                 .kpis-grid {
@@ -516,11 +914,201 @@
                     flex-direction: column;
                     gap: 10px;
                 }
+
+                /* ── Responsividad de Ventanas Modales (Dialogs) en Celular cuando están VISIBLES ── */
+                .ui-dialog[style*="display: none"],
+                .ui-dialog[style*="display:none"],
+                .ui-dialog.ui-overlay-hidden {
+                    display: none !important;
+                    visibility: hidden !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog):not([style*="display: none"]):not([style*="display:none"]) {
+                    width: 95vw !important;
+                    max-width: 95vw !important;
+                    min-width: 0 !important;
+                    left: 2.5vw !important;
+                    right: 2.5vw !important;
+                    top: 3vh !important;
+                    max-height: 94vh !important;
+                    height: auto !important;
+                    box-sizing: border-box !important;
+                    margin: 0 !important;
+                    position: fixed !important;
+                    transform: none !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar {
+                    flex-shrink: 0 !important;
+                    padding: 10px 14px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar .ui-dialog-title {
+                    font-size: 1.05rem !important;
+                    white-space: normal !important;
+                    word-break: break-word !important;
+                    padding-right: 28px !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-titlebar-close {
+                    top: 8px !important;
+                    right: 8px !important;
+                    width: 32px !important;
+                    height: 32px !important;
+                    min-width: 32px !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-content {
+                    flex: 1 1 auto !important;
+                    max-height: calc(94vh - 110px) !important;
+                    overflow-y: auto !important;
+                    overflow-x: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    padding: 10px 8px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-footer {
+                    flex-shrink: 0 !important;
+                    padding: 8px 10px !important;
+                    box-sizing: border-box !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-footer > div {
+                    display: flex !important;
+                    flex-wrap: wrap !important;
+                    justify-content: flex-end !important;
+                    gap: 8px !important;
+                    width: 100% !important;
+                }
+
+                /* Modales específicos: Balance Global y Hechos del Ratio */
+                .ui-dialog:not(.aether-loading-dialog) #balanceGlobalContent div[style*="repeat(5, 1fr)"],
+                .aether-ratio-hechos-dialog div[style*="grid-template-columns: 1.25fr 1fr 1.2fr 1.2fr 1.2fr"] {
+                    display: grid !important;
+                    grid-template-columns: repeat(2, 1fr) !important;
+                    gap: 6px !important;
+                }
+
+                /* Inputs y selects dentro de modales al 100% en móvil */
+                .ui-dialog:not(.aether-loading-dialog) .aether-input,
+                .ui-dialog:not(.aether-loading-dialog) .ui-inputfield,
+                .ui-dialog:not(.aether-loading-dialog) .ui-selectonemenu {
+                    max-width: 100% !important;
+                    box-sizing: border-box !important;
+                }
+
+                /* Picklist de Copiar Estrategia en celular */
+                .ui-dialog:not(.aether-loading-dialog) .ui-picklist .ui-picklist-list {
+                    width: 100% !important;
+                    height: 150px !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-picklist table {
+                    width: 100% !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-picklist tr {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-picklist td {
+                    width: 100% !important;
+                    display: block !important;
+                    text-align: center !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-picklist .ui-picklist-buttons {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    justify-content: center !important;
+                    padding: 6px 0 !important;
+                    width: 100% !important;
+                }
+
+                /* Modal de gráfica normalizada */
+                .ui-dialog:not(.aether-loading-dialog) #dialogNormalizedChart {
+                    height: 340px !important;
+                    width: 100% !important;
+                }
             }
 
             @media (max-width: 480px) {
+                .ui-dialog[style*="display: none"],
+                .ui-dialog[style*="display:none"],
+                .ui-dialog.ui-overlay-hidden {
+                    display: none !important;
+                    visibility: hidden !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog):not([style*="display: none"]):not([style*="display:none"]) {
+                    width: 98vw !important;
+                    max-width: 98vw !important;
+                    left: 1vw !important;
+                    right: 1vw !important;
+                    top: 2vh !important;
+                    max-height: 96vh !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) .ui-dialog-content {
+                    max-height: calc(96vh - 100px) !important;
+                    padding: 6px 4px !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) div[style*="grid-template-columns: 1fr 1fr"] {
+                    grid-template-columns: 1fr !important;
+                    gap: 8px !important;
+                }
+
+                .ui-dialog:not(.aether-loading-dialog) #balanceGlobalContent div[style*="repeat(5, 1fr)"],
+                .aether-ratio-hechos-dialog div[style*="grid-template-columns: 1.25fr 1fr 1.2fr 1.2fr 1.2fr"] {
+                    grid-template-columns: 1fr !important;
+                }
                 .kpis-grid {
                     grid-template-columns: 1fr !important;
+                }
+
+                /* En pantallas muy estrechas (menores a 480px) Sección 2 mantiene 2 columnas en pares de inputs */
+                .aether-panel #tabCalibration div[style*="grid-template-columns: 1fr 1fr"],
+                .aether-panel #tabCartCalibration div[style*="grid-template-columns: 1fr 1fr"],
+                .aether-panel #tabCalibSniper div[style*="grid-template-columns: 1fr 1fr"],
+                .aether-panel #tabCalibSniper div[style*="grid-template-columns: 1.35fr 1fr"] {
+                    grid-template-columns: 1fr 1fr !important;
+                    gap: 6px !important;
+                }
+
+                /* Sección 3 mantiene 2 columnas en tarjetas y 3 columnas compactas en métricas */
+                .aether-panel #tabAllActivePositions div[style*="repeat(4, 1fr)"],
+                .aether-panel #tabCartActivePositions div[style*="repeat(4, 1fr)"],
+                .aether-panel #tabSniperActivePositions div[style*="repeat(4, 1fr)"] {
+                    grid-template-columns: repeat(2, 1fr) !important;
+                    gap: 6px !important;
+                }
+
+                .aether-panel #tabAllActivePositions div[style*="1fr 1fr 1fr"],
+                .aether-panel #tabAllActivePositions div[style*="1.1fr 1fr 1fr"],
+                .aether-panel #tabCartActivePositions div[style*="1fr 1fr 1fr"],
+                .aether-panel #tabSniperActivePositions div[style*="1fr 1fr 1fr"] {
+                    grid-template-columns: 1fr 1fr 1fr !important;
+                    gap: 4px !important;
+                }
+
+                .aether-cuenta-header-box {
+                    flex-wrap: nowrap !important;
+                }
+
+                .aether-cuenta-header-box .aether-cuenta-selector {
+                    width: 110px !important;
+                    min-width: 85px !important;
                 }
             }
 
@@ -781,80 +1369,292 @@
             }
 
 
-            /* --- COMPACTACIÓN DE OBJETOS EN SECCIÓN 2 (CALIBRACIÓN DEL RATIO) --- */
-            #tabCalibration .ui-selectonemenu.aether-input {
-                height: 28px !important;
-                line-height: 26px !important;
+            /* --- COMPACTACIÓN Y RESPONSIVIDAD UNIVERSAL EN SECCIÓN DE CALIBRACIÓN --- */
+            .aether-panel {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
             }
 
-            #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label {
-                padding-top: 2px !important;
-                padding-bottom: 2px !important;
-                line-height: 24px !important;
+            .aether-panel .ui-accordion .ui-accordion-content {
+                box-sizing: border-box !important;
+                overflow-x: hidden !important;
+                max-width: 100% !important;
             }
 
+            /* Tablas de la calibración: scroll horizontal suave para que nunca se desborden ni trunquen columnas */
+            .aether-panel .ui-datatable {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-datatable-tablewrapper,
+            .aether-panel .ui-datatable-scrollable-body {
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-datatable table {
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* --- UNIFORMIDAD Y TAMAÑO DE FUENTE EN OBJETOS DE LA SECCIÓN 2 (CALIBRACIÓN) --- */
+            /* Labels: tamaño secundario descriptivo */
+            .aether-panel .control-label,
+            .aether-panel label {
+                font-size: 0.90rem !important;
+                font-weight: 700 !important;
+                color: #334155 !important;
+                margin-bottom: 3px !important;
+            }
+
+            /* Controles de formulario (Selects, Inputs, Números, Calendarios, Spinners): Tamaño uniforme de 1.15rem a 1.20rem */
+            .aether-panel .ui-selectonemenu,
+            .aether-panel .ui-selectonemenu.aether-input,
+            #tabCalibration .ui-selectonemenu.aether-input,
+            #tabCartCalibration .ui-selectonemenu.aether-input,
+            #tabCalibSniper .ui-selectonemenu.aether-input {
+                height: 32px !important;
+                line-height: 30px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-selectonemenu .ui-selectonemenu-label,
+            .aether-panel .ui-selectonemenu.aether-input .ui-selectonemenu-label,
+            #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label,
+            #tabCartCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label,
+            #tabCalibSniper .ui-selectonemenu.aether-input .ui-selectonemenu-label {
+                height: 32px !important;
+                line-height: 30px !important;
+                padding: 0 24px 0 8px !important;
+                font-size: 1.15rem !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.2px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-selectonemenu .ui-selectonemenu-trigger,
+            .aether-panel .ui-selectonemenu.aether-input .ui-selectonemenu-trigger,
             #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-trigger {
                 width: 22px !important;
-                height: 26px !important;
+                height: 32px !important;
+                top: 0 !important;
+                right: 0 !important;
             }
 
+            .aether-panel .ui-inputnumber,
             #tabCalibration .ui-inputnumber {
                 width: 100% !important;
+                max-width: 100% !important;
                 display: block !important;
                 box-sizing: border-box !important;
             }
 
+            .aether-panel .ui-inputnumber input,
+            .aether-panel .aether-input,
+            .aether-panel .ui-spinner,
+            .aether-panel .ui-spinner input,
+            .aether-panel .ui-inputfield,
             #tabCalibration .ui-inputnumber input,
-            #tabCalibration .aether-input {
+            #tabCalibration .aether-input,
+            #tabCartCalibration .ui-inputnumber input,
+            #tabCartCalibration .aether-input,
+            #tabCalibSniper .ui-inputnumber input,
+            #tabCalibSniper .aether-input {
                 width: 100% !important;
                 max-width: 100% !important;
-                height: 28px !important;
-                padding: 2px 4px !important;
+                height: 32px !important;
+                line-height: 30px !important;
+                font-size: 1.15rem !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.2px !important;
+                padding: 2px 8px !important;
                 box-sizing: border-box !important;
             }
 
+            /* SelectOneButton (Segmentados Continúa/Para, Long/Short, etc.): fuente uniforme y elástica */
+            .aether-panel .ui-selectonebutton {
+                display: flex !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-selectonebutton .ui-button {
+                flex: 1 1 0 !important;
+                min-width: 0 !important;
+                height: 32px !important;
+                padding: 0 4px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .ui-selectonebutton .ui-button .ui-button-text {
+                padding: 0 4px !important;
+                font-size: 1.10rem !important;
+                font-weight: 700 !important;
+                letter-spacing: -0.2px !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                text-align: center !important;
+                line-height: normal !important;
+            }
+
+            /* Filas multi-columna fluidas con flex-wrap */
+            .aether-panel .aether-tf-days-row,
             #tabCalibration .aether-tf-days-row {
-                gap: 8px !important;
-                margin-bottom: 6px !important;
-            }
-
-            #tabCalibration .aether-tf-col .ui-selectonemenu {
-                width: 135px !important;
-                height: 28px !important;
-                line-height: 26px !important;
-            }
-
-            #tabCalibration .aether-days-col .ui-inputnumber input {
-                height: 28px !important;
-                padding: 2px 6px !important;
-            }
-
-            #tabCalibration .aether-date-row {
+                display: flex !important;
+                flex-wrap: wrap !important;
                 gap: 6px !important;
-                margin-bottom: 6px !important;
+                margin-bottom: 8px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
             }
 
+            .aether-panel .aether-tf-col,
+            #tabCalibration .aether-tf-col {
+                flex: 1 1 120px !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-tf-col .ui-selectonemenu,
+            #tabCalibration .aether-tf-col .ui-selectonemenu {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 32px !important;
+                line-height: 30px !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-days-col,
+            #tabCalibration .aether-days-col {
+                flex: 1 1 80px !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-days-col .ui-inputnumber,
+            .aether-panel .aether-days-col .ui-inputnumber input,
+            #tabCalibration .aether-days-col .ui-inputnumber input {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 32px !important;
+                line-height: 30px !important;
+                font-size: 1.20rem !important;
+                font-weight: 800 !important;
+                padding: 2px 6px !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-entry-type-col {
+                flex: 1 1 120px !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-date-row,
+            #tabCalibration .aether-date-row {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+                margin-bottom: 8px !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-date-col,
+            #tabCalibration .aether-date-col {
+                flex: 1 1 120px !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel .aether-date-col .ui-inputfield,
             #tabCalibration .aether-date-col .ui-inputfield {
-                height: 28px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 32px !important;
+                line-height: 30px !important;
+                font-size: 1.15rem !important;
+                font-weight: 700 !important;
                 padding: 2px 6px !important;
+                box-sizing: border-box !important;
             }
 
+            .aether-panel .aether-date-col .ui-datepicker-trigger,
             #tabCalibration .aether-date-col .ui-datepicker-trigger {
-                height: 28px !important;
+                height: 32px !important;
                 padding: 2px 6px !important;
+                box-sizing: border-box !important;
             }
 
+            .aether-panel .aether-btn-primary,
+            .aether-panel .aether-btn-secondary,
+            .aether-panel .ui-accordion-content .ui-button:not(.aether-btn-par-trigger),
             #tabCalibration .aether-btn-primary,
             #tabCalibration .aether-btn-secondary,
             #tabCalibration .ui-button {
                 min-height: 36px !important;
-                height: 36px !important;
-                padding: 6px 14px !important;
+                box-sizing: border-box !important;
             }
 
+            .aether-panel .ui-accordion-content .ui-button:not(.aether-btn-par-trigger) .ui-button-text,
             #tabCalibration .ui-button .ui-button-text {
                 padding: 0 4px !important;
                 line-height: normal !important;
+                font-size: 1.10rem !important;
+                font-weight: 700 !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+
+            /* Resúmenes, tarjetas y paneles de estado */
+            .aether-panel .ui-panel,
+            .aether-panel div[style*="border-radius"] {
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Sección 3 (Posiciones en Curso): Homologación general de tipografía */
+            .aether-panel #tabAllActivePositions,
+            .aether-panel #tabCartActivePositions,
+            .aether-panel #tabSniperActivePositions {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .aether-panel #tabAllActivePositions div[style*="font-size: 0.62rem"],
+            .aether-panel #tabAllActivePositions div[style*="font-size: 0.65rem"],
+            .aether-panel #tabCartActivePositions div[style*="font-size: 0.62rem"],
+            .aether-panel #tabCartActivePositions div[style*="font-size: 0.65rem"],
+            .aether-panel #tabSniperActivePositions div[style*="font-size: 0.62rem"],
+            .aether-panel #tabSniperActivePositions div[style*="font-size: 0.65rem"] {
+                font-size: 0.80rem !important;
+                font-weight: 700 !important;
+            }
+
+            .aether-panel #tabAllActivePositions div[style*="font-size: 0.95rem"],
+            .aether-panel #tabAllActivePositions div[style*="font-size: 1.02rem"],
+            .aether-panel #tabCartActivePositions div[style*="font-size: 0.95rem"],
+            .aether-panel #tabSniperActivePositions div[style*="font-size: 0.95rem"] {
+                font-size: 1.15rem !important;
+                font-weight: 900 !important;
             }
 
             #signalTradesTable .ui-datatable-data td,
@@ -1167,6 +1967,7 @@
                 border-collapse: separate !important;
                 border-spacing: 0 2px !important;
                 box-sizing: border-box !important;
+                table-layout: fixed !important;
             }
 
             #userRatiosTable .ui-datatable-scrollable-body,
@@ -1192,77 +1993,92 @@
             }
 
             /* Botón interactivo del PAR en Sección 1 */
+            .aether-panel .ui-accordion-content .aether-btn-par-trigger,
             .aether-btn-par-trigger {
                 width: 100% !important;
                 text-align: center !important;
                 justify-content: center !important;
                 border-radius: 4px !important;
-                font-weight: 800 !important;
-                font-size: 0.95rem !important;
-                padding: 0 2px !important;
+                font-weight: 700 !important;
+                font-size: 0.90em !important;
+                padding: 1px 2px !important;
                 white-space: nowrap !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
                 cursor: pointer !important;
                 transition: all 0.15s ease-in-out !important;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
-                height: 22px !important;
-                line-height: 20px !important;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+                min-height: 0 !important;
+                height: auto !important;
+                line-height: 1.21 !important;
                 display: inline-flex !important;
                 align-items: center !important;
             }
+
+            .aether-panel .ui-accordion-content .aether-btn-par-trigger .ui-button-text,
             .aether-btn-par-trigger .ui-button-text {
-                padding: 0 2px !important;
-                font-size: 0.95rem !important;
-                font-weight: 800 !important;
+                padding: 1px 2px !important;
+                font-size: 0.90em !important;
+                font-weight: 700 !important;
                 text-align: center !important;
                 display: block !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
                 white-space: nowrap !important;
                 width: 100% !important;
+                min-height: 0 !important;
+                line-height: 1.21 !important;
             }
+
             .aether-ratio-trigger {
                 background: #f0f9ff !important;
                 color: #0369a1 !important;
                 border: 1px solid #bae6fd !important;
             }
+
             .aether-ratio-trigger:hover {
                 background: #0284c7 !important;
                 color: #ffffff !important;
                 border-color: #0284c7 !important;
             }
+
             .aether-cart-trigger {
                 background: #f0fdfa !important;
                 color: #0f766e !important;
                 border: 1px solid #99f6e4 !important;
             }
+
             .aether-cart-trigger:hover {
                 background: #0f766e !important;
                 color: #ffffff !important;
                 border-color: #0f766e !important;
             }
+
             .aether-sniper-trigger {
                 background: #fefce8 !important;
                 color: #854d0e !important;
                 border: 1px solid #fef08a !important;
             }
+
             .aether-sniper-trigger:hover {
                 background: #b47b2b !important;
                 color: #ffffff !important;
                 border-color: #b47b2b !important;
             }
+
             /* Estado 1: Activo y sin posición (Verde tenue) */
             .aether-btn-par-active {
                 background: #f0fdf4 !important;
                 color: #166534 !important;
                 border: 1px solid #bbf7d0 !important;
             }
+
             .aether-btn-par-active:hover {
                 background: #dcfce7 !important;
                 color: #14532d !important;
                 border-color: #86efac !important;
             }
+
             .aether-btn-par-active .ui-button-text {
                 color: #166534 !important;
             }
@@ -1273,11 +2089,13 @@
                 color: #991b1b !important;
                 border: 1px solid #fecaca !important;
             }
+
             .aether-btn-par-inactive:hover {
                 background: #fee2e2 !important;
                 color: #7f1d1d !important;
                 border-color: #fca5a5 !important;
             }
+
             .aether-btn-par-inactive .ui-button-text {
                 color: #991b1b !important;
             }
@@ -1290,12 +2108,14 @@
                 border: 1px solid #15803d !important;
                 box-shadow: 0 0 5px rgba(22, 163, 74, 0.45) !important;
             }
+
             .aether-btn-par-active-course:hover,
             .aether-btn-in-course:hover {
                 background: #15803d !important;
                 color: #ffffff !important;
                 border-color: #166534 !important;
             }
+
             .aether-btn-par-active-course .ui-button-text,
             .aether-btn-in-course .ui-button-text {
                 color: #ffffff !important;
@@ -1308,27 +2128,30 @@
                 border: 1px solid #b91c1c !important;
                 box-shadow: 0 0 5px rgba(220, 38, 38, 0.45) !important;
             }
+
             .aether-btn-par-inactive-course:hover {
                 background: #b91c1c !important;
                 color: #ffffff !important;
                 border-color: #991b1b !important;
             }
+
             .aether-btn-par-inactive-course .ui-button-text {
                 color: #ffffff !important;
             }
 
             /* Columnas de longitud fija para PAR en Sección 1 */
             .col-par-fixed-ratios {
-                width: 120px !important;
-                min-width: 120px !important;
-                max-width: 120px !important;
+                width: 118px !important;
+                min-width: 118px !important;
+                max-width: 118px !important;
                 white-space: nowrap !important;
                 box-sizing: border-box !important;
             }
+
             .col-par-fixed-single {
-                width: 56px !important;
-                min-width: 56px !important;
-                max-width: 56px !important;
+                width: 70px !important;
+                min-width: 70px !important;
+                max-width: 70px !important;
                 white-space: nowrap !important;
                 box-sizing: border-box !important;
             }
@@ -1348,7 +2171,7 @@
                 margin-bottom: 0px !important;
                 border-radius: 6px !important;
                 box-shadow: 0 1px 2px rgba(18, 32, 34, 0.05) !important;
-                height: 25px !important;
+                height: 21px !important;
             }
 
             #userRatiosTable .ui-datatable-data tr:hover,
@@ -1360,10 +2183,22 @@
             #userRatiosTable .ui-datatable-data td,
             #userCartTable .ui-datatable-data td,
             #userSniperTable .ui-datatable-data td {
-                padding: 2px 2px !important;
+                padding: 1px 2px !important;
                 line-height: 1.15 !important;
                 border-radius: 0 !important;
                 box-sizing: border-box !important;
+                font-size: 0.85rem !important;
+                font-weight: 700 !important;
+            }
+
+            #userRatiosTable .ui-datatable-data td span,
+            #userCartTable .ui-datatable-data td span,
+            #userSniperTable .ui-datatable-data td span,
+            #userRatiosTable .ui-datatable-data td .badge,
+            #userCartTable .ui-datatable-data td .badge,
+            #userSniperTable .ui-datatable-data td .badge {
+                font-size: 0.85rem !important;
+                font-weight: 700 !important;
             }
 
             #userRatiosTable .ui-datatable-data td:first-child,
@@ -1381,23 +2216,17 @@
                 text-align: center !important;
             }
 
-            #userRatiosTable .ui-button {
+            #userRatiosTable .ui-button:not(.aether-btn-par-trigger) {
                 width: 20px !important;
-                height: 20px !important;
+                height: 19px !important;
                 min-width: 20px !important;
                 padding: 0 !important;
-                line-height: 20px !important;
+                line-height: 17px !important;
             }
 
-            #userRatiosTable .ui-button .ui-icon {
+            #userRatiosTable .ui-button:not(.aether-btn-par-trigger) .ui-icon {
                 margin: 0 !important;
-                font-size: 1.20rem !important;
-            }
-
-            #userRatiosTable .ui-button {
-                width: 24px !important;
-                height: 24px !important;
-                min-width: 24px !important;
+                font-size: 1.05rem !important;
             }
 
             /* ===================================================================
@@ -1622,7 +2451,7 @@
             /* Encabezados de tabla: Fondo oscuro corporativo #1e293b y texto blanco nítido */
             .aether-trades-table .ui-datatable-scrollable-header th,
             .aether-trades-table thead th,
-            .aether-trades-table > .ui-datatable-tablewrapper > table > thead > tr > th {
+            .aether-trades-table>.ui-datatable-tablewrapper>table>thead>tr>th {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
                 font-size: 1.05rem !important;
                 font-weight: 800 !important;
@@ -1720,8 +2549,8 @@
                         <i class="pi pi-user" style="font-size: 1.25rem; color: #64748b;"></i>
                         <p:selectOneMenu id="globalUsuarioSelector" value="#{securityBean.selectedUserId}"
                             styleClass="aether-input" style="min-width: 145px; font-size: 0.85em; height: 32px;">
-                            <f:selectItems value="#{securityBean.usuariosCombo}" var="u"
-                                itemLabel="#{u.nombreCompleto}" itemValue="#{u.idUsuario}" />
+                            <f:selectItems value="#{securityBean.usuariosCombo}" var="u" itemLabel="#{u.nombreCompleto}"
+                                itemValue="#{u.idUsuario}" />
                             <p:ajax process="@this" update=":aetherForm :userProfileHeaderWrapper"
                                 oncomplete="if (typeof handleUserSelected === 'function') handleUserSelected(); if (typeof handleUserCartSelected === 'function') handleUserCartSelected(); if (typeof handleUserSniperSelected === 'function') handleUserSniperSelected();"
                                 listener="#{dashboardBean.onUsuarioChange}" />
@@ -1730,8 +2559,8 @@
 
                     <!-- Botón Balance General Global (a la izquierda de la estrategia RATIOS) -->
                     <p:commandLink id="btnBalanceGlobal" title="Balance General Global"
-                        action="#{dashboardBean.loadBalanceGeneralGlobal}" update=":balanceGlobalForm:balanceGlobalContent"
-                        oncomplete="PF('balanceGlobalDlg').show();"
+                        action="#{dashboardBean.loadBalanceGeneralGlobal}"
+                        update=":balanceGlobalForm:balanceGlobalContent" oncomplete="PF('balanceGlobalDlg').show();"
                         style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); background: var(--bg-surface); color: var(--color-primary); border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);">
                         <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
@@ -1749,7 +2578,8 @@
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('RATIOS');"
                         title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
                         style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(2, 132, 199, 0.45), 0 2px 4px rgba(2, 132, 199, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0284c7; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0284c7; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
-                        <span class="ratio-icon-btn" style="display: inline-block; width: 33px; height: 33px; -webkit-mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle; flex-shrink: 0; pointer-events: none;"></span>
+                        <span class="ratio-icon-btn"
+                            style="display: inline-block; width: 33px; height: 33px; -webkit-mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle; flex-shrink: 0; pointer-events: none;"></span>
                     </p:commandLink>
 
                     <!-- Botón Estrategia 2: RIDER (Solo Icono Flotante Circular) -->
@@ -1757,8 +2587,11 @@
                         update=":aetherForm" oncomplete="switchStrategyView('CART');"
                         title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
                         style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(13, 148, 136, 0.45), 0 2px 4px rgba(13, 148, 136, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0d9488; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0d9488; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="130 200 720 580" fill="currentColor" style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
-                            <path d="M148,390h21v88h-21Z M148,501h21v88h-21Z M192,345h21v133h-21Z M192,501h21v133h-21Z M236,257h21v221h-21Z M236,501h21v221h-21Z M280,368h21v110h-21Z M280,501h21v110h-21Z M324,345h21v133h-21Z M324,501h21v133h-21Z M369,290h21v188h-21Z M369,501h21v188h-21Z M413,312h21v166h-21Z M413,501h21v166h-21Z M457,345h21v133h-21Z M457,501h21v133h-21Z M501,224h21v254h-21Z M501,501h21v254h-21Z M545,323h21v155h-21Z M545,501h21v155h-21Z M589,345h21v133h-21Z M589,501h21v133h-21Z M633,423h21v55h-21Z M633,501h21v55h-21Z M677,401h21v77h-21Z M677,501h21v77h-21Z M722,345h21v133h-21Z M722,501h21v133h-21Z M766,323h21v155h-21Z M766,501h21v155h-21Z M810,368h21v110h-21Z M810,501h21v110h-21Z" />
+                        <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="130 200 720 580"
+                            fill="currentColor"
+                            style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
+                            <path
+                                d="M148,390h21v88h-21Z M148,501h21v88h-21Z M192,345h21v133h-21Z M192,501h21v133h-21Z M236,257h21v221h-21Z M236,501h21v221h-21Z M280,368h21v110h-21Z M280,501h21v110h-21Z M324,345h21v133h-21Z M324,501h21v133h-21Z M369,290h21v188h-21Z M369,501h21v188h-21Z M413,312h21v166h-21Z M413,501h21v166h-21Z M457,345h21v133h-21Z M457,501h21v133h-21Z M501,224h21v254h-21Z M501,501h21v254h-21Z M545,323h21v155h-21Z M545,501h21v155h-21Z M589,345h21v133h-21Z M589,501h21v133h-21Z M633,423h21v55h-21Z M633,501h21v55h-21Z M677,401h21v77h-21Z M677,501h21v77h-21Z M722,345h21v133h-21Z M722,501h21v133h-21Z M766,323h21v155h-21Z M766,501h21v155h-21Z M810,368h21v110h-21Z M810,501h21v110h-21Z" />
                         </svg>
                     </p:commandLink>
 
@@ -1767,7 +2600,9 @@
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('SNIPER');"
                         title="SNIPER: Smart Order Block, Momentum &amp; Machine Learning Precision (Camel Militar · 15min)"
                         style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(180, 123, 43, 0.45), 0 2px 4px rgba(180, 123, 43, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #b47b2b; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #b47b2b; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                            style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
                             <circle cx="12" cy="12" r="9.5" stroke-width="1.8" />
                             <circle cx="12" cy="12" r="3" stroke-width="1.2" />
                             <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
@@ -1892,20 +2727,23 @@
                     <i class="pi pi-exclamation-triangle" style="font-size: 2.5rem; color: #ef4444;"></i>
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <span style="font-size: 1.1rem; color: #1e293b; line-height: 1.5; font-weight: 600;">
-                            ¿Deseas eliminar el par <b style="color: #0f172a; font-weight: 900;">#{dashboardBean.selectedSniperPair}</b> de la estrategia SNIPER?
+                            ¿Deseas eliminar el par <b
+                                style="color: #0f172a; font-weight: 900;">#{dashboardBean.selectedSniperPair}</b> de la
+                            estrategia SNIPER?
                         </span>
                         <span style="font-size: 0.92rem; color: #64748b; line-height: 1.4;">
-                            Esta acción eliminará la configuración para la cuenta <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b>.
+                            Esta acción eliminará la configuración para la cuenta <b
+                                style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b>.
                         </span>
                     </div>
                 </div>
-                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                <div
+                    style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
                     <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
                         onclick="PF('borrarSniperDlg').hide();"
                         style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
                     <p:commandButton id="btnConfirmBorrarSniper" value="Sí, Eliminar"
-                        action="#{dashboardBean.borrarSniper}" process="@this"
-                        update=":aetherForm :aetherForm:growl"
+                        action="#{dashboardBean.borrarSniper}" process="@this" update=":aetherForm :aetherForm:growl"
                         oncomplete="PF('borrarSniperDlg').hide(); handleUserSniperSelected();"
                         styleClass="ui-button-danger"
                         style="background-color: #ef4444; border-color: #ef4444; color: white; font-weight: bold; border-radius: 6px; padding: 6px 14px;"
@@ -1917,17 +2755,19 @@
         <!-- DIÁLOGO MODAL: COPIAR PARAMETRIZACIONES DE OTRA CUENTA -->
         <h:form id="copiarEstrategiaForm">
             <p:dialog id="dlgCopiarEstrategia" widgetVar="dlgCopiarEstrategia" modal="true" responsive="true"
-                width="740" minWidth="600" maxWidth="880" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
-                resizable="false" styleClass="aether-dialog">
+                width="740" minWidth="600" maxWidth="880" showEffect="fade" hideEffect="fade" closable="true"
+                closeOnEscape="true" resizable="false" styleClass="aether-dialog">
                 <f:facet name="header">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <i class="pi pi-copy" style="font-size: 1.55rem; color: #0284c7;"></i>
                         <div>
                             <div style="font-size: 1.25rem; font-weight: 900; color: #0f172a;">
-                                Copiar Parametrizaciones — <span style="color: #0284c7;">#{dashboardBean.estrategiaACopiar}</span>
+                                Copiar Parametrizaciones — <span
+                                    style="color: #0284c7;">#{dashboardBean.estrategiaACopiar}</span>
                             </div>
                             <div style="font-size: 0.92rem; color: #475569; font-weight: 700; margin-top: 2px;">
-                                Cuenta Destino: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> (ID: #{dashboardBean.selectedAccountId})
+                                Cuenta Destino: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> (ID:
+                                #{dashboardBean.selectedAccountId})
                             </div>
                         </div>
                     </div>
@@ -1935,25 +2775,32 @@
 
                 <div style="padding: 10px 4px; display: flex; flex-direction: column; gap: 14px;">
                     <!-- CABECERA DE LA VENTANA: COMBOS DE USUARIO Y CUENTA ORIGEN -->
-                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+                    <div
+                        style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
                         <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 240px;">
-                            <label style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                            <label
+                                style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
                                 <i class="pi pi-user" style="color: #0284c7;"></i>
                                 <span>Usuario Origen:</span>
                             </label>
-                            <p:selectOneMenu id="comboUsuarioOrigen" value="#{dashboardBean.selectedUsuarioOrigenId}" style="width: 100%;">
+                            <p:selectOneMenu id="comboUsuarioOrigen" value="#{dashboardBean.selectedUsuarioOrigenId}"
+                                style="width: 100%;">
                                 <f:selectItems value="#{dashboardBean.usuariosOrigenCombo}" var="usr"
                                     itemLabel="#{usr.nombre}" itemValue="#{usr.idUsuario}" />
-                                <p:ajax listener="#{dashboardBean.onUsuarioOrigenChange}" update="comboCuentaOrigen pickListWrapper" />
+                                <p:ajax listener="#{dashboardBean.onUsuarioOrigenChange}"
+                                    update="comboCuentaOrigen pickListWrapper" />
                             </p:selectOneMenu>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 240px;">
-                            <label style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                            <label
+                                style="font-weight: 700; font-size: 0.88rem; color: #334155; display: flex; align-items: center; gap: 6px;">
                                 <i class="pi pi-database" style="color: #0284c7;"></i>
                                 <span>Cuenta Origen:</span>
                             </label>
-                            <p:selectOneMenu id="comboCuentaOrigen" value="#{dashboardBean.selectedCuentaOrigenId}" style="width: 100%;">
-                                <f:selectItem itemLabel="-- Selecciona una cuenta --" itemValue="" noSelectionOption="true" />
+                            <p:selectOneMenu id="comboCuentaOrigen" value="#{dashboardBean.selectedCuentaOrigenId}"
+                                style="width: 100%;">
+                                <f:selectItem itemLabel="-- Selecciona una cuenta --" itemValue=""
+                                    noSelectionOption="true" />
                                 <f:selectItems value="#{dashboardBean.cuentasOrigenCombo}" var="cta"
                                     itemLabel="#{cta.label}" itemValue="#{cta.idCuenta}" />
                                 <p:ajax listener="#{dashboardBean.onCuentaOrigenChange}" update="pickListWrapper" />
@@ -1964,42 +2811,42 @@
                     <!-- INSTANT CHECKBOX PICKLIST -->
                     <h:panelGroup id="pickListWrapper" layout="block" style="width: 100%;">
                         <div style="margin-bottom: 6px; font-size: 0.85rem; color: #64748b; font-weight: 600;">
-                            Selecciona los pares con la casilla de verificación en Origen y trasládalos a la derecha para copiarlos a tu cuenta:
+                            Selecciona los pares con la casilla de verificación en Origen y trasládalos a la derecha
+                            para copiarlos a tu cuenta:
                         </div>
                         <p:pickList id="pickListEstrategia" value="#{dashboardBean.pickListEstrategia}" var="item"
-                            itemLabel="#{item}" itemValue="#{item}"
-                            showCheckbox="true"
-                            responsive="true"
-                            showSourceControls="false" showTargetControls="false"
-                            showSourceFilter="true" showTargetFilter="true" filterMatchMode="contains"
-                            style="width: 100%;">
+                            itemLabel="#{item}" itemValue="#{item}" showCheckbox="true" responsive="true"
+                            showSourceControls="false" showTargetControls="false" showSourceFilter="true"
+                            showTargetFilter="true" filterMatchMode="contains" style="width: 100%;">
                             <f:facet name="sourceCaption">
                                 <span style="font-weight: 800; color: #475569;">Pares en Cuenta Origen</span>
                             </f:facet>
                             <f:facet name="targetCaption">
-                                <span style="font-weight: 800; color: #0284c7;">Pares en Cuenta Destino (#{dashboardBean.selectedAccountName})</span>
+                                <span style="font-weight: 800; color: #0284c7;">Pares en Cuenta Destino
+                                    (#{dashboardBean.selectedAccountName})</span>
                             </f:facet>
                         </p:pickList>
                     </h:panelGroup>
 
                     <!-- AVISO INFORMATIVO -->
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #1e40af;">
+                    <div
+                        style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #1e40af;">
                         <i class="pi pi-info-circle" style="font-size: 1.1rem; color: #3b82f6;"></i>
                         <span>
-                            Solo se copiarán las parametrizaciones. Si el par ya existe en tu lista, se sobreescribirá conservando su ID; si no existe, se insertará como nuevo.
+                            Solo se copiarán las parametrizaciones. Si el par ya existe en tu lista, se sobreescribirá
+                            conservando su ID; si no existe, se insertará como nuevo.
                         </span>
                     </div>
 
                     <!-- BOTONES DE ACCIÓN -->
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+                    <div
+                        style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
                         <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
                             onclick="PF('dlgCopiarEstrategia').hide();"
                             style="color: #64748b; font-weight: 600; padding: 6px 14px;" />
                         <p:commandButton id="btnEjecutarCopia" value="Copiar Parametrizaciones"
                             action="#{dashboardBean.ejecutarCopiaParametrizaciones}" process="@form"
-                            update=":aetherForm :aetherForm:growl"
-                            styleClass="ui-button-primary"
-                            icon="pi pi-check"
+                            update=":aetherForm :aetherForm:growl" styleClass="ui-button-primary" icon="pi pi-check"
                             style="background-color: #0284c7; border-color: #0284c7; color: white; font-weight: bold; border-radius: 6px; padding: 6px 16px;"
                             title="Copiar parametrizaciones seleccionadas a la cuenta actual" />
                     </div>
@@ -2010,18 +2857,20 @@
         <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR CANTIDAD (RATIO) -->
         <h:form id="entradaManualRatioForm">
             <p:dialog id="entradaManualRatioDlg" widgetVar="entradaManualRatioDlg" modal="true" responsive="true"
-                width="680" minWidth="580" maxWidth="800" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
-                resizable="false" styleClass="aether-dialog">
+                width="680" minWidth="580" maxWidth="800" showEffect="fade" hideEffect="fade" closable="true"
+                closeOnEscape="true" resizable="false" styleClass="aether-dialog">
                 <f:facet name="header">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <i class="pi pi-plus-circle" style="font-size: 1.55rem; color: #0284c7;"></i>
                         <div>
                             <div style="font-size: 1.25rem; font-weight: 900; color: #0f172a;">
-                                Entrada por Cantidad — <span style="color: #0284c7;">#{dashboardBean.entradaManualRatioSetup}</span>
+                                Entrada por Cantidad — <span
+                                    style="color: #0284c7;">#{dashboardBean.entradaManualRatioSetup}</span>
                             </div>
                             <div style="font-size: 0.92rem; color: #475569; font-weight: 700; margin-top: 2px;">
                                 Cuenta: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> |
-                                Ratio ID: <b style="color: #0284c7;">#{dashboardBean.entradaManualRatioId != null ? dashboardBean.entradaManualRatioId : 'Nuevo'}</b>
+                                Ratio ID: <b style="color: #0284c7;">#{dashboardBean.entradaManualRatioId != null ?
+                                    dashboardBean.entradaManualRatioId : 'Nuevo'}</b>
                             </div>
                         </div>
                     </div>
@@ -2029,13 +2878,16 @@
 
                 <h:panelGroup id="panelDetallesEntrada" layout="block" style="padding: 10px 4px;">
                     <!-- BANNER DIRECCIÓN DEL RATIO (AUTODETECTADA / CONMUTABLE INTERACTIVAMENTE) -->
-                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <div
+                        style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <span style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                            <span
+                                style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
                                 <i class="pi pi-sort-alt" style="color: #0284c7; font-size: 1.1rem;"></i>
                                 Dirección Ratio:
                             </span>
-                            <p:commandLink action="#{dashboardBean.toggleEntradaManualDireccion}" process="@this" update="panelDetallesEntrada"
+                            <p:commandLink action="#{dashboardBean.toggleEntradaManualDireccion}" process="@this"
+                                update="panelDetallesEntrada"
                                 style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer; background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;"
                                 title="Clic para alternar la dirección (LARGO vs CORTO)">
                                 <i class="pi pi-sync"></i>
@@ -2043,24 +2895,31 @@
                             </p:commandLink>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="badge" style="background: #{dashboardBean.entradaManualLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#86efac' : '#fca5a5'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
-                                #{dashboardBean.entradaManualLargo ? '🟢' : '🔴'} Par A (#{dashboardBean.entradaManualNumerador}): #{dashboardBean.entradaManualDireccionA}
+                            <span class="badge"
+                                style="background: #{dashboardBean.entradaManualLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#86efac' : '#fca5a5'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
+                                #{dashboardBean.entradaManualLargo ? '🟢' : '🔴'} Par A
+                                (#{dashboardBean.entradaManualNumerador}): #{dashboardBean.entradaManualDireccionA}
                             </span>
-                            <span class="badge" style="background: #{dashboardBean.entradaManualLargo ? '#fee2e2' : '#dcfce7'}; color: #{dashboardBean.entradaManualLargo ? '#b91c1c' : '#15803d'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#fca5a5' : '#86efac'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
-                                #{dashboardBean.entradaManualLargo ? '🔴' : '🟢'} Par B (#{dashboardBean.entradaManualDenominador}): #{dashboardBean.entradaManualDireccionB}
+                            <span class="badge"
+                                style="background: #{dashboardBean.entradaManualLargo ? '#fee2e2' : '#dcfce7'}; color: #{dashboardBean.entradaManualLargo ? '#b91c1c' : '#15803d'}; border: 1px solid #{dashboardBean.entradaManualLargo ? '#fca5a5' : '#86efac'}; font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 6px;">
+                                #{dashboardBean.entradaManualLargo ? '🔴' : '🟢'} Par B
+                                (#{dashboardBean.entradaManualDenominador}): #{dashboardBean.entradaManualDireccionB}
                             </span>
                         </div>
                     </div>
 
                     <!-- EJECUCIÓN A MERCADO (SIN PRECIO FIJO) -->
-                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
+                    <div
+                        style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
                         <i class="pi pi-bolt" style="font-size: 1.35rem; color: #16a34a; flex-shrink: 0;"></i>
                         <div>
-                            <div style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
+                            <div
+                                style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
                                 Ejecución a Mercado (Sin Precio Fijo)
                             </div>
                             <div style="font-size: 0.85rem; color: #475569; margin-top: 2px;">
-                                El precio de cada pata se calculará y ejecutará dinámicamente a mercado en FOREX.com al instante exacto del envío.
+                                El precio de cada pata se calculará y ejecutará dinámicamente a mercado en FOREX.com al
+                                instante exacto del envío.
                             </div>
                         </div>
                     </div>
@@ -2068,81 +2927,123 @@
                     <!-- CAPTURA DE CANTIDADES POR PATA (PATA B SINCRONIZADA SIEMPRE) -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
                         <!-- Input Pata A -->
-                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px;">
+                        <div
+                            style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px;">
                             <div style="font-weight: 800; font-size: 0.98rem; color: #0f172a; margin-bottom: 6px;">
                                 Cantidad Pata A (#{dashboardBean.entradaManualNumerador})
                             </div>
-                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadA}" decimalPlaces="2" thousandSeparator=","
-                                style="width: 100%; font-size: 1.25rem; font-weight: 800;">
-                                <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualCantidadAChange}" update="panelDetallesEntrada :entradaManualRatioForm:btnConfirmarEntradaManual" />
+                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadA}" decimalPlaces="2"
+                                thousandSeparator="," style="width: 100%; font-size: 1.25rem; font-weight: 800;">
+                                <p:ajax event="change" process="@this"
+                                    listener="#{dashboardBean.onEntradaManualCantidadAChange}"
+                                    update="panelDetallesEntrada :entradaManualRatioForm:btnConfirmarEntradaManual" />
                             </p:inputNumber>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 8px; font-weight: 600;">
-                                <span>Nocional: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualNotionalA}</b></span>
-                                <span>Margen: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualMargenA}</b></span>
+                            <div
+                                style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 8px; font-weight: 600;">
+                                <span>Nocional: <b
+                                        style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualNotionalA}</b></span>
+                                <span>Margen: <b
+                                        style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualMargenA}</b></span>
                             </div>
                         </div>
 
                         <!-- Input Pata B (Sincronizada Siempre con Equivalencia Nocional) -->
-                        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px;">
-                            <div style="font-weight: 800; font-size: 0.98rem; color: #0f172a; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                        <div
+                            style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px;">
+                            <div
+                                style="font-weight: 800; font-size: 0.98rem; color: #0f172a; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
                                 <span>Cantidad Pata B (#{dashboardBean.entradaManualDenominador})</span>
-                                <span style="font-size: 0.82rem; font-weight: 800; color: #0284c7; background: #e0f2fe; padding: 3px 8px; border-radius: 4px;">
+                                <span
+                                    style="font-size: 0.82rem; font-weight: 800; color: #0284c7; background: #e0f2fe; padding: 3px 8px; border-radius: 4px;">
                                     Sincronizada 1:1
                                 </span>
                             </div>
-                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadB}" decimalPlaces="2" thousandSeparator="," readonly="true"
+                            <p:inputNumber value="#{dashboardBean.entradaManualCantidadB}" decimalPlaces="2"
+                                thousandSeparator="," readonly="true"
                                 style="width: 100%; font-size: 1.25rem; font-weight: 800; background: #f1f5f9;">
                             </p:inputNumber>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 8px; font-weight: 600;">
-                                <span>Nocional: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualNotionalB}</b></span>
-                                <span>Margen: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualMargenB}</b></span>
+                            <div
+                                style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 8px; font-weight: 600;">
+                                <span>Nocional: <b
+                                        style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualNotionalB}</b></span>
+                                <span>Margen: <b
+                                        style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualMargenB}</b></span>
                             </div>
                         </div>
                     </div>
 
                     <!-- TARJETA DE CHEQUEO DE EQUIVALENCIA POR PATA -->
-                    <div style="border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#86efac' : '#fde047'}; background: #{dashboardBean.entradaManualEquallyBalanced ? '#f0fdf4' : '#fefce8'}; display: flex; align-items: center; justify-content: space-between;">
+                    <div
+                        style="border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#86efac' : '#fde047'}; background: #{dashboardBean.entradaManualEquallyBalanced ? '#f0fdf4' : '#fefce8'}; display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <i class="#{dashboardBean.entradaManualEquallyBalanced ? 'pi pi-check-circle' : 'pi pi-exclamation-triangle'}"
                                 style="font-size: 1.55rem; color: #{dashboardBean.entradaManualEquallyBalanced ? '#16a34a' : '#d97706'};"></i>
                             <div>
-                                <div style="font-size: 1.02rem; font-weight: 800; color: #{dashboardBean.entradaManualEquallyBalanced ? '#15803d' : '#b45309'};">
-                                    #{dashboardBean.entradaManualEquallyBalanced ? 'Equivalencia Nocional Sincronizada' : 'Desbalance Nocional entre Patas'}
+                                <div
+                                    style="font-size: 1.02rem; font-weight: 800; color: #{dashboardBean.entradaManualEquallyBalanced ? '#15803d' : '#b45309'};">
+                                    #{dashboardBean.entradaManualEquallyBalanced ? 'Equivalencia Nocional Sincronizada'
+                                    : 'Desbalance Nocional entre Patas'}
                                 </div>
                                 <div style="font-size: 0.90rem; color: #475569; margin-top: 3px;">
-                                    Diferencia nocional: <b style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualDiffPct}</b> (Nocional A: #{dashboardBean.formattedEntradaManualNotionalA} vs B: #{dashboardBean.formattedEntradaManualNotionalB})
+                                    Diferencia nocional: <b
+                                        style="color: #0f172a; font-size: 0.94rem;">#{dashboardBean.formattedEntradaManualDiffPct}</b>
+                                    (Nocional A: #{dashboardBean.formattedEntradaManualNotionalA} vs B:
+                                    #{dashboardBean.formattedEntradaManualNotionalB})
                                 </div>
                             </div>
                         </div>
-                        <span class="badge" style="font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 12px; background: #{dashboardBean.entradaManualEquallyBalanced ? '#dcfce7' : '#fef3c7'}; color: #{dashboardBean.entradaManualEquallyBalanced ? '#166534' : '#92400e'}; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#86efac' : '#fde047'};">
+                        <span class="badge"
+                            style="font-size: 0.92rem; font-weight: 800; padding: 5px 12px; border-radius: 12px; background: #{dashboardBean.entradaManualEquallyBalanced ? '#dcfce7' : '#fef3c7'}; color: #{dashboardBean.entradaManualEquallyBalanced ? '#166534' : '#92400e'}; border: 1px solid #{dashboardBean.entradaManualEquallyBalanced ? '#86efac' : '#fde047'};">
                             #{dashboardBean.entradaManualEquallyBalanced ? 'Balanceado 1:1' : 'Desbalanceado'}
                         </span>
                     </div>
 
                     <!-- EVALUACIÓN ESTRICTA DEL INDICADOR DE MARGEN MÍNIMO -->
-                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
-                        <div style="font-weight: 800; font-size: 0.98rem; color: #334155; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-                            <span><i class="pi pi-shield" style="margin-right: 6px; color: #0284c7; font-size: 1.15rem;"></i>Evaluación del Indicador de Margen Mínimo</span>
-                            <span style="font-size: 0.92rem; color: #64748b; font-weight: 700;">Mínimo Requerido: <b style="color: #0f172a; font-size: 1.0rem;">#{dashboardBean.formattedEntradaManualMinMargin}</b></span>
+                    <div
+                        style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div
+                            style="font-weight: 800; font-size: 0.98rem; color: #334155; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+                            <span><i class="pi pi-shield"
+                                    style="margin-right: 6px; color: #0284c7; font-size: 1.15rem;"></i>Evaluación del
+                                Indicador de Margen Mínimo</span>
+                            <span style="font-size: 0.92rem; color: #64748b; font-weight: 700;">Mínimo Requerido: <b
+                                    style="color: #0f172a; font-size: 1.0rem;">#{dashboardBean.formattedEntradaManualMinMargin}</b></span>
                         </div>
 
                         <!-- 4 Cajas métricas con tipografía aumentada -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Orden</div>
-                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualTotalMargin}</div>
+                        <div
+                            style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Margen Orden</div>
+                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    #{dashboardBean.formattedEntradaManualTotalMargin}</div>
                             </div>
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Actual</div>
-                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">$#{dashboardBean.entradaManualCurrentMargin}</div>
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Margen Actual</div>
+                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    $#{dashboardBean.entradaManualCurrentMargin}</div>
                             </div>
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Ind. Actual</div>
-                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualCurrentIndicator}</div>
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.82rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Ind. Actual</div>
+                                <div style="font-size: 1.18rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    #{dashboardBean.formattedEntradaManualCurrentIndicator}</div>
                             </div>
-                            <div style="background: #{dashboardBean.entradaManualAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.82rem; color: #{dashboardBean.entradaManualAllowed ? '#065f46' : '#991b1b'}; font-weight: 800; text-transform: uppercase;">Ind. Proyectado</div>
-                                <div style="font-size: 1.25rem; font-weight: 900; color: #{dashboardBean.entradaManualAllowed ? '#059669' : '#dc2626'}; margin-top: 2px;">
+                            <div
+                                style="background: #{dashboardBean.entradaManualAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.82rem; color: #{dashboardBean.entradaManualAllowed ? '#065f46' : '#991b1b'}; font-weight: 800; text-transform: uppercase;">
+                                    Ind. Proyectado</div>
+                                <div
+                                    style="font-size: 1.25rem; font-weight: 900; color: #{dashboardBean.entradaManualAllowed ? '#059669' : '#dc2626'}; margin-top: 2px;">
                                     #{dashboardBean.formattedEntradaManualProjectedIndicator}
                                 </div>
                             </div>
@@ -2151,21 +3052,27 @@
                         <!-- ALERTA VERDE (APROBADO) O ROJA (BLOQUEADO) CON LETRAS GRANDES -->
                         <h:panelGroup layout="block" rendered="#{dashboardBean.entradaManualAllowed}"
                             style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #065f46; font-size: 0.95rem; font-weight: 700;">
-                            <i class="pi pi-check-circle" style="font-size: 1.35rem; color: #10b981; flex-shrink: 0;"></i>
-                            <span>✅ APROBADO: El margen proyectado (#{dashboardBean.formattedEntradaManualProjectedIndicator}) supera el #{dashboardBean.formattedEntradaManualMinMargin} mínimo requerido para la cuenta.</span>
+                            <i class="pi pi-check-circle"
+                                style="font-size: 1.35rem; color: #10b981; flex-shrink: 0;"></i>
+                            <span>✅ APROBADO: El margen proyectado
+                                (#{dashboardBean.formattedEntradaManualProjectedIndicator}) supera el
+                                #{dashboardBean.formattedEntradaManualMinMargin} mínimo requerido para la cuenta.</span>
                         </h:panelGroup>
 
                         <h:panelGroup layout="block" rendered="#{!dashboardBean.entradaManualAllowed}"
                             style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #991b1b; font-size: 0.95rem; font-weight: 700;">
                             <i class="pi pi-ban" style="font-size: 1.35rem; color: #ef4444; flex-shrink: 0;"></i>
-                            <span>#{dashboardBean.entradaManualWarningMessage != null ? dashboardBean.entradaManualWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador de Margen Mínimo permitido.'}</span>
+                            <span>#{dashboardBean.entradaManualWarningMessage != null ?
+                                dashboardBean.entradaManualWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador
+                                de Margen Mínimo permitido.'}</span>
                         </h:panelGroup>
                     </div>
                 </h:panelGroup>
 
                 <!-- BOTONES DE ACCIÓN DEL MODAL EN FOOTER FACET (EVITA DESMONTE POR AJAX AL CAMBIAR CANTIDAD) -->
                 <f:facet name="footer">
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
+                    <div
+                        style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
                         <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
                             onclick="PF('entradaManualRatioDlg').hide();"
                             style="color: #64748b; font-weight: 700; font-size: 0.95rem; padding: 8px 16px;" />
@@ -2173,8 +3080,7 @@
                         <p:commandButton id="btnConfirmarEntradaManual"
                             value="Confirmar y Enviar (#{dashboardBean.entradaManualDireccionA} #{dashboardBean.entradaManualNumerador} / #{dashboardBean.entradaManualDireccionB} #{dashboardBean.entradaManualDenominador})"
                             action="#{dashboardBean.ejecutarEntradaManualRatio}"
-                            disabled="#{!dashboardBean.entradaManualAllowed}"
-                            process="@form"
+                            disabled="#{!dashboardBean.entradaManualAllowed}" process="@form"
                             update=":aetherForm :aetherForm:growl :entradaManualRatioForm"
                             onclick="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').show(); }"
                             oncomplete="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').hide(); } if (window.PF &amp;&amp; PF('entradaManualRatioDlg')) { PF('entradaManualRatioDlg').hide(); }"
@@ -2190,18 +3096,20 @@
         <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR RIESGO (RIDER / CART) -->
         <h:form id="entradaManualRiderForm">
             <p:dialog id="entradaManualRiderDlg" widgetVar="entradaManualRiderDlg" modal="true" responsive="true"
-                width="680" minWidth="580" maxWidth="800" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
-                resizable="false" styleClass="aether-dialog">
+                width="680" minWidth="580" maxWidth="800" showEffect="fade" hideEffect="fade" closable="true"
+                closeOnEscape="true" resizable="false" styleClass="aether-dialog">
                 <f:facet name="header">
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <i class="pi pi-bolt" style="font-size: 1.55rem; color: #0284c7;"></i>
                         <div>
                             <div style="font-size: 1.25rem; font-weight: 900; color: #0f172a;">
-                                Entrada por Riesgo RIDER — <span style="color: #0284c7;">#{dashboardBean.entradaManualRiderSymbol}</span>
+                                Entrada por Riesgo RIDER — <span
+                                    style="color: #0284c7;">#{dashboardBean.entradaManualRiderSymbol}</span>
                             </div>
                             <div style="font-size: 0.92rem; color: #475569; font-weight: 700; margin-top: 2px;">
                                 Cuenta: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> |
-                                Riesgo Configurado: <b style="color: #0284c7;">#{dashboardBean.entradaManualRiderRiesgoPct}%</b>
+                                Riesgo Configurado: <b
+                                    style="color: #0284c7;">#{dashboardBean.entradaManualRiderRiesgoPct}%</b>
                             </div>
                         </div>
                     </div>
@@ -2209,13 +3117,16 @@
 
                 <h:panelGroup id="panelDetallesEntradaRider" layout="block" style="padding: 10px 4px;">
                     <!-- BANNER DIRECCIÓN DE LA OPERACIÓN (CONMUTABLE INTERACTIVAMENTE) -->
-                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <div
+                        style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <span style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                            <span
+                                style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
                                 <i class="pi pi-sort-alt" style="color: #0284c7; font-size: 1.1rem;"></i>
                                 Dirección:
                             </span>
-                            <p:commandLink action="#{dashboardBean.toggleEntradaManualRiderDireccion}" process="@this" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
+                            <p:commandLink action="#{dashboardBean.toggleEntradaManualRiderDireccion}" process="@this"
+                                update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
                                 style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 0.90rem; cursor: pointer; background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;"
                                 title="Clic para alternar la dirección (LARGO vs CORTO)">
                                 <i class="pi pi-sync"></i>
@@ -2223,18 +3134,21 @@
                             </p:commandLink>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="badge" style="background: #{dashboardBean.entradaManualRiderLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualRiderLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualRiderLargo ? '#86efac' : '#fca5a5'}; font-size: 0.95rem; font-weight: 800; padding: 6px 14px; border-radius: 6px;">
+                            <span class="badge"
+                                style="background: #{dashboardBean.entradaManualRiderLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualRiderLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualRiderLargo ? '#86efac' : '#fca5a5'}; font-size: 0.95rem; font-weight: 800; padding: 6px 14px; border-radius: 6px;">
                                 #{dashboardBean.entradaManualRiderLargo ? '🟢 COMPRA (LARGO)' : '🔴 VENTA (CORTO)'}
                             </span>
                         </div>
                     </div>
 
                     <!-- EJECUCIÓN A MERCADO -->
-                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
+                    <div
+                        style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
                         <i class="pi pi-bolt" style="font-size: 1.35rem; color: #16a34a; flex-shrink: 0;"></i>
                         <div style="flex: 1;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
+                                <span
+                                    style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
                                     Ejecución a Mercado en FOREX.com
                                 </span>
                                 <span style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">
@@ -2242,22 +3156,27 @@
                                 </span>
                             </div>
                             <div style="font-size: 0.85rem; color: #475569; margin-top: 2px;">
-                                Se ejecutará la orden de forma instantánea a precio de mercado garantizando el dimensionamiento por riesgo.
+                                Se ejecutará la orden de forma instantánea a precio de mercado garantizando el
+                                dimensionamiento por riesgo.
                             </div>
                         </div>
                     </div>
 
                     <!-- CAPTURA / CÁLCULO DE UNIDADES CONFORME AL RIESGO -->
-                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div
+                        style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <div style="font-weight: 800; font-size: 0.98rem; color: #0f172a;">
                                 Unidades / Lotes (Calculadas por Riesgo)
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 0.82rem; font-weight: 700; color: #475569;">
-                                    Presupuesto Riesgo: <b style="color: #0284c7;">#{dashboardBean.formattedEntradaManualRiderBudget}</b>
+                                    Presupuesto Riesgo: <b
+                                        style="color: #0284c7;">#{dashboardBean.formattedEntradaManualRiderBudget}</b>
                                 </span>
-                                <p:commandLink action="#{dashboardBean.resetEntradaManualRiderUnits}" process="@this" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
+                                <p:commandLink action="#{dashboardBean.resetEntradaManualRiderUnits}" process="@this"
+                                    update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
                                     style="text-decoration: none; font-size: 0.80rem; font-weight: 800; color: #0284c7; background: #e0f2fe; padding: 2px 8px; border-radius: 4px;"
                                     title="Restablecer al cálculo recomendado por riesgo">
                                     <i class="pi pi-refresh" style="margin-right: 3px;"></i>Restablecer
@@ -2265,41 +3184,68 @@
                             </div>
                         </div>
 
-                        <p:inputNumber value="#{dashboardBean.entradaManualRiderUnits}" decimalPlaces="4" thousandSeparator=","
-                            style="width: 100%; font-size: 1.35rem; font-weight: 900;">
-                            <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualRiderUnitsChange}" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider" />
+                        <p:inputNumber value="#{dashboardBean.entradaManualRiderUnits}" decimalPlaces="4"
+                            thousandSeparator="," style="width: 100%; font-size: 1.35rem; font-weight: 900;">
+                            <p:ajax event="change" process="@this"
+                                listener="#{dashboardBean.onEntradaManualRiderUnitsChange}"
+                                update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider" />
                         </p:inputNumber>
 
-                        <div style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 10px; font-weight: 600;">
-                            <span>Nocional: <b style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderNotional}</b></span>
-                            <span>Margen Requerido: <b style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderMargin}</b></span>
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 10px; font-weight: 600;">
+                            <span>Nocional: <b
+                                    style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderNotional}</b></span>
+                            <span>Margen Requerido: <b
+                                    style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderMargin}</b></span>
                         </div>
                     </div>
 
                     <!-- EVALUACIÓN ESTRICTA DEL INDICADOR DE MARGEN MÍNIMO -->
-                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
-                        <div style="font-weight: 800; font-size: 0.98rem; color: #334155; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-                            <span><i class="pi pi-shield" style="margin-right: 6px; color: #0284c7; font-size: 1.15rem;"></i>Evaluación del Indicador de Margen</span>
-                            <span style="font-size: 0.92rem; color: #64748b; font-weight: 700;">Mínimo Requerido: <b style="color: #0f172a; font-size: 1.0rem;">#{dashboardBean.formattedEntradaManualRiderMinMargin}</b></span>
+                    <div
+                        style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div
+                            style="font-weight: 800; font-size: 0.98rem; color: #334155; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+                            <span><i class="pi pi-shield"
+                                    style="margin-right: 6px; color: #0284c7; font-size: 1.15rem;"></i>Evaluación del
+                                Indicador de Margen</span>
+                            <span style="font-size: 0.92rem; color: #64748b; font-weight: 700;">Mínimo Requerido: <b
+                                    style="color: #0f172a; font-size: 1.0rem;">#{dashboardBean.formattedEntradaManualRiderMinMargin}</b></span>
                         </div>
 
                         <!-- 4 Cajas métricas -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Orden</div>
-                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualRiderMargin}</div>
+                        <div
+                            style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Margen Orden</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    #{dashboardBean.formattedEntradaManualRiderMargin}</div>
                             </div>
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Actual</div>
-                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">$#{dashboardBean.entradaManualRiderCurrentMargin}</div>
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Margen Actual</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    $#{dashboardBean.entradaManualRiderCurrentMargin}</div>
                             </div>
-                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Ind. Actual</div>
-                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualRiderCurrentIndicator}</div>
+                            <div
+                                style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">
+                                    Ind. Actual</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">
+                                    #{dashboardBean.formattedEntradaManualRiderCurrentIndicator}</div>
                             </div>
-                            <div style="background: #{dashboardBean.entradaManualRiderAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualRiderAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 8px; padding: 8px 10px; text-align: center;">
-                                <div style="font-size: 0.80rem; color: #{dashboardBean.entradaManualRiderAllowed ? '#065f46' : '#991b1b'}; font-weight: 800; text-transform: uppercase;">Ind. Proyectado</div>
-                                <div style="font-size: 1.22rem; font-weight: 900; color: #{dashboardBean.entradaManualRiderAllowed ? '#059669' : '#dc2626'}; margin-top: 2px;">
+                            <div
+                                style="background: #{dashboardBean.entradaManualRiderAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualRiderAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div
+                                    style="font-size: 0.80rem; color: #{dashboardBean.entradaManualRiderAllowed ? '#065f46' : '#991b1b'}; font-weight: 800; text-transform: uppercase;">
+                                    Ind. Proyectado</div>
+                                <div
+                                    style="font-size: 1.22rem; font-weight: 900; color: #{dashboardBean.entradaManualRiderAllowed ? '#059669' : '#dc2626'}; margin-top: 2px;">
                                     #{dashboardBean.formattedEntradaManualRiderProjectedIndicator}
                                 </div>
                             </div>
@@ -2308,21 +3254,28 @@
                         <!-- ALERTA VERDE (APROBADO) O ROJA (BLOQUEADO) -->
                         <h:panelGroup layout="block" rendered="#{dashboardBean.entradaManualRiderAllowed}"
                             style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #065f46; font-size: 0.95rem; font-weight: 700;">
-                            <i class="pi pi-check-circle" style="font-size: 1.35rem; color: #10b981; flex-shrink: 0;"></i>
-                            <span>✅ APROBADO: El margen proyectado (#{dashboardBean.formattedEntradaManualRiderProjectedIndicator}) supera el #{dashboardBean.formattedEntradaManualRiderMinMargin} mínimo requerido para la cuenta.</span>
+                            <i class="pi pi-check-circle"
+                                style="font-size: 1.35rem; color: #10b981; flex-shrink: 0;"></i>
+                            <span>✅ APROBADO: El margen proyectado
+                                (#{dashboardBean.formattedEntradaManualRiderProjectedIndicator}) supera el
+                                #{dashboardBean.formattedEntradaManualRiderMinMargin} mínimo requerido para la
+                                cuenta.</span>
                         </h:panelGroup>
 
                         <h:panelGroup layout="block" rendered="#{!dashboardBean.entradaManualRiderAllowed}"
                             style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #991b1b; font-size: 0.95rem; font-weight: 700;">
                             <i class="pi pi-ban" style="font-size: 1.35rem; color: #ef4444; flex-shrink: 0;"></i>
-                            <span>#{dashboardBean.entradaManualRiderWarningMessage != null ? dashboardBean.entradaManualRiderWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador de Margen Mínimo permitido.'}</span>
+                            <span>#{dashboardBean.entradaManualRiderWarningMessage != null ?
+                                dashboardBean.entradaManualRiderWarningMessage : '⛔ BLOQUEADO: La orden rebasa el
+                                Indicador de Margen Mínimo permitido.'}</span>
                         </h:panelGroup>
                     </div>
                 </h:panelGroup>
 
                 <!-- BOTONES DE ACCIÓN DEL MODAL EN FOOTER FACET -->
                 <f:facet name="footer">
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
+                    <div
+                        style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
                         <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
                             onclick="PF('entradaManualRiderDlg').hide();"
                             style="color: #64748b; font-weight: 700; font-size: 0.95rem; padding: 8px 16px;" />
@@ -2330,8 +3283,7 @@
                         <p:commandButton id="btnConfirmarEntradaManualRider"
                             value="Confirmar y Enviar (#{dashboardBean.entradaManualRiderAccion} #{dashboardBean.entradaManualRiderSymbol})"
                             action="#{dashboardBean.ejecutarEntradaManualRider}"
-                            disabled="#{!dashboardBean.entradaManualRiderAllowed}"
-                            process="@form"
+                            disabled="#{!dashboardBean.entradaManualRiderAllowed}" process="@form"
                             update=":aetherForm :aetherForm:growl :entradaManualRiderForm"
                             onclick="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').show(); }"
                             oncomplete="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').hide(); } if (window.PF &amp;&amp; PF('entradaManualRiderDlg')) { PF('entradaManualRiderDlg').hide(); }"
@@ -3023,7 +3975,7 @@
                 }, true);
             })();
 
-            window.attachBalanceButtonsToTabs = function() {
+            window.attachBalanceButtonsToTabs = function () {
                 // Balance General Global ahora reside de forma permanente en strategySelectorBar
             };
 

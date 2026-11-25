@@ -1870,20 +1870,57 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
 
     from sqlalchemy import text
     results = []
+
+    target_accounts = list(set([r.idCuenta for r in ratios if r.idCuenta] + ([idCuenta] if idCuenta else [])))
+    cap_by_account = {}
+    stats_by_setup = {}
+    if target_accounts:
+        c_rows = db.execute(text("SELECT idCuenta, Capital FROM cuenta WHERE idCuenta IN :accs"), {"accs": tuple(target_accounts)}).fetchall()
+        for cr in c_rows:
+            cap_by_account[cr[0]] = float(cr[1] or 0.0)
+
+        t_rows = db.execute(text("""
+            SELECT 
+                idCuenta,
+                setup,
+                COUNT(CASE WHEN status = 'OPEN' THEN 1 END) as open_cnt,
+                COUNT(CASE WHEN status = 'CLOSED' THEN 1 END) as closed_cnt,
+                SUM(CASE WHEN status = 'CLOSED' AND (pnl - COALESCE(commission, 0)) > 0 THEN 1 ELSE 0 END) as win_cnt,
+                SUM(CASE WHEN status = 'CLOSED' THEN (pnl - COALESCE(commission, 0)) ELSE 0.0 END) as net_profit,
+                SUM(CASE WHEN status = 'OPEN' THEN (pnl - COALESCE(commission, 0)) ELSE 0.0 END) as open_pnl
+            FROM trades
+            WHERE idCuenta IN :accs
+            GROUP BY idCuenta, setup
+        """), {"accs": tuple(target_accounts)}).fetchall()
+        for tr_r in t_rows:
+            stats_by_setup[(tr_r[0], tr_r[1])] = {
+                "open_cnt": int(tr_r[2] or 0),
+                "closed_cnt": int(tr_r[3] or 0),
+                "win_cnt": int(tr_r[4] or 0),
+                "net_profit": float(tr_r[5] or 0.0),
+                "open_pnl": float(tr_r[6] or 0.0)
+            }
+
     for r in ratios:
-        has_open = False
         target_account = r.idCuenta or idCuenta
-        if target_account:
-            s1 = f"{r.numerador} - {r.denominador}"
-            s2 = f"{r.denominador} - {r.numerador}"
-            cnt = db.execute(text("""
-                SELECT COUNT(*) FROM trades 
-                WHERE idCuenta = :idc 
-                  AND (setup = :s1 OR setup = :s2)
-                  AND status = 'OPEN'
-            """), {"idc": target_account, "s1": s1, "s2": s2}).scalar()
-            if cnt and cnt > 0:
-                has_open = True
+        s1 = f"{r.numerador} - {r.denominador}"
+        s2 = f"{r.denominador} - {r.numerador}"
+        st1 = stats_by_setup.get((target_account, s1))
+        st2 = stats_by_setup.get((target_account, s2))
+
+        open_cnt = (st1["open_cnt"] if st1 else 0) + (st2["open_cnt"] if st2 else 0)
+        closed_cnt = (st1["closed_cnt"] if st1 else 0) + (st2["closed_cnt"] if st2 else 0)
+        win_cnt = (st1["win_cnt"] if st1 else 0) + (st2["win_cnt"] if st2 else 0)
+        net_profit = round((st1["net_profit"] if st1 else 0.0) + (st2["net_profit"] if st2 else 0.0), 2)
+        open_pnl = round((st1["open_pnl"] if st1 else 0.0) + (st2["open_pnl"] if st2 else 0.0), 2)
+        has_open = (open_cnt > 0)
+
+        cap = cap_by_account.get(target_account, 0.0)
+        if cap > 0 and closed_cnt > 0:
+            pnl_pct = round((net_profit / cap) * 100.0, 2)
+        else:
+            pnl_pct = 0.0
+        win_rate = round((float(win_cnt) / float(closed_cnt) * 100.0), 1) if closed_cnt > 0 else 0.0
 
         results.append({
             "id": r.id,
@@ -1913,7 +1950,14 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
             "fixedMaxA": float(r.fixedMaxA) if getattr(r, "fixedMaxA", None) is not None else None,
             "fixedMinB": float(r.fixedMinB) if getattr(r, "fixedMinB", None) is not None else None,
             "fixedMaxB": float(r.fixedMaxB) if getattr(r, "fixedMaxB", None) is not None else None,
-            "hasOpenTrades": has_open
+            "hasOpenTrades": has_open,
+            "pnlPct": pnl_pct,
+            "netProfit": net_profit,
+            "openPnl": open_pnl,
+            "closedTrades": closed_cnt,
+            "openTrades": open_cnt,
+            "winningTrades": win_cnt,
+            "winRate": win_rate
         })
     return results
 

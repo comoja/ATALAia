@@ -64,26 +64,27 @@
                     <p:panel styleClass="aether-panel">
                         <f:facet name="header">
                             <div
-                                style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span
-                                        style="font-weight: 800; color: #b47b2b; font-size: 1.15rem; display: inline-flex; align-items: center; gap: 10px;">
+                                style="display: flex; align-items: center; justify-content: flex-start; width: 100%; flex-wrap: nowrap; gap: 8px;">
+                                <div
+                                    style="display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0;">
+                                    <span class="aether-calibracion-title"
+                                        style="font-weight: 700; color: #b47b2b; font-size: 1.25rem; letter-spacing: -0.2px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;">
                                         <i class="pi pi-cog"
-                                            style="font-size: 2.6rem; color: #b47b2b; vertical-align: middle;"></i>CALIBRACION
+                                            style="font-size: 1.25rem; color: #b47b2b; vertical-align: middle;"></i>Calibración
                                     </span>
                                 </div>
                                 <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
-                                    style="display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                                    style="display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; flex-wrap: nowrap;">
                                     <p:commandButton icon="pi pi-pencil" action="#{dashboardBean.prepararEditarCuenta}"
                                         disabled="#{dashboardBean.readOnly || dashboardBean.selectedAccountId == null}"
                                         process="@this" update=":editarCuentaForm:editarCuentaDlg"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes editar cuentas de otro usuario' : 'Editar Valores de la Cuenta'}" />
                                     <p:selectOneMenu id="sniperCuentaSelector"
                                         value="#{dashboardBean.selectedAccountId}"
                                         styleClass="aether-input aether-cuenta-selector"
-                                        style="min-width: 155px; max-width: 230px; width: 185px; height: 32px !important; line-height: 32px !important; font-size: 1.05rem !important;">
+                                        style="min-width: 110px; max-width: 165px; width: 145px; height: 28px !important; line-height: 28px !important; font-size: 0.95rem !important;">
                                         <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
                                             itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
                                         <p:ajax process="@this" update=":aetherForm"
@@ -94,12 +95,12 @@
                                         rendered="#{securityBean.canCreateAccount}" disabled="#{dashboardBean.readOnly}"
                                         process="@this" update=":nuevaCuentaForm:nuevaCuentaDlg"
                                         oncomplete="PF('nuevaCuentaDlg').show();" styleClass="aether-btn-primary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="#{dashboardBean.readOnly ? 'Modo solo lectura: No puedes dar de alta cuentas para otro usuario' : 'Dar de Alta Nueva Cuenta'}" />
                                     <p:commandButton icon="pi pi-refresh" action="#{dashboardBean.refreshDashboard}"
                                         process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();"
                                         styleClass="aether-btn-secondary"
-                                        style="width: 38px !important; height: 38px !important; min-width: 38px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;"
                                         title="Actualizar datos y pares SNIPER" />
                                 </div>
                             </div>
@@ -120,8 +121,7 @@
                                             1. Pares de la Cuenta
                                         </span>
                                         <p:commandLink action="#{dashboardBean.abrirDialogoCopiarEstrategia('SNIPER')}"
-                                            process="@this"
-                                            update=":copiarEstrategiaForm:dlgCopiarEstrategia"
+                                            process="@this" update=":copiarEstrategiaForm:dlgCopiarEstrategia"
                                             oncomplete="PF('dlgCopiarEstrategia').show();"
                                             onclick="event.stopPropagation();"
                                             title="Copiar parametrizaciones de otra cuenta"
@@ -155,14 +155,14 @@
                                         process="@this" update=":aetherForm" oncomplete="handleUserSniperSelected();" />
 
                                     <p:column headerText="ID"
-                                        style="width: 36px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{us.id}"
-                                            style="font-size: 0.95rem; font-weight: 800; color: #b47b2b;" />
+                                            style="font-size: 0.85rem; font-weight: 700; color: #b47b2b;" />
                                     </p:column>
                                     <p:column headerText="PAR"
-                                        style="width: 56px; min-width: 56px; max-width: 56px; padding: 2px 1px !important;"
+                                        style="width: 70px; min-width: 70px; max-width: 70px; padding: 1px 1px !important;"
                                         styleClass="col-par-fixed-single">
-                                        <div style="display: flex; align-items: center; gap: 3px; width: 100%;">
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 2px; width: 100%;">
                                             <p:commandButton value="#{us.numerador}"
                                                 action="#{dashboardBean.onSelectUserSniper(us)}" process="@this"
                                                 update=":aetherForm" oncomplete="handleUserSniperSelected();"
@@ -176,36 +176,36 @@
                                         </div>
                                     </p:column>
                                     <p:column headerText="TF"
-                                        style="width: 44px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{us.temporalidad}"
-                                            style="font-size: 1.0rem; font-weight: 800;" />
+                                            style="font-size: 0.85rem; font-weight: 700;" />
                                     </p:column>
                                     <p:column headerText="Conf"
-                                        style="width: 52px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(180, 123, 43, 0.12); color: #8c5d1e; border: 1px solid #d4a373; display: inline-block; line-height: 1.1;">
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; background: rgba(180, 123, 43, 0.12); color: #8c5d1e; border: 1px solid #d4a373; display: inline-block; line-height: 1.1;">
                                             #{us.minConfidence}%
                                         </span>
                                     </p:column>
                                     <p:column headerText="R:R"
-                                        style="width: 46px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 4px; font-weight: 800; border-radius: 4px; background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid #bae6fd; display: inline-block; line-height: 1.1;">
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid #bae6fd; display: inline-block; line-height: 1.1;">
                                             #{us.minRr}
                                         </span>
                                     </p:column>
                                     <p:column headerText="BE"
-                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarBreakEven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarBreakEven ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
                                             title="Break-Even: #{us.usarBreakEven ? 'Activo' : 'Inactivo'}">
                                             #{us.usarBreakEven ? 'BE' : 'OFF'}
                                         </span>
                                     </p:column>
                                     <p:column headerText="TSL"
-                                        style="width: 48px; text-align: center; padding: 2px 1px !important;">
+                                        style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.95rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{us.usarTSL ? 'background: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid #818cf8;' : 'background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid #cbd5e1;'}"
                                             title="Trailing Stop Loss: #{us.usarTSL ? 'Activo' : 'Inactivo'}">
                                             #{us.usarTSL ? 'TSL' : 'OFF'}
                                         </span>
@@ -337,7 +337,8 @@
                                             <p:selectBooleanCheckbox id="sniperUsarBeCheck"
                                                 value="#{dashboardBean.sniperUsarBreakEven}"
                                                 disabled="#{dashboardBean.readOnly}">
-                                                <p:ajax listener="#{dashboardBean.onSniperBreakEvenChange}" process="@this"
+                                                <p:ajax listener="#{dashboardBean.onSniperBreakEvenChange}"
+                                                    process="@this"
                                                     update=":aetherForm:sniperTabView:sniperLeftAccordion :aetherForm:growl"
                                                     oncomplete="renderSniperChart();" />
                                             </p:selectBooleanCheckbox>
@@ -687,7 +688,8 @@
                             <div
                                 style="font-weight: 900; color: #8c5d1e; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.35rem; line-height: 1; display: flex; align-items: center; gap: 8px;">
                                 <i class="pi pi-crosshair" style="color: #b47b2b; font-size: 1.35rem;"></i>
-                                <span>SNIPER (#{dashboardBean.selectedSniperPair} - #{dashboardBean.sniperTimeframe})</span>
+                                <span>SNIPER (#{dashboardBean.selectedSniperPair} -
+                                    #{dashboardBean.sniperTimeframe})</span>
                             </div>
 
                             <!-- INFORMACIÓN DE CUENTA COMPARTIDA -->
@@ -1627,17 +1629,28 @@
                 var actTrStr = actTradesEl ? actTradesEl.value : 'null';
                 var activeTrade = null;
                 var activeTradesList = [];
+                var activePairEl = document.querySelector("[id$='activeSniperPair']");
+                var curPairVal = (activePairEl && activePairEl.value) ? activePairEl.value : '#{dashboardBean.selectedSniperPair}';
+                var cleanCurPair = String(curPairVal || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
                 if (actTrStr && actTrStr !== 'null' && actTrStr !== '[]') {
                     try {
                         var parsed = JSON.parse(actTrStr);
-                        if (Array.isArray(parsed)) {
-                            activeTradesList = parsed;
-                            activeTrade = parsed.length > 0 ? parsed[0] : null;
-                        } else {
-                            activeTradesList = [parsed];
-                            activeTrade = parsed;
+                        var rawList = Array.isArray(parsed) ? parsed : [parsed];
+                        for (var atIdx = 0; atIdx < rawList.length; atIdx++) {
+                            var item = rawList[atIdx];
+                            if (item && item.idTrade && (item.status === 'OPEN' || !item.status)) {
+                                var itSymClean = String(item.symbol || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                                // Validar que pertenezca estrictamente al símbolo actual de la gráfica
+                                if (!cleanCurPair || itSymClean === cleanCurPair || cleanCurPair.indexOf(itSymClean) !== -1 || itSymClean.indexOf(cleanCurPair) !== -1) {
+                                    activeTradesList.push(item);
+                                }
+                            }
                         }
-                    } catch (e) { }
+                        activeTrade = activeTradesList.length > 0 ? activeTradesList[0] : null;
+                    } catch (e) {
+                        console.warn('Error parseando activeTrades SNIPER:', e);
+                    }
                 }
 
                 var banner = document.getElementById('sniperActiveTradeBanner');
@@ -1851,7 +1864,7 @@
                     }
                 }
 
-                var actTradesToDraw = activeTradesList.length > 0 ? activeTradesList : (activeTrade ? [activeTrade] : []);
+                var actTradesToDraw = (activeTrade && activeTrade.idTrade) ? activeTradesList : [];
                 for (var atIdx = 0; atIdx < actTradesToDraw.length; atIdx++) {
                     var actItem = actTradesToDraw[atIdx];
                     if (!actItem || !actItem.entryPrice) continue;
@@ -1975,7 +1988,7 @@
                 }
                 var lineExtendTs = (maxTs !== null) ? (maxTs + candleStep * 8) : maxTs;
 
-                if (activeTrade && minTs !== null && maxTs !== null) {
+                if (activeTrade && activeTrade.idTrade && minTs !== null && maxTs !== null) {
                     var openTs = parseSniperDateMs(activeTrade.openTime);
                     var candleEntryActive = findClosestSniperCandle(openTs, pricePoints);
                     var lineStartTs = (candleEntryActive && candleEntryActive.x !== undefined) ? candleEntryActive.x : (openTs || minTs);
@@ -2044,7 +2057,7 @@
                     var tradeBoxPlugin = {
                         id: 'sniperTradeBoxPlugin',
                         afterDatasetsDraw: function (chart) {
-                            if (!activeTrade || !effectiveEntryPx) return;
+                            if (!activeTrade || !activeTrade.idTrade || !effectiveEntryPx) return;
                             var ctx = chart.ctx;
                             var xScale = chart.scales.x;
                             var yScale = chart.scales.y;
@@ -2208,7 +2221,7 @@
                 // Si hay una posición activa para el par, hacer zoom automático en el eje X
                 // de unas 10 temporalidades (velas) previas a la entrada hasta la vela en curso + margen futuro (4 temporalidades).
                 // Si no hay posición activa o se presiona Reset Zoom, se muestra la serie histórica completa.
-                if (activeTrade && activeTrade.entryPrice && minTs !== null && maxTs !== null) {
+                if (activeTrade && activeTrade.idTrade && activeTrade.entryPrice && minTs !== null && maxTs !== null) {
                     var openTs = parseSniperDateMs(activeTrade.openTime);
                     var zoomMinTs;
                     if (openTs && !isNaN(openTs) && openTs >= minTs && openTs <= maxTs) {
@@ -2243,8 +2256,10 @@
                     var checkLevelY = function (val) {
                         if (val !== null && val !== undefined && !isNaN(Number(val))) {
                             var nVal = Number(val);
-                            if (nVal < visMinY) visMinY = nVal;
-                            if (nVal > visMaxY) visMaxY = nVal;
+                            if (nVal > 0) {
+                                if (nVal < visMinY) visMinY = nVal;
+                                if (nVal > visMaxY) visMaxY = nVal;
+                            }
                         }
                     };
 
@@ -2260,6 +2275,24 @@
                         var yPad = visRange * 0.08;
                         scalesConfig.y.min = visMinY - yPad;
                         scalesConfig.y.max = visMaxY + yPad;
+                    }
+                } else if (pricePoints.length > 0) {
+                    // Autoscaling vertical para cuando NO hay posición activa:
+                    // Calcula min y max de High/Low de las velas para aprovechar el 100% de la altura visual sin aplanarse
+                    var chartMinY = Infinity;
+                    var chartMaxY = -Infinity;
+                    for (var cpIdx = 0; cpIdx < pricePoints.length; cpIdx++) {
+                        var cp = pricePoints[cpIdx];
+                        var cHigh = (cp.high !== undefined && !isNaN(cp.high)) ? cp.high : cp.y;
+                        var cLow = (cp.low !== undefined && !isNaN(cp.low)) ? cp.low : cp.y;
+                        if (cLow < chartMinY) chartMinY = cLow;
+                        if (cHigh > chartMaxY) chartMaxY = cHigh;
+                    }
+                    if (chartMinY !== Infinity && chartMaxY !== -Infinity && chartMaxY > chartMinY) {
+                        var cRange = chartMaxY - chartMinY;
+                        var cPad = cRange * 0.05;
+                        scalesConfig.y.min = chartMinY - cPad;
+                        scalesConfig.y.max = chartMaxY + cPad;
                     }
                 }
 
