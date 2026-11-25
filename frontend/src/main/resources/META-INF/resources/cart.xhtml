@@ -486,6 +486,16 @@
                                         oncomplete="renderCartChart(); renderCartBtPriceChart(); renderCartBtEquityChart();"
                                         styleClass="aether-btn-primary" style="width: 100%;" />
 
+                                    <p:commandButton id="btnEntradaManualRider" value="Entrada por Riesgo"
+                                        action="#{dashboardBean.abrirEntradaManualRider}" process="@this"
+                                        disabled="#{dashboardBean.cartHasActivePosition}"
+                                        update=":entradaManualRiderForm:entradaManualRiderDlg :aetherForm:growl"
+                                        oncomplete="if (!#{dashboardBean.cartHasActivePosition}) { PF('entradaManualRiderDlg').show(); }"
+                                        styleClass="aether-btn-primary"
+                                        style="width: 100%; min-height: 36px; #{dashboardBean.cartHasActivePosition ? 'background: #94a3b8 !important; border-color: #94a3b8 !important; color: #ffffff !important; opacity: 0.55; cursor: not-allowed;' : 'background: #0284c7 !important; border-color: #0284c7 !important; color: #ffffff !important; font-weight: 800; border-radius: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.3);'}"
+                                        icon="pi pi-bolt"
+                                        title="#{dashboardBean.cartHasActivePosition ? 'Bloqueado: Ya existe una posición abierta en curso para este par RIDER' : 'Abrir ventana para ejecutar entrada manual al mercado calculada conforme al riesgo establecido para este par RIDER'}" />
+
                                     <div style="display: flex; gap: 6px; width: 100%;">
                                         <p:commandButton id="btnGuardarCart" value="Guardar RIDER"
                                             action="#{dashboardBean.guardarCart}" process="@form"

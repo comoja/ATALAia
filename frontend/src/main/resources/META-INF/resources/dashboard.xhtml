@@ -2187,6 +2187,163 @@
             </p:dialog>
         </h:form>
 
+        <!-- DIÁLOGO MODAL: ENTRADA MANUAL POR RIESGO (RIDER / CART) -->
+        <h:form id="entradaManualRiderForm">
+            <p:dialog id="entradaManualRiderDlg" widgetVar="entradaManualRiderDlg" modal="true" responsive="true"
+                width="680" minWidth="580" maxWidth="800" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"
+                resizable="false" styleClass="aether-dialog">
+                <f:facet name="header">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="pi pi-bolt" style="font-size: 1.55rem; color: #0284c7;"></i>
+                        <div>
+                            <div style="font-size: 1.25rem; font-weight: 900; color: #0f172a;">
+                                Entrada por Riesgo RIDER — <span style="color: #0284c7;">#{dashboardBean.entradaManualRiderSymbol}</span>
+                            </div>
+                            <div style="font-size: 0.92rem; color: #475569; font-weight: 700; margin-top: 2px;">
+                                Cuenta: <b style="color: #0f172a;">#{dashboardBean.selectedAccountName}</b> |
+                                Riesgo Configurado: <b style="color: #0284c7;">#{dashboardBean.entradaManualRiderRiesgoPct}%</b>
+                            </div>
+                        </div>
+                    </div>
+                </f:facet>
+
+                <h:panelGroup id="panelDetallesEntradaRider" layout="block" style="padding: 10px 4px;">
+                    <!-- BANNER DIRECCIÓN DE LA OPERACIÓN (CONMUTABLE INTERACTIVAMENTE) -->
+                    <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-weight: 800; font-size: 0.98rem; color: #334155; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-sort-alt" style="color: #0284c7; font-size: 1.1rem;"></i>
+                                Dirección:
+                            </span>
+                            <p:commandLink action="#{dashboardBean.toggleEntradaManualRiderDireccion}" process="@this" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
+                                style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; font-weight: 800; font-size: 0.90rem; cursor: pointer; background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;"
+                                title="Clic para alternar la dirección (LARGO vs CORTO)">
+                                <i class="pi pi-sync"></i>
+                                <span>Invertir (#{dashboardBean.entradaManualRiderDirection})</span>
+                            </p:commandLink>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="badge" style="background: #{dashboardBean.entradaManualRiderLargo ? '#dcfce7' : '#fee2e2'}; color: #{dashboardBean.entradaManualRiderLargo ? '#15803d' : '#b91c1c'}; border: 1px solid #{dashboardBean.entradaManualRiderLargo ? '#86efac' : '#fca5a5'}; font-size: 0.95rem; font-weight: 800; padding: 6px 14px; border-radius: 6px;">
+                                #{dashboardBean.entradaManualRiderLargo ? '🟢 COMPRA (LARGO)' : '🔴 VENTA (CORTO)'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- EJECUCIÓN A MERCADO -->
+                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;">
+                        <i class="pi pi-bolt" style="font-size: 1.35rem; color: #16a34a; flex-shrink: 0;"></i>
+                        <div style="flex: 1;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.92rem; font-weight: 800; color: #15803d; text-transform: uppercase;">
+                                    Ejecución a Mercado en FOREX.com
+                                </span>
+                                <span style="font-size: 0.95rem; font-weight: 900; color: #0f172a;">
+                                    Precio Actual: #{dashboardBean.formattedEntradaManualRiderPrice}
+                                </span>
+                            </div>
+                            <div style="font-size: 0.85rem; color: #475569; margin-top: 2px;">
+                                Se ejecutará la orden de forma instantánea a precio de mercado garantizando el dimensionamiento por riesgo.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CAPTURA / CÁLCULO DE UNIDADES CONFORME AL RIESGO -->
+                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="font-weight: 800; font-size: 0.98rem; color: #0f172a;">
+                                Unidades / Lotes (Calculadas por Riesgo)
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 0.82rem; font-weight: 700; color: #475569;">
+                                    Presupuesto Riesgo: <b style="color: #0284c7;">#{dashboardBean.formattedEntradaManualRiderBudget}</b>
+                                </span>
+                                <p:commandLink action="#{dashboardBean.resetEntradaManualRiderUnits}" process="@this" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider"
+                                    style="text-decoration: none; font-size: 0.80rem; font-weight: 800; color: #0284c7; background: #e0f2fe; padding: 2px 8px; border-radius: 4px;"
+                                    title="Restablecer al cálculo recomendado por riesgo">
+                                    <i class="pi pi-refresh" style="margin-right: 3px;"></i>Restablecer
+                                </p:commandLink>
+                            </div>
+                        </div>
+
+                        <p:inputNumber value="#{dashboardBean.entradaManualRiderUnits}" decimalPlaces="4" thousandSeparator=","
+                            style="width: 100%; font-size: 1.35rem; font-weight: 900;">
+                            <p:ajax event="change" process="@this" listener="#{dashboardBean.onEntradaManualRiderUnitsChange}" update="panelDetallesEntradaRider :entradaManualRiderForm:btnConfirmarEntradaManualRider" />
+                        </p:inputNumber>
+
+                        <div style="display: flex; justify-content: space-between; font-size: 0.88rem; color: #475569; margin-top: 10px; font-weight: 600;">
+                            <span>Nocional: <b style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderNotional}</b></span>
+                            <span>Margen Requerido: <b style="color: #0f172a; font-size: 0.95rem;">#{dashboardBean.formattedEntradaManualRiderMargin}</b></span>
+                        </div>
+                    </div>
+
+                    <!-- EVALUACIÓN ESTRICTA DEL INDICADOR DE MARGEN MÍNIMO -->
+                    <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
+                        <div style="font-weight: 800; font-size: 0.98rem; color: #334155; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+                            <span><i class="pi pi-shield" style="margin-right: 6px; color: #0284c7; font-size: 1.15rem;"></i>Evaluación del Indicador de Margen</span>
+                            <span style="font-size: 0.92rem; color: #64748b; font-weight: 700;">Mínimo Requerido: <b style="color: #0f172a; font-size: 1.0rem;">#{dashboardBean.formattedEntradaManualRiderMinMargin}</b></span>
+                        </div>
+
+                        <!-- 4 Cajas métricas -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Orden</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualRiderMargin}</div>
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Margen Actual</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">$#{dashboardBean.entradaManualRiderCurrentMargin}</div>
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div style="font-size: 0.80rem; color: #64748b; font-weight: 800; text-transform: uppercase;">Ind. Actual</div>
+                                <div style="font-size: 1.15rem; font-weight: 900; color: #0f172a; margin-top: 2px;">#{dashboardBean.formattedEntradaManualRiderCurrentIndicator}</div>
+                            </div>
+                            <div style="background: #{dashboardBean.entradaManualRiderAllowed ? '#ecfdf5' : '#fef2f2'}; border: 1px solid #{dashboardBean.entradaManualRiderAllowed ? '#6ee7b7' : '#fca5a5'}; border-radius: 8px; padding: 8px 10px; text-align: center;">
+                                <div style="font-size: 0.80rem; color: #{dashboardBean.entradaManualRiderAllowed ? '#065f46' : '#991b1b'}; font-weight: 800; text-transform: uppercase;">Ind. Proyectado</div>
+                                <div style="font-size: 1.22rem; font-weight: 900; color: #{dashboardBean.entradaManualRiderAllowed ? '#059669' : '#dc2626'}; margin-top: 2px;">
+                                    #{dashboardBean.formattedEntradaManualRiderProjectedIndicator}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ALERTA VERDE (APROBADO) O ROJA (BLOQUEADO) -->
+                        <h:panelGroup layout="block" rendered="#{dashboardBean.entradaManualRiderAllowed}"
+                            style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #065f46; font-size: 0.95rem; font-weight: 700;">
+                            <i class="pi pi-check-circle" style="font-size: 1.35rem; color: #10b981; flex-shrink: 0;"></i>
+                            <span>✅ APROBADO: El margen proyectado (#{dashboardBean.formattedEntradaManualRiderProjectedIndicator}) supera el #{dashboardBean.formattedEntradaManualRiderMinMargin} mínimo requerido para la cuenta.</span>
+                        </h:panelGroup>
+
+                        <h:panelGroup layout="block" rendered="#{!dashboardBean.entradaManualRiderAllowed}"
+                            style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; color: #991b1b; font-size: 0.95rem; font-weight: 700;">
+                            <i class="pi pi-ban" style="font-size: 1.35rem; color: #ef4444; flex-shrink: 0;"></i>
+                            <span>#{dashboardBean.entradaManualRiderWarningMessage != null ? dashboardBean.entradaManualRiderWarningMessage : '⛔ BLOQUEADO: La orden rebasa el Indicador de Margen Mínimo permitido.'}</span>
+                        </h:panelGroup>
+                    </div>
+                </h:panelGroup>
+
+                <!-- BOTONES DE ACCIÓN DEL MODAL EN FOOTER FACET -->
+                <f:facet name="footer">
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 4px 6px;">
+                        <p:commandButton value="Cancelar" type="button" styleClass="ui-button-flat ui-button-secondary"
+                            onclick="PF('entradaManualRiderDlg').hide();"
+                            style="color: #64748b; font-weight: 700; font-size: 0.95rem; padding: 8px 16px;" />
+
+                        <p:commandButton id="btnConfirmarEntradaManualRider"
+                            value="Confirmar y Enviar (#{dashboardBean.entradaManualRiderAccion} #{dashboardBean.entradaManualRiderSymbol})"
+                            action="#{dashboardBean.ejecutarEntradaManualRider}"
+                            disabled="#{!dashboardBean.entradaManualRiderAllowed}"
+                            process="@form"
+                            update=":aetherForm :aetherForm:growl :entradaManualRiderForm"
+                            onclick="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').show(); }"
+                            oncomplete="if (window.PF &amp;&amp; PF('statusDialog')) { PF('statusDialog').hide(); } if (window.PF &amp;&amp; PF('entradaManualRiderDlg')) { PF('entradaManualRiderDlg').hide(); }"
+                            styleClass="aether-btn-primary"
+                            style="font-weight: 800; font-size: 1.0rem; border-radius: 6px; padding: 8px 22px; #{dashboardBean.entradaManualRiderAllowed ? 'background: #10b981 !important; border-color: #10b981 !important; color: white !important;' : 'opacity: 0.55;'}"
+                            icon="pi pi-send"
+                            title="#{dashboardBean.entradaManualRiderAllowed ? 'Enviar orden calculada por riesgo a FOREX.com' : 'Bloqueado: Margen proyectado insuficiente'}" />
+                    </div>
+                </f:facet>
+            </p:dialog>
+        </h:form>
+
         <h:form id="ratioHechosForm">
             <p:dialog id="ratioHechosDlg" widgetVar="ratioHechosDlg" modal="true" responsive="true" width="890"
                 minWidth="780" maxWidth="980" showEffect="fade" hideEffect="fade" closable="true" closeOnEscape="true"

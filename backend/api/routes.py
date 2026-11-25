@@ -3932,6 +3932,22 @@ class RatioManualOpenRequest(BaseModel):
     unitsB: float
     setup: Optional[str] = None
 
+
+class RiderManualPreviewRequest(BaseModel):
+    idCuenta: int
+    symbol: str
+    direction: str = "LARGO"  # "LARGO" or "CORTO"
+    units: Optional[float] = None
+
+
+class RiderManualOpenRequest(BaseModel):
+    idCuenta: int
+    symbol: str
+    direction: str = "LARGO"  # "LARGO" or "CORTO"
+    units: float
+    setup: Optional[str] = None
+    timeframe: Optional[str] = "1h"
+
 @router.post("/trades/close-all-ratios/{idCuenta}")
 def manual_close_all_ratios(
     idCuenta: int,
@@ -4426,6 +4442,202 @@ def open_manual_ratio(
         "unitsB": req.unitsB,
         "margenTotal": totalPlannedMargin,
         "projectedIndicator": projInd
+    }
+
+
+@router.post("/trades/preview-manual-rider")
+def preview_manual_rider(
+    req: RiderManualPreviewRequest,
+    db: Session = Depends(get_db)
+):
+    from backend.core.pnl_calculator import calculate_margin
+    from backend.services.trade_executor import check_account_margin_health, check_projected_margin
+
+    dirReq = (req.direction or "LARGO").strip().upper()
+    if dirReq not in ["LARGO", "CORTO"]:
+        dirReq = "LARGO"
+
+    cleanSym = req.symbol.replace("/", "").upper()
+    rowSym = db.execute(text("SELECT min_lots, margen, symbol FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
+    minLots = float(rowSym[0] or 1.0) if rowSym else 1.0
+    margenPct = float(rowSym[1] or 0.5) if rowSym else 0.5
+
+    px = _get_symbol_price_for_ratio(db, req.symbol, dirReq)
+
+    rowAcc = db.execute(text("SELECT Capital, riesgoPorOperacion, COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc"), {"idc": req.idCuenta}).fetchone()
+    if not rowAcc:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+
+    cap = float(rowAcc[0] or 1000.0)
+    riesgoPct = float(rowAcc[1] or 1.0)
+    minMarginRequired = float(rowAcc[2] or 200.0)
+
+    allocationRate = (riesgoPct / 100.0) if riesgoPct >= 0.05 else riesgoPct
+    if allocationRate <= 0:
+        allocationRate = 0.01
+
+    canOperate, marginInd, totalMargin, equity, minMarginRequired = check_account_margin_health(db, req.idCuenta, cap)
+
+    existingTrade = db.execute(text("""
+        SELECT idTrade, direction, entryPrice, size FROM trades
+        WHERE idCuenta = :idc
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
+          AND (symbol = :sym OR setup = :sym)
+          AND status = 'OPEN'
+        LIMIT 1
+    """), {"idc": req.idCuenta, "sym": req.symbol}).mappings().fetchone()
+    hasActivePosition = existingTrade is not None
+
+    availableEquity = max(0.0, equity - totalMargin)
+    entryBudget = availableEquity * allocationRate
+    minMargen1Lot = max(0.01, calculate_margin(req.symbol, minLots, px, margenPct))
+
+    calculatedMult = max(1, int(entryBudget // minMargen1Lot)) if (entryBudget >= minMargen1Lot and minMargen1Lot > 0) else 1
+    recommendedUnits = round(calculatedMult * minLots, 4)
+
+    effectiveUnits = float(req.units) if (req.units is not None and req.units > 0) else recommendedUnits
+    marginUsed = round(calculate_margin(req.symbol, effectiveUnits, px, margenPct), 2)
+    notional = _calculate_notional_usd(req.symbol, effectiveUnits, px)
+
+    projectedTotalMargin = round(totalMargin + marginUsed, 2)
+    projectedIndicator = round((equity / projectedTotalMargin * 100.0), 1) if (projectedTotalMargin > 0 and equity > 0) else 0.0
+
+    isAllowed = bool(canOperate and not hasActivePosition and (marginUsed <= availableEquity) and (projectedIndicator >= minMarginRequired))
+    warningMessage = None
+    if hasActivePosition:
+        warningMessage = (
+            f"⛔ Ya existe una posición abierta en RIDER para {req.symbol} "
+            f"(Trade #{existingTrade['idTrade']}, {existingTrade['direction']}, {existingTrade['size']:g} uds). "
+            f"No se permiten entradas adicionales mientras esté en curso."
+        )
+    elif not canOperate:
+        warningMessage = (
+            f"⛔ Indicador de Margen actual ({marginInd:.1f}%) es inferior al {minMarginRequired:.0f}% mínimo requerido para la cuenta. "
+            f"Operación bloqueada."
+        )
+    elif marginUsed > availableEquity:
+        warningMessage = f"⛔ Margen requerido (${marginUsed:,.2f}) excede la equidad disponible (${availableEquity:,.2f})."
+    elif projectedIndicator < minMarginRequired:
+        warningMessage = (
+            f"⛔ Margen proyectado insuficiente ({projectedIndicator:.1f}% < {minMarginRequired:.0f}% requerido). "
+            f"La orden requiere ${marginUsed:,.2f} USD de margen."
+        )
+
+    return {
+        "success": True,
+        "symbol": req.symbol,
+        "direction": dirReq,
+        "price": px,
+        "hasActivePosition": hasActivePosition,
+        "riesgoPorOperacion": riesgoPct,
+        "allocationRate": allocationRate,
+        "entryBudget": round(entryBudget, 2),
+        "minLots": minLots,
+        "margenPct": margenPct,
+        "recommendedUnits": recommendedUnits,
+        "effectiveUnits": effectiveUnits,
+        "notional": notional,
+        "marginUsed": marginUsed,
+        "accountCapital": cap,
+        "accountEquity": round(equity, 2),
+        "availableEquity": round(availableEquity, 2),
+        "currentMargin": round(totalMargin, 2),
+        "currentMarginIndicator": round(marginInd, 1),
+        "projectedMargin": projectedTotalMargin,
+        "projectedMarginIndicator": projectedIndicator,
+        "minMarginRequired": minMarginRequired,
+        "canOperate": canOperate,
+        "isAllowed": isAllowed,
+        "warningMessage": warningMessage
+    }
+
+
+@router.post("/trades/open-manual-rider")
+def open_manual_rider(
+    req: RiderManualOpenRequest,
+    db: Session = Depends(get_db)
+):
+    from backend.core.pnl_calculator import calculate_margin
+    from backend.services.trade_executor import (
+        check_account_margin_health, check_projected_margin, execute_single_asset_entry
+    )
+
+    if req.units <= 0:
+        raise HTTPException(status_code=400, detail="La cantidad de unidades debe ser mayor a 0")
+
+    existingTrade = db.execute(text("""
+        SELECT idTrade, direction, size FROM trades
+        WHERE idCuenta = :idc
+          AND (strategy = 'RIDER' OR strategy LIKE '%CART%')
+          AND (symbol = :sym OR setup = :sym)
+          AND status = 'OPEN'
+        LIMIT 1
+    """), {"idc": req.idCuenta, "sym": req.symbol}).fetchone()
+    if existingTrade:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ya existe una posición abierta para {req.symbol} en esta cuenta (Trade #{existingTrade[0]}). No se permiten entradas simultáneas."
+        )
+
+    dirReq = (req.direction or "LARGO").strip().upper()
+    if dirReq not in ["LARGO", "CORTO"]:
+        dirReq = "LARGO"
+
+    px = _get_symbol_price_for_ratio(db, req.symbol, dirReq)
+    cleanSym = req.symbol.replace("/", "").upper()
+    rowSym = db.execute(text("SELECT min_lots, margen FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": cleanSym}).fetchone()
+    margenPct = float(rowSym[1] or 0.5) if rowSym else 0.5
+
+    marginUsed = round(calculate_margin(req.symbol, req.units, px, margenPct), 2)
+
+    rowAcc = db.execute(text("SELECT Capital, riesgoPorOperacion, COALESCE(indicadorMargen, 200.0) FROM cuenta WHERE idCuenta = :idc"), {"idc": req.idCuenta}).fetchone()
+    if not rowAcc:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    cap = float(rowAcc[0] or 1000.0)
+    minMarginReq = float(rowAcc[2] or 200.0)
+
+    canOperate, marginInd, totalMargin, equity, minMarginReq = check_account_margin_health(db, req.idCuenta, cap)
+    if not canOperate:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Indicador de margen actual ({marginInd:.1f}%) es menor al {minMarginReq:.0f}% requerido para la cuenta"
+        )
+
+    isAllowed, projInd = check_projected_margin(equity, totalMargin, marginUsed, minMarginReq)
+    if not isAllowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Margen proyectado insuficiente ({projInd:.1f}% < {minMarginReq:.0f}% requerido). Margen requerido: ${marginUsed:,.2f}"
+        )
+
+    setupName = req.setup or req.symbol
+    now = datetime.now()
+
+    res = execute_single_asset_entry(
+        dbSession=db,
+        idCuenta=req.idCuenta,
+        strategy="RIDER",
+        setup=setupName,
+        symbol=req.symbol,
+        direction=dirReq,
+        timeframe=req.timeframe or "1h",
+        size=req.units,
+        price=px,
+        sl=None,
+        tp=None,
+        margenPct=margenPct,
+        comment=f"Entrada Manual RIDER ({dirReq})",
+        signalType="RIDER Manual",
+        candleDt=now
+    )
+
+    if not res.get("success"):
+        raise HTTPException(status_code=500, detail=f"Fallo al ejecutar la orden en el bróker: {res.get('error')}")
+
+    return {
+        "success": True,
+        "message": f"Orden RIDER manual de {dirReq} para {req.symbol} ({req.units} uds) ejecutada exitosamente.",
+        "data": res
     }
 
 

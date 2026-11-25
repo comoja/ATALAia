@@ -8364,6 +8364,30 @@ public class DashboardBean implements Serializable {
                 }
             }
         }
+        if (this.cartActiveCycleSummary != null && this.cartActiveCycleSummary.isHasActiveCycle() && this.cartActiveCycleSummary.getTotalOpenTrades() > 0) {
+            this.cartHasActiveTradesInDb = true;
+        }
+    }
+
+    public boolean isCartHasActivePosition() {
+        if (this.cartHasActiveTradesInDb) return true;
+        if (this.cartActiveCycleSummary != null && this.cartActiveCycleSummary.isHasActiveCycle() && this.cartActiveCycleSummary.getTotalOpenTrades() > 0) {
+            return true;
+        }
+        if (this.cartActiveCycles != null && this.selectedCartPair != null) {
+            String selClean = this.selectedCartPair.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+            for (ActiveCycleSummaryDto c : this.cartActiveCycles) {
+                String pairClean = c.getPairA() != null ? c.getPairA().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                String setupClean = c.getSetup() != null ? c.getSetup().replaceAll("[^A-Za-z0-9]", "").toUpperCase() : "";
+                if ((selClean.equals(pairClean) || selClean.equals(setupClean)
+                        || this.selectedCartPair.equalsIgnoreCase(c.getPairA())
+                        || this.selectedCartPair.equalsIgnoreCase(c.getSetup()))
+                        && c.isHasActiveCycle() && c.getTotalOpenTrades() > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void loadCartRealTradesMovimientos() {
@@ -10010,6 +10034,300 @@ public class DashboardBean implements Serializable {
                             errDetail));
         } catch (Exception ex) {
             log.error("Excepción al ejecutar entrada manual: {}", ex.getMessage(), ex);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error del Sistema",
+                            ex.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // --- ENTRADA MANUAL POR RIESGO (MODAL RIDER / CART) ---
+    // =========================================================================
+    private String entradaManualRiderSymbol = "";
+    private String entradaManualRiderDirection = "LARGO"; // "LARGO" / "CORTO"
+    private Double entradaManualRiderUnits = null;
+    private Double entradaManualRiderRecommendedUnits = null;
+    private Double entradaManualRiderPrice = 0.0;
+    private Double entradaManualRiderRiesgoPct = 1.0;
+    private Double entradaManualRiderEntryBudget = 0.0;
+    private Double entradaManualRiderNotional = 0.0;
+    private Double entradaManualRiderMargin = 0.0;
+
+    private Double entradaManualRiderAccountCapital = 0.0;
+    private Double entradaManualRiderAccountEquity = 0.0;
+    private Double entradaManualRiderAvailableEquity = 0.0;
+    private Double entradaManualRiderCurrentMargin = 0.0;
+    private Double entradaManualRiderCurrentIndicator = 0.0;
+    private Double entradaManualRiderProjectedMargin = 0.0;
+    private Double entradaManualRiderProjectedIndicator = 0.0;
+    private Double entradaManualRiderMinMarginRequired = 200.0;
+    private boolean entradaManualRiderAllowed = false;
+    private boolean entradaManualRiderCanOperate = true;
+    private String entradaManualRiderWarningMessage = null;
+
+    public String getEntradaManualRiderSymbol() { return entradaManualRiderSymbol; }
+    public void setEntradaManualRiderSymbol(String entradaManualRiderSymbol) { this.entradaManualRiderSymbol = entradaManualRiderSymbol; }
+
+    public String getEntradaManualRiderDirection() { return entradaManualRiderDirection; }
+    public void setEntradaManualRiderDirection(String entradaManualRiderDirection) { this.entradaManualRiderDirection = entradaManualRiderDirection; }
+
+    public Double getEntradaManualRiderUnits() { return entradaManualRiderUnits; }
+    public void setEntradaManualRiderUnits(Double entradaManualRiderUnits) { this.entradaManualRiderUnits = entradaManualRiderUnits; }
+
+    public Double getEntradaManualRiderRecommendedUnits() { return entradaManualRiderRecommendedUnits; }
+    public void setEntradaManualRiderRecommendedUnits(Double entradaManualRiderRecommendedUnits) { this.entradaManualRiderRecommendedUnits = entradaManualRiderRecommendedUnits; }
+
+    public Double getEntradaManualRiderPrice() { return entradaManualRiderPrice; }
+    public void setEntradaManualRiderPrice(Double entradaManualRiderPrice) { this.entradaManualRiderPrice = entradaManualRiderPrice; }
+
+    public Double getEntradaManualRiderRiesgoPct() { return entradaManualRiderRiesgoPct; }
+    public void setEntradaManualRiderRiesgoPct(Double entradaManualRiderRiesgoPct) { this.entradaManualRiderRiesgoPct = entradaManualRiderRiesgoPct; }
+
+    public Double getEntradaManualRiderEntryBudget() { return entradaManualRiderEntryBudget; }
+    public void setEntradaManualRiderEntryBudget(Double entradaManualRiderEntryBudget) { this.entradaManualRiderEntryBudget = entradaManualRiderEntryBudget; }
+
+    public Double getEntradaManualRiderNotional() { return entradaManualRiderNotional; }
+    public void setEntradaManualRiderNotional(Double entradaManualRiderNotional) { this.entradaManualRiderNotional = entradaManualRiderNotional; }
+
+    public Double getEntradaManualRiderMargin() { return entradaManualRiderMargin; }
+    public void setEntradaManualRiderMargin(Double entradaManualRiderMargin) { this.entradaManualRiderMargin = entradaManualRiderMargin; }
+
+    public Double getEntradaManualRiderAccountCapital() { return entradaManualRiderAccountCapital; }
+    public void setEntradaManualRiderAccountCapital(Double entradaManualRiderAccountCapital) { this.entradaManualRiderAccountCapital = entradaManualRiderAccountCapital; }
+
+    public Double getEntradaManualRiderAccountEquity() { return entradaManualRiderAccountEquity; }
+    public void setEntradaManualRiderAccountEquity(Double entradaManualRiderAccountEquity) { this.entradaManualRiderAccountEquity = entradaManualRiderAccountEquity; }
+
+    public Double getEntradaManualRiderAvailableEquity() { return entradaManualRiderAvailableEquity; }
+    public void setEntradaManualRiderAvailableEquity(Double entradaManualRiderAvailableEquity) { this.entradaManualRiderAvailableEquity = entradaManualRiderAvailableEquity; }
+
+    public Double getEntradaManualRiderCurrentMargin() { return entradaManualRiderCurrentMargin; }
+    public void setEntradaManualRiderCurrentMargin(Double entradaManualRiderCurrentMargin) { this.entradaManualRiderCurrentMargin = entradaManualRiderCurrentMargin; }
+
+    public Double getEntradaManualRiderCurrentIndicator() { return entradaManualRiderCurrentIndicator; }
+    public void setEntradaManualRiderCurrentIndicator(Double entradaManualRiderCurrentIndicator) { this.entradaManualRiderCurrentIndicator = entradaManualRiderCurrentIndicator; }
+
+    public Double getEntradaManualRiderProjectedMargin() { return entradaManualRiderProjectedMargin; }
+    public void setEntradaManualRiderProjectedMargin(Double entradaManualRiderProjectedMargin) { this.entradaManualRiderProjectedMargin = entradaManualRiderProjectedMargin; }
+
+    public Double getEntradaManualRiderProjectedIndicator() { return entradaManualRiderProjectedIndicator; }
+    public void setEntradaManualRiderProjectedIndicator(Double entradaManualRiderProjectedIndicator) { this.entradaManualRiderProjectedIndicator = entradaManualRiderProjectedIndicator; }
+
+    public Double getEntradaManualRiderMinMarginRequired() { return entradaManualRiderMinMarginRequired; }
+    public void setEntradaManualRiderMinMarginRequired(Double entradaManualRiderMinMarginRequired) { this.entradaManualRiderMinMarginRequired = entradaManualRiderMinMarginRequired; }
+
+    public boolean isEntradaManualRiderAllowed() { return entradaManualRiderAllowed; }
+    public void setEntradaManualRiderAllowed(boolean entradaManualRiderAllowed) { this.entradaManualRiderAllowed = entradaManualRiderAllowed; }
+
+    public boolean isEntradaManualRiderCanOperate() { return entradaManualRiderCanOperate; }
+    public void setEntradaManualRiderCanOperate(boolean entradaManualRiderCanOperate) { this.entradaManualRiderCanOperate = entradaManualRiderCanOperate; }
+
+    public String getEntradaManualRiderWarningMessage() { return entradaManualRiderWarningMessage; }
+    public void setEntradaManualRiderWarningMessage(String entradaManualRiderWarningMessage) { this.entradaManualRiderWarningMessage = entradaManualRiderWarningMessage; }
+
+    public boolean isEntradaManualRiderLargo() {
+        return "LARGO".equalsIgnoreCase(this.entradaManualRiderDirection);
+    }
+
+    public String getEntradaManualRiderAccion() {
+        return "LARGO".equalsIgnoreCase(this.entradaManualRiderDirection) ? "COMPRA" : "VENTA";
+    }
+
+    public String getFormattedEntradaManualRiderPrice() {
+        return String.format(java.util.Locale.US, "%,.5f", entradaManualRiderPrice != null ? entradaManualRiderPrice : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderNotional() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualRiderNotional != null ? entradaManualRiderNotional : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderMargin() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualRiderMargin != null ? entradaManualRiderMargin : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderBudget() {
+        return String.format(java.util.Locale.US, "$%,.2f USD", entradaManualRiderEntryBudget != null ? entradaManualRiderEntryBudget : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderCurrentIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f%%", entradaManualRiderCurrentIndicator != null ? entradaManualRiderCurrentIndicator : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderProjectedIndicator() {
+        return String.format(java.util.Locale.US, "%,.1f%%", entradaManualRiderProjectedIndicator != null ? entradaManualRiderProjectedIndicator : 0.0);
+    }
+
+    public String getFormattedEntradaManualRiderMinMargin() {
+        return String.format(java.util.Locale.US, "%,.0f%%", entradaManualRiderMinMarginRequired != null ? entradaManualRiderMinMarginRequired : 200.0);
+    }
+
+    public void abrirEntradaManualRider() {
+        if (isCartHasActivePosition()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_WARN,
+                            "Posición en Curso",
+                            "Ya existe una posición abierta para " + this.selectedCartPair + ". No se permite abrir otra operación."));
+            return;
+        }
+        this.entradaManualRiderSymbol = (this.selectedCartPair != null && !this.selectedCartPair.trim().isEmpty())
+                ? this.selectedCartPair.trim() : "EUR/USD";
+        this.entradaManualRiderUnits = null;
+        this.entradaManualRiderDirection = "LARGO";
+        actualizarPreviewEntradaManualRider();
+    }
+
+    public void toggleEntradaManualRiderDireccion() {
+        if ("LARGO".equalsIgnoreCase(this.entradaManualRiderDirection)) {
+            this.entradaManualRiderDirection = "CORTO";
+        } else {
+            this.entradaManualRiderDirection = "LARGO";
+        }
+        actualizarPreviewEntradaManualRider();
+    }
+
+    public void onEntradaManualRiderUnitsChange() {
+        actualizarPreviewEntradaManualRider();
+    }
+
+    public void resetEntradaManualRiderUnits() {
+        this.entradaManualRiderUnits = this.entradaManualRiderRecommendedUnits;
+        actualizarPreviewEntradaManualRider();
+    }
+
+    public void actualizarPreviewEntradaManualRider() {
+        Integer accId = selectedAccountId;
+        if (accId == null || accId == 0) {
+            accId = 2;
+        }
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idCuenta", accId);
+            payload.put("symbol", this.entradaManualRiderSymbol);
+            payload.put("direction", this.entradaManualRiderDirection != null ? this.entradaManualRiderDirection : "LARGO");
+            if (this.entradaManualRiderUnits != null && this.entradaManualRiderUnits > 0) {
+                payload.put("units", this.entradaManualRiderUnits);
+            }
+
+            String url = backendUrl + "/api/v1/trades/preview-manual-rider";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(response.getBody());
+
+                this.entradaManualRiderDirection = root.path("direction").asText("LARGO");
+                this.entradaManualRiderPrice = root.path("price").asDouble(0.0);
+                this.entradaManualRiderRiesgoPct = root.path("riesgoPorOperacion").asDouble(1.0);
+                this.entradaManualRiderEntryBudget = root.path("entryBudget").asDouble(0.0);
+                this.entradaManualRiderRecommendedUnits = root.path("recommendedUnits").asDouble(1.0);
+                if (this.entradaManualRiderUnits == null || this.entradaManualRiderUnits <= 0) {
+                    this.entradaManualRiderUnits = this.entradaManualRiderRecommendedUnits;
+                }
+                this.entradaManualRiderNotional = root.path("notional").asDouble(0.0);
+                this.entradaManualRiderMargin = root.path("marginUsed").asDouble(0.0);
+
+                this.entradaManualRiderAccountCapital = root.path("accountCapital").asDouble(0.0);
+                this.entradaManualRiderAccountEquity = root.path("accountEquity").asDouble(0.0);
+                this.entradaManualRiderAvailableEquity = root.path("availableEquity").asDouble(0.0);
+                this.entradaManualRiderCurrentMargin = root.path("currentMargin").asDouble(0.0);
+                this.entradaManualRiderCurrentIndicator = root.path("currentMarginIndicator").asDouble(0.0);
+                this.entradaManualRiderProjectedMargin = root.path("projectedMargin").asDouble(0.0);
+                this.entradaManualRiderProjectedIndicator = root.path("projectedMarginIndicator").asDouble(0.0);
+                this.entradaManualRiderMinMarginRequired = root.path("minMarginRequired").asDouble(200.0);
+                this.entradaManualRiderCanOperate = root.path("canOperate").asBoolean(true);
+                this.entradaManualRiderAllowed = root.path("isAllowed").asBoolean(false);
+                this.entradaManualRiderWarningMessage = root.hasNonNull("warningMessage") ? root.path("warningMessage").asText() : null;
+            }
+        } catch (Exception ex) {
+            log.error("Error al actualizar preview de entrada manual RIDER: {}", ex.getMessage(), ex);
+            this.entradaManualRiderAllowed = false;
+            this.entradaManualRiderWarningMessage = "Error al calcular margen: " + ex.getMessage();
+        }
+    }
+
+    public void ejecutarEntradaManualRider() {
+        if (isCartHasActivePosition()) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Orden Bloqueada",
+                            "Ya existe una posición abierta para " + this.entradaManualRiderSymbol + " en curso."));
+            return;
+        }
+
+        if (!this.entradaManualRiderAllowed) {
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Orden Bloqueada",
+                            this.entradaManualRiderWarningMessage != null ? this.entradaManualRiderWarningMessage : "La orden rebasa el Indicador de Margen Mínimo permitido."));
+            return;
+        }
+
+        Integer accId = selectedAccountId;
+        if (accId == null || accId == 0) {
+            accId = 2;
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idCuenta", accId);
+            payload.put("symbol", this.entradaManualRiderSymbol);
+            payload.put("direction", this.entradaManualRiderDirection);
+            payload.put("units", this.entradaManualRiderUnits);
+            payload.put("setup", this.entradaManualRiderSymbol);
+            payload.put("timeframe", (this.cartTimeframe != null && !this.cartTimeframe.isEmpty()) ? this.cartTimeframe : "1h");
+
+            String url = backendUrl + "/api/v1/trades/open-manual-rider";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(payload, headers);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(
+                                javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                "Entrada RIDER Ejecutada con Éxito",
+                                "Se ha enviado y confirmado la orden de " + this.entradaManualRiderSymbol + " (" + this.entradaManualRiderDirection + ") en FOREX.com."));
+
+                org.primefaces.PrimeFaces.current().executeScript("PF('entradaManualRiderDlg').hide();");
+                loadAllActiveCycles();
+                analyzeCartPair();
+            } else {
+                javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                        new javax.faces.application.FacesMessage(
+                                javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                                "Error al Ejecutar Orden RIDER",
+                                "El servidor devolvió estado " + response.getStatusCodeValue()));
+            }
+        } catch (org.springframework.web.client.HttpStatusCodeException httpEx) {
+            log.error("Error HTTP al ejecutar entrada manual RIDER: {}", httpEx.getResponseBodyAsString());
+            String errDetail = httpEx.getResponseBodyAsString();
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode errNode = mapper.readTree(errDetail);
+                if (errNode.has("detail")) {
+                    errDetail = errNode.path("detail").asText();
+                }
+            } catch (Exception eJson) {}
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(
+                            javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Orden Rechazada",
+                            errDetail));
+        } catch (Exception ex) {
+            log.error("Excepción al ejecutar entrada manual RIDER: {}", ex.getMessage(), ex);
             javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
                     new javax.faces.application.FacesMessage(
                             javax.faces.application.FacesMessage.SEVERITY_ERROR,
