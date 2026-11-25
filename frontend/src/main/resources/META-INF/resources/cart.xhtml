@@ -166,6 +166,13 @@
                                             </h:panelGroup>
                                         </div>
                                     </p:column>
+                                    <p:column headerText="% G/P" style="text-align: center; width: 54px; min-width: 54px; max-width: 54px; padding: 1px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.90rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.closedTrades gt 0 ? (uc.pnlPct gt 0 ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : (uc.pnlPct lt 0 ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #94a3b8;')) : 'background: rgba(100, 116, 139, 0.08); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="Semana Vigente (Dom - Vie) | Retorno: #{uc.netProfit >= 0 ? '+' : ''}$#{uc.netProfit} USD | Efectividad: #{uc.winRate}% (#{uc.winningTrades} Ganadas / #{uc.closedTrades} Cerradas)#{uc.hasOpenTrades ? (' | PnL Flotante: ' += (uc.openPnl >= 0 ? '+' : '') += '$' += uc.openPnl += ' USD') : ''}">
+                                            #{uc.formattedPnlPct}
+                                        </span>
+                                    </p:column>
                                     <p:column headerText="TF"
                                         style="text-align: center; padding: 1px 1px !important;">
                                         <h:outputText value="#{uc.temporalidad}"
@@ -177,13 +184,6 @@
                                             style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; white-space: nowrap; #{uc.emaLenta ne uc.emaSugerida ? 'background: rgba(239, 68, 68, 0.18); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}"
                                             title="RIDE Actual: #{uc.emaLenta} | RIDE Sugerido: #{uc.emaSugerida} #{uc.emaLenta ne uc.emaSugerida ? '(Requiere Calibración)' : '(Óptimo)'}">
                                             RIDE #{uc.emaLenta}/#{uc.emaSugerida}
-                                        </span>
-                                    </p:column>
-                                    <p:column headerText="Fin"
-                                        style="text-align: center; padding: 1px 1px !important;">
-                                        <span class="badge"
-                                            style="font-size: 0.85rem; padding: 1px 3px; font-weight: 700; border-radius: 4px; display: inline-block; line-height: 1.1; #{uc.accionCierre eq 'Para' ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;'}">
-                                            #{uc.accionCierre eq 'Para' ? 'Para' : 'Cont'}
                                         </span>
                                     </p:column>
                                     <p:column headerText="BE"
@@ -751,46 +751,33 @@
 
                     <!-- COLUMNA DERECHA: ENCABEZADO Y GRÁFICA INTERACTIVA RIDER -->
                     <div id="cartRightChartColumn" class="dashboard-chart-column">
-                        <div class="pairs-trading-header-box"
-                            style="margin-bottom: 10px; padding: 0 16px; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; box-shadow: var(--neu-shadow-flat); gap: 10px; font-size: 1.22rem; min-height: 46px; max-height: 46px; box-sizing: border-box;">
-
+                        <div class="strategy-chart-header">
                             <div
-                                style="font-weight: 900; color: #0f766e; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.35rem; line-height: 1; display: flex; align-items: center;">
-                                RIDER (#{dashboardBean.selectedCartPair})
+                                style="font-weight: 900; color: #0f766e; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.25rem; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-compass" style="color: #0d9488; font-size: 1.25rem;"></i>
+                                <span>RIDER (<span style="color: #0d9488; font-weight: 900;">#{dashboardBean.selectedCartPair}</span>)</span>
                             </div>
 
-                            <!-- INFORMACIÓN DE CUENTA COMPARTIDA -->
-                            <div
-                                style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: nowrap;">
+                            <!-- INFORMACIÓN DE CUENTA COMPARTIDA (ESTÁNDAR UNIFICADO) -->
+                            <div class="strategy-header-account-info">
                                 <div
-                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 1.22rem;">
+                                    style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; padding: 2px 10px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
                                     <i class="pi pi-user" style="color: #0d9488; font-size: 1.22rem;"></i>
                                     <span style="font-weight: 800; color: #1e293b; font-size: 1.22rem;">
                                         #{dashboardBean.selectedAccountName}
                                     </span>
                                 </div>
                                 <div
-                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 1.22rem;">
+                                    style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; padding: 2px 10px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
                                     <i class="pi pi-wallet" style="color: #0369a1; font-size: 1.22rem;"></i>
-                                    <span style="color: #64748b; font-weight: 700; font-size: 1.22rem;">Capital:</span>
+                                    <span style="color: #64748b; font-weight: 600; font-size: 1.22rem;">Capital:</span>
                                     <span style="font-weight: 800; color: #0369a1; font-size: 1.22rem;">
                                         $#{dashboardBean.formattedSelectedAccountCapital} USD
                                     </span>
                                 </div>
-                                <div
-                                    style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0; font-size: 1.22rem;">
-                                    <span style="color: #065f46; font-weight: 800; font-size: 1.22rem;">
-                                        CAR (RIDE #{dashboardBean.cartCarWindow} ± #{dashboardBean.cartCarMultiplier}σ)
-                                    </span>
-                                </div>
                             </div>
 
-                            <div
-                                style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: nowrap;">
-                                <!-- PNL FLOTANTE DEL PAR OPERANDO EN RIDER -->
-                                <div id="cartFloatingPnlDisplay" style="display: inline-flex; align-items: center;">
-                                </div>
-
+                            <div class="strategy-header-actions">
                                 <button id="btnCartAutoLive" type="button" onclick="toggleCartAutoLive();"
                                     title="Alternar Auto-Actualización en Vivo de RIDER"
                                     style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 6px; font-size: 1.22rem; font-weight: 800; color: #047857; cursor: pointer; transition: all 0.2s ease;">
@@ -801,20 +788,87 @@
                                 <p:commandButton icon="pi pi-refresh" title="Refrescar gráfica RIDER"
                                     action="#{dashboardBean.analyzeCartPair}" process="@this"
                                     update=":aetherForm:cartHistoryJsonData :aetherForm:cartActiveTradesJsonData :aetherForm:cartActiveCycleSummaryJsonData"
-                                    oncomplete="renderCartChart();" styleClass="aether-btn-secondary"
+                                    oncomplete="renderCartChart(); if (typeof updateCartLiveTimestamp === 'function') updateCartLiveTimestamp();" styleClass="aether-btn-secondary"
                                     style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
                                 <button type="button" onclick="resetChartZoom('cartChart');"
                                     title="Restablecer Zoom"
-                                    style="display: inline-flex; align-items: center; justify-content: center; height: 32px; width: 36px; padding: 0; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #334155; cursor: pointer;">
-                                    <i class="pi pi-search" style="font-size: 1.65rem;"></i>
+                                    style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #334155; cursor: pointer;">
+                                    <i class="pi pi-search" style="font-size: 1.55rem;"></i>
                                 </button>
                             </div>
                         </div>
 
-                        <!-- GRÁFICO INTERACTIVO CHART.JS PARA CART (1 PAR + CAR EMA 20 ± 1.5σ) -->
-                        <div id="cart-chart-container"
-                            style="flex: 1; position: relative; width: 100%; min-height: 500px; background: #ffffff; border-radius: 12px; padding: 10px; border: 1px solid var(--border-soft);">
-                            <canvas id="cartChart"></canvas>
+                        <!-- GRÁFICO INTERACTIVO CHART.JS PARA RIDER (ESTRUCTURA UNIFICADA) -->
+                        <div id="cart-chart-container" class="strategy-chart-container">
+
+                            <!-- BANNER DE POSICIÓN ACTIVA EN CURSO (SI EXISTE TRADE OPEN EN RIDER) -->
+                            <div id="cartActiveTradeBanner" class="strategy-active-banner"
+                                style="display: none; background: rgba(13, 148, 136, 0.08); border: 1.5px solid #0d9488;">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; overflow-x: auto; font-size: 1.15rem;">
+                                    <span id="cartBannerDirBadge"
+                                        style="font-weight: 900; font-size: 1.12rem; padding: 2px 10px; border-radius: 6px; color: #ffffff; letter-spacing: 0.5px; white-space: nowrap; line-height: 1.2; background: #16a34a;">
+                                        COMPRA
+                                    </span>
+                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">Entrada:</span>
+                                        <b id="cartBannerEntry" style="color: #0f172a; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    <div id="cartBannerBeContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #0284c7; text-transform: uppercase;">BE:</span>
+                                        <b id="cartBannerBe" style="color: #0284c7; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    <div id="cartBannerTslContainer" style="display: none; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #d97706; text-transform: uppercase;">TSL:</span>
+                                        <b id="cartBannerTsl" style="color: #d97706; font-size: 1.15rem; font-weight: 900; line-height: 1;">—</b>
+                                    </div>
+                                    <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                        <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">PnL:</span>
+                                        <b id="cartBannerPnl" style="font-size: 1.15rem; font-weight: 900; line-height: 1;">$0.00</b>
+                                    </div>
+                                </div>
+                                <p:commandButton icon="pi pi-times"
+                                    title="Cerrar Posición Activa de #{dashboardBean.selectedCartPair}"
+                                    action="#{dashboardBean.cerrarPosicionCart(dashboardBean.selectedCartPair)}"
+                                    process="@this" update=":aetherForm" oncomplete="handleUserCartSelected();"
+                                    styleClass="aether-btn-secondary"
+                                    style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; color: #dc2626 !important; border-color: #ef4444 !important; font-size: 0.95rem !important; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px !important;" />
+                            </div>
+
+                            <!-- LEYENDA TÁCTICA DE ELEMENTOS DIBUJADOS (DISTRIBUCIÓN ESTÁNDAR) -->
+                            <div id="cartLegendBar" class="strategy-tactical-legend">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #0d9488; display: inline-block;"></span>
+                                        <b style="color: #0d9488;">Precio #{dashboardBean.selectedCartPair}</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #0f766e; display: inline-block;"></span>
+                                        <b style="color: #0f766e;">RIDE / Media (EMA #{dashboardBean.cartCarWindow})</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #0284c7; display: inline-block;"></span>
+                                        <b style="color: #0284c7;">Bandas CAR (±#{dashboardBean.cartCarMultiplier}σ)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #3b82f6; display: inline-block;"></span>
+                                        <b style="color: #2563eb;">BreakEven (BE)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 10px; background: rgba(217, 119, 6, 0.25); border: 1.5px dashed #d97706; display: inline-block; border-radius: 2px;"></span>
+                                        <b style="color: #d97706;">Zona TSL</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="font-size: 0.85rem; line-height: 1; color: #16a34a;">▲▼</span>
+                                        <b>Entradas / Salidas</b>
+                                    </span>
+                                </div>
+                                <span id="cartLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
+                            </div>
+
+                            <!-- CANVAS DE GRÁFICA CHART.JS -->
+                            <div class="strategy-canvas-wrapper">
+                                <canvas id="cartChart" style="width: 100%; height: 100%;"></canvas>
+                            </div>
                         </div>
                     </div>
 
@@ -2934,44 +2988,81 @@
             }
         }
 
-        function updateCartFloatingPnlDisplay() {
-            var elem = document.getElementById('cartFloatingPnlDisplay');
-            if (!elem) return;
+        function updateCartActiveTradeBanner() {
+            var banner = document.getElementById('cartActiveTradeBanner');
+            if (!banner) return;
             var jsonInput = document.getElementById('aetherForm:cartActiveCycleSummaryJsonData');
             if (!jsonInput || !jsonInput.value) {
-                elem.innerHTML = '';
+                banner.style.display = 'none';
                 return;
             }
             try {
                 var data = JSON.parse(jsonInput.value);
                 if (data && data.hasActiveCycle && data.totalOpenTrades > 0) {
+                    banner.style.display = 'flex';
+                    var dirBadge = document.getElementById('cartBannerDirBadge');
                     var pnlVal = Number(data.totalPnl || 0.0);
                     var isPos = (pnlVal >= 0);
-                    var bgBadge = isPos ? '#f0fdf4' : '#fef2f2';
-                    var colBadge = isPos ? '#065f46' : '#991b1b';
-                    var bordBadge = isPos ? '#bbf7d0' : '#fecaca';
-                    var shadowBadge = isPos ? '0 1px 4px rgba(16, 185, 129, 0.25)' : '0 1px 4px rgba(239, 68, 68, 0.25)';
-                    var iconClass = isPos ? 'pi-arrow-up-right' : 'pi-arrow-down-right';
-                    var sign = isPos ? '+' : '';
-                    var dirBg = data.isBuyA ? '#16a34a' : '#dc2626';
-                    var dirTxt = data.dirA || (data.isBuyA ? 'LARGO' : 'CORTO');
-
-                    elem.innerHTML = '<div style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; box-sizing: border-box; background: ' + bgBadge + '; border-radius: 6px; border: 1px solid ' + bordBadge + '; box-shadow: ' + shadowBadge + '; color: ' + colBadge + '; font-size: 1.22rem; font-weight: 800;">' +
-                        '<i class="pi ' + iconClass + '" style="font-size: 1.22rem; font-weight: 900;"></i>' +
-                        '<span style="font-size: 1.22rem;">Flotante: ' + sign + '$' + (data.formattedTotalPnl || '0.00') + ' USD (' + sign + (data.formattedReturnPct || '0.0%') + ')</span>' +
-                        '<span style="background: ' + dirBg + '; color: #ffffff; padding: 1px 6px; border-radius: 4px; font-size: 0.95rem; font-weight: 800; margin-left: 2px;">' + dirTxt + '</span>' +
-                        '</div>';
+                    if (dirBadge) {
+                        var dirTxt = data.dirA || (data.isBuyA ? 'COMPRA' : 'VENTA');
+                        dirBadge.textContent = dirTxt;
+                        dirBadge.style.background = isPos ? '#16a34a' : '#dc2626';
+                    }
+                    var entryEl = document.getElementById('cartBannerEntry');
+                    if (entryEl) {
+                        entryEl.textContent = (data.avgEntryPriceA ? Number(data.avgEntryPriceA).toFixed(5) : '—') + (data.firstEntryDate ? ' (' + data.firstEntryDate + ')' : '');
+                    }
+                    var pnlEl = document.getElementById('cartBannerPnl');
+                    if (pnlEl) {
+                        var sign = isPos ? '+' : '';
+                        pnlEl.textContent = sign + '$' + (data.formattedTotalPnl || '0.00') + ' USD (' + sign + (data.formattedReturnPct || '0.0%') + ')';
+                        pnlEl.style.color = isPos ? '#16a34a' : '#dc2626';
+                    }
+                    // BE / TSL si existen en activeTrades
+                    var actTradesEl = document.querySelector("[id$='cartActiveTradesJsonData']");
+                    var actTradesStr = actTradesEl ? actTradesEl.value : '[]';
+                    if (actTradesStr && actTradesStr !== '[]') {
+                        try {
+                            var trs = JSON.parse(actTradesStr);
+                            if (Array.isArray(trs) && trs.length > 0) {
+                                var t0 = trs[0];
+                                var beEl = document.getElementById('cartBannerBe');
+                                var beCont = document.getElementById('cartBannerBeContainer');
+                                if (beEl && beCont) {
+                                    if (t0.breakEvenPrice) {
+                                        beEl.textContent = Number(t0.breakEvenPrice).toFixed(5);
+                                        beCont.style.display = 'inline-flex';
+                                    } else {
+                                        beCont.style.display = 'none';
+                                    }
+                                }
+                                var tslEl = document.getElementById('cartBannerTsl');
+                                var tslCont = document.getElementById('cartBannerTslContainer');
+                                if (tslEl && tslCont) {
+                                    if (t0.tslPrice) {
+                                        tslEl.textContent = Number(t0.tslPrice).toFixed(5);
+                                        tslCont.style.display = 'inline-flex';
+                                    } else {
+                                        tslCont.style.display = 'none';
+                                    }
+                                }
+                            }
+                        } catch (eTr) {}
+                    }
                 } else {
-                    elem.innerHTML = '';
+                    banner.style.display = 'none';
                 }
             } catch (e) {
-                elem.innerHTML = '';
+                banner.style.display = 'none';
             }
         }
 
         function renderCartChart() {
             renderSinglePairCartCanvas('cartChart', 'cartHistoryJsonData', 'cartRealTradesJsonData', 'cartActiveTradesJsonData');
-            updateCartFloatingPnlDisplay();
+            updateCartActiveTradeBanner();
+            if (typeof updateCartLiveTimestamp === 'function') {
+                updateCartLiveTimestamp();
+            }
             if (typeof window.checkAllAtalaiaTradeSounds === 'function') {
                 window.checkAllAtalaiaTradeSounds();
             }
@@ -3048,7 +3139,7 @@
                 var hh = String(d.getHours()).padStart(2, '0');
                 var mm = String(d.getMinutes()).padStart(2, '0');
                 var ss = String(d.getSeconds()).padStart(2, '0');
-                tsEl.textContent = hh + ':' + mm + ':' + ss;
+                tsEl.textContent = 'Actualizado: ' + hh + ':' + mm + ':' + ss;
             }
         }
 

@@ -1850,6 +1850,13 @@ def desasignarUsuarioCuenta(payload: UsuarioCuentaDelete, db: Session = Depends(
         logger.error(f"Error al desasignar cuenta de usuario: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+def get_current_week_start_str() -> str:
+    """Retorna la fecha/hora de inicio de la semana de trading vigente (Domingo 00:00:00)"""
+    now = datetime.now()
+    days_since_sunday = (now.weekday() + 1) % 7
+    sunday_dt = (now - timedelta(days=days_since_sunday)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return sunday_dt.strftime("%Y-%m-%d %H:%M:%S")
+
 @router.get("/user-ratios/{idUsuario}")
 def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
     """
@@ -1871,56 +1878,42 @@ def getUserRatios(idUsuario: int, idCuenta: Optional[int] = None, db: Session = 
     from sqlalchemy import text
     results = []
 
+    # Para RATIO, el % G/P representa el rendimiento de las posiciones activas en curso (no cerradas)
     target_accounts = list(set([r.idCuenta for r in ratios if r.idCuenta] + ([idCuenta] if idCuenta else [])))
-    cap_by_account = {}
-    stats_by_setup = {}
-    if target_accounts:
-        c_rows = db.execute(text("SELECT idCuenta, Capital FROM cuenta WHERE idCuenta IN :accs"), {"accs": tuple(target_accounts)}).fetchall()
-        for cr in c_rows:
-            cap_by_account[cr[0]] = float(cr[1] or 0.0)
-
-        t_rows = db.execute(text("""
-            SELECT 
-                idCuenta,
-                setup,
-                COUNT(CASE WHEN status = 'OPEN' THEN 1 END) as open_cnt,
-                COUNT(CASE WHEN status = 'CLOSED' THEN 1 END) as closed_cnt,
-                SUM(CASE WHEN status = 'CLOSED' AND (pnl - COALESCE(commission, 0)) > 0 THEN 1 ELSE 0 END) as win_cnt,
-                SUM(CASE WHEN status = 'CLOSED' THEN (pnl - COALESCE(commission, 0)) ELSE 0.0 END) as net_profit,
-                SUM(CASE WHEN status = 'OPEN' THEN (pnl - COALESCE(commission, 0)) ELSE 0.0 END) as open_pnl
-            FROM trades
-            WHERE idCuenta IN :accs
-            GROUP BY idCuenta, setup
-        """), {"accs": tuple(target_accounts)}).fetchall()
-        for tr_r in t_rows:
-            stats_by_setup[(tr_r[0], tr_r[1])] = {
-                "open_cnt": int(tr_r[2] or 0),
-                "closed_cnt": int(tr_r[3] or 0),
-                "win_cnt": int(tr_r[4] or 0),
-                "net_profit": float(tr_r[5] or 0.0),
-                "open_pnl": float(tr_r[6] or 0.0)
-            }
+    active_by_setup = {}
+    for acc in target_accounts:
+        try:
+            act_list = getActiveTradesSummary(acc, db)
+            for act in act_list:
+                s = act.get("setup", "")
+                active_by_setup[(acc, s)] = act
+                parts = s.split(" - ")
+                if len(parts) == 2:
+                    active_by_setup[(acc, f"{parts[1]} - {parts[0]}")] = act
+        except Exception as e:
+            logger.warning(f"Error cargando active trades summary para cuenta {acc}: {e}")
 
     for r in ratios:
         target_account = r.idCuenta or idCuenta
         s1 = f"{r.numerador} - {r.denominador}"
         s2 = f"{r.denominador} - {r.numerador}"
-        st1 = stats_by_setup.get((target_account, s1))
-        st2 = stats_by_setup.get((target_account, s2))
+        act = active_by_setup.get((target_account, s1)) or active_by_setup.get((target_account, s2))
 
-        open_cnt = (st1["open_cnt"] if st1 else 0) + (st2["open_cnt"] if st2 else 0)
-        closed_cnt = (st1["closed_cnt"] if st1 else 0) + (st2["closed_cnt"] if st2 else 0)
-        win_cnt = (st1["win_cnt"] if st1 else 0) + (st2["win_cnt"] if st2 else 0)
-        net_profit = round((st1["net_profit"] if st1 else 0.0) + (st2["net_profit"] if st2 else 0.0), 2)
-        open_pnl = round((st1["open_pnl"] if st1 else 0.0) + (st2["open_pnl"] if st2 else 0.0), 2)
-        has_open = (open_cnt > 0)
-
-        cap = cap_by_account.get(target_account, 0.0)
-        if cap > 0 and closed_cnt > 0:
-            pnl_pct = round((net_profit / cap) * 100.0, 2)
+        if act:
+            has_open = True
+            open_cnt = int(act.get("totalOpenTrades", 0) or 0)
+            open_pnl = round(float(act.get("totalPnl", 0.0) or 0.0), 2)
+            pnl_pct = round(float(act.get("returnPct", 0.0) or 0.0), 2)
         else:
+            has_open = False
+            open_cnt = 0
+            open_pnl = 0.0
             pnl_pct = 0.0
-        win_rate = round((float(win_cnt) / float(closed_cnt) * 100.0), 1) if closed_cnt > 0 else 0.0
+
+        closed_cnt = 0
+        net_profit = open_pnl
+        win_cnt = 0
+        win_rate = 0.0
 
         results.append({
             "id": r.id,
@@ -6722,19 +6715,30 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
     items = query.order_by(UserCart.symbol.asc()).all()
 
     results = []
+    start_week_str = get_current_week_start_str()
     for r in items:
-        has_open = False
         target_account = r.idCuenta or idCuenta
-        if target_account:
-            cnt = db.execute(text("""
-                SELECT COUNT(*) FROM trades
-                WHERE idCuenta = :idc
-                  AND (strategy = 'RIDER' OR strategy LIKE '%CART%' OR strategy LIKE '%RIDER%')
-                  AND (symbol = :sym OR setup = :sym)
-                  AND status = 'OPEN'
-            """), {"idc": target_account, "sym": r.symbol}).scalar()
-            if cnt and cnt > 0:
-                has_open = True
+        try:
+            m_data = _get_real_trades_movimientos_data(r.symbol, r.symbol, idCuenta=target_account, strategy="RIDER", startDate=start_week_str)
+            s_data = m_data.get("summary", {})
+            pnl_pct = float(s_data.get("totalReturnPct", 0.0) or 0.0)
+            net_profit = float(s_data.get("netProfit", 0.0) or 0.0)
+            closed_cnt = int(s_data.get("closedTrades", 0) or 0)
+            open_cnt = int(s_data.get("openTrades", 0) or 0)
+            win_cnt = int(s_data.get("winningTrades", 0) or 0)
+            win_rate = float(s_data.get("winRate", 0.0) or 0.0)
+            open_pnl = round(sum(t.get("netPnl", 0.0) for t in m_data.get("trades", []) if t.get("status") == "OPEN"), 2)
+            has_open = (open_cnt > 0)
+        except Exception as e:
+            logger.warning(f"Error calculando hechos RIDER para {r.symbol}: {e}")
+            pnl_pct = 0.0
+            net_profit = 0.0
+            closed_cnt = 0
+            open_cnt = 0
+            win_cnt = 0
+            win_rate = 0.0
+            open_pnl = 0.0
+            has_open = False
 
         results.append({
             "id": r.id,
@@ -6768,7 +6772,14 @@ def getUserCartList(idUsuario: int, idCuenta: Optional[int] = None, db: Session 
             "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "createdAt", None), "strftime") else (str(r.createdAt) if getattr(r, "createdAt", None) else None),
             "fixedMin": float(r.fixedMin) if getattr(r, "fixedMin", None) is not None else None,
             "fixedMax": float(r.fixedMax) if getattr(r, "fixedMax", None) is not None else None,
-            "hasOpenTrades": has_open
+            "hasOpenTrades": has_open,
+            "pnlPct": pnl_pct,
+            "netProfit": net_profit,
+            "openPnl": open_pnl,
+            "closedTrades": closed_cnt,
+            "openTrades": open_cnt,
+            "winningTrades": win_cnt,
+            "winRate": win_rate
         })
     return results
 
@@ -7616,19 +7627,30 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
     items = query.order_by(UserSniper.symbol.asc()).all()
 
     results = []
+    start_week_str = get_current_week_start_str()
     for r in items:
-        has_open = False
         target_account = r.idCuenta or idCuenta
-        if target_account:
-            cnt = db.execute(text("""
-                SELECT COUNT(*) FROM trades
-                WHERE idCuenta = :idc
-                  AND strategy = 'SNIPER'
-                  AND (symbol = :sym OR setup = :sym)
-                  AND status = 'OPEN'
-            """), {"idc": target_account, "sym": r.symbol}).scalar()
-            if cnt and cnt > 0:
-                has_open = True
+        try:
+            m_data = _get_real_trades_movimientos_data(r.symbol, r.symbol, idCuenta=target_account, strategy="SNIPER", startDate=start_week_str)
+            s_data = m_data.get("summary", {})
+            pnl_pct = float(s_data.get("totalReturnPct", 0.0) or 0.0)
+            net_profit = float(s_data.get("netProfit", 0.0) or 0.0)
+            closed_cnt = int(s_data.get("closedTrades", 0) or 0)
+            open_cnt = int(s_data.get("openTrades", 0) or 0)
+            win_cnt = int(s_data.get("winningTrades", 0) or 0)
+            win_rate = float(s_data.get("winRate", 0.0) or 0.0)
+            open_pnl = round(sum(t.get("netPnl", 0.0) for t in m_data.get("trades", []) if t.get("status") == "OPEN"), 2)
+            has_open = (open_cnt > 0)
+        except Exception as e:
+            logger.warning(f"Error calculando hechos SNIPER para {r.symbol}: {e}")
+            pnl_pct = 0.0
+            net_profit = 0.0
+            closed_cnt = 0
+            open_cnt = 0
+            win_cnt = 0
+            win_rate = 0.0
+            open_pnl = 0.0
+            has_open = False
 
         results.append({
             "id": r.id,
@@ -7659,7 +7681,14 @@ def getUserSniperList(idUsuario: int, idCuenta: Optional[int] = None, db: Sessio
             "estadoRecomendacion": getattr(r, "estadoRecomendacion", "MANUAL") or "MANUAL",
             "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "fechaRecomendacion", None), "strftime") else (str(r.fechaRecomendacion) if getattr(r, "fechaRecomendacion", None) else None),
             "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(getattr(r, "createdAt", None), "strftime") else (str(r.createdAt) if getattr(r, "createdAt", None) else None),
-            "hasOpenTrades": has_open
+            "hasOpenTrades": has_open,
+            "pnlPct": pnl_pct,
+            "netProfit": net_profit,
+            "openPnl": open_pnl,
+            "closedTrades": closed_cnt,
+            "openTrades": open_cnt,
+            "winningTrades": win_cnt,
+            "winRate": win_rate
         })
     return results
 

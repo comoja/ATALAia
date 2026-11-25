@@ -879,7 +879,8 @@
                     gap: 8px !important;
                 }
 
-                .pairs-trading-header-box {
+                .pairs-trading-header-box,
+                .strategy-chart-header {
                     flex-direction: column !important;
                     align-items: stretch !important;
                     text-align: center;
@@ -887,15 +888,21 @@
                     gap: 8px !important;
                 }
 
-                #chartHeaderAccountInfo {
+                #chartHeaderAccountInfo,
+                #cartHeaderAccountInfo,
+                #sniperHeaderAccountInfo,
+                .strategy-header-account-info {
                     flex-direction: column !important;
                     gap: 6px !important;
                     width: 100% !important;
                 }
 
-                #chart-container {
+                #chart-container,
+                #cart-chart-container,
+                #sniper-chart-container,
+                .strategy-chart-container {
                     min-height: 400px !important;
-                    height: 440px !important;
+                    height: auto !important;
                     width: 100% !important;
                 }
 
@@ -2227,6 +2234,100 @@
             #userRatiosTable .ui-button:not(.aether-btn-par-trigger) .ui-icon {
                 margin: 0 !important;
                 font-size: 1.05rem !important;
+            }
+
+            /* ===================================================================
+               ESTILOS ESTÁNDAR REUTILIZABLES PARA TODAS LAS ESTRATEGIAS
+               (RATIO, RIDER, SNIPER Y FUTURAS ESTRATEGIAS)
+               =================================================================== */
+            .strategy-chart-header,
+            .pairs-trading-header-box {
+                margin-bottom: 10px;
+                padding: 4px 16px;
+                background: var(--bg-surface);
+                border: 1px solid var(--border-soft);
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                box-shadow: var(--neu-shadow-flat);
+                gap: 10px;
+                font-size: 1.22rem;
+                min-height: 40px;
+                box-sizing: border-box;
+            }
+
+            .strategy-chart-container {
+                flex: 1;
+                position: relative;
+                width: 100%;
+                min-height: 500px;
+                background: #ffffff;
+                border-radius: 12px;
+                padding: 10px;
+                border: 1px solid var(--border-soft);
+                display: flex;
+                flex-direction: column;
+                box-sizing: border-box;
+            }
+
+            .strategy-active-banner {
+                margin-bottom: 6px;
+                padding: 3px 12px;
+                border-radius: 8px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                min-height: 36px;
+                box-sizing: border-box;
+                gap: 10px;
+            }
+
+            .strategy-tactical-legend {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 8px;
+                padding: 4px 10px;
+                background: #f8fafc;
+                border-radius: 6px;
+                font-size: 0.85rem;
+                border: 1px solid #e2e8f0;
+                flex-wrap: wrap;
+                box-sizing: border-box;
+            }
+
+            .strategy-canvas-wrapper {
+                position: relative;
+                flex: 1;
+                min-height: 480px;
+                width: 100%;
+            }
+
+            .strategy-header-account-info {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                font-size: 1.22rem;
+            }
+
+            .strategy-header-actions {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+                flex-wrap: nowrap;
+            }
+
+            .col-gp-percent {
+                text-align: center;
+                width: 54px;
+                min-width: 54px;
+                max-width: 54px;
+                padding: 1px 1px !important;
             }
 
             /* ===================================================================

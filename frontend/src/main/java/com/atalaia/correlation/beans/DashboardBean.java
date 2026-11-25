@@ -7970,6 +7970,13 @@ public class DashboardBean implements Serializable {
                         dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
                         dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
                         dto.setCreatedAt(item.path("createdAt").asText(""));
+                        if (item.has("pnlPct") && !item.get("pnlPct").isNull()) dto.setPnlPct(item.get("pnlPct").asDouble());
+                        if (item.has("netProfit") && !item.get("netProfit").isNull()) dto.setNetProfit(item.get("netProfit").asDouble());
+                        if (item.has("openPnl") && !item.get("openPnl").isNull()) dto.setOpenPnl(item.get("openPnl").asDouble());
+                        if (item.has("closedTrades") && !item.get("closedTrades").isNull()) dto.setClosedTrades(item.get("closedTrades").asInt());
+                        if (item.has("openTrades") && !item.get("openTrades").isNull()) dto.setOpenTrades(item.get("openTrades").asInt());
+                        if (item.has("winningTrades") && !item.get("winningTrades").isNull()) dto.setWinningTrades(item.get("winningTrades").asInt());
+                        if (item.has("winRate") && !item.get("winRate").isNull()) dto.setWinRate(item.get("winRate").asDouble());
                         list.add(dto);
                     }
                 }
@@ -9004,6 +9011,13 @@ public class DashboardBean implements Serializable {
                         dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
                         dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
                         dto.setCreatedAt(item.path("createdAt").asText(""));
+                        if (item.has("pnlPct") && !item.get("pnlPct").isNull()) dto.setPnlPct(item.get("pnlPct").asDouble());
+                        if (item.has("netProfit") && !item.get("netProfit").isNull()) dto.setNetProfit(item.get("netProfit").asDouble());
+                        if (item.has("openPnl") && !item.get("openPnl").isNull()) dto.setOpenPnl(item.get("openPnl").asDouble());
+                        if (item.has("closedTrades") && !item.get("closedTrades").isNull()) dto.setClosedTrades(item.get("closedTrades").asInt());
+                        if (item.has("openTrades") && !item.get("openTrades").isNull()) dto.setOpenTrades(item.get("openTrades").asInt());
+                        if (item.has("winningTrades") && !item.get("winningTrades").isNull()) dto.setWinningTrades(item.get("winningTrades").asInt());
+                        if (item.has("winRate") && !item.get("winRate").isNull()) dto.setWinRate(item.get("winRate").asDouble());
                         list.add(dto);
                     }
                 }

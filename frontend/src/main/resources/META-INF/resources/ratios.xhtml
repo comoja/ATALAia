@@ -178,9 +178,9 @@
                                     </p:column>
                                     <p:column headerText="% G/P" style="text-align: center; width: 54px; min-width: 54px; max-width: 54px; padding: 1px 1px !important;">
                                         <span class="badge"
-                                            style="font-size: 0.90rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.closedTrades gt 0 ? (r.pnlPct gt 0 ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : (r.pnlPct lt 0 ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #94a3b8;')) : 'background: rgba(100, 116, 139, 0.08); color: #64748b; border: 1px solid #cbd5e1;'}"
-                                            title="Ganancia/Pérdida (PnL): #{r.netProfit >= 0 ? '+' : ''}$#{r.netProfit} USD | Efectividad: #{r.winRate}% (#{r.winningTrades} Ganadas / #{r.closedTrades} Cerradas)#{r.hasOpenTrades ? (' | PnL Flotante: ' += (r.openPnl >= 0 ? '+' : '') += '$' += r.openPnl += ' USD') : ''}">
-                                            #{r.formattedPnlPct}
+                                            style="font-size: 0.90rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{r.hasOpenTrades ? (r.pnlPct gt 0 ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : (r.pnlPct lt 0 ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #94a3b8;')) : 'background: rgba(100, 116, 139, 0.08); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="#{r.hasOpenTrades ? ('Posición Activa (En curso) | PnL Flotante: ' += (r.openPnl >= 0 ? '+' : '') += '$' += r.openPnl += ' USD | Retorno: ' += (r.pnlPct >= 0 ? '+' : '') += r.pnlPct += '% (' += r.openTrades += ' ops activas)') : 'Sin posiciones activas en curso'}">
+                                            #{r.hasOpenTrades ? r.formattedPnlPct : '0.0%'}
                                         </span>
                                     </p:column>
                                     <p:column headerText="TF" style="text-align: center; padding: 1px 1px !important;">
@@ -1053,19 +1053,21 @@
 
                     <!-- COLUMNA DERECHA: KPIS Y GRÁFICAS -->
                     <div id="dashboardRightChartColumn" class="dashboard-chart-column">
-                        <!-- ENCABEZADO PAIRS TRADING (NUMERADOR / DENOMINADOR CON INFO DE CUENTA Y PNL) -->
-                        <div class="pairs-trading-header-box"
-                            style="margin-bottom: 10px; padding: 4px 16px; background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: 12px; display: flex; align-items: center; justify-content: space-between; box-shadow: var(--neu-shadow-flat); gap: 10px; font-size: 1.22rem; min-height: 40px; box-sizing: border-box;">
+                        <!-- ENCABEZADO PAIRS TRADING (TÍTULO CON RATIO, INFO DE CUENTA Y BOTONES) -->
+                        <div class="pairs-trading-header-box strategy-chart-header">
 
-                            <!-- LADO IZQUIERDO: TÍTULO -->
-                            <div
-                                style="font-weight: 900; color: #1e293b; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.25rem;">
-                                PAIRS TRADING
+                            <!-- LADO IZQUIERDO: TÍTULO CON PARES -->
+                            <div id="pairsHeaderTitle"
+                                style="font-weight: 900; color: #1e293b; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.25rem; display: flex; align-items: center; gap: 4px;">
+                                <span>RATIO (</span>
+                                <span style="color: #007bff; font-weight: 900;">#{dashboardBean.selectedPair}</span>
+                                <span style="color: #64748b; margin: 0 4px; font-weight: 700;">-</span>
+                                <span style="color: #ff8c00; font-weight: 900;">#{dashboardBean.selectedPair2}</span>
+                                <span>)</span>
                             </div>
 
-                            <!-- INFORMACIÓN CENTRADA: CUENTA, CAPITAL Y PNL FLOTANTE -->
-                            <div id="chartHeaderAccountInfo"
-                                style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; font-size: 1.22rem;">
+                            <!-- INFORMACIÓN CENTRADA: CUENTA Y CAPITAL -->
+                            <div id="chartHeaderAccountInfo" class="strategy-header-account-info">
                                 <!-- Nombre de Cuenta (solo icono y nombre) -->
                                 <div
                                     style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; padding: 2px 10px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
@@ -1084,56 +1086,21 @@
                                         $#{dashboardBean.formattedSelectedAccountCapital} USD
                                     </span>
                                 </div>
-
-                                <!-- PnL Flotante -->
-                                <div
-                                    style="display: inline-flex; align-items: center; gap: 6px; background: #{dashboardBean.activeCycleSummary.hasActiveCycle ? (dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#ecfdf5' : '#fef2f2') : '#f8fafc'}; padding: 2px 10px; border-radius: 6px; border: 1px solid #{dashboardBean.activeCycleSummary.hasActiveCycle ? (dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#a7f3d0' : '#fecaca') : '#e2e8f0'}; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
-                                    <i class="pi #{dashboardBean.activeCycleSummary.hasActiveCycle ? (dashboardBean.activeCycleSummary.totalPnl >= 0 ? 'pi-arrow-up-right' : 'pi-arrow-down-right') : 'pi-chart-line'}"
-                                        style="color: #{dashboardBean.activeCycleSummary.hasActiveCycle ? (dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#10b981' : '#ef4444') : '#94a3b8'}; font-size: 1.22rem;"></i>
-                                    <span style="color: #64748b; font-weight: 600; font-size: 1.22rem;">PNL
-                                        Flotante:</span>
-                                    <span
-                                        style="font-weight: 800; color: #{dashboardBean.activeCycleSummary.hasActiveCycle ? (dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#15803d' : '#b91c1c') : '#64748b'}; font-size: 1.22rem;">
-                                        #{dashboardBean.activeCycleSummary.hasActiveCycle ?
-                                        (dashboardBean.activeCycleSummary.totalPnl >= 0 ? '+' : '') :
-                                        ''}$#{dashboardBean.activeCycleSummary.formattedTotalPnl} USD
-                                        <h:panelGroup rendered="#{dashboardBean.activeCycleSummary.hasActiveCycle}">
-                                            <span
-                                                style="font-size: 1.02rem; font-weight: 800; margin-left: 4px;">(#{dashboardBean.activeCycleSummary.retSign}#{dashboardBean.activeCycleSummary.formattedReturnPct}%)</span>
-                                        </h:panelGroup>
-                                    </span>
-                                </div>
-
-                                <!-- Entrada de Posición Activa (Fecha y Hora) -->
-                                <h:panelGroup layout="block"
-                                    rendered="#{dashboardBean.activeCycleSummary.hasActiveCycle and not empty dashboardBean.activeCycleSummary.firstEntryDate}"
-                                    style="display: inline-flex; align-items: center; gap: 6px; background: #fff1f2; padding: 2px 10px; border-radius: 6px; border: 1px solid #fecdd3; box-shadow: 0 1px 2px rgba(0,0,0,0.03);"
-                                    title="Fecha y hora de entrada de la posición en proceso">
-                                    <i class="pi pi-calendar-plus" style="color: #e11d48; font-size: 1.22rem;"></i>
-                                    <span style="color: #64748b; font-weight: 600; font-size: 1.22rem;">Entrada
-                                        Posición:</span>
-                                    <span style="font-weight: 800; color: #be123c; font-size: 1.22rem;">
-                                        #{dashboardBean.activeCycleSummary.firstEntryDate}
-                                    </span>
-                                </h:panelGroup>
                             </div>
 
-                            <!-- LADO DERECHO: PARES SELECCIONADOS, BOTÓN ACTUALIZAR Y BOTÓN DESHABILITAR RATIOS -->
-                            <div style="display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: nowrap;">
-                                <div id="pairsHeaderTitle"
-                                    style="display: inline-flex; align-items: center; font-weight: 900; white-space: nowrap; font-size: 1.25rem;">
-                                    <span
-                                        style="color: #007bff; font-size: 1.25rem; font-weight: 900;">#{dashboardBean.selectedPair}</span>
-                                    <span
-                                        style="color: #64748b; margin: 0 6px; font-weight: 700; font-size: 1.25rem;">-</span>
-                                    <span
-                                        style="color: #ff8c00; font-size: 1.25rem; font-weight: 900;">#{dashboardBean.selectedPair2}</span>
-                                </div>
+                            <!-- LADO DERECHO: BOTONES DE ACCIÓN -->
+                            <div class="strategy-header-actions">
                                 <p:commandButton id="btnRefreshRatioChart" icon="pi pi-refresh" title="Refrescar gráfica de Ratio"
                                     action="#{dashboardBean.analyzePair}" process="@this"
-                                    update=":aetherForm:historyJsonData :aetherForm:activeTradesJson"
-                                    oncomplete="renderAetherChart();" styleClass="aether-btn-secondary"
+                                    update=":aetherForm:historyJsonData :aetherForm:activeTradesJson @(.ratio-active-banner-wrapper)"
+                                    oncomplete="renderAetherChart(); if (typeof updateRatioLiveTimestamp === 'function') updateRatioLiveTimestamp();" styleClass="aether-btn-secondary"
                                     style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; border-radius: 6px !important;" />
+                                <button type="button"
+                                    onclick="if (typeof resetChartZoom === 'function') resetChartZoom('chart'); else if (window.aetherChart) window.aetherChart.resetZoom();"
+                                    title="Restablecer Zoom"
+                                    style="display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 34px; padding: 0; box-sizing: border-box; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; color: #334155; cursor: pointer;">
+                                    <i class="pi pi-search" style="font-size: 1.55rem;"></i>
+                                </button>
                                 <p:commandButton id="btnDisableUserRatios" icon="pi pi-power-off" process="@this"
                                     disabled="#{dashboardBean.readOnly}"
                                     update=":disableAllRatiosForm:disableAllRatiosDlg"
@@ -1143,9 +1110,101 @@
                             </div>
                         </div>
 
-                        <!-- GRÁFICO INTERACTIVO CHART.JS -->
-                        <div id="chart-container">
-                            <canvas id="chart"></canvas>
+                        <!-- GRÁFICO INTERACTIVO CHART.JS (ESTRUCTURA Y DISTRIBUCIÓN ESTÁNDAR) -->
+                        <div id="chart-container" class="strategy-chart-container">
+
+                            <!-- BANNER DE CICLO ACTIVO EN CURSO (SI EXISTE CICLO EN RATIO) -->
+                            <h:panelGroup id="ratioActiveCycleBannerWrapper" layout="block" styleClass="ratio-active-banner-wrapper">
+                                <h:panelGroup id="ratioActiveCycleBanner" layout="block"
+                                    rendered="#{dashboardBean.activeCycleSummary.hasActiveCycle}"
+                                    styleClass="strategy-active-banner"
+                                    style="background: #{dashboardBean.activeCycleSummary.totalPnl >= 0 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'}; border: 1.5px solid #{dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#10b981' : '#ef4444'};">
+                                    <div style="display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; overflow-x: auto; font-size: 1.15rem;">
+                                        <span style="font-weight: 900; font-size: 1.12rem; padding: 2px 10px; border-radius: 6px; color: #ffffff; letter-spacing: 0.5px; white-space: nowrap; line-height: 1.2; background: #{dashboardBean.activeCycleSummary.totalPnl >= 0 ? '#16a34a' : '#dc2626'};">
+                                            CICLO ACTIVO
+                                        </span>
+
+                                        <h:panelGroup rendered="#{not empty dashboardBean.activeCycleSummary.firstEntryDate}"
+                                            style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                            <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">Entrada:</span>
+                                            <b style="color: #0f172a; font-size: 1.15rem; font-weight: 900; line-height: 1;">#{dashboardBean.activeCycleSummary.firstEntryDate}</b>
+                                        </h:panelGroup>
+
+                                        <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                            <span style="font-size: 1.15rem; font-weight: 800; color: #007bff; text-transform: uppercase;">#{dashboardBean.activeCycleSummary.pairA} (#{dashboardBean.activeCycleSummary.dirA}):</span>
+                                            <b style="color: #{dashboardBean.activeCycleSummary.pnlColorA}; font-size: 1.15rem; font-weight: 900; line-height: 1;">
+                                                #{dashboardBean.activeCycleSummary.pnlSignA}$#{dashboardBean.activeCycleSummary.formattedPnlA}
+                                                <small style="font-size: 0.95rem; font-weight: 700; opacity: 0.85;">(#{dashboardBean.activeCycleSummary.retSignA}#{dashboardBean.activeCycleSummary.formattedReturnPctA}%)</small>
+                                            </b>
+                                        </div>
+
+                                        <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                            <span style="font-size: 1.15rem; font-weight: 800; color: #ea580c; text-transform: uppercase;">#{dashboardBean.activeCycleSummary.pairB} (#{dashboardBean.activeCycleSummary.dirB}):</span>
+                                            <b style="color: #{dashboardBean.activeCycleSummary.pnlColorB}; font-size: 1.15rem; font-weight: 900; line-height: 1;">
+                                                #{dashboardBean.activeCycleSummary.pnlSignB}$#{dashboardBean.activeCycleSummary.formattedPnlB}
+                                                <small style="font-size: 0.95rem; font-weight: 700; opacity: 0.85;">(#{dashboardBean.activeCycleSummary.retSignB}#{dashboardBean.activeCycleSummary.formattedReturnPctB}%)</small>
+                                            </b>
+                                        </div>
+
+                                        <div style="display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; font-size: 1.15rem;">
+                                            <span style="font-size: 1.15rem; font-weight: 800; color: #64748b; text-transform: uppercase;">PnL Total:</span>
+                                            <b style="color: #{dashboardBean.activeCycleSummary.pnlColor}; font-size: 1.15rem; font-weight: 900; line-height: 1;">
+                                                #{dashboardBean.activeCycleSummary.pnlSign}$#{dashboardBean.activeCycleSummary.formattedTotalPnl} USD
+                                                <small style="font-size: 0.95rem; font-weight: 800; margin-left: 2px;">(#{dashboardBean.activeCycleSummary.retSign}#{dashboardBean.activeCycleSummary.formattedReturnPct}%)</small>
+                                            </b>
+                                        </div>
+                                    </div>
+
+                                    <p:commandButton icon="pi pi-times"
+                                        title="Cerrar Ciclo Activo de #{dashboardBean.activeCycleSummary.setup}"
+                                        action="#{dashboardBean.setRatioToClose(dashboardBean.activeCycleSummary.setup)}"
+                                        process="@this" disabled="#{dashboardBean.readOnly}"
+                                        update=":closeRatioForm:closeRatioDlg"
+                                        oncomplete="PF('closeRatioDlg').show();"
+                                        styleClass="aether-btn-secondary"
+                                        style="width: 28px !important; height: 28px !important; min-width: 28px !important; padding: 0 !important; color: #dc2626 !important; border-color: #ef4444 !important; font-size: 0.95rem !important; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px !important;" />
+                                </h:panelGroup>
+                            </h:panelGroup>
+
+                            <!-- LEYENDA TÁCTICA DE ELEMENTOS DIBUJADOS (DISTRIBUCIÓN SNIPER) -->
+                            <div id="ratioLegendBar" class="strategy-tactical-legend">
+                                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #007bff; display: inline-block;"></span>
+                                        <b style="color: #007bff;">#{dashboardBean.selectedPair}</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #ff8c00; display: inline-block;"></span>
+                                        <b style="color: #ea580c;">#{dashboardBean.selectedPair2}</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #003366; display: inline-block;"></span>
+                                        <b style="color: #003366;">RIDE</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #000000; display: inline-block;"></span>
+                                        <b>Media (0-1)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #64748b; display: inline-block;"></span>
+                                        <b style="color: #475569;">Bandas ±1σ</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="font-size: 0.85rem; line-height: 1; color: #2563eb;">▲▼◆</span>
+                                        <b>Cruces / Entradas</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 10px; background: rgba(2, 132, 199, 0.20); border: 1.5px dashed #0284c7; display: inline-block; border-radius: 2px;"></span>
+                                        <b style="color: #0284c7;">Cob. 1%</b>
+                                    </span>
+                                </div>
+                                <span id="ratioLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
+                            </div>
+
+                            <!-- CANVAS DE GRÁFICA CHART.JS -->
+                            <div class="strategy-canvas-wrapper">
+                                <canvas id="chart" style="width: 100%; height: 100%;"></canvas>
+                            </div>
                         </div>
                     </div>
 
@@ -2455,10 +2514,22 @@ line-height: 1.2;">
             window.aetherSignalBtChart = null;
         }
 
+        function updateRatioLiveTimestamp() {
+            var tsEl = document.getElementById('ratioLiveLastUpdate');
+            if (tsEl) {
+                var d = new Date();
+                var hh = String(d.getHours()).padStart(2, '0');
+                var mm = String(d.getMinutes()).padStart(2, '0');
+                var ss = String(d.getSeconds()).padStart(2, '0');
+                tsEl.textContent = 'Actualizado: ' + hh + ':' + mm + ':' + ss;
+            }
+        }
+        window.updateRatioLiveTimestamp = updateRatioLiveTimestamp;
+
         function resetChartZoom(canvasId) {
             try {
-                const id = canvasId || 'signalBtNormalizedChart';
-                const chart = window['chart_' + id] || (id === 'signalBtNormalizedChart' ? window.aetherSignalBtChart : null);
+                const id = canvasId || 'chart';
+                const chart = window['chart_' + id] || (id === 'chart' ? window.aetherChart : (id === 'signalBtNormalizedChart' ? window.aetherSignalBtChart : null));
                 if (chart && typeof chart.resetZoom === 'function') {
                     chart.resetZoom();
                 }
@@ -6878,6 +6949,10 @@ line-height: 1.2;">
 
                 if (typeof loadForecastAndNewsAsync === 'function') {
                     loadForecastAndNewsAsync(window.aetherChart, pairA, pairB, smaPeriod, minA, maxA, minB, maxB, avgOfMean, rawData, dates, timeUnit, priceASeries, priceBSeries);
+                }
+
+                if (typeof updateRatioLiveTimestamp === 'function') {
+                    updateRatioLiveTimestamp();
                 }
 
                 setTimeout(function () {
