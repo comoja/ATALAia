@@ -9146,32 +9146,6 @@ public class DashboardBean implements Serializable {
                     mDto.setNetProfit(mNode.path("netProfit").asDouble(0.0));
                     mDto.setTotalReturnPct(mNode.path("totalReturnPct").asDouble(0.0));
                     mDto.setProfitFactor(mNode.path("profitFactor").asDouble(0.0));
-                    mDto.setSharpeRatio(mNode.path("sharpeRatio").asDouble(0.0));
-                    mDto.setMaxDrawdown(mNode.path("maxDrawdown").asDouble(0.0));
-                    mDto.setFinalCapital(mNode.path("finalCapital").asDouble(this.sniperBtInitialCapital));
-                    this.sniperBtMetrics = mDto;
-                }
-
-                JsonNode actTrArr = root.path("activeTrades");
-                JsonNode actTr = root.path("activeTrade");
-                if (!actTrArr.isMissingNode() && actTrArr.isArray() && actTrArr.size() > 0) {
-                    this.sniperActiveTradesJson = mapper.writeValueAsString(actTrArr);
-                    this.sniperHasActiveTradesInDb = true;
-                } else if (!actTr.isMissingNode() && !actTr.isNull()) {
-                    this.sniperActiveTradesJson = mapper.writeValueAsString(actTr);
-                    this.sniperHasActiveTradesInDb = true;
-                } else {
-                    this.sniperActiveTradesJson = "null";
-                    if (this.selectedUserSniper != null && Boolean.TRUE.equals(this.selectedUserSniper.getHasOpenTrades())) {
-                        this.sniperHasActiveTradesInDb = true;
-                    } else {
-                        this.sniperHasActiveTradesInDb = false;
-                    }
-                }
-            }
-            loadSniperActiveCycles();
-            loadSniperRealTradesMovimientos();
-        } catch (Exception e) {
             log.error("Error en analyzeSniperPair: {}", e.getMessage());
         }
     }
