@@ -5560,6 +5560,14 @@ def generarDatosReporteJerarquico(
     dt_start = f"{fechaInicio} 00:00:00"
     dt_end = f"{fechaFin} 23:59:59"
 
+    try:
+        d_start = datetime.strptime(fechaInicio, "%Y-%m-%d")
+        d_end = datetime.strptime(fechaFin, "%Y-%m-%d")
+        dias_periodo = max(1, (d_end - d_start).days + 1)
+    except Exception:
+        dias_periodo = 30
+    factor_anual = 365.0 / dias_periodo
+
     clauses = [
         "t.status = 'CLOSED'",
         "t.closeTime >= :dt_start",
@@ -5598,6 +5606,7 @@ def generarDatosReporteJerarquico(
             t.idCuenta,
             c.Nombre AS nombreCuenta,
             c.brokerType,
+            COALESCE(c.Capital, 0.0) AS capitalCuenta,
             COALESCE(u.idUsuario, 0) AS idUsuario,
             COALESCE(TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellidoPaterno, ''))), 'Sin Asignar') AS nombreUsuario,
             COALESCE(u.username, 'sin_usuario') AS username,
@@ -5645,8 +5654,14 @@ def generarDatosReporteJerarquico(
         comm = float(r.commission or 0.0)
         net = float(r.pnlNeto or 0.0)
         vol = float(r.size or 0.0)
+        cap_cuenta = float(getattr(r, 'capitalCuenta', 0.0) or 0.0)
         is_win = net > 0
         is_loss = net < 0
+
+        # Tasa Anual Real a nivel Hecho (retorno sobre nocional operado proyectado a 365 días)
+        notional_hecho = vol * float(r.entryPrice or 0.0)
+        cap_base_hecho = notional_hecho if notional_hecho > 0 else (cap_cuenta if cap_cuenta > 0 else 1.0)
+        tasa_hecho = round((net / cap_base_hecho) * factor_anual * 100.0, 2)
 
         g_trades += 1
         g_bruto += pnl
@@ -5679,6 +5694,7 @@ def generarDatosReporteJerarquico(
                 'idCuenta': c_id,
                 'nombreCuenta': c_name,
                 'brokerType': r.brokerType or 'FOREX.com',
+                'capitalCuenta': cap_cuenta,
                 'totalTrades': 0, 'ganadores': 0, 'perdedores': 0,
                 'volumen': 0.0, 'pnlBruto': 0.0, 'comisiones': 0.0, 'pnlNeto': 0.0,
                 'estrategias': {}
@@ -5736,16 +5752,24 @@ def generarDatosReporteJerarquico(
             'pnlBruto': round(pnl, 2),
             'commission': round(comm, 2),
             'pnlNeto': round(net, 2),
+            'tasaAnualReal': tasa_hecho,
             'status': r.status
         })
 
     usuarios_list = []
+    tot_capital_global = 0.0
     for u in users_map.values():
         u['winRate'] = round((u['ganadores'] / u['totalTrades'] * 100), 1) if u['totalTrades'] else 0.0
         u['pnlBruto'] = round(u['pnlBruto'], 2)
         u['comisiones'] = round(u['comisiones'], 2)
         u['pnlNeto'] = round(u['pnlNeto'], 2)
         u['volumen'] = round(u['volumen'], 4)
+
+        u_cap = sum(float(c_obj.get('capitalCuenta', 0.0) or 0.0) for c_obj in u['cuentas'].values())
+        tot_capital_global += u_cap
+        cap_base_u = u_cap if u_cap > 0 else (u['volumen'] if u['volumen'] > 0 else 1.0)
+        u['capitalTotal'] = round(u_cap, 2)
+        u['tasaAnualReal'] = round((u['pnlNeto'] / cap_base_u) * factor_anual * 100.0, 2)
 
         cuentas_list = []
         for c in u['cuentas'].values():
@@ -5755,6 +5779,10 @@ def generarDatosReporteJerarquico(
             c['pnlNeto'] = round(c['pnlNeto'], 2)
             c['volumen'] = round(c['volumen'], 4)
 
+            cap_c = float(c.get('capitalCuenta', 0.0) or 0.0)
+            cap_base_c = cap_c if cap_c > 0 else (c['volumen'] if c['volumen'] > 0 else 1.0)
+            c['tasaAnualReal'] = round((c['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
+
             strat_list = []
             for st in c['estrategias'].values():
                 st['winRate'] = round((st['ganadores'] / st['totalTrades'] * 100), 1) if st['totalTrades'] else 0.0
@@ -5762,6 +5790,7 @@ def generarDatosReporteJerarquico(
                 st['comisiones'] = round(st['comisiones'], 2)
                 st['pnlNeto'] = round(st['pnlNeto'], 2)
                 st['volumen'] = round(st['volumen'], 4)
+                st['tasaAnualReal'] = round((st['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
 
                 inst_list = []
                 for ins in st['instrumentos'].values():
@@ -5770,6 +5799,7 @@ def generarDatosReporteJerarquico(
                     ins['comisiones'] = round(ins['comisiones'], 2)
                     ins['pnlNeto'] = round(ins['pnlNeto'], 2)
                     ins['volumen'] = round(ins['volumen'], 4)
+                    ins['tasaAnualReal'] = round((ins['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
                     inst_list.append(ins)
 
                 inst_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
@@ -5786,11 +5816,14 @@ def generarDatosReporteJerarquico(
 
     usuarios_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
     g_wr = round((g_wins / g_trades * 100), 1) if g_trades else 0.0
+    cap_base_g = tot_capital_global if tot_capital_global > 0 else (g_vol if g_vol > 0 else 1.0)
+    g_tasa = round((g_neto / cap_base_g) * factor_anual * 100.0, 2)
 
     return {
         'periodo': {
             'fechaInicio': fechaInicio,
-            'fechaFin': fechaFin
+            'fechaFin': fechaFin,
+            'diasPeriodo': dias_periodo
         },
         'resumenGeneral': {
             'totalTrades': g_trades,
@@ -5800,7 +5833,9 @@ def generarDatosReporteJerarquico(
             'volumen': round(g_vol, 4),
             'pnlBruto': round(g_bruto, 2),
             'comisiones': round(g_comm, 2),
-            'pnlNeto': round(g_neto, 2)
+            'pnlNeto': round(g_neto, 2),
+            'tasaAnualReal': g_tasa,
+            'capitalTotal': round(tot_capital_global, 2)
         },
         'usuarios': usuarios_list
     }
@@ -5887,7 +5922,7 @@ def api_exportar_reporte_jerarquico_excel(
         )
 
         # Encabezado General
-        ws.merge_cells("A1:K1")
+        ws.merge_cells("A1:L1")
         cell_t = ws["A1"]
         cell_t.value = "ATALA.ia · Reporte Jerárquico de Rendimiento (De lo General a lo Particular)"
         cell_t.font = font_title
@@ -5895,11 +5930,11 @@ def api_exportar_reporte_jerarquico_excel(
         cell_t.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         ws.row_dimensions[1].height = 30
 
-        ws.merge_cells("A2:K2")
+        ws.merge_cells("A2:L2")
         cell_sub = ws["A2"]
         p_info = data["periodo"]
         rg = data["resumenGeneral"]
-        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
+        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} ({p_info.get('diasPeriodo', 30)} días) | Tasa Anual Real: {rg.get('tasaAnualReal', 0.0):+.2f}% | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
         cell_sub.font = font_sub
         cell_sub.fill = fill_hdr
         cell_sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -5908,6 +5943,7 @@ def api_exportar_reporte_jerarquico_excel(
         # Renglón 4: Columnas de datos
         headers = [
             "Nivel / Jerarquía (Usuario ➔ Cuenta ➔ Estrategia ➔ Instrumento ➔ Hecho)",
+            "Tasa Anual Real",
             "Tipo / Dir",
             "Volumen",
             "Px Entrada",
@@ -5934,6 +5970,7 @@ def api_exportar_reporte_jerarquico_excel(
             ws.row_dimensions[curr_r].height = 22
             row_vals = [
                 f"👤 USUARIO: {u['nombreUsuario']} ({u['username']})   [TOTAL]",
+                f"{u.get('tasaAnualReal', 0.0):+.2f}%",
                 "-",
                 u["volumen"],
                 "-", "-", "-", "-",
@@ -5947,8 +5984,10 @@ def api_exportar_reporte_jerarquico_excel(
                 cell.font = font_u
                 cell.fill = fill_u
                 cell.border = border_thin
-                if col_idx in [3, 9, 10, 11]:
-                    cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                if col_idx in [4, 10, 11, 12]:
+                    cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif col_idx == 2:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
             curr_r += 1
 
@@ -5957,6 +5996,7 @@ def api_exportar_reporte_jerarquico_excel(
                 ws.row_dimensions[curr_r].height = 20
                 row_vals = [
                     f"   💼 CUENTA: {c['nombreCuenta']} [{c['brokerType']}]   [SUBTOTAL]",
+                    f"{c.get('tasaAnualReal', 0.0):+.2f}%",
                     "-",
                     c["volumen"],
                     "-", "-", "-", "-",
@@ -5970,8 +6010,10 @@ def api_exportar_reporte_jerarquico_excel(
                     cell.font = font_c
                     cell.fill = fill_c
                     cell.border = border_thin
-                    if col_idx in [3, 9, 10, 11]:
-                        cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                    if col_idx in [4, 10, 11, 12]:
+                        cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    elif col_idx == 2:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                 curr_r += 1
 
@@ -5980,6 +6022,7 @@ def api_exportar_reporte_jerarquico_excel(
                     ws.row_dimensions[curr_r].height = 19
                     row_vals = [
                         f"      🎯 ESTRATEGIA: {st['estrategia']}   [SUBTOTAL]",
+                        f"{st.get('tasaAnualReal', 0.0):+.2f}%",
                         "-",
                         st["volumen"],
                         "-", "-", "-", "-",
@@ -5993,8 +6036,10 @@ def api_exportar_reporte_jerarquico_excel(
                         cell.font = font_s
                         cell.fill = fill_s
                         cell.border = border_thin
-                        if col_idx in [3, 9, 10, 11]:
-                            cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                        if col_idx in [4, 10, 11, 12]:
+                            cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                        elif col_idx == 2:
                             cell.alignment = Alignment(horizontal="right", vertical="center")
                     curr_r += 1
 
@@ -6003,6 +6048,7 @@ def api_exportar_reporte_jerarquico_excel(
                         ws.row_dimensions[curr_r].height = 18
                         row_vals = [
                             f"         💱 INSTRUMENTO: {ins['instrumento']}   [SUBTOTAL]",
+                            f"{ins.get('tasaAnualReal', 0.0):+.2f}%",
                             "-",
                             ins["volumen"],
                             "-", "-", "-", "-",
@@ -6016,8 +6062,10 @@ def api_exportar_reporte_jerarquico_excel(
                             cell.font = font_sym
                             cell.fill = fill_sym
                             cell.border = border_thin
-                            if col_idx in [3, 9, 10, 11]:
-                                cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+                            if col_idx in [4, 10, 11, 12]:
+                                cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
+                                cell.alignment = Alignment(horizontal="right", vertical="center")
+                            elif col_idx == 2:
                                 cell.alignment = Alignment(horizontal="right", vertical="center")
                         curr_r += 1
 
@@ -6026,8 +6074,11 @@ def api_exportar_reporte_jerarquico_excel(
                             ws.row_dimensions[curr_r].height = 16
                             pnl_val = h["pnlNeto"]
                             font_pnl = Font(name="Calibri", size=9, bold=True, color=c_green if pnl_val >= 0 else c_red)
+                            tasa_val = h.get("tasaAnualReal", 0.0)
+                            font_tasa = Font(name="Calibri", size=9, bold=True, color=c_green if tasa_val >= 0 else c_red)
                             row_vals = [
                                 f"            • Hecho #{h['idTrade']} (Ticket: {h['ticketId']})",
+                                f"{tasa_val:+.2f}%",
                                 h["direction"],
                                 h["size"],
                                 h["entryPrice"],
@@ -6041,20 +6092,25 @@ def api_exportar_reporte_jerarquico_excel(
                             ]
                             for col_idx, val in enumerate(row_vals, 1):
                                 cell = ws.cell(row=curr_r, column=col_idx, value=val)
-                                cell.font = font_pnl if col_idx == 11 else font_body
+                                if col_idx == 12:
+                                    cell.font = font_pnl
+                                elif col_idx == 2:
+                                    cell.font = font_tasa
+                                else:
+                                    cell.font = font_body
                                 cell.border = border_thin
                                 if curr_r % 2 == 0:
                                     cell.fill = fill_odd
-                                if col_idx in [3, 4, 5, 9, 10, 11]:
+                                if col_idx in [2, 4, 5, 6, 10, 11, 12]:
                                     cell.alignment = Alignment(horizontal="right", vertical="center")
-                                    if col_idx in [9, 10, 11]:
+                                    if col_idx in [10, 11, 12]:
                                         cell.number_format = "$#,##0.00"
-                                    elif col_idx in [4, 5]:
+                                    elif col_idx in [5, 6]:
                                         cell.number_format = "#,##0.00000"
-                                    elif col_idx == 3:
+                                    elif col_idx == 4:
                                         cell.number_format = "#,##0.00"
                                 else:
-                                    cell.alignment = Alignment(horizontal="center" if col_idx in [2, 6, 7, 8] else "left", vertical="center")
+                                    cell.alignment = Alignment(horizontal="center" if col_idx in [3, 7, 8, 9] else "left", vertical="center")
                             curr_r += 1
 
         # Renglón Final: TOTAL GENERAL CONSOLIDADO
@@ -6068,6 +6124,7 @@ def api_exportar_reporte_jerarquico_excel(
         )
         row_total_vals = [
             "★ TOTAL GENERAL CONSOLIDADO",
+            f"{rg.get('tasaAnualReal', 0.0):+.2f}%",
             "-",
             rg.get("volumen", 0.0),
             "-", "-", "-", "-",
@@ -6083,11 +6140,13 @@ def api_exportar_reporte_jerarquico_excel(
             cell.font = font_total
             cell.fill = fill_total
             cell.border = border_total
-            if col_idx in [3, 9, 10, 11]:
-                cell.number_format = "$#,##0.00" if col_idx in [9, 10, 11] else "#,##0.00"
+            if col_idx in [4, 10, 11, 12]:
+                cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif col_idx == 2:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
             else:
-                cell.alignment = Alignment(horizontal="center" if col_idx > 1 else "left", vertical="center")
+                cell.alignment = Alignment(horizontal="center" if col_idx > 2 else "left", vertical="center")
         curr_r += 1
 
         # Auto-anchura de columnas
