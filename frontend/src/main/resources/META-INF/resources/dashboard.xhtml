@@ -555,7 +555,8 @@
 
                 #strategyRatiosWrapper,
                 #strategyCartWrapper,
-                #strategySniperWrapper {
+                #strategySniperWrapper,
+                #strategyBreakoutWrapper {
                     width: 100% !important;
                     max-width: 100% !important;
                     box-sizing: border-box !important;
@@ -2355,7 +2356,8 @@
             /* Barras de Pestañas de Estrategias: Misma altura de 48px que la barra superior y botones perfectamente centrados a 36px */
             #strategyRatiosWrapper .ui-tabs .ui-tabs-nav,
             #strategyCartWrapper .ui-tabs .ui-tabs-nav,
-            #strategySniperWrapper .ui-tabs .ui-tabs-nav {
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav {
                 height: 48px !important;
                 min-height: 48px !important;
                 max-height: 48px !important;
@@ -2371,7 +2373,8 @@
 
             #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
             #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
-            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header {
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header {
                 height: 36px !important;
                 min-height: 36px !important;
                 max-height: 36px !important;
@@ -2391,7 +2394,8 @@
 
             #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
             #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
-            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a {
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header a {
                 height: 100% !important;
                 min-height: 100% !important;
                 max-height: 100% !important;
@@ -2409,7 +2413,8 @@
 
             #strategyRatiosWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a,
             #strategyCartWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a,
-            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a {
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header:first-child a {
                 height: 100% !important;
                 padding: 0 10px !important;
             }
@@ -2426,7 +2431,11 @@
             #strategySniperWrapper .ui-tabs .ui-tabs-nav svg,
             #strategySniperWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
             #strategySniperWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
-            #strategySniperWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon {
+            #strategySniperWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav svg,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav .grafica-tab-icon,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav .backtest-tab-icon,
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav .hechos-tab-icon {
                 width: 34px !important;
                 height: 30px !important;
                 object-fit: contain !important;
@@ -2525,6 +2534,41 @@
 
             #strategySniperWrapper .ui-accordion .ui-accordion-header.ui-state-active {
                 border-left: 4px solid #b47b2b !important;
+            }
+
+            /* --- ESTRATEGIA 4: BREAKOUT (EMBER FLAME / NARANJA APERTURA #ea580c) --- */
+            .strategy-bar-breakout {
+                border-left: 8px solid #ea580c !important;
+                background: linear-gradient(90deg, rgba(234, 88, 12, 0.16) 0%, rgba(234, 88, 12, 0.04) 30%, var(--bg-surface) 100%) !important;
+                box-shadow: 0 3px 12px rgba(234, 88, 12, 0.18) !important;
+            }
+
+            #strategyBreakoutWrapper {
+                border-top: 3.5px solid #ea580c !important;
+                border-radius: 14px !important;
+                box-shadow: 0 -2px 10px rgba(234, 88, 12, 0.14) !important;
+                transition: all 0.25s ease !important;
+            }
+
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav {
+                border-left: 5px solid #ea580c !important;
+                background: rgba(234, 88, 12, 0.04) !important;
+            }
+
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active {
+                background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important;
+                box-shadow: 0 4px 12px rgba(234, 88, 12, 0.40) !important;
+                border: 1px solid #ea580c !important;
+            }
+
+            #strategyBreakoutWrapper .ui-tabs .ui-tabs-nav li.ui-tabs-header.ui-state-active a {
+                color: #ffffff !important;
+                font-weight: 800 !important;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+            }
+
+            #strategyBreakoutWrapper .ui-accordion .ui-accordion-header.ui-state-active {
+                border-left: 4px solid #ea580c !important;
             }
 
             /* ========================================================================= */

@@ -11,6 +11,7 @@
     <h:inputHidden id="breakoutRangeJsonData" value="#{dashboardBean.breakoutRangeJson}" />
     <h:inputHidden id="breakoutZoomJsonData" value="#{dashboardBean.breakoutZoomJson}" />
     <h:inputHidden id="breakoutActiveTradesJsonData" value="#{dashboardBean.breakoutActiveTradesJson}" />
+    <h:inputHidden id="breakoutSignalsJsonData" value="#{dashboardBean.breakoutSignalsJson}" />
     <h:inputHidden id="breakoutRealTradesJsonData" value="#{dashboardBean.breakoutRealTradesJson}" />
     <h:inputHidden id="breakoutRealTradesEquityCurveJsonData" value="#{dashboardBean.breakoutRealTradesEquityCurveJson}" />
     <h:inputHidden id="breakoutBtHistoryJsonData" value="#{dashboardBean.breakoutBtHistoryJson}" />
@@ -21,11 +22,11 @@
     <p:poll id="breakoutLivePoll" widgetVar="breakoutLivePollWidget" interval="10" global="false"
         enabled="#{dashboardBean.activeStrategy eq 'BREAKOUT'}" listener="#{dashboardBean.analyzeBreakoutPair}"
         process="@this"
-        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:breakoutRealTradesJsonData"
+        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:breakoutSignalsJsonData :aetherForm:breakoutRealTradesJsonData"
         oncomplete="renderBreakoutChart(); if (typeof updateBreakoutLiveTimestamp === 'function') updateBreakoutLiveTimestamp();" />
 
     <p:remoteCommand name="rcRefreshBreakoutChart" actionListener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
-        global="false" update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData"
+        global="false" update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:breakoutSignalsJsonData"
         oncomplete="renderBreakoutChart(); if (typeof updateBreakoutLiveTimestamp === 'function') updateBreakoutLiveTimestamp();" />
 
     <!-- ========================================================================= -->
@@ -125,7 +126,7 @@
                                     styleClass="aether-table-compact"
                                     emptyMessage="No hay emisoras asignadas a BREAKOUT. Pulsa 'Nuevo Par' o 'Optimizar Universo'.">
                                     <p:ajax event="rowSelect" listener="#{dashboardBean.onBreakoutRowSelect}"
-                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:activeBreakoutPair"
+                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:activeBreakoutPair :aetherForm:breakoutChartHeaderTitle"
                                         oncomplete="renderBreakoutChart();" />
 
                                     <p:column headerText="Emisora" style="width: 32%;">
@@ -143,7 +144,7 @@
                                     </p:column>
                                     <p:column headerText="Auto" style="width: 22%; text-align: center;">
                                         <p:inputSwitch value="#{ub.operar}" disabled="#{dashboardBean.readOnly}">
-                                            <p:ajax listener="#{dashboardBean.onBreakoutOperarToggle}" />
+                                            <p:ajax listener="#{dashboardBean.onBreakoutOperarToggle(ub)}" process="@this" update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:growl" />
                                         </p:inputSwitch>
                                     </p:column>
                                 </p:dataTable>
@@ -151,44 +152,67 @@
 
                             <!-- SUB-SECCIÓN 2: CALIBRACIÓN TÁCTICA BREAKOUT -->
                             <p:tab id="tabCalibBreakout" title="#{dashboardBean.breakoutCalibrationTabTitle}">
-                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;">
 
                                     <!-- Símbolo y Sesión -->
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px;">
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Emisora:</label>
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                                <label style="font-size: 0.85rem; font-weight: 700; color: #334155;">Emisora:</label>
+                                                <h:panelGroup rendered="#{dashboardBean.currentBreakoutId != null}"
+                                                    style="font-size: 0.75rem; font-weight: 800; color: #c2410c; background: rgba(234, 88, 12, 0.12); border: 1px solid #fed7aa; padding: 1px 6px; border-radius: 4px;"
+                                                    title="ID de Registro BREAKOUT">
+                                                    ID: #{dashboardBean.currentBreakoutId}
+                                                </h:panelGroup>
+                                            </div>
                                             <p:selectOneMenu id="breakoutSymbolSelect" value="#{dashboardBean.selectedBreakoutPair}"
-                                                styleClass="aether-input" style="width: 100%;">
+                                                styleClass="aether-input" filter="true" filterMatchMode="contains"
+                                                style="width: 100% !important; font-weight: 800; box-sizing: border-box !important;">
                                                 <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
                                                     itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
                                                 <p:ajax listener="#{dashboardBean.onBreakoutSymbolChange}"
-                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:activeBreakoutPair"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:activeBreakoutPair :aetherForm:breakoutChartHeaderTitle"
                                                     oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Sesión de Apertura:</label>
+                                            <label style="font-size: 0.85rem; font-weight: 700; color: #334155; display: block; margin-bottom: 3px;">Sesión:</label>
                                             <p:selectOneMenu id="breakoutSesionSelect" value="#{dashboardBean.breakoutSesion}"
-                                                styleClass="aether-input" style="width: 100%;">
-                                                <f:selectItem itemLabel="Nueva York (08:30 NY)" itemValue="NY" />
-                                                <f:selectItem itemLabel="Londres (08:00 LDN / 03:00 NY)" itemValue="LONDRES" />
+                                                styleClass="aether-input" style="width: 100% !important; font-weight: 700; box-sizing: border-box !important;">
+                                                <f:selectItem itemLabel="Nueva York (NY)" itemValue="NY" />
+                                                <f:selectItem itemLabel="Londres (LDN)" itemValue="LONDRES" />
+                                                <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                    update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                     </div>
 
-                                    <!-- Hora Inicio y Duración Rango -->
+                                    <!-- Hora Inicio y Duración Rango (con indicación dual CDMX / NY) -->
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Hora Apertura Rango:</label>
+                                            <label style="font-size: 0.85rem; font-weight: 700; color: #334155; display: block; margin-bottom: 3px;"
+                                                title="Hora de inicio del rango matutino en horario CDMX (Horario NY = CDMX + 1h)">
+                                                Apertura Rango (CDMX):
+                                            </label>
                                             <p:inputText id="breakoutHoraInicio" value="#{dashboardBean.breakoutHoraInicio}"
-                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 700;" />
+                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 800; font-size: 0.95rem; color: #0f172a;">
+                                                <p:ajax event="change" listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                    update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    oncomplete="renderBreakoutChart();" />
+                                            </p:inputText>
                                         </div>
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Duración Rango:</label>
+                                            <label style="font-size: 0.85rem; font-weight: 700; color: #334155; display: block; margin-bottom: 3px;">Duración Rango:</label>
                                             <p:selectOneMenu id="breakoutDuracionRango" value="#{dashboardBean.breakoutDuracionRangoMin}"
-                                                styleClass="aether-input" style="width: 100%;">
-                                                <f:selectItem itemLabel="15 minutos (3 velas M5)" itemValue="15" />
-                                                <f:selectItem itemLabel="30 minutos (6 velas M5)" itemValue="30" />
+                                                styleClass="aether-input" style="width: 100% !important; font-weight: 700; box-sizing: border-box !important;">
+                                                <f:selectItem itemLabel="15 min (3 velas 5m)" itemValue="15" />
+                                                <f:selectItem itemLabel="30 min (6 velas 5m)" itemValue="30" />
+                                                <f:selectItem itemLabel="45 min (9 velas 5m)" itemValue="45" />
+                                                <f:selectItem itemLabel="60 min (12 velas 5m)" itemValue="60" />
+                                                <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                    update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                     </div>
@@ -196,42 +220,77 @@
                                     <!-- Hora Límite (Cutoff Time) y R:R Mínimo -->
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #b91c1c;"
-                                                title="Después de esta hora el sistema no abrirá nuevas posiciones para la sesión">
-                                                ⛔ Hora Límite (No Entrar):
+                                            <label style="font-size: 0.85rem; font-weight: 700; color: #b91c1c; display: block; margin-bottom: 3px;"
+                                                title="Después de esta hora el sistema no abrirá nuevas posiciones (Horario CDMX)">
+                                                ⛔ Hora Límite (CDMX):
                                             </label>
                                             <p:inputText id="breakoutHoraFin" value="#{dashboardBean.breakoutHoraFin}"
-                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 800; color: #b91c1c; border-color: #fca5a5;" />
+                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 800; font-size: 0.95rem; color: #b91c1c; border-color: #fca5a5;">
+                                                <p:ajax event="change" listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                    update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    oncomplete="renderBreakoutChart();" />
+                                            </p:inputText>
                                         </div>
                                         <div>
-                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">R:R Mínimo:</label>
+                                            <label style="font-size: 0.85rem; font-weight: 700; color: #334155; display: block; margin-bottom: 3px;">R:R Mínimo:</label>
                                             <p:selectOneMenu id="breakoutMinRrSelect" value="#{dashboardBean.breakoutMinRr}"
-                                                styleClass="aether-input" style="width: 100%;">
-                                                <f:selectItem itemLabel="1.0 : 1 (100% Riesgo)" itemValue="1.0" />
-                                                <f:selectItem itemLabel="1.2 : 1 (120% Riesgo)" itemValue="1.2" />
-                                                <f:selectItem itemLabel="1.5 : 1 (150% Riesgo)" itemValue="1.5" />
-                                                <f:selectItem itemLabel="2.0 : 1 (200% Riesgo)" itemValue="2.0" />
+                                                styleClass="aether-input" style="width: 100% !important; font-weight: 700; box-sizing: border-box !important;">
+                                                <f:selectItem itemLabel="1.0 : 1" itemValue="1.0" />
+                                                <f:selectItem itemLabel="1.2 : 1" itemValue="1.2" />
+                                                <f:selectItem itemLabel="1.5 : 1" itemValue="1.5" />
+                                                <f:selectItem itemLabel="1.8 : 1" itemValue="1.8" />
+                                                <f:selectItem itemLabel="2.0 : 1" itemValue="2.0" />
+                                                <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                    update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
                                     </div>
 
                                     <!-- Filtros Institucionales -->
-                                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px;">
-                                        <div style="font-size: 0.8rem; font-weight: 800; color: #c2410c;">Filtros de Seguridad Institucional:</div>
-                                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                                    <div style="background: rgba(234, 88, 12, 0.06); border: 1px solid rgba(234, 88, 12, 0.22); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;">
+                                        <div style="font-size: 0.85rem; font-weight: 800; color: #c2410c;">Filtros de Seguridad Institucional:</div>
+                                        <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
                                             <div style="display: flex; align-items: center; gap: 4px;">
-                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarEma200}" id="chkEma200" />
-                                                <label for="chkEma200" style="font-size: 0.8rem; font-weight: 600;">EMA 200 (Tendencia)</label>
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarEma200}" id="chkEma200">
+                                                    <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                        oncomplete="renderBreakoutChart();" />
+                                                </p:selectBooleanCheckbox>
+                                                <label for="chkEma200" style="font-size: 0.85rem; font-weight: 600; color: #334155;">EMA 200</label>
                                             </div>
                                             <div style="display: flex; align-items: center; gap: 4px;">
-                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarImpulseMacd}" id="chkMacd" />
-                                                <label for="chkMacd" style="font-size: 0.8rem; font-weight: 600;">Impulse MACD</label>
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarImpulseMacd}" id="chkMacd">
+                                                    <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                        oncomplete="renderBreakoutChart();" />
+                                                </p:selectBooleanCheckbox>
+                                                <label for="chkMacd" style="font-size: 0.85rem; font-weight: 600; color: #334155;">Impulse MACD</label>
                                             </div>
                                             <div style="display: flex; align-items: center; gap: 4px;">
-                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarBreakEven}" id="chkBe" />
-                                                <label for="chkBe" style="font-size: 0.8rem; font-weight: 600;">BreakEven Auto</label>
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarBreakEven}" id="chkBe">
+                                                    <p:ajax listener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+                                                        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                        oncomplete="renderBreakoutChart();" />
+                                                </p:selectBooleanCheckbox>
+                                                <label for="chkBe" style="font-size: 0.85rem; font-weight: 600; color: #334155;">BreakEven</label>
                                             </div>
                                         </div>
+                                    </div>
+
+                                    <!-- Switch Generar Órdenes Automáticas en BREAKOUT -->
+                                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-top: 2px;">
+                                        <div>
+                                            <span style="font-weight: 800; font-size: 0.90rem; color: #{dashboardBean.breakoutOperar ? '#ea580c' : '#475569'}; display: block;">
+                                                Generar Órdenes BREAKOUT:
+                                            </span>
+                                            <span style="font-size: 0.78rem; color: #64748b;">
+                                                #{dashboardBean.breakoutOperar ? 'Ejecución autónoma activa en microBREAKOUT' : 'Modo sólo monitoreo (sin órdenes)'}
+                                            </span>
+                                        </div>
+                                        <p:inputSwitch value="#{dashboardBean.breakoutOperar}" disabled="#{dashboardBean.readOnly}">
+                                            <p:ajax listener="#{dashboardBean.onBreakoutOperarToggle}" update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:growl" />
+                                        </p:inputSwitch>
                                     </div>
 
                                     <!-- Botones de Acción -->
@@ -240,7 +299,8 @@
                                             actionListener="#{dashboardBean.guardarBreakout}"
                                             disabled="#{dashboardBean.readOnly}"
                                             process="@this :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout"
-                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:growl"
+                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
+                                            oncomplete="renderBreakoutChart();"
                                             style="flex: 1; background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700; font-size: 0.85rem;" />
 
                                         <p:commandButton value="Calibrar" icon="pi pi-cog"
@@ -285,47 +345,101 @@
                     </p:panel>
 
                     <!-- COLUMNA DERECHA: GRÁFICA TÁCTICA BREAKOUT EN VIVO -->
-                    <div id="breakoutRightChartColumn" class="strategy-right-column">
-                        <div class="strategy-chart-card">
+                    <div id="breakoutRightChartColumn" class="dashboard-chart-column">
+                        <div class="strategy-chart-header" style="border-bottom: 1.5px solid #fed7aa; flex-wrap: wrap; gap: 8px;">
 
-                            <!-- ENCABEZADO DE GRÁFICA Y ZOOM DE HORARIO -->
-                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #ffffff; border-bottom: 1px solid #fed7aa; flex-wrap: wrap; gap: 8px;">
-                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                    <span style="font-weight: 900; font-size: 1.25rem; color: #ea580c;">
-                                        #{dashboardBean.selectedBreakoutPair}
+                            <h:panelGroup id="breakoutChartHeaderTitle" layout="block"
+                                style="font-weight: 900; color: #c2410c; letter-spacing: 0.5px; white-space: nowrap; font-size: 1.25rem; display: flex; align-items: center; gap: 6px;">
+                                <i class="pi pi-bolt" style="color: #ea580c; font-size: 1.25rem;"></i>
+                                <span>BREAKOUT (<span id="breakoutHeaderPairSpan" style="color: #ea580c; font-weight: 900;">#{dashboardBean.selectedBreakoutPair}</span> - <span style="color: #64748b; font-weight: 700;">5min</span>)</span>
+                            </h:panelGroup>
+
+                            <!-- INFORMACIÓN DE CUENTA COMPARTIDA (ESTÁNDAR UNIFICADO) -->
+                            <div class="strategy-header-account-info">
+                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; padding: 2px 10px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                                    <i class="pi pi-user" style="color: #ea580c; font-size: 1.22rem;"></i>
+                                    <span style="font-weight: 800; color: #1e293b; font-size: 1.22rem;">
+                                        #{dashboardBean.selectedAccountName}
                                     </span>
-                                    <span style="font-size: 0.88rem; font-weight: 800; background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; padding: 2px 8px; border-radius: 6px;">
-                                        Sesión #{dashboardBean.breakoutSesion} (5min)
+                                </div>
+                                <div style="display: inline-flex; align-items: center; gap: 6px; background: #f8fafc; padding: 2px 10px; border-radius: 6px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                                    <i class="pi pi-wallet" style="color: #0369a1; font-size: 1.22rem;"></i>
+                                    <span style="color: #64748b; font-weight: 700; font-size: 1.22rem;">Capital:</span>
+                                    <span style="font-weight: 800; color: #0369a1; font-size: 1.22rem;">
+                                        $#{dashboardBean.formattedSelectedAccountCapital} USD
                                     </span>
-                                    <span id="breakoutRangeStatusBadge" style="font-size: 0.82rem; font-weight: 800; background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                                </div>
+                            </div>
+
+                            <!-- CONTROLES DE ZOOM Y ACCIONES -->
+                            <div class="strategy-header-actions">
+                                <span style="font-size: 0.82rem; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 6px;"
+                                    title="El eje horizontal inferior muestra simultáneamente el horario de Ciudad de México (CDMX) y de Nueva York (NY, +1h)">
+                                    🕒 CDMX (CST) | NY (EST, +1h)
+                                </span>
+                                <span style="font-size: 0.85rem; font-weight: 800; background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; padding: 2px 8px; border-radius: 6px;">
+                                    Sesión #{dashboardBean.breakoutSesion}
+                                </span>
+                                <button type="button" onclick="zoomBreakoutSession();" class="aether-btn-primary"
+                                    style="height: 30px; font-size: 0.82rem; padding: 0 10px; background: #ea580c; border: 1px solid #ea580c; color: #fff; font-weight: 800; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+                                    title="Hacer zoom en el horario de apertura matutina de la sesión">
+                                    <i class="pi pi-search-plus" style="font-size: 0.85rem;"></i>Zoom Sesión
+                                </button>
+                                <button type="button" onclick="resetBreakoutZoom();" class="aether-btn-secondary"
+                                    style="height: 30px; font-size: 0.82rem; padding: 0 8px; background: #f8fafc; border: 1px solid #cbd5e1; color: #475569; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;"
+                                    title="Ver todo el historial">
+                                    <i class="pi pi-globe" style="font-size: 0.85rem;"></i>Todo
+                                </button>
+                                <p:commandButton icon="pi pi-refresh" onclick="rcRefreshBreakoutChart();"
+                                    styleClass="aether-btn-secondary"
+                                    style="width: 30px !important; height: 30px !important; min-width: 30px !important; padding: 0 !important; color: #ea580c !important; border-color: #fdba74 !important; border-radius: 6px !important;"
+                                    title="Refrescar gráfica" />
+                            </div>
+                        </div>
+
+                        <!-- CONTENEDOR DE LA GRÁFICA INTERACTIVA BREAKOUT -->
+                        <div id="breakout-chart-container" class="strategy-chart-container" style="border: 1.5px solid #fed7aa; overflow: hidden; display: flex; flex-direction: column;">
+
+                            <!-- LEYENDA TÁCTICA Y DE TEMPERATURA -->
+                            <div id="breakoutLegendBar" class="strategy-tactical-legend" style="border-color: #fed7aa; background: #fffaf5; margin-bottom: 6px;">
+                                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                    <span style="font-size: 0.82rem; font-weight: 800; background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">
                                         Rango: #{dashboardBean.breakoutHoraInicio} (#{dashboardBean.breakoutDuracionRangoMin}m)
                                     </span>
                                     <span style="font-size: 0.82rem; font-weight: 800; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 6px;">
                                         Límite: ≤ #{dashboardBean.breakoutHoraFin}
                                     </span>
-                                </div>
 
-                                <!-- CONTROLES DE ZOOM Y REFRESCO -->
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <button type="button" onclick="zoomBreakoutSession();" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-icon-left"
-                                        style="font-size: 0.82rem; padding: 4px 10px; background: #ea580c; border: 1px solid #ea580c; color: #fff; font-weight: 800; border-radius: 6px; cursor: pointer;"
-                                        title="Hacer zoom en el horario de apertura matutina de la sesión">
-                                        <i class="pi pi-search-plus" style="margin-right: 4px;"></i>Zoom Sesión
-                                    </button>
-                                    <button type="button" onclick="resetBreakoutZoom();" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-icon-left"
-                                        style="font-size: 0.82rem; padding: 4px 8px; background: #f8fafc; border: 1px solid #cbd5e1; color: #475569; font-weight: 700; border-radius: 6px; cursor: pointer;"
-                                        title="Ver todo el historial de 250 velas">
-                                        <i class="pi pi-globe" style="margin-right: 4px;"></i>Ver Todo
-                                    </button>
-                                    <p:commandButton icon="pi pi-refresh" onclick="rcRefreshBreakoutChart();"
-                                        styleClass="ui-button-outlined"
-                                        style="width: 30px; height: 30px; padding: 0; color: #ea580c; border-color: #ea580c;"
-                                        title="Refrescar gráfica" />
+                                    <!-- Elementos dibujados -->
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 10px; background: rgba(234, 88, 12, 0.22); border: 1.5px dashed #ea580c; display: inline-block; border-radius: 2px;"></span>
+                                        <b>Caja Rango</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #16a34a; display: inline-block;"></span>
+                                        <b style="color: #16a34a;">Max Rango (Breakout Alcista)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 3px; background: #dc2626; display: inline-block;"></span>
+                                        <b style="color: #dc2626;">Min Rango (Breakout Bajista)</b>
+                                    </span>
+                                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                                        <span style="width: 12px; height: 2px; border-top: 2px dashed #b91c1c; display: inline-block;"></span>
+                                        <b style="color: #b91c1c;">Hora Límite</b>
+                                    </span>
+
+                                    <!-- TEMPERATURA DEL PRECIO -->
+                                    <span style="display: inline-flex; align-items: center; gap: 5px; background: #ffffff; padding: 2px 8px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                        <b style="color: #1e293b;">Temp. Precio:</b>
+                                        <span style="display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: linear-gradient(to right, #22c55e 0%, #cad726 50%, #f59e0b 80%, #dc2626 100%);"></span>
+                                        <span style="font-size: 0.72rem; color: #64748b; font-weight: 600;">(Bajo → Fuerte Vol)</span>
+                                    </span>
                                 </div>
+                                <span id="breakoutLiveLastUpdate" style="color: #94a3b8; font-size: 0.82rem;">Actualizado: —</span>
                             </div>
 
                             <!-- CANVAS DE GRÁFICA BREAKOUT CHART.JS -->
-                            <div class="strategy-canvas-wrapper" style="position: relative; flex: 1; min-height: 420px;">
+                            <div class="strategy-canvas-wrapper" style="position: relative; flex: 1; min-height: 440px; width: 100%; height: 100%; min-width: 0; overflow: hidden;">
                                 <canvas id="breakoutChart" style="width: 100%; height: 100%;"></canvas>
                             </div>
                         </div>
@@ -351,7 +465,7 @@
             <p:tab titletip="BackTesting &amp; Optimizador">
                 <f:facet name="title">
                     <span class="backtest-tab-icon" title="BackTesting"
-                        style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                        style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
                 </f:facet>
                 <div style="padding: 12px; overflow-y: auto; height: 100%; box-sizing: border-box;">
 
@@ -556,28 +670,104 @@
     <script type="text/javascript">
     // <![CDATA[
     var _breakoutChartInstance = null;
+    var _breakoutZoomResetByUser = false;
 
-    function parseBreakoutDateMs(str) {
-        if (!str) return null;
-        try {
-            var d = new Date(str);
-            if (!isNaN(d.getTime())) return d.getTime();
-            var parts = str.replace('T', ' ').split(/[- :]/);
-            if (parts.length >= 5) {
-                return new Date(parts[0], parts[1]-1, parts[2], parts[3], parts[4], parts[5] || 0).getTime();
+    function parseBreakoutDateMs(dateStr) {
+        if (!dateStr) return null;
+        if (typeof dateStr === 'number') return dateStr;
+        var s = String(dateStr).trim();
+        if (s.indexOf('T') !== -1 && (s.indexOf('+') !== -1 || s.indexOf('-') !== -1 || s.indexOf('Z') !== -1)) {
+            var parsed = Date.parse(s);
+            if (!isNaN(parsed)) return parsed;
+        }
+        var clean = s.replace('T', ' ');
+        var parts = clean.split(' ');
+        if (parts.length >= 2) {
+            var dParts = parts[0].split('-');
+            var tParts = parts[1].split(':');
+            if (dParts.length === 3 && tParts.length >= 2) {
+                var y = parseInt(dParts[0], 10);
+                var m = parseInt(dParts[1], 10) - 1;
+                var day = parseInt(dParts[2], 10);
+                var hh = parseInt(tParts[0], 10);
+                var mm = parseInt(tParts[1], 10);
+                var ss = tParts.length > 2 ? parseInt(tParts[2], 10) : 0;
+                return new Date(y, m, day, hh, mm, ss).getTime();
             }
-        } catch(e) {}
-        return null;
+        }
+        var p = Date.parse(clean);
+        return isNaN(p) ? null : p;
+    }
+
+    function getBreakoutVolumeColor(volRatio) {
+        var ratio = Math.max(0.0, Math.min(1.0, Number(volRatio) || 0.0));
+        var r, g, b;
+        if (ratio <= 0.25) {
+            // Frío / Calma: Azul institucional (#0284c7: 2, 132, 199) -> Verde (#22c55e: 34, 197, 94)
+            var t = ratio / 0.25;
+            r = Math.round(2 + (34 - 2) * t);
+            g = Math.round(132 + (197 - 132) * t);
+            b = Math.round(199 + (94 - 199) * t);
+        } else if (ratio <= 0.50) {
+            // Templado / Operativo normal: Verde (#22c55e: 34, 197, 94) -> Amarillo brillante (#eab308: 234, 179, 8)
+            var t2 = (ratio - 0.25) / 0.25;
+            r = Math.round(34 + (234 - 34) * t2);
+            g = Math.round(197 + (179 - 197) * t2);
+            b = Math.round(94 + (8 - 94) * t2);
+        } else if (ratio <= 0.75) {
+            // Cálido / Actividad institucional: Amarillo (#eab308: 234, 179, 8) -> Naranja fuego (#ea580c: 234, 88, 12)
+            var t3 = (ratio - 0.50) / 0.25;
+            r = Math.round(234 + (234 - 234) * t3);
+            g = Math.round(179 + (88 - 179) * t3);
+            b = Math.round(8 + (12 - 8) * t3);
+        } else {
+            // Caliente / Ruptura e impulso máximo: Naranja (#ea580c: 234, 88, 12) -> Rojo institucional (#dc2626: 220, 38, 38)
+            var t4 = (ratio - 0.75) / 0.25;
+            r = Math.round(234 + (220 - 234) * t4);
+            g = Math.round(88 + (38 - 88) * t4);
+            b = Math.round(12 + (38 - 12) * t4);
+        }
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+
+    function syncBreakoutChartPlacement() {
+        var chartCol = document.getElementById("breakoutRightChartColumn");
+        var mobileMount = document.getElementById("mobileBreakoutChartMountPoint");
+        var desktopGrid = document.querySelector("#strategyBreakoutWrapper .dashboard-grid");
+
+        if (!chartCol || !mobileMount || !desktopGrid) return;
+
+        var isMobile = (window.ATALAIA_DEVICE === "mobile" || window.innerWidth < 768);
+        var currentTab = (typeof PF !== 'undefined' && PF('breakoutTabViewWidget')) ? PF('breakoutTabViewWidget').getActiveIndex() : 0;
+
+        if (currentTab === 1 || isMobile) {
+            if (!mobileMount.contains(chartCol)) {
+                mobileMount.appendChild(chartCol);
+            }
+        } else {
+            if (mobileMount.contains(chartCol)) {
+                desktopGrid.appendChild(chartCol);
+            }
+        }
     }
 
     function zoomBreakoutSession() {
+        _breakoutZoomResetByUser = false;
         var zoomEl = document.querySelector("[id$='breakoutZoomJsonData']");
         if (!zoomEl || !zoomEl.value || zoomEl.value === '{}') return;
         try {
             var z = JSON.parse(zoomEl.value);
             if (z && z.startTsMs && z.endTsMs && _breakoutChartInstance) {
                 _breakoutChartInstance.options.scales.x.min = z.startTsMs;
-                _breakoutChartInstance.options.scales.x.max = z.endTsMs;
+                var effMaxX = Number(z.endTsMs);
+                var ds0 = _breakoutChartInstance.data.datasets[0];
+                if (ds0 && ds0.data && ds0.data.length > 0) {
+                    var lastPt = ds0.data[ds0.data.length - 1];
+                    if (lastPt && lastPt.x > effMaxX) {
+                        effMaxX = lastPt.x + (15 * 60 * 1000);
+                    }
+                }
+                _breakoutChartInstance.options.scales.x.max = effMaxX;
                 _breakoutChartInstance.update();
             }
         } catch(e) {
@@ -586,6 +776,7 @@
     }
 
     function resetBreakoutZoom() {
+        _breakoutZoomResetByUser = true;
         if (_breakoutChartInstance) {
             delete _breakoutChartInstance.options.scales.x.min;
             delete _breakoutChartInstance.options.scales.x.max;
@@ -594,13 +785,27 @@
     }
 
     function handleBreakoutTabShow(index) {
+        syncBreakoutChartPlacement();
         if (index === 0 || index === 1) {
-            setTimeout(renderBreakoutChart, 60);
+            setTimeout(function() {
+                syncBreakoutChartPlacement();
+                renderBreakoutChart();
+            }, 60);
         }
     }
 
+    function updateBreakoutLiveTimestamp() {
+        var el = document.getElementById('breakoutLiveLastUpdate');
+        if (el) {
+            var now = new Date();
+            el.textContent = 'Actualizado: ' + now.toLocaleTimeString();
+        }
+    }
+    window.updateBreakoutLiveTimestamp = updateBreakoutLiveTimestamp;
+
     function renderBreakoutChart() {
         try {
+            syncBreakoutChartPlacement();
             var canvas = document.getElementById('breakoutChart');
             if (!canvas) return;
             if (canvas.offsetParent === null) return;
@@ -621,11 +826,92 @@
                 if (rangeEl && rangeEl.value) rangeObj = JSON.parse(rangeEl.value);
             } catch(e) {}
 
+            var zoomEl = document.querySelector("[id$='breakoutZoomJsonData']");
+            var zoomObj = null;
+            try {
+                if (zoomEl && zoomEl.value && zoomEl.value !== '{}') zoomObj = JSON.parse(zoomEl.value);
+            } catch(e) {}
+
+            var actTrEl = document.querySelector("[id$='breakoutActiveTradesJsonData']");
+            var actTrStr = actTrEl ? actTrEl.value : '[]';
+            var activeTrade = null;
+            try {
+                var atList = JSON.parse(actTrStr);
+                if (Array.isArray(atList) && atList.length > 0) activeTrade = atList[0];
+            } catch(e) {}
+
+            var sigsEl = document.querySelector("[id$='breakoutSignalsJsonData']");
+            var sigsStr = sigsEl ? sigsEl.value : '[]';
+            var todaySignal = null;
+            try {
+                var sList = JSON.parse(sigsStr);
+                if (Array.isArray(sList) && sList.length > 0) {
+                    todaySignal = sList[sList.length - 1];
+                }
+            } catch(e) {}
+
+            var tradeBox = null;
+            var minRrVal = (rangeObj && rangeObj.minRr) ? Number(rangeObj.minRr) : 1.0;
+
+            if (activeTrade && activeTrade.idTrade && activeTrade.entryPrice) {
+                var isBuy = activeTrade.isLong || (activeTrade.direction && activeTrade.direction.indexOf('LARG') !== -1);
+                tradeBox = {
+                    isBuy: isBuy,
+                    entry: Number(activeTrade.entryPrice),
+                    tp: Number(activeTrade.takeProfit),
+                    sl: (activeTrade.hasTsl && activeTrade.tslPrice) ? Number(activeTrade.tslPrice) : Number(activeTrade.stopLoss),
+                    startTs: parseBreakoutDateMs(activeTrade.openTime),
+                    label: 'Operación Activa #' + (activeTrade.ticketId || activeTrade.idTrade)
+                };
+            } else if (todaySignal && todaySignal.entry) {
+                var isBuySig = (todaySignal.direction === 'LARGO' || todaySignal.direction === 'BUY');
+                tradeBox = {
+                    isBuy: isBuySig,
+                    entry: Number(todaySignal.entry),
+                    tp: Number(todaySignal.takeProfit),
+                    sl: Number(todaySignal.stopLoss),
+                    startTs: parseBreakoutDateMs(todaySignal.datetime),
+                    label: 'Señal BREAKOUT (' + (isBuySig ? 'COMPRA' : 'VENTA') + ')'
+                };
+            } else if (rangeObj && rangeObj.rangeHigh && rangeObj.rangeLow) {
+                var rH = Number(rangeObj.rangeHigh);
+                var rL = Number(rangeObj.rangeLow);
+                var rSize = rH - rL;
+                if (rSize > 0) {
+                    var lastPx = (rawCandles.length > 0) ? Number(rawCandles[rawCandles.length - 1].close) : rH;
+                    var biasBuy = lastPx >= (rH + rL) / 2;
+                    tradeBox = {
+                        isBuy: biasBuy,
+                        entry: biasBuy ? rH : rL,
+                        tp: biasBuy ? (rH + (rSize * minRrVal)) : (rL - (rSize * minRrVal)),
+                        sl: biasBuy ? rL : rH,
+                        startTs: (rangeObj.rangeEndMs !== undefined) ? Number(rangeObj.rangeEndMs) : parseBreakoutDateMs(rangeObj.rangeEnd),
+                        label: 'Proyección R:R (' + minRrVal + ':1)'
+                    };
+                }
+            }
+
+            // Calibrar percentiles de volumen para la escala de temperatura térmica institucional
+            var posVols = [];
+            for (var vIdx = 0; vIdx < rawCandles.length; vIdx++) {
+                var vVal = Number(rawCandles[vIdx].volume || 0);
+                if (vVal > 0) posVols.push(vVal);
+            }
+            posVols.sort(function (a, b) { return a - b; });
+
+            var pMin = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.05)] : 0;
+            var pMax = posVols.length > 0 ? posVols[Math.floor(posVols.length * 0.95)] : 1;
+            if (pMax <= pMin) pMax = pMin + 1;
+
             var pricePoints = [];
             for (var i = 0; i < rawCandles.length; i++) {
                 var c = rawCandles[i];
-                var ts = parseBreakoutDateMs(c.datetime);
+                var ts = (c.timeMs !== undefined && c.timeMs !== null) ? Number(c.timeMs) : parseBreakoutDateMs(c.datetime);
                 if (!ts) continue;
+                var volVal = Number(c.volume || 0);
+                var normV = Math.max(0.0, Math.min(1.0, (volVal - pMin) / (pMax - pMin)));
+                var volRatio = normV;
+                var volColor = getBreakoutVolumeColor(volRatio);
                 pricePoints.push({
                     x: ts,
                     y: Number(c.close),
@@ -633,17 +919,36 @@
                     high: Number(c.high),
                     low: Number(c.low),
                     close: Number(c.close),
-                    volume: Number(c.volume || 0)
+                    volume: volVal,
+                    volRatio: volRatio,
+                    volColor: volColor
                 });
             }
+
+            var actPair = document.querySelector("[id$='activeBreakoutPair']");
+            var spanPair = document.getElementById("breakoutHeaderPairSpan");
+            if (actPair && spanPair && actPair.value) {
+                spanPair.textContent = actPair.value;
+            }
+            var pName = actPair ? String(actPair.value || '').toUpperCase() : '';
+            var dec = 5;
+            if (pName.indexOf('JPY') !== -1) dec = 3;
+            else if (pName.indexOf('BTC') !== -1 || pName.indexOf('ETH') !== -1 || pName.indexOf('XAU') !== -1 || pName.indexOf('SPX') !== -1) dec = 2;
 
             var datasets = [
                 {
                     label: 'Precio (5min)',
                     data: pricePoints,
                     borderColor: '#ea580c',
-                    backgroundColor: 'rgba(234, 88, 12, 0.05)',
-                    borderWidth: 2.5,
+                    segment: {
+                        borderColor: function (ctx) {
+                            var idx = (ctx.p1DataIndex !== undefined) ? ctx.p1DataIndex : ctx.p0DataIndex;
+                            var pt = pricePoints[idx];
+                            return (pt && pt.volColor) ? pt.volColor : '#ea580c';
+                        }
+                    },
+                    backgroundColor: 'transparent',
+                    borderWidth: 3.2,
                     pointRadius: 0,
                     pointHoverRadius: 4,
                     fill: false,
@@ -652,80 +957,130 @@
                 }
             ];
 
-            // Plugin para dibujar la Caja del Rango de Apertura y la Línea Límite
+            // Integrar MAX RANGO y MIN RANGO como datasets nativos de Chart.js para escala y trazado 100% exacto
+            if (rangeObj && rangeObj.rangeHigh && rangeObj.rangeLow && pricePoints.length > 0) {
+                var tStartMs = (rangeObj.rangeStartMs !== undefined && rangeObj.rangeStartMs !== null) ? Number(rangeObj.rangeStartMs) : parseBreakoutDateMs(rangeObj.rangeStart);
+                var minChartTs = pricePoints[0].x;
+                var maxChartTs = pricePoints[pricePoints.length - 1].x;
+                var lineStart = tStartMs ? Math.max(minChartTs, tStartMs) : minChartTs;
+                var lineEnd = maxChartTs;
+                if (zoomObj && zoomObj.endTsMs && Number(zoomObj.endTsMs) > lineEnd) {
+                    lineEnd = Number(zoomObj.endTsMs);
+                }
+
+                var rHighNum = Number(rangeObj.rangeHigh);
+                var rLowNum = Number(rangeObj.rangeLow);
+
+                datasets.push({
+                    label: '▲ MAX RANGO (' + rHighNum.toFixed(dec) + ')',
+                    data: [{ x: lineStart, y: rHighNum }, { x: lineEnd, y: rHighNum }],
+                    borderColor: '#16a34a',
+                    backgroundColor: '#16a34a',
+                    borderWidth: 2.2,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: false,
+                    order: 2
+                });
+
+                datasets.push({
+                    label: '▼ MIN RANGO (' + rLowNum.toFixed(dec) + ')',
+                    data: [{ x: lineStart, y: rLowNum }, { x: lineEnd, y: rLowNum }],
+                    borderColor: '#dc2626',
+                    backgroundColor: '#dc2626',
+                    borderWidth: 2.2,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: false,
+                    order: 2
+                });
+            }
+
+            // Plugin para dibujar la Caja del Rango de Apertura, Badges y Línea Límite
             var breakoutRangeDrawPlugin = {
                 id: 'breakoutRangeDrawPlugin',
-                beforeDraw: function(chart) {
+                afterDatasetsDraw: function(chart) {
                     if (!rangeObj || !rangeObj.rangeHigh || !rangeObj.rangeLow) return;
                     var ctx = chart.ctx;
                     var xScale = chart.scales.x;
                     var yScale = chart.scales.y;
 
-                    var yHigh = yScale.getPixelForValue(rangeObj.rangeHigh);
-                    var yLow = yScale.getPixelForValue(rangeObj.rangeLow);
-                    var tStart = parseBreakoutDateMs(rangeObj.rangeStart);
-                    var tEnd = parseBreakoutDateMs(rangeObj.rangeEnd);
-                    var tCutoff = parseBreakoutDateMs(rangeObj.cutoffTime);
+                    var yHigh = yScale.getPixelForValue(Number(rangeObj.rangeHigh));
+                    var yLow = yScale.getPixelForValue(Number(rangeObj.rangeLow));
+                    var tStart = (rangeObj.rangeStartMs !== undefined && rangeObj.rangeStartMs !== null) ? Number(rangeObj.rangeStartMs) : parseBreakoutDateMs(rangeObj.rangeStart);
+                    var tEnd = (rangeObj.rangeEndMs !== undefined && rangeObj.rangeEndMs !== null) ? Number(rangeObj.rangeEndMs) : parseBreakoutDateMs(rangeObj.rangeEnd);
+                    var tCutoff = (rangeObj.cutoffTimeMs !== undefined && rangeObj.cutoffTimeMs !== null) ? Number(rangeObj.cutoffTimeMs) : parseBreakoutDateMs(rangeObj.cutoffTime);
 
-                    var xStart = tStart ? xScale.getPixelForValue(tStart) : xScale.left;
-                    var xEnd = tEnd ? xScale.getPixelForValue(tEnd) : xScale.right;
+                    var xStart = tStart ? xScale.getPixelForValue(tStart) : null;
+                    var xEnd = tEnd ? xScale.getPixelForValue(tEnd) : null;
                     var xCutoff = tCutoff ? xScale.getPixelForValue(tCutoff) : null;
 
                     ctx.save();
                     try {
-                        // 1. Sombreado de la caja del rango
-                        if (xStart !== null && xEnd !== null && !isNaN(xStart) && !isNaN(xEnd)) {
-                            var boxX = Math.min(xStart, xEnd);
-                            var boxW = Math.max(12, Math.abs(xEnd - xStart));
-                            var boxY = Math.min(yHigh, yLow);
-                            var boxH = Math.max(6, Math.abs(yLow - yHigh));
+                        // 0. Dibujado de mechas y cuerpos de velas intradiarias (Candlesticks de alta precisión)
+                        for (var cIdx = 0; cIdx < pricePoints.length; cIdx++) {
+                            var cpt = pricePoints[cIdx];
+                            var cx = xScale.getPixelForValue(cpt.x);
+                            if (isNaN(cx) || cx < xScale.left - 20 || cx > xScale.right + 20) continue;
 
-                            var grad = ctx.createLinearGradient(0, boxY, 0, boxY + boxH);
-                            grad.addColorStop(0, 'rgba(234, 88, 12, 0.22)');
-                            grad.addColorStop(1, 'rgba(234, 88, 12, 0.06)');
-                            ctx.fillStyle = grad;
-                            ctx.fillRect(boxX, boxY, boxW, boxH);
+                            var cyH = yScale.getPixelForValue(cpt.high);
+                            var cyL = yScale.getPixelForValue(cpt.low);
+                            var cyO = yScale.getPixelForValue(cpt.open);
+                            var cyC = yScale.getPixelForValue(cpt.close);
 
-                            ctx.strokeStyle = '#ea580c';
-                            ctx.lineWidth = 1.6;
-                            ctx.setLineDash([4, 3]);
-                            ctx.strokeRect(boxX, boxY, boxW, boxH);
+                            var isBull = cpt.close >= cpt.open;
+                            var candleColor = isBull ? 'rgba(22, 163, 74, 0.70)' : 'rgba(220, 38, 38, 0.70)';
+                            var wickColor = isBull ? 'rgba(22, 163, 74, 0.75)' : 'rgba(220, 38, 38, 0.75)';
 
-                            ctx.setLineDash([]);
-                            ctx.fillStyle = '#c2410c';
-                            ctx.font = 'bold 10px sans-serif';
-                            ctx.fillText('RANGO ' + (rangeObj.session || 'NY') + ' (' + (rangeObj.rangeSizePips || '') + ' pips)', boxX + 6, boxY + 14);
+                            // Mecha vertical (High a Low)
+                            ctx.strokeStyle = wickColor;
+                            ctx.lineWidth = 1.3;
+                            ctx.beginPath();
+                            ctx.moveTo(cx, cyH);
+                            ctx.lineTo(cx, cyL);
+                            ctx.stroke();
+
+                            // Cuerpo de la vela (Open a Close) con 70% de opacidad
+                            var bodyTop = Math.min(cyO, cyC);
+                            var bodyH = Math.max(2, Math.abs(cyC - cyO));
+                            var bodyW = 5;
+                            ctx.fillStyle = candleColor;
+                            ctx.fillRect(cx - (bodyW / 2), bodyTop, bodyW, bodyH);
                         }
 
-                        // 2. Línea horizontal superior (Breakout Alcista)
-                        ctx.strokeStyle = '#16a34a';
-                        ctx.lineWidth = 1.8;
-                        ctx.setLineDash([5, 4]);
-                        ctx.beginPath();
-                        ctx.moveTo(xStart || xScale.left, yHigh);
-                        ctx.lineTo(xCutoff || xScale.right, yHigh);
-                        ctx.stroke();
+                        // 1. Sombreado y bordes de la caja del rango de apertura
+                        if (xStart !== null && xEnd !== null && !isNaN(xStart) && !isNaN(xEnd)) {
+                            var boxX = Math.min(xStart, xEnd);
+                            var boxW = Math.abs(xEnd - xStart);
+                            var boxY = Math.min(yHigh, yLow);
+                            var boxH = Math.max(4, Math.abs(yLow - yHigh));
 
-                        ctx.setLineDash([]);
-                        ctx.fillStyle = '#16a34a';
-                        ctx.font = 'bold 11px sans-serif';
-                        ctx.fillText('▲ MAX RANGO (' + Number(rangeObj.rangeHigh).toFixed(5) + ')', (xCutoff || xScale.right) - 150, yHigh - 4);
+                            var clipLeft = Math.max(xScale.left, boxX);
+                            var clipRight = Math.min(xScale.right, boxX + boxW);
+                            var clipW = Math.max(0, clipRight - clipLeft);
 
-                        // 3. Línea horizontal inferior (Breakout Bajista)
-                        ctx.strokeStyle = '#dc2626';
-                        ctx.lineWidth = 1.8;
-                        ctx.setLineDash([5, 4]);
-                        ctx.beginPath();
-                        ctx.moveTo(xStart || xScale.left, yLow);
-                        ctx.lineTo(xCutoff || xScale.right, yLow);
-                        ctx.stroke();
+                            if (clipW > 0) {
+                                var grad = ctx.createLinearGradient(0, boxY, 0, boxY + boxH);
+                                grad.addColorStop(0, 'rgba(234, 88, 12, 0.28)');
+                                grad.addColorStop(1, 'rgba(234, 88, 12, 0.08)');
+                                ctx.fillStyle = grad;
+                                ctx.fillRect(clipLeft, boxY, clipW, boxH);
 
-                        ctx.setLineDash([]);
-                        ctx.fillStyle = '#dc2626';
-                        ctx.font = 'bold 11px sans-serif';
-                        ctx.fillText('▼ MIN RANGO (' + Number(rangeObj.rangeLow).toFixed(5) + ')', (xCutoff || xScale.right) - 150, yLow + 12);
+                                ctx.strokeStyle = '#ea580c';
+                                ctx.lineWidth = 2.0;
+                                ctx.setLineDash([4, 3]);
+                                ctx.strokeRect(clipLeft, boxY, clipW, boxH);
+                                ctx.setLineDash([]);
 
-                        // 4. Línea vertical de Hora Límite
+                                ctx.fillStyle = '#ea580c';
+                                ctx.font = 'bold 11px sans-serif';
+                                ctx.fillText('RANGO ' + (rangeObj.session || 'NY') + ' (' + (rangeObj.rangeSizePips || '') + ' pips)', clipLeft + 6, Math.max(yScale.top + 16, boxY + 16));
+                            }
+                        }
+
+                        // 2. Línea vertical de Hora Límite
                         if (xCutoff !== null && !isNaN(xCutoff) && xCutoff >= xScale.left && xCutoff <= xScale.right) {
                             ctx.strokeStyle = '#b91c1c';
                             ctx.lineWidth = 2.2;
@@ -734,12 +1089,117 @@
                             ctx.moveTo(xCutoff, yScale.top);
                             ctx.lineTo(xCutoff, yScale.bottom);
                             ctx.stroke();
-
                             ctx.setLineDash([]);
+
                             ctx.fillStyle = '#b91c1c';
                             ctx.font = 'bold 10px sans-serif';
-                            ctx.fillText('⛔ HORA LÍMITE (NO ENTRAR)', xCutoff + 5, yScale.top + 25);
+                            ctx.fillText('⛔ HORA LÍMITE (NO ENTRAR)', Math.min(xCutoff + 5, xScale.right - 155), yScale.top + 25);
                         }
+
+                        // 3. Badges flotantes en el borde derecho para MAX y MIN RANGO
+                        var rightX = xScale.right;
+                        if (yHigh >= yScale.top && yHigh <= yScale.bottom) {
+                            var maxTxt = '▲ MAX ' + Number(rangeObj.rangeHigh).toFixed(dec);
+                            ctx.font = 'bold 11px sans-serif';
+                            var tw = ctx.measureText(maxTxt).width;
+                            var badgeW = tw + 12;
+                            var badgeX = Math.max(xScale.left + 10, rightX - badgeW - 6);
+                            var badgeY = yHigh - 10;
+
+                            ctx.fillStyle = '#15803d';
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeW, 20, 4);
+                            else ctx.rect(badgeX, badgeY, badgeW, 20);
+                            ctx.fill();
+
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillText(maxTxt, badgeX + 6, badgeY + 14);
+                        }
+
+                        if (yLow >= yScale.top && yLow <= yScale.bottom) {
+                            var minTxt = '▼ MIN ' + Number(rangeObj.rangeLow).toFixed(dec);
+                            ctx.font = 'bold 11px sans-serif';
+                            var tw2 = ctx.measureText(minTxt).width;
+                            var badgeW2 = tw2 + 12;
+                            var badgeX2 = Math.max(xScale.left + 10, rightX - badgeW2 - 6);
+                            var badgeY2 = yLow - 10;
+
+                            ctx.fillStyle = '#b91c1c';
+                            ctx.beginPath();
+                            if (ctx.roundRect) ctx.roundRect(badgeX2, badgeY2, badgeW2, 20, 4);
+                            else ctx.rect(badgeX2, badgeY2, badgeW2, 20);
+                            ctx.fill();
+
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillText(minTxt, badgeX2 + 6, badgeY2 + 14);
+                        }
+
+                        // 4. Cajones Dinámicos de Take Profit (TP verde) y Stop Loss (SL rojo)
+                        if (tradeBox && tradeBox.entry && tradeBox.tp && tradeBox.sl) {
+                            var xBoxStart = tradeBox.startTs ? xScale.getPixelForValue(tradeBox.startTs) : (xEnd || xScale.left);
+                            if (isNaN(xBoxStart) || xBoxStart < xScale.left) xBoxStart = xScale.left;
+                            var xBoxRight = xScale.right;
+                            var tBoxW = Math.max(20, xBoxRight - xBoxStart);
+
+                            var yEnt = yScale.getPixelForValue(tradeBox.entry);
+                            var yTp = yScale.getPixelForValue(tradeBox.tp);
+                            var ySl = yScale.getPixelForValue(tradeBox.sl);
+
+                            // --- CAJÓN DE TAKE PROFIT (VERDE ESMERALDA) ---
+                            var topTp = Math.min(yEnt, yTp);
+                            var hTp = Math.max(4, Math.abs(yEnt - yTp));
+                            var gradTp = ctx.createLinearGradient(0, topTp, 0, topTp + hTp);
+                            gradTp.addColorStop(0, 'rgba(16, 185, 129, 0.24)');
+                            gradTp.addColorStop(1, 'rgba(16, 185, 129, 0.06)');
+                            ctx.fillStyle = gradTp;
+                            ctx.fillRect(xBoxStart, topTp, tBoxW, hTp);
+
+                            ctx.strokeStyle = '#10b981';
+                            ctx.lineWidth = 1.8;
+                            ctx.setLineDash([5, 4]);
+                            ctx.strokeRect(xBoxStart, topTp, tBoxW, hTp);
+                            ctx.setLineDash([]);
+
+                            ctx.fillStyle = '#059669';
+                            ctx.font = 'bold 11px sans-serif';
+                            var tpTxt = 'Zona TP (' + tradeBox.tp.toFixed(dec) + ')';
+                            ctx.fillText(tpTxt, xBoxStart + 8, topTp + 16);
+
+                            // --- CAJÓN DE STOP LOSS (ROJO CARMESÍ) ---
+                            var topSl = Math.min(yEnt, ySl);
+                            var hSl = Math.max(4, Math.abs(yEnt - ySl));
+                            var gradSl = ctx.createLinearGradient(0, topSl, 0, topSl + hSl);
+                            gradSl.addColorStop(0, 'rgba(239, 68, 68, 0.24)');
+                            gradSl.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
+                            ctx.fillStyle = gradSl;
+                            ctx.fillRect(xBoxStart, topSl, tBoxW, hSl);
+
+                            ctx.strokeStyle = '#ef4444';
+                            ctx.lineWidth = 1.8;
+                            ctx.setLineDash([5, 4]);
+                            ctx.strokeRect(xBoxStart, topSl, tBoxW, hSl);
+                            ctx.setLineDash([]);
+
+                            ctx.fillStyle = '#dc2626';
+                            ctx.font = 'bold 11px sans-serif';
+                            var slTxt = 'Zona SL (' + tradeBox.sl.toFixed(dec) + ')';
+                            ctx.fillText(slTxt, xBoxStart + 8, topSl + 16);
+
+                            // --- LÍNEA DIVISORIA DE ENTRADA ---
+                            ctx.strokeStyle = tradeBox.isBuy ? '#16a34a' : '#dc2626';
+                            ctx.lineWidth = 2.2;
+                            ctx.setLineDash([3, 2]);
+                            ctx.beginPath();
+                            ctx.moveTo(xBoxStart, yEnt);
+                            ctx.lineTo(xBoxRight, yEnt);
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+
+                            ctx.fillStyle = tradeBox.isBuy ? '#15803d' : '#b91c1c';
+                            ctx.font = 'bold 10px sans-serif';
+                            ctx.fillText('Entrada: ' + tradeBox.entry.toFixed(dec), xBoxStart + 8, yEnt - 4);
+                        }
+
                     } finally {
                         ctx.restore();
                     }
@@ -750,48 +1210,165 @@
                 _breakoutChartInstance.destroy();
             }
 
-            _breakoutChartInstance = new Chart(canvas, {
-                type: 'line',
-                data: { datasets: datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(ctx) {
-                                    var pt = ctx.raw;
-                                    return 'Precio: ' + (pt ? pt.y : '');
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'minute',
-                                stepSize: 30,
-                                displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
+            var chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                layout: {
+                    padding: { top: 15, right: 10, bottom: 5, left: 10 }
+                },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function(items) {
+                                if (!items || items.length === 0) return '';
+                                var ts = items[0].parsed.x;
+                                var d = new Date(Number(ts));
+                                var y = d.getFullYear();
+                                var m = (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+                                var day = (d.getDate() < 10 ? '0' : '') + d.getDate();
+                                var hC = (d.getHours() < 10 ? '0' : '') + d.getHours();
+                                var minC = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+                                var dNy = new Date(d.getTime() + (60 * 60 * 1000));
+                                var hNy = (dNy.getHours() < 10 ? '0' : '') + dNy.getHours();
+                                var minNy = (dNy.getMinutes() < 10 ? '0' : '') + dNy.getMinutes();
+                                return day + '/' + m + '/' + y + '  ' + hC + ':' + minC + ' CDMX  |  ' + hNy + ':' + minNy + ' NY';
                             },
-                            grid: { color: 'rgba(0,0,0,0.04)' }
-                        },
-                        y: {
-                            position: 'right',
-                            grid: { color: 'rgba(0,0,0,0.06)' }
+                            label: function(ctx) {
+                                var pt = ctx.raw;
+                                if (!pt) return '';
+                                var o = pt.open !== undefined ? pt.open : pt.y;
+                                var h = pt.high !== undefined ? pt.high : pt.y;
+                                var l = pt.low !== undefined ? pt.low : pt.y;
+                                var c = pt.close !== undefined ? pt.close : pt.y;
+                                var vText = pt.volume ? (' | Vol: ' + Number(pt.volume).toLocaleString() + ' (' + (pt.volRatio >= 0.8 ? '🔥 Fuerte' : (pt.volRatio >= 0.5 ? '⚡ Moderado' : 'Normal')) + ')') : '';
+                                return 'O: ' + o + '  H: ' + h + '  L: ' + l + '  C: ' + c + vText;
+                            }
                         }
                     }
                 },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            stepSize: 15,
+                            displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
+                        },
+                        grid: { color: 'rgba(0,0,0,0.04)' },
+                        ticks: {
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 12,
+                            color: '#334155',
+                            font: { size: 10, weight: '700' },
+                            callback: function(val, index, ticks) {
+                                var tickObj = ticks[index];
+                                var ts = tickObj ? tickObj.value : val;
+                                if (!ts) return '';
+                                var d = new Date(Number(ts));
+                                if (isNaN(d.getTime())) return '';
+                                var hC = d.getHours();
+                                var mC = d.getMinutes();
+                                var strCdmx = (hC < 10 ? '0' : '') + hC + ':' + (mC < 10 ? '0' : '') + mC;
+                                var dNy = new Date(d.getTime() + (60 * 60 * 1000));
+                                var hNy = dNy.getHours();
+                                var mNy = dNy.getMinutes();
+                                var strNy = (hNy < 10 ? '0' : '') + hNy + ':' + (mNy < 10 ? '0' : '') + mNy;
+                                return [strCdmx + ' CDMX', strNy + ' NY'];
+                            }
+                        }
+                    },
+                    y: {
+                        position: 'right',
+                        grace: '5%',
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        ticks: {
+                            callback: function(val) {
+                                var actPair = document.querySelector("[id$='activeBreakoutPair']");
+                                var pName = actPair ? String(actPair.value || '').toUpperCase() : '';
+                                var dec = 5;
+                                if (pName.indexOf('JPY') !== -1) dec = 3;
+                                else if (pName.indexOf('BTC') !== -1 || pName.indexOf('ETH') !== -1 || pName.indexOf('XAU') !== -1 || pName.indexOf('SPX') !== -1) dec = 2;
+                                return Number(val).toFixed(dec);
+                            }
+                        }
+                    }
+                }
+            };
+
+            // Aplicar auto-zoom de sesión si está disponible y el usuario no ha solicitado ver todo
+            if (!_breakoutZoomResetByUser && zoomObj && zoomObj.startTsMs && zoomObj.endTsMs) {
+                chartOptions.scales.x.min = Number(zoomObj.startTsMs);
+                var effMaxX = Number(zoomObj.endTsMs);
+                if (pricePoints.length > 0) {
+                    var lastPtX = pricePoints[pricePoints.length - 1].x;
+                    if (lastPtX > effMaxX) {
+                        effMaxX = lastPtX + (15 * 60 * 1000);
+                    }
+                }
+                chartOptions.scales.x.max = effMaxX;
+
+                // Encuadrar el eje Y visible a las velas dentro de la ventana de sesión y los niveles del rango
+                var visMinY = Infinity;
+                var visMaxY = -Infinity;
+                for (var pIdx = 0; pIdx < pricePoints.length; pIdx++) {
+                    var ptItem = pricePoints[pIdx];
+                    if (ptItem.x >= chartOptions.scales.x.min && ptItem.x <= chartOptions.scales.x.max) {
+                        var lVal = (ptItem.low !== undefined && !isNaN(ptItem.low)) ? ptItem.low : ptItem.y;
+                        var hVal = (ptItem.high !== undefined && !isNaN(ptItem.high)) ? ptItem.high : ptItem.y;
+                        if (lVal < visMinY) visMinY = lVal;
+                        if (hVal > visMaxY) visMaxY = hVal;
+                    }
+                }
+                if (rangeObj && rangeObj.rangeHigh && rangeObj.rangeLow) {
+                    if (Number(rangeObj.rangeLow) < visMinY) visMinY = Number(rangeObj.rangeLow);
+                    if (Number(rangeObj.rangeHigh) > visMaxY) visMaxY = Number(rangeObj.rangeHigh);
+                }
+                if (tradeBox && tradeBox.tp && tradeBox.sl) {
+                    var minBox = Math.min(tradeBox.tp, tradeBox.sl, tradeBox.entry);
+                    var maxBox = Math.max(tradeBox.tp, tradeBox.sl, tradeBox.entry);
+                    if (minBox < visMinY) visMinY = minBox;
+                    if (maxBox > visMaxY) visMaxY = maxBox;
+                }
+                if (visMinY !== Infinity && visMaxY !== -Infinity && visMaxY > visMinY) {
+                    var yPad = (visMaxY - visMinY) * 0.12;
+                    chartOptions.scales.y.min = visMinY - yPad;
+                    chartOptions.scales.y.max = visMaxY + yPad;
+                }
+            }
+
+            _breakoutChartInstance = new Chart(canvas, {
+                type: 'line',
+                data: { datasets: datasets },
+                options: chartOptions,
                 plugins: [breakoutRangeDrawPlugin]
             });
+
+            updateBreakoutLiveTimestamp();
 
         } catch(e) {
             console.error('Error renderizando gráfica BREAKOUT:', e);
         }
     }
+
+    window.addEventListener('resize', function() {
+        syncBreakoutChartPlacement();
+        if (_breakoutChartInstance) {
+            _breakoutChartInstance.resize();
+        }
+    });
+
+    setTimeout(function() {
+        var actStratEl = document.querySelector("[id$='activeStrategyHidden']");
+        var actStrat = actStratEl ? actStratEl.value : '';
+        if (actStrat === 'BREAKOUT' || actStrat === 'BREAKOUTNY') {
+            syncBreakoutChartPlacement();
+            renderBreakoutChart();
+        }
+    }, 200);
     // ]]>
     </script>
 </ui:composition>

@@ -10557,6 +10557,7 @@ public class DashboardBean implements Serializable {
     private String breakoutRangeJson = "{}";
     private String breakoutZoomJson = "{}";
     private String breakoutActiveTradesJson = "[]";
+    private String breakoutSignalsJson = "[]";
     private ActiveCycleSummaryDto breakoutActiveCycleSummary = new ActiveCycleSummaryDto();
     private String breakoutActiveCycleSummaryJson = "{}";
 
@@ -10687,6 +10688,9 @@ public class DashboardBean implements Serializable {
 
     public String getBreakoutActiveTradesJson() { return breakoutActiveTradesJson != null ? breakoutActiveTradesJson : "[]"; }
     public void setBreakoutActiveTradesJson(String breakoutActiveTradesJson) { this.breakoutActiveTradesJson = breakoutActiveTradesJson; }
+
+    public String getBreakoutSignalsJson() { return breakoutSignalsJson != null ? breakoutSignalsJson : "[]"; }
+    public void setBreakoutSignalsJson(String breakoutSignalsJson) { this.breakoutSignalsJson = breakoutSignalsJson; }
 
     public ActiveCycleSummaryDto getBreakoutActiveCycleSummary() { return breakoutActiveCycleSummary; }
     public void setBreakoutActiveCycleSummary(ActiveCycleSummaryDto breakoutActiveCycleSummary) { this.breakoutActiveCycleSummary = breakoutActiveCycleSummary; }
@@ -10947,7 +10951,7 @@ public class DashboardBean implements Serializable {
             Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
                     : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : null);
             String encSym = java.net.URLEncoder.encode(this.selectedBreakoutPair, "UTF-8");
-            String url = String.format(java.util.Locale.US,
+            StringBuilder urlSb = new StringBuilder(String.format(java.util.Locale.US,
                     "%s/api/v1/breakout/analysis/%s?timeframe=%s&days=%d%s%s",
                     backendUrl,
                     encSym,
@@ -10955,7 +10959,20 @@ public class DashboardBean implements Serializable {
                     this.breakoutDaysBack != null ? this.breakoutDaysBack : 60,
                     effAccId != null ? ("&idCuenta=" + effAccId) : "",
                     this.breakoutMultiplicadorRiesgo != null ? ("&multiplicadorRiesgo=" + this.breakoutMultiplicadorRiesgo) : ""
-            );
+            ));
+            if (this.breakoutHoraInicio != null && !this.breakoutHoraInicio.trim().isEmpty()) {
+                urlSb.append("&horaInicio=").append(java.net.URLEncoder.encode(this.breakoutHoraInicio.trim(), "UTF-8"));
+            }
+            if (this.breakoutHoraFin != null && !this.breakoutHoraFin.trim().isEmpty()) {
+                urlSb.append("&horaFin=").append(java.net.URLEncoder.encode(this.breakoutHoraFin.trim(), "UTF-8"));
+            }
+            if (this.breakoutDuracionRangoMin != null && this.breakoutDuracionRangoMin > 0) {
+                urlSb.append("&duracionRangoMin=").append(this.breakoutDuracionRangoMin);
+            }
+            if (this.breakoutSesion != null && !this.breakoutSesion.trim().isEmpty()) {
+                urlSb.append("&sesion=").append(java.net.URLEncoder.encode(this.breakoutSesion.trim(), "UTF-8"));
+            }
+            String url = urlSb.toString();
             RestTemplate restTemplate = new RestTemplate();
             String resp = restTemplate.getForObject(url, String.class);
             if (resp != null && !resp.isEmpty()) {
@@ -10978,6 +10995,11 @@ public class DashboardBean implements Serializable {
                 JsonNode actTradesNode = root.path("activeTrades");
                 this.breakoutActiveTradesJson = (actTradesNode.isArray() && actTradesNode.size() > 0)
                         ? mapper.writeValueAsString(actTradesNode)
+                        : "[]";
+
+                JsonNode sigsNode = root.path("signals");
+                this.breakoutSignalsJson = (sigsNode.isArray() && sigsNode.size() > 0)
+                        ? mapper.writeValueAsString(sigsNode)
                         : "[]";
 
                 this.breakoutBtInitialCapital = root.path("initialCapital").asDouble(1000.0);
@@ -11284,31 +11306,64 @@ public class DashboardBean implements Serializable {
     }
 
     public void onBreakoutOperarToggle() {
+        onBreakoutOperarToggle(this.selectedUserBreakout);
+    }
+
+    public void onBreakoutOperarToggle(UserRatioDto targetDto) {
         if (isReadOnly()) return;
         try {
             Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
                     ? securityBean.getSelectedUserId()
                     : (securityBean != null ? securityBean.getIdUsuario() : 1);
-            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
-                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : 1);
+
+            Integer effAccId = this.selectedAccountId;
+            String symbol = this.selectedBreakoutPair;
+            Boolean operar = this.breakoutOperar;
+            Integer targetId = this.currentBreakoutId;
+
+            if (targetDto != null) {
+                targetId = targetDto.getId();
+                if (targetDto.getIdCuenta() != null) effAccId = targetDto.getIdCuenta();
+                if (targetDto.getNumerador() != null) symbol = targetDto.getNumerador();
+                operar = Boolean.TRUE.equals(targetDto.getOperar());
+                if (symbol != null && symbol.equalsIgnoreCase(this.selectedBreakoutPair)) {
+                    this.breakoutOperar = operar;
+                }
+            }
+
+            if (symbol == null || symbol.trim().isEmpty()) {
+                log.warn("⚠️ No se puede actualizar operar en BREAKOUT: símbolo no especificado.");
+                return;
+            }
 
             RestTemplate restTemplate = new RestTemplate();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
             java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            if (targetId != null) {
+                payload.put("id", targetId);
+            }
             payload.put("idUsuario", userId);
             payload.put("idCuenta", effAccId);
-            payload.put("symbol", this.selectedBreakoutPair);
-            payload.put("operar", this.breakoutOperar);
+            payload.put("symbol", symbol);
+            payload.put("operar", Boolean.TRUE.equals(operar));
 
             String url = backendUrl + "/api/v1/user-breakout/update-operar";
             org.springframework.http.HttpEntity<java.util.Map<String, Object>> req = new org.springframework.http.HttpEntity<>(payload, headers);
             restTemplate.postForEntity(url, req, String.class);
 
             loadUserBreakoutList();
+
+            String estado = Boolean.TRUE.equals(operar) ? "ACTIVADA" : "DESACTIVADA";
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Emisora " + estado, "La emisora " + symbol + " ha sido " + estado.toLowerCase() + " para generar órdenes en BREAKOUT."));
         } catch (Exception e) {
             log.error("Error actualizando operar en BREAKOUT: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Guardar", "No se pudo actualizar el estado de la emisora: " + e.getMessage()));
         }
     }
 

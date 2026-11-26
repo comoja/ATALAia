@@ -6759,6 +6759,7 @@ class UserBreakoutDelete(BaseModel):
 
 
 class UserBreakoutOperarUpdate(BaseModel):
+    id: Optional[int] = Field(None, description="ID del registro en userBREAKOUT opcional")
     idUsuario: int = Field(..., description="ID del usuario")
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     symbol: str = Field(..., description="Símbolo en userBREAKOUT")
@@ -9594,6 +9595,13 @@ def updateUserBreakoutOperar(payload: UserBreakoutOperarUpdate, db: Session = De
     Actualiza la bandera 'operar' en userBREAKOUT.
     """
     try:
+        if payload.id:
+            target = db.query(UserBreakout).filter(UserBreakout.id == payload.id).first()
+            if target:
+                target.operar = bool(payload.operar)
+                db.commit()
+                return {"status": "success", "message": f"Estado de operación actualizado para {target.symbol}"}
+
         clean = unquote(unquote(str(payload.symbol or ""))).strip().replace("/", "").upper()
         query = db.query(UserBreakout).filter(
             (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
@@ -9841,6 +9849,10 @@ async def getBreakoutAnalysis(
     days: int = 60,
     idCuenta: Optional[int] = None,
     multiplicadorRiesgo: Optional[float] = None,
+    horaInicio: Optional[str] = None,
+    duracionRangoMin: Optional[int] = None,
+    horaFin: Optional[str] = None,
+    sesion: Optional[str] = None,
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
@@ -9848,6 +9860,7 @@ async def getBreakoutAnalysis(
     zoom de horario de la sesión, señales de ruptura y métricas para BREAKOUT.
     """
     try:
+        import pytz
         from backend.services.microBreakout import (
             fetchBreakoutCandlesHistory,
             calculateBreakoutRangeAndSignals,
@@ -9919,6 +9932,16 @@ async def getBreakoutAnalysis(
 
             allocPct = round(baseRiesgo * multRiesgoVal, 2)
 
+        # Overrides directos desde query params si el usuario los modifica en vivo en la pantalla
+        if horaInicio and str(horaInicio).strip():
+            horaInicioVal = str(horaInicio).strip()
+        if horaFin and str(horaFin).strip():
+            horaFinVal = str(horaFin).strip()
+        if duracionRangoMin and int(duracionRangoMin) > 0:
+            durRangoVal = int(duracionRangoMin)
+        if sesion and str(sesion).strip():
+            sesionVal = str(sesion).strip()
+
         # 3. Calcular Rangos y Señales de Ruptura
         calcResult = await asyncio.to_thread(
             calculateBreakoutRangeAndSignals,
@@ -9937,12 +9960,20 @@ async def getBreakoutAnalysis(
         # 4. Formatear velas para la gráfica (últimas 250 velas)
         df_live = df.tail(250)
         historyList = []
+        localTz = pytz.timezone("America/Mexico_City")
         for idx, row in df_live.iterrows():
             ts_str = str(idx)
+            time_ms = None
             if hasattr(idx, "strftime"):
                 ts_str = idx.strftime("%Y-%m-%d %H:%M")
+            if hasattr(idx, "timestamp"):
+                if getattr(idx, "tzinfo", None) is None:
+                    time_ms = int(localTz.localize(idx).timestamp() * 1000)
+                else:
+                    time_ms = int(idx.timestamp() * 1000)
             historyList.append({
                 "datetime": ts_str,
+                "timeMs": time_ms,
                 "open": round(float(row["open"]), 5),
                 "high": round(float(row["high"]), 5),
                 "low": round(float(row["low"]), 5),

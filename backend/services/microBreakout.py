@@ -79,58 +79,10 @@ def fetchBreakoutCandlesHistory(
 ) -> pd.DataFrame:
     """
     Obtiene historial de velas en temporalidad intradiaria (5min por defecto)
-    desde la tabla candles o ConnectionPool.
+    desde la tabla candles unificada con velas recientes de 1min hasta el instante actual.
     """
-    db = SessionLocal()
-    try:
-        cleanSym = (symbol or "").replace("/", "").strip().upper()
-        sql = text("""
-            SELECT timestamp as datetime, open, high, low, close, volume
-            FROM candles
-            WHERE UPPER(REPLACE(symbol, '/', '')) = :sym
-              AND timeframe = :tf
-              AND timestamp >= DATE_SUB(NOW(), INTERVAL :days DAY)
-            ORDER BY timestamp ASC
-            LIMIT :lim
-        """)
-        rows = db.execute(sql, {
-            "sym": cleanSym,
-            "tf": timeframe,
-            "days": int(days),
-            "lim": int(limit)
-        }).fetchall()
-
-        if not rows:
-            # Fallback sin filtro de días
-            sqlFallback = text("""
-                SELECT timestamp as datetime, open, high, low, close, volume
-                FROM (
-                    SELECT timestamp, open, high, low, close, volume
-                    FROM candles
-                    WHERE UPPER(REPLACE(symbol, '/', '')) = :sym
-                      AND timeframe = :tf
-                    ORDER BY timestamp DESC
-                    LIMIT :lim
-                ) sub
-                ORDER BY timestamp ASC
-            """)
-            rows = db.execute(sqlFallback, {"sym": cleanSym, "tf": timeframe, "lim": int(limit)}).fetchall()
-
-        if not rows:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(rows, columns=["datetime", "open", "high", "low", "close", "volume"])
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df.set_index("datetime", inplace=True)
-        for col in ["open", "high", "low", "close", "volume"]:
-            df[col] = df[col].astype(float)
-        df = df[~df.index.duplicated(keep="last")]
-        return df
-    except Exception as e:
-        logger.error(f"Error en fetchBreakoutCandlesHistory para {symbol}: {e}")
-        return pd.DataFrame()
-    finally:
-        db.close()
+    from backend.services.microSniper import fetchSniperCandlesHistory
+    return fetchSniperCandlesHistory(symbol=symbol, timeframe=timeframe, days=days, limitBars=limit)
 
 
 def getAdaptiveConfigForBreakout(db, symbol: str) -> Dict[str, Any]:
@@ -221,20 +173,17 @@ def calculateBreakoutRangeAndSignals(
     # Asegurar orden cronológico
     df = df.sort_index()
 
-    # Timezones: convertimos velas a la zona horaria de referencia para la sesión
-    # NY -> America/New_York
-    # LONDRES -> Europe/London
-    refTzName = "America/New_York" if sesion.upper() in ["NY", "NEW YORK", "NUEVA YORK"] else "Europe/London"
-    refTz = pytz.timezone(refTzName)
+    # Zona horaria de referencia: la base de datos y la gráfica operan en America/Mexico_City.
+    # El usuario configura horaInicio y horaFin directamente en el horario visual de la gráfica.
+    localTz = pytz.timezone("America/Mexico_City")
 
-    # Localizar / convertir index si es naive
+    # Localizar / convertir index si es naive (las velas en BD están en America/Mexico_City)
     if df.index.tz is None:
-        # Asumimos que las velas en BD están en UTC
         df_tz = df.copy()
-        df_tz.index = df_tz.index.tz_localize("UTC").tz_convert(refTz)
+        df_tz.index = df_tz.index.tz_localize(localTz)
     else:
         df_tz = df.copy()
-        df_tz.index = df_tz.index.tz_convert(refTz)
+        df_tz.index = df_tz.index.tz_convert(localTz)
 
     # Indicadores técnicos en toda la serie
     closeVals = df_tz["close"].values
@@ -279,10 +228,10 @@ def calculateBreakoutRangeAndSignals(
         if len(df_day) < 3:
             continue
 
-        # Fechas límite del rango de apertura
-        startTs = refTz.localize(datetime.combine(day, dt_time(hIni, mIni)))
+        # Fechas límite del rango de apertura en horario local (CDMX) de la gráfica
+        startTs = localTz.localize(datetime.combine(day, dt_time(hIni, mIni)))
         endRangeTs = startTs + timedelta(minutes=durRange)
-        cutoffTs = refTz.localize(datetime.combine(day, dt_time(hFin, mFin)))
+        cutoffTs = localTz.localize(datetime.combine(day, dt_time(hFin, mFin)))
 
         # Zoom bounds: desde 45 min antes de la apertura hasta 60 min después del cutoff
         zoomStart = startTs - timedelta(minutes=45)
@@ -301,7 +250,7 @@ def calculateBreakoutRangeAndSignals(
 
         # Guardar como último rango evaluado
         statusRange = "RANGO DEFINIDO"
-        nowInRef = datetime.now(refTz)
+        nowInRef = datetime.now(localTz)
         if day == nowInRef.date():
             if nowInRef < endRangeTs:
                 statusRange = "FORMANDO RANGO DE APERTURA"
@@ -312,11 +261,14 @@ def calculateBreakoutRangeAndSignals(
 
         lastRangeInfo = {
             "session": sesion.upper(),
-            "timeZone": refTzName,
+            "timeZone": "America/Mexico_City",
             "sessionDate": str(day),
             "rangeStart": startTs.isoformat(),
             "rangeEnd": endRangeTs.isoformat(),
             "cutoffTime": cutoffTs.isoformat(),
+            "rangeStartMs": int(startTs.timestamp() * 1000),
+            "rangeEndMs": int(endRangeTs.timestamp() * 1000),
+            "cutoffTimeMs": int(cutoffTs.timestamp() * 1000),
             "rangeHigh": round(rangeHigh, 5),
             "rangeLow": round(rangeLow, 5),
             "rangeSizePips": round(rangeSize * pipMult, 1),
