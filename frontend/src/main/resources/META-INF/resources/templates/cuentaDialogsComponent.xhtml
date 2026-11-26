@@ -49,9 +49,12 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
                     <div>
                         <p:outputLabel for="ncCapital" value="Capital Inicial (USD)"
-                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #64748b; margin-bottom: 3px;" />
                         <p:inputNumber id="ncCapital" value="#{dashboardBean.nuevaCuentaCapital}" decimalPlaces="2"
-                            minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                            minValue="0.0" disabled="true" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%; background: #f1f5f9; color: #64748b; font-weight: 600;" />
+                        <small style="color: #0284c7; font-size: 0.75rem; display: block; margin-top: 3px; font-weight: 600;">
+                            <i class="pi pi-lock" style="font-size: 0.7rem;"></i> Se fondea mediante depósitos en Reportes
+                        </small>
                     </div>
                     <div>
                         <p:outputLabel for="ncGanancia" value="Ganancia Esperada (%)"
@@ -193,9 +196,12 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
                     <div>
                         <p:outputLabel for="ecCapital" value="Capital (USD)"
-                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #1e293b; margin-bottom: 3px;" />
+                            style="display: block; font-weight: 800; font-size: 0.90rem; color: #64748b; margin-bottom: 3px;" />
                         <p:inputNumber id="ecCapital" value="#{dashboardBean.editarCuentaCapital}" decimalPlaces="2"
-                            minValue="0.0" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%;" />
+                            minValue="0.0" disabled="true" inputStyleClass="aether-input" style="width: 60%;" inputStyle="width: 100%; background: #f1f5f9; color: #64748b; font-weight: 600;" />
+                        <small style="color: #0284c7; font-size: 0.75rem; display: block; margin-top: 3px; font-weight: 600;">
+                            <i class="pi pi-lock" style="font-size: 0.7rem;"></i> Se actualiza con depósitos en Reportes
+                        </small>
                     </div>
                     <div>
                         <p:outputLabel for="ecGanancia" value="Ganancia Esperada (%)"

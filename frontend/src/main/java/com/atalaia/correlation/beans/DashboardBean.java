@@ -422,6 +422,11 @@ public class DashboardBean implements Serializable {
         public void setTotalReturnPct(Double totalReturnPct) { this.totalReturnPct = totalReturnPct; }
         public Double getNetProfit() { return netProfit; }
         public void setNetProfit(Double netProfit) { this.netProfit = netProfit; }
+        public Double getNetPnl() { return getNetProfit(); }
+        public String getFormattedWinRate() {
+            return String.format(java.util.Locale.US, "%.1f", winRate != null ? winRate : 0.0);
+        }
+        public Double getMaxDrawdownPct() { return maxDrawdown != null ? maxDrawdown : 0.0; }
         public Double getInitialCapital() { return initialCapital; }
         public void setInitialCapital(Double initialCapital) { this.initialCapital = initialCapital; }
         public Double getFinalCapital() { return finalCapital; }
@@ -2169,7 +2174,7 @@ public class DashboardBean implements Serializable {
     private String nuevaCuentaNombre = "";
     private String nuevaCuentaCorreo = "";
     private Boolean nuevaCuentaActivo = true;
-    private Double nuevaCuentaCapital = 300.0;
+    private Double nuevaCuentaCapital = 0.0;
     private Double nuevaCuentaGanancia = 15.0;
     private Double nuevaCuentaRiesgo = 3.0;
     private Double nuevaCuentaComision = 0.0;
@@ -2283,7 +2288,7 @@ public class DashboardBean implements Serializable {
             payload.put("nombre", nuevaCuentaNombre.trim());
             payload.put("correo", nuevaCuentaCorreo != null && !nuevaCuentaCorreo.trim().isEmpty() ? nuevaCuentaCorreo.trim() : null);
             payload.put("activo", Boolean.TRUE.equals(nuevaCuentaActivo));
-            payload.put("capital", nuevaCuentaCapital != null ? nuevaCuentaCapital : 0.0);
+            payload.put("capital", 0.0); // Capital inicial siempre 0.0; se fondea con depósitos
             payload.put("ganancia", nuevaCuentaGanancia != null ? nuevaCuentaGanancia : 0.0);
             payload.put("riesgoPorOperacion", nuevaCuentaRiesgo != null ? nuevaCuentaRiesgo : 3.0);
             payload.put("comision", nuevaCuentaComision != null ? nuevaCuentaComision : 0.0);
@@ -2495,7 +2500,7 @@ public class DashboardBean implements Serializable {
             payload.put("nombre", editarCuentaNombre.trim());
             payload.put("correo", editarCuentaCorreo != null && !editarCuentaCorreo.trim().isEmpty() ? editarCuentaCorreo.trim() : null);
             payload.put("activo", Boolean.TRUE.equals(editarCuentaActivo));
-            payload.put("capital", editarCuentaCapital != null ? editarCuentaCapital : 0.0);
+            // El capital no es editable desde pantalla; se actualiza exclusivamente con depósitos y retiros en Reportes
             payload.put("ganancia", editarCuentaGanancia != null ? editarCuentaGanancia : 0.0);
             payload.put("riesgoPorOperacion", editarCuentaRiesgo != null ? editarCuentaRiesgo : 3.0);
             payload.put("comision", editarCuentaComision != null ? editarCuentaComision : 0.0);
@@ -3483,6 +3488,26 @@ public class DashboardBean implements Serializable {
             return pnlPct > 0 ? "#16a34a" : "#dc2626";
         }
 
+        // --- CAMPOS BREAKOUT (Ruptura de Rango Apertura) ---
+        private String sesion = "NY";
+        private Integer duracionRangoMin = 15;
+        private Boolean usarEma200 = true;
+        private Boolean usarImpulseMacd = true;
+        private Double cuerpoVelaMin = 0.60;
+
+        public String getSesion() { return sesion != null ? sesion : "NY"; }
+        public void setSesion(String sesion) { this.sesion = sesion; }
+        public Integer getDuracionRangoMin() { return duracionRangoMin != null ? duracionRangoMin : 15; }
+        public void setDuracionRangoMin(Integer duracionRangoMin) { this.duracionRangoMin = duracionRangoMin; }
+        public Boolean getUsarEma200() { return usarEma200 != null ? usarEma200 : true; }
+        public Boolean isUsarEma200() { return getUsarEma200(); }
+        public void setUsarEma200(Boolean usarEma200) { this.usarEma200 = usarEma200; }
+        public Boolean getUsarImpulseMacd() { return usarImpulseMacd != null ? usarImpulseMacd : true; }
+        public Boolean isUsarImpulseMacd() { return getUsarImpulseMacd(); }
+        public void setUsarImpulseMacd(Boolean usarImpulseMacd) { this.usarImpulseMacd = usarImpulseMacd; }
+        public Double getCuerpoVelaMin() { return cuerpoVelaMin != null ? cuerpoVelaMin : 0.60; }
+        public void setCuerpoVelaMin(Double cuerpoVelaMin) { this.cuerpoVelaMin = cuerpoVelaMin; }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -3495,6 +3520,56 @@ public class DashboardBean implements Serializable {
         public int hashCode() {
             return id != null ? id.hashCode() : 0;
         }
+    }
+
+    public static class BreakoutOptimizerDto implements java.io.Serializable {
+        private String symbol;
+        private String recommendation = "NEUTRAL";
+        private String recBadge = "badge-warning";
+        private String sesion = "NY";
+        private String horaInicio = "08:30";
+        private Integer duracionRangoMin = 15;
+        private String horaFin = "11:00";
+        private Double minRr = 1.0;
+        private Boolean usarEma200 = true;
+        private Double winRate = 0.0;
+        private Double profitFactor = 0.0;
+        private Double netProfit = 0.0;
+        private Double maxDrawdownPct = 0.0;
+        private Integer totalTrades = 0;
+        private Double score = 0.0;
+
+        public String getSymbol() { return symbol; }
+        public void setSymbol(String symbol) { this.symbol = symbol; }
+        public String getRecommendation() { return recommendation; }
+        public void setRecommendation(String recommendation) { this.recommendation = recommendation; }
+        public String getRecBadge() { return recBadge; }
+        public void setRecBadge(String recBadge) { this.recBadge = recBadge; }
+        public String getSesion() { return sesion; }
+        public void setSesion(String sesion) { this.sesion = sesion; }
+        public String getHoraInicio() { return horaInicio; }
+        public void setHoraInicio(String horaInicio) { this.horaInicio = horaInicio; }
+        public Integer getDuracionRangoMin() { return duracionRangoMin; }
+        public void setDuracionRangoMin(Integer duracionRangoMin) { this.duracionRangoMin = duracionRangoMin; }
+        public String getHoraFin() { return horaFin; }
+        public void setHoraFin(String horaFin) { this.horaFin = horaFin; }
+        public Double getMinRr() { return minRr; }
+        public void setMinRr(Double minRr) { this.minRr = minRr; }
+        public Boolean getUsarEma200() { return usarEma200; }
+        public void setUsarEma200(Boolean usarEma200) { this.usarEma200 = usarEma200; }
+        public Double getWinRate() { return winRate; }
+        public void setWinRate(Double winRate) { this.winRate = winRate; }
+        public Double getProfitFactor() { return profitFactor; }
+        public void setProfitFactor(Double profitFactor) { this.profitFactor = profitFactor; }
+        public Double getNetProfit() { return netProfit; }
+        public void setNetProfit(Double netProfit) { this.netProfit = netProfit; }
+        public Double getMaxDrawdownPct() { return maxDrawdownPct; }
+        public void setMaxDrawdownPct(Double maxDrawdownPct) { this.maxDrawdownPct = maxDrawdownPct; }
+        public Integer getTotalTrades() { return totalTrades; }
+        public void setTotalTrades(Integer totalTrades) { this.totalTrades = totalTrades; }
+        public Double getScore() { return score; }
+        public void setScore(Double score) { this.score = score; }
+        public boolean isRecomendada() { return "RECOMENDADA".equalsIgnoreCase(recommendation); }
     }
 
         private String activeAccordionIndex = "0";
@@ -4239,6 +4314,10 @@ public class DashboardBean implements Serializable {
     }
 
     public List<RatioSymbolDto> getAvailablePairs() {
+        return availablePairs;
+    }
+
+    public List<RatioSymbolDto> getSymbolsCatalog() {
         return availablePairs;
     }
 
@@ -7647,6 +7726,16 @@ public class DashboardBean implements Serializable {
             } else {
                 initSniperState();
             }
+        } else if ("BREAKOUT".equals(this.activeStrategy)) {
+            loadUserBreakoutList();
+            loadBreakoutActiveCycles();
+            if (this.selectedUserBreakout != null) {
+                onSelectUserBreakout(this.selectedUserBreakout);
+            } else if (this.userBreakoutList != null && !this.userBreakoutList.isEmpty()) {
+                onSelectUserBreakout(this.userBreakoutList.get(0));
+            } else {
+                initBreakoutState();
+            }
         }
     }
 
@@ -9063,23 +9152,15 @@ public class DashboardBean implements Serializable {
                         dto.setMultiplicadorRiesgo(item.path("multiplicadorRiesgo").asDouble(1.0));
                         dto.setOrigen(item.path("origen").asText("MANUAL"));
                         dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
-                        dto.setFechaRecomendacion(item.hasNonNull("fechaRecomendacion") ? item.path("fechaRecomendacion").asText(null) : null);
-                        dto.setCreatedAt(item.path("createdAt").asText(""));
-                        if (item.has("pnlPct") && !item.get("pnlPct").isNull()) dto.setPnlPct(item.get("pnlPct").asDouble());
-                        if (item.has("netProfit") && !item.get("netProfit").isNull()) dto.setNetProfit(item.get("netProfit").asDouble());
-                        if (item.has("openPnl") && !item.get("openPnl").isNull()) dto.setOpenPnl(item.get("openPnl").asDouble());
-                        if (item.has("closedTrades") && !item.get("closedTrades").isNull()) dto.setClosedTrades(item.get("closedTrades").asInt());
-                        if (item.has("openTrades") && !item.get("openTrades").isNull()) dto.setOpenTrades(item.get("openTrades").asInt());
-                        if (item.has("winningTrades") && !item.get("winningTrades").isNull()) dto.setWinningTrades(item.get("winningTrades").asInt());
-                        if (item.has("winRate") && !item.get("winRate").isNull()) dto.setWinRate(item.get("winRate").asDouble());
+                        dto.setFechaRecomendacion(item.path("fechaRecomendacion").asText(null));
                         list.add(dto);
                     }
                 }
             }
             this.userSniperList = list;
+            log.info("Cargados {} pares de SNIPER para el usuario {}", list.size(), userId);
         } catch (Exception e) {
-            log.error("Error cargando userSNIPER list: {}", e.getMessage());
-            this.userSniperList = new ArrayList<>();
+            log.error("Error cargando lista de pares SNIPER: {}", e.getMessage(), e);
         }
     }
 
@@ -10439,6 +10520,932 @@ public class DashboardBean implements Serializable {
                             javax.faces.application.FacesMessage.SEVERITY_ERROR,
                             "Error del Sistema",
                             ex.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // SECCIÓN ESTRATEGIA 4: BREAKOUT (Ruptura de Rango Apertura NY / Londres)
+    // =========================================================================
+
+    private int activeBreakoutTabIndex = 0;
+    private String activeBreakoutAccordionIndex = "0";
+    private List<UserRatioDto> userBreakoutList = new ArrayList<>();
+    private UserRatioDto selectedUserBreakout;
+    private Integer currentBreakoutId;
+    private boolean breakoutExistsInDb = false;
+    private boolean breakoutHasActiveTradesInDb = false;
+    private String selectedBreakoutPair = "EUR/USD";
+    private String breakoutTimeframe = "5min";
+    private Integer breakoutDaysBack = 60;
+    private String breakoutSesion = "NY";
+    private String breakoutHoraInicio = "08:30";
+    private Integer breakoutDuracionRangoMin = 15;
+    private String breakoutHoraFin = "11:00";
+    private Double breakoutMinRr = 1.0;
+    private Double breakoutMaxRr = 2.0;
+    private boolean breakoutOperar = true;
+    private String breakoutAccionCierre = "Continua";
+    private String breakoutTipoCierre = "Estructural";
+    private boolean breakoutUsarBreakEven = true;
+    private boolean breakoutUsarTSL = false;
+    private boolean breakoutUsarEma200 = true;
+    private boolean breakoutUsarImpulseMacd = true;
+    private Double breakoutCuerpoVelaMin = 0.60;
+    private Double breakoutMultiplicadorRiesgo = 1.0;
+
+    private String breakoutHistoryJson = "[]";
+    private String breakoutRangeJson = "{}";
+    private String breakoutZoomJson = "{}";
+    private String breakoutActiveTradesJson = "[]";
+    private ActiveCycleSummaryDto breakoutActiveCycleSummary = new ActiveCycleSummaryDto();
+    private String breakoutActiveCycleSummaryJson = "{}";
+
+    private String breakoutRealTradesJson = "[]";
+    private RealTradesSummaryDto breakoutRealTradesSummary = new RealTradesSummaryDto();
+    private String breakoutRealTradesEquityCurveJson = "[]";
+    private List<RealTradeItemDto> breakoutRealTradesList = new ArrayList<>();
+    private java.util.Date breakoutRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
+    private java.util.Date breakoutRealTradesEndDate = new java.util.Date();
+
+    private String breakoutBtHistoryJson = "[]";
+    private String breakoutBtTradesJson = "[]";
+    private String breakoutBtEquityCurveJson = "[]";
+    private List<SignalTradeDto> breakoutBtTradesList = new ArrayList<>();
+    private SignalBacktestMetricsDto breakoutBtMetrics = new SignalBacktestMetricsDto();
+    private String breakoutBtStartDate = "-";
+    private String breakoutBtEndDate = "-";
+    private Integer breakoutBtTotalBars = 0;
+    private Integer breakoutBtTotalDays = 0;
+    private Double breakoutBtInitialCapital = 1000.0;
+    private Double breakoutBtAllocationPct = 1.0;
+
+    private List<BreakoutOptimizerDto> breakoutOptimizerList = new ArrayList<>();
+
+    public int getActiveBreakoutTabIndex() { return activeBreakoutTabIndex; }
+    public void setActiveBreakoutTabIndex(int activeBreakoutTabIndex) { this.activeBreakoutTabIndex = activeBreakoutTabIndex; }
+
+    public String getActiveBreakoutAccordionIndex() { return activeBreakoutAccordionIndex; }
+    public void setActiveBreakoutAccordionIndex(String activeBreakoutAccordionIndex) { this.activeBreakoutAccordionIndex = activeBreakoutAccordionIndex; }
+
+    public void onBreakoutTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.tabview.TabView) {
+            org.primefaces.component.tabview.TabView tv = (org.primefaces.component.tabview.TabView) event.getComponent();
+            this.activeBreakoutTabIndex = tv.getActiveIndex();
+            if (this.activeBreakoutTabIndex == 3) {
+                loadBreakoutRealTradesMovimientos();
+            }
+        }
+    }
+
+    public void onBreakoutAccordionTabChange(org.primefaces.event.TabChangeEvent event) {
+        if (event != null && event.getComponent() instanceof org.primefaces.component.accordionpanel.AccordionPanel) {
+            org.primefaces.component.accordionpanel.AccordionPanel ap = (org.primefaces.component.accordionpanel.AccordionPanel) event.getComponent();
+            this.activeBreakoutAccordionIndex = ap.getActiveIndex();
+            if ("2".equals(this.activeBreakoutAccordionIndex)) {
+                loadBreakoutActiveCycles();
+            }
+        }
+    }
+
+    public List<UserRatioDto> getUserBreakoutList() { return userBreakoutList; }
+    public void setUserBreakoutList(List<UserRatioDto> userBreakoutList) { this.userBreakoutList = userBreakoutList; }
+
+    public UserRatioDto getSelectedUserBreakout() { return selectedUserBreakout; }
+    public void setSelectedUserBreakout(UserRatioDto selectedUserBreakout) { this.selectedUserBreakout = selectedUserBreakout; }
+
+    public Integer getCurrentBreakoutId() { return currentBreakoutId; }
+    public void setCurrentBreakoutId(Integer currentBreakoutId) { this.currentBreakoutId = currentBreakoutId; }
+
+    public boolean isBreakoutExistsInDb() { return breakoutExistsInDb; }
+    public void setBreakoutExistsInDb(boolean breakoutExistsInDb) { this.breakoutExistsInDb = breakoutExistsInDb; }
+
+    public boolean isBreakoutHasActiveTradesInDb() { return breakoutHasActiveTradesInDb; }
+    public void setBreakoutHasActiveTradesInDb(boolean breakoutHasActiveTradesInDb) { this.breakoutHasActiveTradesInDb = breakoutHasActiveTradesInDb; }
+
+    public String getSelectedBreakoutPair() { return selectedBreakoutPair != null ? selectedBreakoutPair : "EUR/USD"; }
+    public void setSelectedBreakoutPair(String selectedBreakoutPair) { this.selectedBreakoutPair = selectedBreakoutPair; }
+
+    public String getBreakoutTimeframe() { return breakoutTimeframe != null ? breakoutTimeframe : "5min"; }
+    public void setBreakoutTimeframe(String breakoutTimeframe) { this.breakoutTimeframe = breakoutTimeframe; }
+
+    public Integer getBreakoutDaysBack() { return breakoutDaysBack != null ? breakoutDaysBack : 60; }
+    public void setBreakoutDaysBack(Integer breakoutDaysBack) { this.breakoutDaysBack = breakoutDaysBack; }
+
+    public String getBreakoutSesion() { return breakoutSesion != null ? breakoutSesion : "NY"; }
+    public void setBreakoutSesion(String breakoutSesion) { this.breakoutSesion = breakoutSesion; }
+
+    public String getBreakoutHoraInicio() { return breakoutHoraInicio != null ? breakoutHoraInicio : "08:30"; }
+    public void setBreakoutHoraInicio(String breakoutHoraInicio) { this.breakoutHoraInicio = breakoutHoraInicio; }
+
+    public Integer getBreakoutDuracionRangoMin() { return breakoutDuracionRangoMin != null ? breakoutDuracionRangoMin : 15; }
+    public void setBreakoutDuracionRangoMin(Integer breakoutDuracionRangoMin) { this.breakoutDuracionRangoMin = breakoutDuracionRangoMin; }
+
+    public String getBreakoutHoraFin() { return breakoutHoraFin != null ? breakoutHoraFin : "11:00"; }
+    public void setBreakoutHoraFin(String breakoutHoraFin) { this.breakoutHoraFin = breakoutHoraFin; }
+
+    public Double getBreakoutMinRr() { return breakoutMinRr != null ? breakoutMinRr : 1.0; }
+    public void setBreakoutMinRr(Double breakoutMinRr) { this.breakoutMinRr = breakoutMinRr; }
+
+    public Double getBreakoutMaxRr() { return breakoutMaxRr != null ? breakoutMaxRr : 2.0; }
+    public void setBreakoutMaxRr(Double breakoutMaxRr) { this.breakoutMaxRr = breakoutMaxRr; }
+
+    public boolean isBreakoutOperar() { return breakoutOperar; }
+    public void setBreakoutOperar(boolean breakoutOperar) { this.breakoutOperar = breakoutOperar; }
+
+    public String getBreakoutAccionCierre() { return breakoutAccionCierre != null ? breakoutAccionCierre : "Continua"; }
+    public void setBreakoutAccionCierre(String breakoutAccionCierre) { this.breakoutAccionCierre = breakoutAccionCierre; }
+
+    public String getBreakoutTipoCierre() { return breakoutTipoCierre != null ? breakoutTipoCierre : "Estructural"; }
+    public void setBreakoutTipoCierre(String breakoutTipoCierre) { this.breakoutTipoCierre = breakoutTipoCierre; }
+
+    public boolean isBreakoutUsarBreakEven() { return breakoutUsarBreakEven; }
+    public void setBreakoutUsarBreakEven(boolean breakoutUsarBreakEven) { this.breakoutUsarBreakEven = breakoutUsarBreakEven; }
+
+    public boolean isBreakoutUsarTSL() { return breakoutUsarTSL; }
+    public void setBreakoutUsarTSL(boolean breakoutUsarTSL) { this.breakoutUsarTSL = breakoutUsarTSL; }
+
+    public boolean isBreakoutUsarEma200() { return breakoutUsarEma200; }
+    public void setBreakoutUsarEma200(boolean breakoutUsarEma200) { this.breakoutUsarEma200 = breakoutUsarEma200; }
+
+    public boolean isBreakoutUsarImpulseMacd() { return breakoutUsarImpulseMacd; }
+    public void setBreakoutUsarImpulseMacd(boolean breakoutUsarImpulseMacd) { this.breakoutUsarImpulseMacd = breakoutUsarImpulseMacd; }
+
+    public Double getBreakoutCuerpoVelaMin() { return breakoutCuerpoVelaMin != null ? breakoutCuerpoVelaMin : 0.60; }
+    public void setBreakoutCuerpoVelaMin(Double breakoutCuerpoVelaMin) { this.breakoutCuerpoVelaMin = breakoutCuerpoVelaMin; }
+
+    public Double getBreakoutMultiplicadorRiesgo() { return breakoutMultiplicadorRiesgo != null ? breakoutMultiplicadorRiesgo : 1.0; }
+    public void setBreakoutMultiplicadorRiesgo(Double breakoutMultiplicadorRiesgo) { this.breakoutMultiplicadorRiesgo = breakoutMultiplicadorRiesgo; }
+
+    public String getBreakoutHistoryJson() { return breakoutHistoryJson != null ? breakoutHistoryJson : "[]"; }
+    public void setBreakoutHistoryJson(String breakoutHistoryJson) { this.breakoutHistoryJson = breakoutHistoryJson; }
+
+    public String getBreakoutRangeJson() { return breakoutRangeJson != null ? breakoutRangeJson : "{}"; }
+    public void setBreakoutRangeJson(String breakoutRangeJson) { this.breakoutRangeJson = breakoutRangeJson; }
+
+    public String getBreakoutZoomJson() { return breakoutZoomJson != null ? breakoutZoomJson : "{}"; }
+    public void setBreakoutZoomJson(String breakoutZoomJson) { this.breakoutZoomJson = breakoutZoomJson; }
+
+    public String getBreakoutActiveTradesJson() { return breakoutActiveTradesJson != null ? breakoutActiveTradesJson : "[]"; }
+    public void setBreakoutActiveTradesJson(String breakoutActiveTradesJson) { this.breakoutActiveTradesJson = breakoutActiveTradesJson; }
+
+    public ActiveCycleSummaryDto getBreakoutActiveCycleSummary() { return breakoutActiveCycleSummary; }
+    public void setBreakoutActiveCycleSummary(ActiveCycleSummaryDto breakoutActiveCycleSummary) { this.breakoutActiveCycleSummary = breakoutActiveCycleSummary; }
+
+    public String getBreakoutActiveCycleSummaryJson() { return breakoutActiveCycleSummaryJson; }
+    public void setBreakoutActiveCycleSummaryJson(String breakoutActiveCycleSummaryJson) { this.breakoutActiveCycleSummaryJson = breakoutActiveCycleSummaryJson; }
+
+    public String getBreakoutRealTradesJson() { return breakoutRealTradesJson != null ? breakoutRealTradesJson : "[]"; }
+    public void setBreakoutRealTradesJson(String breakoutRealTradesJson) { this.breakoutRealTradesJson = breakoutRealTradesJson; }
+
+    public RealTradesSummaryDto getBreakoutRealTradesSummary() { return breakoutRealTradesSummary; }
+    public void setBreakoutRealTradesSummary(RealTradesSummaryDto breakoutRealTradesSummary) { this.breakoutRealTradesSummary = breakoutRealTradesSummary; }
+
+    public String getBreakoutRealTradesEquityCurveJson() { return breakoutRealTradesEquityCurveJson != null ? breakoutRealTradesEquityCurveJson : "[]"; }
+    public void setBreakoutRealTradesEquityCurveJson(String breakoutRealTradesEquityCurveJson) { this.breakoutRealTradesEquityCurveJson = breakoutRealTradesEquityCurveJson; }
+
+    public List<RealTradeItemDto> getBreakoutRealTradesList() { return breakoutRealTradesList; }
+    public void setBreakoutRealTradesList(List<RealTradeItemDto> breakoutRealTradesList) { this.breakoutRealTradesList = breakoutRealTradesList; }
+
+    public java.util.Date getBreakoutRealTradesStartDate() { return breakoutRealTradesStartDate; }
+    public void setBreakoutRealTradesStartDate(java.util.Date breakoutRealTradesStartDate) { this.breakoutRealTradesStartDate = breakoutRealTradesStartDate; }
+
+    public java.util.Date getBreakoutRealTradesEndDate() { return breakoutRealTradesEndDate; }
+    public void setBreakoutRealTradesEndDate(java.util.Date breakoutRealTradesEndDate) { this.breakoutRealTradesEndDate = breakoutRealTradesEndDate; }
+
+    public String getBreakoutBtHistoryJson() { return breakoutBtHistoryJson != null ? breakoutBtHistoryJson : "[]"; }
+    public void setBreakoutBtHistoryJson(String breakoutBtHistoryJson) { this.breakoutBtHistoryJson = breakoutBtHistoryJson; }
+
+    public String getBreakoutBtTradesJson() { return breakoutBtTradesJson != null ? breakoutBtTradesJson : "[]"; }
+    public void setBreakoutBtTradesJson(String breakoutBtTradesJson) { this.breakoutBtTradesJson = breakoutBtTradesJson; }
+
+    public String getBreakoutBtEquityCurveJson() { return breakoutBtEquityCurveJson != null ? breakoutBtEquityCurveJson : "[]"; }
+    public void setBreakoutBtEquityCurveJson(String breakoutBtEquityCurveJson) { this.breakoutBtEquityCurveJson = breakoutBtEquityCurveJson; }
+
+    public List<SignalTradeDto> getBreakoutBtTradesList() { return breakoutBtTradesList; }
+    public void setBreakoutBtTradesList(List<SignalTradeDto> breakoutBtTradesList) { this.breakoutBtTradesList = breakoutBtTradesList; }
+
+    public SignalBacktestMetricsDto getBreakoutBtMetrics() { return breakoutBtMetrics; }
+    public void setBreakoutBtMetrics(SignalBacktestMetricsDto breakoutBtMetrics) { this.breakoutBtMetrics = breakoutBtMetrics; }
+
+    public String getBreakoutBtStartDate() { return breakoutBtStartDate; }
+    public void setBreakoutBtStartDate(String breakoutBtStartDate) { this.breakoutBtStartDate = breakoutBtStartDate; }
+
+    public String getBreakoutBtEndDate() { return breakoutBtEndDate; }
+    public void setBreakoutBtEndDate(String breakoutBtEndDate) { this.breakoutBtEndDate = breakoutBtEndDate; }
+
+    public Integer getBreakoutBtTotalBars() { return breakoutBtTotalBars; }
+    public void setBreakoutBtTotalBars(Integer breakoutBtTotalBars) { this.breakoutBtTotalBars = breakoutBtTotalBars; }
+
+    public Integer getBreakoutBtTotalDays() { return breakoutBtTotalDays; }
+    public void setBreakoutBtTotalDays(Integer breakoutBtTotalDays) { this.breakoutBtTotalDays = breakoutBtTotalDays; }
+
+    public Double getBreakoutBtInitialCapital() { return breakoutBtInitialCapital; }
+    public void setBreakoutBtInitialCapital(Double breakoutBtInitialCapital) { this.breakoutBtInitialCapital = breakoutBtInitialCapital; }
+
+    public Double getBreakoutBtAllocationPct() { return breakoutBtAllocationPct; }
+    public void setBreakoutBtAllocationPct(Double breakoutBtAllocationPct) { this.breakoutBtAllocationPct = breakoutBtAllocationPct; }
+
+    public List<BreakoutOptimizerDto> getBreakoutOptimizerList() { return breakoutOptimizerList; }
+    public void setBreakoutOptimizerList(List<BreakoutOptimizerDto> breakoutOptimizerList) { this.breakoutOptimizerList = breakoutOptimizerList; }
+
+    public String getBreakoutCalibrationTabTitle() {
+        return (this.selectedBreakoutPair != null && !this.selectedBreakoutPair.trim().isEmpty())
+                ? "Calibración: " + this.selectedBreakoutPair
+                : "Calibración BREAKOUT";
+    }
+
+    public void initBreakoutState() {
+        try {
+            loadUserBreakoutList();
+            loadBreakoutActiveCycles();
+
+            if (this.userBreakoutList != null && !this.userBreakoutList.isEmpty()) {
+                onSelectUserBreakout(this.userBreakoutList.get(0));
+            } else {
+                if (this.selectedBreakoutPair == null || this.selectedBreakoutPair.trim().isEmpty()) {
+                    this.selectedBreakoutPair = "EUR/USD";
+                }
+                this.breakoutExistsInDb = false;
+                this.currentBreakoutId = null;
+                this.breakoutOperar = true;
+                analyzeBreakoutPair();
+                loadBreakoutRealTradesMovimientos();
+            }
+        } catch (Exception e) {
+            log.warn("Error inicializando estado de BREAKOUT: {}", e.getMessage());
+        }
+    }
+
+    public void loadUserBreakoutList() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            RestTemplate restTemplate = new RestTemplate();
+            ObjectMapper mapper = new ObjectMapper();
+            String url = backendUrl + "/api/v1/user-breakout/" + userId + (selectedAccountId != null ? "?idCuenta=" + selectedAccountId : "");
+            String responseStr = restTemplate.getForObject(url, String.class);
+            List<UserRatioDto> list = new ArrayList<>();
+            if (responseStr != null && !responseStr.isEmpty()) {
+                JsonNode rootNode = mapper.readTree(responseStr);
+                if (rootNode.isArray()) {
+                    for (JsonNode item : rootNode) {
+                        UserRatioDto dto = new UserRatioDto();
+                        dto.setId(item.path("id").asInt(0));
+                        dto.setIdUsuario(item.path("idUsuario").asInt(userId));
+                        dto.setIdCuenta(item.path("idCuenta").asInt(selectedAccountId != null ? selectedAccountId : 1));
+                        String sym = item.path("symbol").asText("EUR/USD");
+                        dto.setNumerador(sym);
+                        dto.setDenominador("");
+                        dto.setTemporalidad(item.path("Temporalidad").asText("5min"));
+                        dto.setPeriodo(item.path("periodo").asInt(180));
+                        dto.setSesion(item.path("sesion").asText("NY"));
+                        dto.setHoraInicio(item.path("horaInicio").asText("08:30"));
+                        dto.setDuracionRangoMin(item.path("duracionRangoMin").asInt(15));
+                        dto.setHoraFin(item.path("horaFin").asText("11:00"));
+                        dto.setMinRr(item.path("minRr").asDouble(1.0));
+                        dto.setMaxRr(item.path("maxRr").asDouble(2.0));
+                        dto.setOperar(item.path("operar").asBoolean(true));
+                        dto.setHasOpenTrades(item.path("hasOpenTrades").asBoolean(false));
+                        dto.setAccionCierre(item.path("accionCierre").asText("Continua"));
+                        dto.setTipoCierre(item.path("tipoCierre").asText("Estructural"));
+                        dto.setUsarBreakEven(item.path("usarBreakEven").asBoolean(true));
+                        dto.setUsarTSL(item.path("usarTSL").asBoolean(false));
+                        dto.setUsarEma200(item.path("usarEma200").asBoolean(true));
+                        dto.setUsarImpulseMacd(item.path("usarImpulseMacd").asBoolean(true));
+                        dto.setCuerpoVelaMin(item.path("cuerpoVelaMin").asDouble(0.60));
+                        dto.setMultiplicadorRiesgo(item.path("multiplicadorRiesgo").asDouble(1.0));
+                        dto.setOrigen(item.path("origen").asText("MANUAL"));
+                        dto.setEstadoRecomendacion(item.path("estadoRecomendacion").asText("MANUAL"));
+                        dto.setFechaRecomendacion(item.path("fechaRecomendacion").asText(null));
+                        dto.setPnlPct(item.path("pnlPct").asDouble(0.0));
+                        dto.setNetProfit(item.path("netProfit").asDouble(0.0));
+                        dto.setOpenPnl(item.path("openPnl").asDouble(0.0));
+                        dto.setClosedTrades(item.path("closedTrades").asInt(0));
+                        dto.setOpenTrades(item.path("openTrades").asInt(0));
+                        dto.setWinningTrades(item.path("winningTrades").asInt(0));
+                        dto.setWinRate(item.path("winRate").asDouble(0.0));
+                        list.add(dto);
+                    }
+                }
+            }
+            this.userBreakoutList = list;
+        } catch (Exception e) {
+            log.error("Error al cargar lista de userBREAKOUT: {}", e.getMessage(), e);
+        }
+    }
+
+    public void onBreakoutRowSelect(org.primefaces.event.SelectEvent<UserRatioDto> event) {
+        if (event != null && event.getObject() != null) {
+            onSelectUserBreakout(event.getObject());
+        }
+    }
+
+    public void onSelectUserBreakout(UserRatioDto dto) {
+        if (dto == null) return;
+        this.selectedUserBreakout = dto;
+        this.currentBreakoutId = dto.getId();
+        if (dto.getIdCuenta() != null) {
+            this.selectedAccountId = dto.getIdCuenta();
+        }
+        this.selectedBreakoutPair = dto.getNumerador();
+        this.breakoutTimeframe = dto.getTemporalidad() != null ? dto.getTemporalidad() : "5min";
+        this.breakoutDaysBack = dto.getPeriodo() != null ? dto.getPeriodo() : 180;
+        this.breakoutSesion = dto.getSesion() != null ? dto.getSesion() : "NY";
+        this.breakoutHoraInicio = dto.getHoraInicio() != null ? dto.getHoraInicio() : "08:30";
+        this.breakoutDuracionRangoMin = dto.getDuracionRangoMin() != null ? dto.getDuracionRangoMin() : 15;
+        this.breakoutHoraFin = dto.getHoraFin() != null ? dto.getHoraFin() : "11:00";
+        this.breakoutMinRr = dto.getMinRr() != null ? dto.getMinRr() : 1.0;
+        this.breakoutMaxRr = dto.getMaxRr() != null ? dto.getMaxRr() : 2.0;
+        this.breakoutOperar = Boolean.TRUE.equals(dto.getOperar());
+        this.breakoutAccionCierre = dto.getAccionCierre() != null ? dto.getAccionCierre() : "Continua";
+        this.breakoutTipoCierre = dto.getTipoCierre() != null ? dto.getTipoCierre() : "Estructural";
+        this.breakoutUsarBreakEven = dto.getUsarBreakEven() != null ? dto.getUsarBreakEven() : true;
+        this.breakoutUsarTSL = dto.getUsarTSL() != null ? dto.getUsarTSL() : false;
+        this.breakoutUsarEma200 = dto.getUsarEma200() != null ? dto.getUsarEma200() : true;
+        this.breakoutUsarImpulseMacd = dto.getUsarImpulseMacd() != null ? dto.getUsarImpulseMacd() : true;
+        this.breakoutCuerpoVelaMin = dto.getCuerpoVelaMin() != null ? dto.getCuerpoVelaMin() : 0.60;
+        this.breakoutMultiplicadorRiesgo = dto.getMultiplicadorRiesgo() != null ? dto.getMultiplicadorRiesgo() : 1.0;
+        this.breakoutExistsInDb = true;
+        this.breakoutHasActiveTradesInDb = Boolean.TRUE.equals(dto.getHasOpenTrades());
+        this.breakoutActiveTradesJson = "[]";
+        this.breakoutActiveCycleSummary = new ActiveCycleSummaryDto();
+
+        loadBreakoutActiveCycles();
+        analyzeBreakoutPair();
+        loadBreakoutRealTradesMovimientos();
+    }
+
+    public void onSelectUserBreakoutBySymbol(String symbol) {
+        if (symbol == null || symbol.trim().isEmpty()) return;
+        if (this.userBreakoutList != null) {
+            for (UserRatioDto u : this.userBreakoutList) {
+                if (symbol.equalsIgnoreCase(u.getNumerador())) {
+                    onSelectUserBreakout(u);
+                    return;
+                }
+            }
+        }
+        this.selectedBreakoutPair = symbol;
+        this.breakoutExistsInDb = false;
+        analyzeBreakoutPair();
+        loadBreakoutRealTradesMovimientos();
+    }
+
+    public void onBreakoutSymbolChange() {
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            String encSym = java.net.URLEncoder.encode(this.selectedBreakoutPair != null ? this.selectedBreakoutPair : "EUR/USD", "UTF-8");
+            String url = backendUrl + "/api/v1/user-breakout/buscar?symbol=" + encSym
+                    + (selectedAccountId != null ? "&idCuenta=" + selectedAccountId : "&idUsuario=" + userId);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(resp);
+                this.breakoutExistsInDb = true;
+                this.currentBreakoutId = node.has("id") ? node.path("id").asInt() : null;
+                this.breakoutTimeframe = node.path("Temporalidad").asText("5min");
+                this.breakoutDaysBack = node.path("periodo").asInt(180);
+                this.breakoutSesion = node.path("sesion").asText("NY");
+                this.breakoutHoraInicio = node.path("horaInicio").asText("08:30");
+                this.breakoutDuracionRangoMin = node.path("duracionRangoMin").asInt(15);
+                this.breakoutHoraFin = node.path("horaFin").asText("11:00");
+                this.breakoutMinRr = node.path("minRr").asDouble(1.0);
+                this.breakoutMaxRr = node.path("maxRr").asDouble(2.0);
+                this.breakoutOperar = node.path("operar").asBoolean(true);
+                this.breakoutAccionCierre = node.path("accionCierre").asText("Continua");
+                this.breakoutTipoCierre = node.path("tipoCierre").asText("Estructural");
+                this.breakoutUsarBreakEven = node.path("usarBreakEven").asBoolean(true);
+                this.breakoutUsarTSL = node.path("usarTSL").asBoolean(false);
+                this.breakoutUsarEma200 = node.path("usarEma200").asBoolean(true);
+                this.breakoutUsarImpulseMacd = node.path("usarImpulseMacd").asBoolean(true);
+                this.breakoutCuerpoVelaMin = node.path("cuerpoVelaMin").asDouble(0.60);
+                this.breakoutMultiplicadorRiesgo = node.path("multiplicadorRiesgo").asDouble(1.0);
+            } else {
+                this.breakoutExistsInDb = false;
+                this.currentBreakoutId = null;
+            }
+        } catch (Exception e) {
+            log.warn("Error en onBreakoutSymbolChange: {}", e.getMessage());
+            this.breakoutExistsInDb = false;
+            this.currentBreakoutId = null;
+        }
+        analyzeBreakoutPair();
+        loadBreakoutRealTradesMovimientos();
+    }
+
+    public void analyzeBreakoutPair() {
+        try {
+            if (this.selectedBreakoutPair == null || this.selectedBreakoutPair.trim().isEmpty()) {
+                this.selectedBreakoutPair = "EUR/USD";
+            }
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : null);
+            String encSym = java.net.URLEncoder.encode(this.selectedBreakoutPair, "UTF-8");
+            String url = String.format(java.util.Locale.US,
+                    "%s/api/v1/breakout/analysis/%s?timeframe=%s&days=%d%s%s",
+                    backendUrl,
+                    encSym,
+                    this.breakoutTimeframe != null ? this.breakoutTimeframe : "5min",
+                    this.breakoutDaysBack != null ? this.breakoutDaysBack : 60,
+                    effAccId != null ? ("&idCuenta=" + effAccId) : "",
+                    this.breakoutMultiplicadorRiesgo != null ? ("&multiplicadorRiesgo=" + this.breakoutMultiplicadorRiesgo) : ""
+            );
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+
+                JsonNode hist = root.path("history");
+                this.breakoutHistoryJson = hist.isArray() ? mapper.writeValueAsString(hist) : "[]";
+
+                JsonNode crNode = root.path("currentRange");
+                this.breakoutRangeJson = (crNode != null && !crNode.isMissingNode() && !crNode.isNull())
+                        ? mapper.writeValueAsString(crNode)
+                        : "{}";
+
+                JsonNode szNode = root.path("sessionZoom");
+                this.breakoutZoomJson = (szNode != null && !szNode.isMissingNode() && !szNode.isNull())
+                        ? mapper.writeValueAsString(szNode)
+                        : "{}";
+
+                JsonNode actTradesNode = root.path("activeTrades");
+                this.breakoutActiveTradesJson = (actTradesNode.isArray() && actTradesNode.size() > 0)
+                        ? mapper.writeValueAsString(actTradesNode)
+                        : "[]";
+
+                this.breakoutBtInitialCapital = root.path("initialCapital").asDouble(1000.0);
+                this.breakoutBtAllocationPct = root.path("allocationPct").asDouble(1.0);
+
+                JsonNode bt = root.path("backtest");
+                if (!bt.isMissingNode() && !bt.isNull()) {
+                    this.breakoutBtTotalBars = bt.path("totalBars").asInt(0);
+                    this.breakoutBtTotalDays = bt.path("totalDays").asInt(0);
+
+                    JsonNode btEq = bt.path("equityCurve");
+                    this.breakoutBtEquityCurveJson = btEq.isArray() ? mapper.writeValueAsString(btEq) : "[]";
+
+                    JsonNode btTrades = bt.path("trades");
+                    this.breakoutBtTradesJson = btTrades.isArray() ? mapper.writeValueAsString(btTrades) : "[]";
+
+                    List<SignalTradeDto> tList = new ArrayList<>();
+                    if (btTrades.isArray()) {
+                        for (JsonNode tn : btTrades) {
+                            SignalTradeDto st = new SignalTradeDto();
+                            st.setSignalType("BREAKOUT");
+                            st.setDirection(tn.path("direction").asText(""));
+                            st.setEntryDate(tn.path("openTime").asText("-"));
+                            st.setExitDate(tn.path("closeTime").asText("-"));
+                            st.setEntryPriceA(tn.path("entryPrice").asDouble(0.0));
+                            st.setExitPriceA(tn.path("exitPrice").asDouble(0.0));
+                            st.setPipsA(tn.path("pnlPips").asDouble(0.0));
+                            st.setIsWin(tn.path("isWin").asBoolean(true));
+                            st.setExitReason(tn.path("exitReason").asText(""));
+                            tList.add(st);
+                        }
+                    }
+                    this.breakoutBtTradesList = tList;
+
+                    JsonNode mNode = bt.path("metrics");
+                    SignalBacktestMetricsDto m = new SignalBacktestMetricsDto();
+                    m.setTotalTrades(mNode.path("totalTrades").asInt(0));
+                    m.setWinningTrades(mNode.path("winningTrades").asInt(0));
+                    m.setLosingTrades(mNode.path("losingTrades").asInt(0));
+                    m.setWinRate(mNode.path("winRate").asDouble(0.0));
+                    m.setProfitFactor(mNode.path("profitFactor").asDouble(0.0));
+                    m.setNetProfit(mNode.path("netProfit").asDouble(0.0));
+                    m.setMaxDrawdown(mNode.path("maxDrawdownPct").asDouble(0.0));
+                    m.setFinalCapital(mNode.path("finalBalance").asDouble(1000.0));
+                    this.breakoutBtMetrics = m;
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error al analizar par BREAKOUT {}: {}", this.selectedBreakoutPair, e.getMessage(), e);
+        }
+    }
+
+    public void optimizarBreakoutPair() {
+        if (isReadOnly()) {
+            return;
+        }
+        try {
+            if (this.selectedBreakoutPair == null || this.selectedBreakoutPair.trim().isEmpty()) {
+                this.selectedBreakoutPair = "EUR/USD";
+            }
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : null);
+            String encSym = java.net.URLEncoder.encode(this.selectedBreakoutPair, "UTF-8");
+            String url = String.format(java.util.Locale.US,
+                    "%s/api/v1/breakout/optimize/%s%s",
+                    backendUrl,
+                    encSym,
+                    effAccId != null ? ("?idCuenta=" + effAccId) : ""
+            );
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>("{}", headers);
+
+            org.springframework.http.ResponseEntity<String> respEntity = restTemplate.postForEntity(url, entity, String.class);
+            String resp = respEntity.getBody();
+
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode opt = root.path("optimal");
+                String rec = root.path("recommendation").asText("NEUTRAL");
+
+                if (!opt.isMissingNode() && !opt.isNull()) {
+                    if (opt.has("sesion")) this.breakoutSesion = opt.path("sesion").asText("NY");
+                    if (opt.has("horaInicio")) this.breakoutHoraInicio = opt.path("horaInicio").asText("08:30");
+                    if (opt.has("duracionRangoMin")) this.breakoutDuracionRangoMin = opt.path("duracionRangoMin").asInt(15);
+                    if (opt.has("horaFin")) this.breakoutHoraFin = opt.path("horaFin").asText("11:00");
+                    if (opt.has("minRr")) this.breakoutMinRr = opt.path("minRr").asDouble(1.0);
+                    if (opt.has("usarEma200")) this.breakoutUsarEma200 = opt.path("usarEma200").asBoolean(true);
+
+                    loadUserBreakoutList();
+                    analyzeBreakoutPair();
+
+                    JsonNode m = root.path("metrics");
+                    double wr = m.path("winRate").asDouble(0.0);
+                    double pf = m.path("profitFactor").asDouble(0.0);
+                    double pnl = m.path("netProfit").asDouble(0.0);
+
+                    String msgDetail = String.format(java.util.Locale.US,
+                            "Sesión: %s (%s-%s) | R:R: %.1f:1 | WinRate: %.1f%% | PF: %.2f | PnL: $%.2f USD | Dictamen: %s",
+                            this.breakoutSesion, this.breakoutHoraInicio, this.breakoutHoraFin,
+                            this.breakoutMinRr, wr, pf, pnl, rec);
+
+                    javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                            new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                                    "Auto-Calibración BREAKOUT Exitosa", msgDetail));
+                    return;
+                }
+            }
+            analyzeBreakoutPair();
+        } catch (Exception e) {
+            log.error("Error en optimizarBreakoutPair: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Calibrar BREAKOUT", e.getMessage()));
+        }
+    }
+
+    public void optimizarTodosBreakout() {
+        if (isReadOnly()) return;
+        try {
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : null);
+            String url = backendUrl + "/api/v1/breakout/optimize-all" + (effAccId != null ? "?idCuenta=" + effAccId : "");
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>("{}", headers);
+
+            org.springframework.http.ResponseEntity<String> respEntity = restTemplate.postForEntity(url, entity, String.class);
+            String resp = respEntity.getBody();
+
+            List<BreakoutOptimizerDto> list = new ArrayList<>();
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode recs = root.path("recommendations");
+                if (recs.isArray()) {
+                    for (JsonNode rn : recs) {
+                        BreakoutOptimizerDto item = new BreakoutOptimizerDto();
+                        item.setSymbol(rn.path("symbol").asText());
+                        item.setRecommendation(rn.path("recommendation").asText("NEUTRAL"));
+                        item.setRecBadge(rn.path("recBadge").asText("badge-warning"));
+
+                        JsonNode opt = rn.path("optimal");
+                        if (!opt.isMissingNode() && !opt.isNull()) {
+                            item.setSesion(opt.path("sesion").asText("NY"));
+                            item.setHoraInicio(opt.path("horaInicio").asText("08:30"));
+                            item.setDuracionRangoMin(opt.path("duracionRangoMin").asInt(15));
+                            item.setHoraFin(opt.path("horaFin").asText("11:00"));
+                            item.setMinRr(opt.path("minRr").asDouble(1.0));
+                            item.setUsarEma200(opt.path("usarEma200").asBoolean(true));
+                            item.setScore(opt.path("score").asDouble(0.0));
+                        }
+
+                        JsonNode m = rn.path("metrics");
+                        if (!m.isMissingNode() && !m.isNull()) {
+                            item.setWinRate(m.path("winRate").asDouble(0.0));
+                            item.setProfitFactor(m.path("profitFactor").asDouble(0.0));
+                            item.setNetProfit(m.path("netProfit").asDouble(0.0));
+                            item.setMaxDrawdownPct(m.path("maxDrawdownPct").asDouble(0.0));
+                            item.setTotalTrades(m.path("totalTrades").asInt(0));
+                        }
+                        list.add(item);
+                    }
+                }
+            }
+            this.breakoutOptimizerList = list;
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Optimización de Universo BREAKOUT Finalizada",
+                            "Se han evaluado y rankeado " + list.size() + " emisoras con recomendaciones institucionales."));
+        } catch (Exception e) {
+            log.error("Error en optimizarTodosBreakout: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Optimizar Universo BREAKOUT", e.getMessage()));
+        }
+    }
+
+    public void aplicarRecomendacionBreakout(BreakoutOptimizerDto opt) {
+        if (opt == null || isReadOnly()) return;
+        try {
+            this.selectedBreakoutPair = opt.getSymbol();
+            this.breakoutSesion = opt.getSesion();
+            this.breakoutHoraInicio = opt.getHoraInicio();
+            this.breakoutDuracionRangoMin = opt.getDuracionRangoMin();
+            this.breakoutHoraFin = opt.getHoraFin();
+            this.breakoutMinRr = opt.getMinRr();
+            this.breakoutUsarEma200 = opt.getUsarEma200();
+
+            guardarBreakout();
+            analyzeBreakoutPair();
+
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Recomendación BREAKOUT Aplicada",
+                            "Se configuró y guardó " + opt.getSymbol() + " con los parámetros óptimos recomendados."));
+        } catch (Exception e) {
+            log.error("Error al aplicar recomendación BREAKOUT: {}", e.getMessage(), e);
+        }
+    }
+
+    public void guardarBreakout() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            if (userId == null) userId = 1;
+
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : 1);
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", effAccId);
+            payload.put("symbol", this.selectedBreakoutPair);
+            payload.put("Temporalidad", this.breakoutTimeframe);
+            payload.put("periodo", this.breakoutDaysBack);
+            payload.put("sesion", this.breakoutSesion);
+            payload.put("horaInicio", this.breakoutHoraInicio);
+            payload.put("duracionRangoMin", this.breakoutDuracionRangoMin);
+            payload.put("horaFin", this.breakoutHoraFin);
+            payload.put("minRr", this.breakoutMinRr);
+            payload.put("maxRr", this.breakoutMaxRr);
+            payload.put("operar", this.breakoutOperar);
+            payload.put("accionCierre", this.breakoutAccionCierre);
+            payload.put("tipoCierre", this.breakoutTipoCierre);
+            payload.put("usarBreakEven", this.breakoutUsarBreakEven);
+            payload.put("usarTSL", this.breakoutUsarTSL);
+            payload.put("usarEma200", this.breakoutUsarEma200);
+            payload.put("usarImpulseMacd", this.breakoutUsarImpulseMacd);
+            payload.put("cuerpoVelaMin", this.breakoutCuerpoVelaMin);
+            payload.put("multiplicadorRiesgo", this.breakoutMultiplicadorRiesgo);
+
+            String url = backendUrl + "/api/v1/user-breakout/guardar";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> req = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(url, req, String.class);
+
+            this.breakoutExistsInDb = true;
+            loadUserBreakoutList();
+            analyzeBreakoutPair();
+
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Par BREAKOUT Guardado", "Configuración guardada exitosamente para " + this.selectedBreakoutPair));
+        } catch (Exception e) {
+            log.error("Error al guardar par BREAKOUT: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Guardar Par BREAKOUT", e.getMessage()));
+        }
+    }
+
+    public void borrarBreakout() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : 1);
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", effAccId);
+            payload.put("symbol", this.selectedBreakoutPair);
+            if (this.currentBreakoutId != null) {
+                payload.put("id", this.currentBreakoutId);
+            }
+
+            String url = backendUrl + "/api/v1/user-breakout/borrar";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> req = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(url, req, String.class);
+
+            this.breakoutExistsInDb = false;
+            this.currentBreakoutId = null;
+            loadUserBreakoutList();
+            if (this.userBreakoutList != null && !this.userBreakoutList.isEmpty()) {
+                onSelectUserBreakout(this.userBreakoutList.get(0));
+            } else {
+                analyzeBreakoutPair();
+            }
+
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Par BREAKOUT Eliminado", "Se removió " + this.selectedBreakoutPair + " de la estrategia BREAKOUT"));
+        } catch (Exception e) {
+            log.error("Error al borrar par BREAKOUT: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Eliminar Par BREAKOUT", e.getMessage()));
+        }
+    }
+
+    public void onBreakoutOperarToggle() {
+        if (isReadOnly()) return;
+        try {
+            Integer userId = (securityBean != null && securityBean.getSelectedUserId() != null)
+                    ? securityBean.getSelectedUserId()
+                    : (securityBean != null ? securityBean.getIdUsuario() : 1);
+            Integer effAccId = this.selectedAccountId != null ? this.selectedAccountId
+                    : (this.selectedUserBreakout != null ? this.selectedUserBreakout.getIdCuenta() : 1);
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("idUsuario", userId);
+            payload.put("idCuenta", effAccId);
+            payload.put("symbol", this.selectedBreakoutPair);
+            payload.put("operar", this.breakoutOperar);
+
+            String url = backendUrl + "/api/v1/user-breakout/update-operar";
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> req = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(url, req, String.class);
+
+            loadUserBreakoutList();
+        } catch (Exception e) {
+            log.error("Error actualizando operar en BREAKOUT: {}", e.getMessage(), e);
+        }
+    }
+
+    public void loadBreakoutActiveCycles() {
+        try {
+            if (this.selectedAccountId == null) return;
+            String url = backendUrl + "/api/v1/trades/active-summary-breakout/" + this.selectedAccountId;
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            this.breakoutActiveTradesJson = (resp != null && !resp.trim().isEmpty() && !"null".equalsIgnoreCase(resp.trim()))
+                    ? resp
+                    : "[]";
+        } catch (Exception e) {
+            log.warn("Error cargando posiciones activas de BREAKOUT: {}", e.getMessage());
+            this.breakoutActiveTradesJson = "[]";
+        }
+    }
+
+    public void cerrarPosicionBreakout(String symbol) {
+        if (isReadOnly()) return;
+        try {
+            if (this.selectedAccountId == null) return;
+            String targetSymbol = (symbol != null && !symbol.trim().isEmpty()) ? symbol : this.selectedBreakoutPair;
+            String url = backendUrl + "/api/v1/trades/close-breakout/" + this.selectedAccountId;
+
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+            java.util.Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("symbol", targetSymbol);
+            org.springframework.http.HttpEntity<java.util.Map<String, Object>> req = new org.springframework.http.HttpEntity<>(payload, headers);
+            restTemplate.postForEntity(url, req, String.class);
+
+            this.breakoutOperar = false;
+            loadUserBreakoutList();
+            loadBreakoutActiveCycles();
+            analyzeBreakoutPair();
+
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_INFO,
+                            "Posición BREAKOUT Cerrada", "Se ha cerrado la posición en mercado para " + targetSymbol));
+        } catch (Exception e) {
+            log.error("Error cerrando posición BREAKOUT: {}", e.getMessage(), e);
+            javax.faces.context.FacesContext.getCurrentInstance().addMessage(null,
+                    new javax.faces.application.FacesMessage(javax.faces.application.FacesMessage.SEVERITY_ERROR,
+                            "Error al Cerrar Posición BREAKOUT", e.getMessage()));
+        }
+    }
+
+    public void loadBreakoutRealTradesMovimientos() {
+        try {
+            if (this.selectedBreakoutPair == null || this.selectedBreakoutPair.trim().isEmpty()) {
+                this.selectedBreakoutPair = "EUR/USD";
+            }
+            if (this.breakoutRealTradesStartDate == null) {
+                this.breakoutRealTradesStartDate = new java.util.Date(System.currentTimeMillis() - 7L * 24 * 3600 * 1000);
+            }
+            if (this.breakoutRealTradesEndDate == null) {
+                this.breakoutRealTradesEndDate = new java.util.Date();
+            }
+            String encSym = java.net.URLEncoder.encode(this.selectedBreakoutPair, "UTF-8");
+            String encStrat = java.net.URLEncoder.encode("BREAKOUT", "UTF-8");
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+            String startParam = (this.breakoutRealTradesStartDate != null) ? ("&startDate=" + sdf.format(this.breakoutRealTradesStartDate)) : "";
+            String endParam = (this.breakoutRealTradesEndDate != null) ? ("&endDate=" + sdf.format(this.breakoutRealTradesEndDate)) : "";
+            String accParam = (this.selectedAccountId != null) ? ("&idCuenta=" + this.selectedAccountId) : "";
+
+            String url = String.format("%s/api/v1/trades/movimientos/%s?pairB=%s&strategy=%s%s%s%s",
+                    backendUrl, encSym, encSym, encStrat, accParam, startParam, endParam);
+            RestTemplate restTemplate = new RestTemplate();
+            String resp = restTemplate.getForObject(url, String.class);
+            if (resp != null && !resp.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(resp);
+                JsonNode sNode = root.path("summary");
+                RealTradesSummaryDto sum = new RealTradesSummaryDto();
+                sum.setTotalTrades(sNode.path("totalTrades").asInt(0));
+                sum.setOpenTrades(sNode.path("openTrades").asInt(0));
+                sum.setClosedTrades(sNode.path("closedTrades").asInt(0));
+                sum.setWinningTrades(sNode.path("winningTrades").asInt(0));
+                sum.setLosingTrades(sNode.path("losingTrades").asInt(0));
+                sum.setWinRate(sNode.path("winRate").asDouble(0.0));
+                sum.setProfitFactor(sNode.path("profitFactor").asDouble(0.0));
+                sum.setTotalPnl(sNode.path("totalPnl").asDouble(0.0));
+                sum.setTotalCommission(sNode.path("totalCommission").asDouble(0.0));
+                sum.setNetProfit(sNode.path("netProfit").asDouble(0.0));
+                sum.setTotalReturnPct(sNode.path("totalReturnPct").asDouble(0.0));
+                sum.setInitialCapital(sNode.path("initialCapital").asDouble(1000.0));
+                sum.setCurrentCapital(sNode.path("currentCapital").asDouble(1000.0));
+                sum.setTotalMarginUsed(sNode.path("totalMarginUsed").asDouble(0.0));
+                sum.setAccountName(sNode.path("accountName").asText(""));
+                sum.setTotalCycles(sNode.path("totalCycles").asInt(0));
+                sum.setStartDate(sNode.path("startDate").asText("-"));
+                sum.setEndDate(sNode.path("endDate").asText("-"));
+                sum.setTotalDays(sNode.path("totalDays").asInt(0));
+                sum.setAvgCycleHours(sNode.path("avgCycleHours").asDouble(0.0));
+                sum.setAvgCycleDays(sNode.path("avgCycleDays").asDouble(0.0));
+                sum.setRatioTimeframe(sNode.path("ratioTimeframe").asText(this.breakoutTimeframe));
+                sum.setRatioOperar(sNode.path("ratioOperar").asBoolean(this.breakoutOperar));
+                this.breakoutRealTradesSummary = sum;
+
+                JsonNode eqNode = root.path("equityCurve");
+                this.breakoutRealTradesEquityCurveJson = eqNode.isArray() ? mapper.writeValueAsString(eqNode) : "[]";
+
+                List<RealTradeItemDto> items = new ArrayList<>();
+                JsonNode tArr = root.path("trades");
+                this.breakoutRealTradesJson = (tArr != null && tArr.isArray()) ? mapper.writeValueAsString(tArr) : "[]";
+                int realEntryCounter = 1;
+                double totalRealSize = 0.0;
+                if (tArr != null && tArr.isArray()) {
+                    for (JsonNode tn : tArr) {
+                        RealTradeItemDto item = new RealTradeItemDto();
+                        item.setTradeNum(realEntryCounter++);
+                        item.setIdTrade(tn.path("idTrade").asInt(0));
+                        item.setTicketId(tn.path("ticketId").asText("-"));
+                        item.setSymbol(tn.path("symbol").asText(this.selectedBreakoutPair));
+                        item.setDirection(tn.path("direction").asText(""));
+                        double sz = tn.path("size").asDouble(0.0);
+                        item.setSize(sz);
+                        totalRealSize += sz;
+                        item.setEntryPrice(tn.path("entryPrice").asDouble(0.0));
+                        item.setExitPrice(tn.path("exitPrice").asDouble(0.0));
+                        item.setOpenTime(tn.path("openTime").asText("-"));
+                        item.setCloseTime(tn.path("closeTime").asText("-"));
+                        item.setPnl(tn.path("pnl").asDouble(0.0));
+                        item.setNetPnl(tn.path("netPnl").asDouble(0.0));
+                        item.setCommission(tn.path("commission").asDouble(0.0));
+                        item.setStatus(tn.path("status").asText("CLOSED"));
+                        item.setWin(tn.path("isWin").asBoolean(item.getNetPnl() >= 0));
+                        items.add(item);
+                    }
+                }
+                this.breakoutRealTradesList = items;
+            }
+        } catch (Exception e) {
+            log.error("Error en loadBreakoutRealTradesMovimientos: {}", e.getMessage(), e);
         }
     }
 

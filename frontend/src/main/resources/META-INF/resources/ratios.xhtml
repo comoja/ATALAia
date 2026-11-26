@@ -47,7 +47,7 @@
 
     <!-- CONTENEDOR ESTRATEGIA 1: RATIOS (3 Pestañas: Ratio, BackTest, Hechos) -->
     <div id="strategyRatiosWrapper"
-        style="display: #{dashboardBean.activeStrategy eq 'CART' ? 'none' : 'flex'}; flex-direction: column; flex: 1; min-height: 0; position: relative;">
+        style="display: #{dashboardBean.activeStrategy eq 'RATIOS' or empty dashboardBean.activeStrategy ? 'flex' : 'none'}; flex-direction: column; flex: 1; min-height: 0; position: relative;">
 
         <p:tabView id="mainTabView" widgetVar="mainTabViewWidget" activeIndex="#{dashboardBean.activeMainTabIndex}"
             onTabShow="handleMainTabShow(index);">

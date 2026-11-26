@@ -263,6 +263,41 @@ class UserSniper(Base):
     estadoRecomendacion = Column(String(20), default="MANUAL", nullable=False)
     fechaRecomendacion = Column(DateTime, nullable=True)
 
+class UserBreakout(Base):
+    """
+    Tabla de relación entre usuario, cuenta y pares guardados para la estrategia BREAKOUT
+    (Ruptura de Rango Apertura NY / Londres).
+    """
+    __tablename__ = "userBREAKOUT"
+    __table_args__ = (UniqueConstraint("idCuenta", "symbol", name="ukUserBreakoutSymbol"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    idUsuario = Column(Integer, ForeignKey("usuario.idUsuario"), nullable=False, index=True)
+    idCuenta = Column(Integer, ForeignKey("cuenta.idCuenta"), nullable=False, index=True)
+    symbol = Column(String(50), nullable=False)
+    Temporalidad = Column(String(20), nullable=False, default="5min")
+    periodo = Column(Integer, default=180)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    sesion = Column(String(20), default="NY", nullable=False)
+    horaInicio = Column(String(5), default="08:30", nullable=False)
+    duracionRangoMin = Column(Integer, default=15, nullable=False)
+    horaFin = Column(String(5), default="11:00", nullable=False)
+    minRr = Column(Float, default=1.0)
+    maxRr = Column(Float, default=2.0)
+    operar = Column(Boolean, default=True)
+    borrado = Column(Boolean, default=False, nullable=False)
+    accionCierre = Column(String(20), default="Continua")
+    tipoCierre = Column(String(20), default="Estructural")
+    usarBreakEven = Column(Boolean, default=True)
+    usarTSL = Column(Boolean, default=False)
+    usarEma200 = Column(Boolean, default=True)
+    usarImpulseMacd = Column(Boolean, default=True)
+    cuerpoVelaMin = Column(Float, default=0.60)
+    multiplicadorRiesgo = Column(Float, default=1.0, nullable=False)
+    origen = Column(String(20), default="MANUAL", nullable=False)
+    estadoRecomendacion = Column(String(20), default="MANUAL", nullable=False)
+    fechaRecomendacion = Column(DateTime, nullable=True)
+
 class UsuarioCuenta(Base):
     """
     Tabla de relación entre usuarios y cuentas de trading (1 usuario administra N cuentas).

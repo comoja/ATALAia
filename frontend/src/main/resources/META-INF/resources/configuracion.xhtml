@@ -289,18 +289,11 @@
                     <p:column>
                         <f:facet name="header">
                             <h:panelGroup id="hdrCtaCap" layout="block">Capital<br/>(USD)</h:panelGroup>
-                            <p:tooltip for="hdrCtaCap" value="Saldo o capital total depositado en la cuenta" position="top" />
+                            <p:tooltip for="hdrCtaCap" value="Saldo o capital total de la cuenta. Solo lectura: se actualiza exclusivamente mediante depósitos y retiros en Reportes." position="top" />
                         </f:facet>
-                        <p:cellEditor>
-                            <f:facet name="output">
-                                <h:outputText value="#{cta.capital}">
-                                    <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
-                                </h:outputText>
-                            </f:facet>
-                            <f:facet name="input">
-                                <p:inputNumber value="#{cta.capital}" symbol="$ " decimalSeparator="." thousandSeparator="," required="true" />
-                            </f:facet>
-                        </p:cellEditor>
+                        <h:outputText value="#{cta.capital}" style="font-weight: 600;">
+                            <f:convertNumber type="currency" currencySymbol="$" maxFractionDigits="2" />
+                        </h:outputText>
                     </p:column>
                     
                     <p:column>

@@ -75,10 +75,13 @@ public class ReporteJerarquicoBean implements Serializable {
     public void init() {
         log.info("Inicializando ReporteJerarquicoBean...");
         LocalDate now = LocalDate.now();
-        LocalDate firstDay = now.withDayOfMonth(1);
+        int curYear = now.getYear();
+        LocalDate firstDayYear = LocalDate.of(curYear, 1, 1);
+        LocalDate limitDec31 = LocalDate.of(curYear, 12, 31);
+        LocalDate corte = now.isAfter(limitDec31) ? limitDec31 : now;
 
-        this.fechaInicio = Date.from(firstDay.atStartOfDay(ZoneId.systemDefault()).toInstant());
-        this.fechaFin = Date.from(now.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        this.fechaInicio = Date.from(firstDayYear.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        this.fechaFin = Date.from(corte.atStartOfDay(ZoneId.systemDefault()).toInstant());
 
         cargarCombosFiltro();
         consultarReporte();
@@ -257,9 +260,9 @@ public class ReporteJerarquicoBean implements Serializable {
                                     stNode.path("comisiones").asDouble(0.0),
                                     stNode.path("pnlNeto").asDouble(0.0)
                             );
-                            double stTae = stNode.hasNonNull("tasaAnualEquivalente") ? stNode.path("tasaAnualEquivalente").asDouble(0.0) : stNode.path("tasaAnualReal").asDouble(0.0);
-                            stDto.setTasaAnualEquivalente(stTae);
-                            stDto.setTasaAnualReal(stTae);
+                            // TAE institucional solo aplica hasta nivel Cuenta
+                            stDto.setTasaAnualEquivalente(null);
+                            stDto.setTasaAnualReal(null);
                             TreeNode stTree = new DefaultTreeNode(stDto, cTree);
                             stTree.setExpanded(false); // Estrategia colapsada por defecto para limpieza visual
 
@@ -282,9 +285,8 @@ public class ReporteJerarquicoBean implements Serializable {
                                         insNode.path("comisiones").asDouble(0.0),
                                         insNode.path("pnlNeto").asDouble(0.0)
                                 );
-                                double insTae = insNode.hasNonNull("tasaAnualEquivalente") ? insNode.path("tasaAnualEquivalente").asDouble(0.0) : insNode.path("tasaAnualReal").asDouble(0.0);
-                                insDto.setTasaAnualEquivalente(insTae);
-                                insDto.setTasaAnualReal(insTae);
+                                insDto.setTasaAnualEquivalente(null);
+                                insDto.setTasaAnualReal(null);
                                 TreeNode insTree = new DefaultTreeNode(insDto, stTree);
                                 insTree.setExpanded(false);
 
@@ -309,9 +311,8 @@ public class ReporteJerarquicoBean implements Serializable {
                                             hNode.path("commission").asDouble(0.0),
                                             hNode.path("pnlNeto").asDouble(0.0)
                                     );
-                                    double hTae = hNode.hasNonNull("tasaAnualEquivalente") ? hNode.path("tasaAnualEquivalente").asDouble(0.0) : hNode.path("tasaAnualReal").asDouble(0.0);
-                                    hDto.setTasaAnualEquivalente(hTae);
-                                    hDto.setTasaAnualReal(hTae);
+                                    hDto.setTasaAnualEquivalente(null);
+                                    hDto.setTasaAnualReal(null);
                                     new DefaultTreeNode(hDto, insTree);
                                 }
                             }
@@ -621,13 +622,25 @@ public class ReporteJerarquicoBean implements Serializable {
         }
 
         public String getFormattedTasaAnualEquivalente() {
-            Double val = (tasaAnualEquivalente != null) ? tasaAnualEquivalente : (tasaAnualReal != null ? tasaAnualReal : 0.0);
+            if (!"USUARIO".equalsIgnoreCase(tipo) && !"CUENTA".equalsIgnoreCase(tipo)) {
+                return "—";
+            }
+            if (tasaAnualEquivalente == null && tasaAnualReal == null) {
+                return "—";
+            }
+            Double val = (tasaAnualEquivalente != null) ? tasaAnualEquivalente : tasaAnualReal;
             String sign = val >= 0 ? "+" : "";
             return String.format(Locale.US, "%s%.2f%%", sign, val);
         }
 
         public String getTasaAnualEquivalenteColor() {
-            Double val = (tasaAnualEquivalente != null) ? tasaAnualEquivalente : (tasaAnualReal != null ? tasaAnualReal : 0.0);
+            if (!"USUARIO".equalsIgnoreCase(tipo) && !"CUENTA".equalsIgnoreCase(tipo)) {
+                return "#94a3b8";
+            }
+            Double val = (tasaAnualEquivalente != null) ? tasaAnualEquivalente : tasaAnualReal;
+            if (val == null) {
+                return "#94a3b8";
+            }
             return val >= 0 ? "#059669" : "#dc2626";
         }
 

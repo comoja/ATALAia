@@ -33,7 +33,7 @@ from backend.services.conciliacionService import obtenerConciliacionPosiciones
 from fastapi.responses import Response, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UserSniper, UsuarioCuenta, Usuario, Broker, BrokerCuenta
+from backend.database.models import SessionLocal, Symbol, RatioSymbol, Cuenta, SentinelSymbol, UserRatio, UserCart, UserSniper, UserBreakout, UsuarioCuenta, Usuario, Broker, BrokerCuenta
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -1525,7 +1525,7 @@ def crearNuevaCuenta(payload: CrearCuentaRequest, db: Session = Depends(get_db))
             Nombre=nombre_clean,
             correo=payload.correo.strip() if payload.correo and payload.correo.strip() else None,
             Activo=1 if payload.activo else 0,
-            Capital=payload.capital,
+            Capital=0.0,  # El capital inicial siempre es 0.0; se fondea exclusivamente mediante depósitos
             ganancia=payload.ganancia,
             riesgoPorOperacion=payload.riesgoPorOperacion,
             comision=payload.comision if payload.comision is not None else 0.0,
@@ -1712,8 +1712,9 @@ def editarCuenta(payload: EditarCuentaRequest, db: Session = Depends(get_db)):
                 text("UPDATE usuarioCuenta SET activo = :a WHERE idCuenta = :c"),
                 {"a": new_a, "c": cuenta.idCuenta}
             )
-        if payload.capital is not None:
-            cuenta.Capital = payload.capital
+        # El capital no se actualiza desde edición directa; se actualiza exclusivamente mediante depósitos y retiros
+        # if payload.capital is not None:
+        #     cuenta.Capital = payload.capital
         if payload.ganancia is not None:
             cuenta.ganancia = payload.ganancia
         if payload.riesgoPorOperacion is not None:
@@ -5551,11 +5552,17 @@ def generarDatosReporteJerarquico(
     idCuenta: Optional[int] = None,
     estrategia: Optional[str] = None
 ) -> Dict[str, Any]:
+    from datetime import date
     now = datetime.now()
+    cur_year = now.year
+    d_year_limit = date(cur_year, 12, 31)
+    fecha_corte = min(now.date(), d_year_limit)
+
+    # Por defecto inicializa desde el 1 de enero del año actual hasta la fecha actual
     if not fechaInicio:
-        fechaInicio = now.replace(day=1).strftime("%Y-%m-%d")
+        fechaInicio = f"{cur_year}-01-01"
     if not fechaFin:
-        fechaFin = now.strftime("%Y-%m-%d")
+        fechaFin = fecha_corte.strftime("%Y-%m-%d")
 
     dt_start = f"{fechaInicio} 00:00:00"
     dt_end = f"{fechaFin} 23:59:59"
@@ -5568,8 +5575,8 @@ def generarDatosReporteJerarquico(
         dias_periodo = 30
     factor_anual = 365.0 / dias_periodo
 
-    def calcular_tae(net: float, cap_base: float, dias: int) -> float:
-        """Calcula la Tasa Anual Equivalente (TAE / APY) con capitalización compuesta."""
+    def calcular_tae(net: float, cap_base: float, dias: int = dias_periodo) -> float:
+        """Calcula la Tasa Anual Equivalente (TAE / APY) con capitalización compuesta según las fechas de cabecera."""
         if cap_base <= 0 or dias <= 0:
             return 0.0
         r = net / cap_base
@@ -5678,10 +5685,8 @@ def generarDatosReporteJerarquico(
         is_win = net > 0
         is_loss = net < 0
 
-        # Tasa Anual Equivalente (TAE) a nivel Hecho
-        notional_hecho = vol * float(r.entryPrice or 0.0)
-        cap_base_hecho = notional_hecho if notional_hecho > 0 else (cap_cuenta if cap_cuenta > 0 else 1.0)
-        tasa_hecho = calcular_tae(net, cap_base_hecho, dias_periodo)
+        # TAE solo se calcula hasta nivel de Cuenta para métricas patrimoniales institucionales
+        tasa_hecho = None
 
         g_trades += 1
         g_bruto += pnl
@@ -5779,20 +5784,14 @@ def generarDatosReporteJerarquico(
 
     usuarios_list = []
     tot_capital_global = 0.0
+    tot_ytd_global = 0.0
+
     for u in users_map.values():
         u['winRate'] = round((u['ganadores'] / u['totalTrades'] * 100), 1) if u['totalTrades'] else 0.0
         u['pnlBruto'] = round(u['pnlBruto'], 2)
         u['comisiones'] = round(u['comisiones'], 2)
         u['pnlNeto'] = round(u['pnlNeto'], 2)
         u['volumen'] = round(u['volumen'], 4)
-
-        u_cap = sum(float(c_obj.get('capitalCuenta', 0.0) or 0.0) for c_obj in u['cuentas'].values())
-        tot_capital_global += u_cap
-        cap_base_u = u_cap if u_cap > 0 else (u['volumen'] if u['volumen'] > 0 else 1.0)
-        u['capitalTotal'] = round(u_cap, 2)
-        tae_u = calcular_tae(u['pnlNeto'], cap_base_u, dias_periodo)
-        u['tasaAnualEquivalente'] = tae_u
-        u['tasaAnualReal'] = tae_u
 
         cuentas_list = []
         for c in u['cuentas'].values():
@@ -5802,6 +5801,7 @@ def generarDatosReporteJerarquico(
             c['pnlNeto'] = round(c['pnlNeto'], 2)
             c['volumen'] = round(c['volumen'], 4)
 
+            # Cálculo de TAE a nivel Cuenta usando el PnL y días del periodo de cabecera
             cap_c = float(c.get('capitalCuenta', 0.0) or 0.0)
             cap_base_c = cap_c if cap_c > 0 else (c['volumen'] if c['volumen'] > 0 else 1.0)
             tae_c = calcular_tae(c['pnlNeto'], cap_base_c, dias_periodo)
@@ -5815,9 +5815,9 @@ def generarDatosReporteJerarquico(
                 st['comisiones'] = round(st['comisiones'], 2)
                 st['pnlNeto'] = round(st['pnlNeto'], 2)
                 st['volumen'] = round(st['volumen'], 4)
-                tae_st = calcular_tae(st['pnlNeto'], cap_base_c, dias_periodo)
-                st['tasaAnualEquivalente'] = tae_st
-                st['tasaAnualReal'] = tae_st
+                # TAE no se calcula debajo de cuenta
+                st['tasaAnualEquivalente'] = None
+                st['tasaAnualReal'] = None
 
                 inst_list = []
                 for ins in st['instrumentos'].values():
@@ -5826,9 +5826,9 @@ def generarDatosReporteJerarquico(
                     ins['comisiones'] = round(ins['comisiones'], 2)
                     ins['pnlNeto'] = round(ins['pnlNeto'], 2)
                     ins['volumen'] = round(ins['volumen'], 4)
-                    tae_ins = calcular_tae(ins['pnlNeto'], cap_base_c, dias_periodo)
-                    ins['tasaAnualEquivalente'] = tae_ins
-                    ins['tasaAnualReal'] = tae_ins
+                    # TAE no se calcula debajo de cuenta
+                    ins['tasaAnualEquivalente'] = None
+                    ins['tasaAnualReal'] = None
                     inst_list.append(ins)
 
                 inst_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
@@ -5841,6 +5841,16 @@ def generarDatosReporteJerarquico(
 
         cuentas_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
         u['cuentas'] = cuentas_list
+
+        # Nivel Usuario: Consolidado patrimonial y TAE del periodo de cabecera
+        u_cap = sum(float(c_obj.get('capitalCuenta', 0.0) or 0.0) for c_obj in u['cuentas'])
+        tot_capital_global += u_cap
+        u['capitalTotal'] = round(u_cap, 2)
+        cap_base_u = u_cap if u_cap > 0 else (u['volumen'] if u['volumen'] > 0 else 1.0)
+        tae_u = calcular_tae(u['pnlNeto'], cap_base_u, dias_periodo)
+        u['tasaAnualEquivalente'] = tae_u
+        u['tasaAnualReal'] = tae_u
+
         usuarios_list.append(u)
 
     usuarios_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
@@ -5965,7 +5975,8 @@ def api_exportar_reporte_jerarquico_excel(
         p_info = data["periodo"]
         rg = data["resumenGeneral"]
         tae_global = rg.get('tasaAnualEquivalente', rg.get('tasaAnualReal', 0.0))
-        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} ({p_info.get('diasPeriodo', 30)} días) | Tasa Anual Equivalente (TAE): {tae_global:+.2f}% | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
+        dias_str = f"{p_info.get('diasPeriodo', 30)} días"
+        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} ({dias_str}) | TAE Periodo: {tae_global:+.2f}% | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
         cell_sub.font = font_sub
         cell_sub.fill = fill_hdr
         cell_sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -6053,10 +6064,9 @@ def api_exportar_reporte_jerarquico_excel(
                 for st in c.get("estrategias", []):
                     # Nivel 3: Estrategia (SUBTOTAL ESTRATEGIA)
                     ws.row_dimensions[curr_r].height = 19
-                    tae_st = st.get('tasaAnualEquivalente', st.get('tasaAnualReal', 0.0))
                     row_vals = [
                         f"      🎯 ESTRATEGIA: {st['estrategia']}   [SUBTOTAL]",
-                        f"{tae_st:+.2f}%",
+                        "-",
                         "-",
                         st["volumen"],
                         "-", "-", "-", "-",
@@ -6074,16 +6084,15 @@ def api_exportar_reporte_jerarquico_excel(
                             cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
                             cell.alignment = Alignment(horizontal="right", vertical="center")
                         elif col_idx == 2:
-                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
                     curr_r += 1
 
                     for ins in st.get("instrumentos", []):
                         # Nivel 4: Instrumento (SUBTOTAL INSTRUMENTO)
                         ws.row_dimensions[curr_r].height = 18
-                        tae_ins = ins.get('tasaAnualEquivalente', ins.get('tasaAnualReal', 0.0))
                         row_vals = [
                             f"         💱 INSTRUMENTO: {ins['instrumento']}   [SUBTOTAL]",
-                            f"{tae_ins:+.2f}%",
+                            "-",
                             "-",
                             ins["volumen"],
                             "-", "-", "-", "-",
@@ -6101,7 +6110,7 @@ def api_exportar_reporte_jerarquico_excel(
                                 cell.number_format = "$#,##0.00" if col_idx in [10, 11, 12] else "#,##0.00"
                                 cell.alignment = Alignment(horizontal="right", vertical="center")
                             elif col_idx == 2:
-                                cell.alignment = Alignment(horizontal="right", vertical="center")
+                                cell.alignment = Alignment(horizontal="center", vertical="center")
                         curr_r += 1
 
                         # Nivel 5: Hechos individuales
@@ -6109,11 +6118,9 @@ def api_exportar_reporte_jerarquico_excel(
                             ws.row_dimensions[curr_r].height = 16
                             pnl_val = h["pnlNeto"]
                             font_pnl = Font(name="Calibri", size=9, bold=True, color=c_green if pnl_val >= 0 else c_red)
-                            tasa_val = h.get("tasaAnualEquivalente", h.get("tasaAnualReal", 0.0))
-                            font_tasa = Font(name="Calibri", size=9, bold=True, color=c_green if tasa_val >= 0 else c_red)
                             row_vals = [
                                 f"            • Hecho #{h['idTrade']} (Ticket: {h['ticketId']})",
-                                f"{tasa_val:+.2f}%",
+                                "-",
                                 h["direction"],
                                 h["size"],
                                 h["entryPrice"],
@@ -6130,13 +6137,13 @@ def api_exportar_reporte_jerarquico_excel(
                                 if col_idx == 12:
                                     cell.font = font_pnl
                                 elif col_idx == 2:
-                                    cell.font = font_tasa
+                                    cell.font = font_body
                                 else:
                                     cell.font = font_body
                                 cell.border = border_thin
                                 if curr_r % 2 == 0:
                                     cell.fill = fill_odd
-                                if col_idx in [2, 4, 5, 6, 10, 11, 12]:
+                                if col_idx in [4, 5, 6, 10, 11, 12]:
                                     cell.alignment = Alignment(horizontal="right", vertical="center")
                                     if col_idx in [10, 11, 12]:
                                         cell.number_format = "$#,##0.00"
@@ -6145,7 +6152,7 @@ def api_exportar_reporte_jerarquico_excel(
                                     elif col_idx == 4:
                                         cell.number_format = "#,##0.00"
                                 else:
-                                    cell.alignment = Alignment(horizontal="center" if col_idx in [3, 7, 8, 9] else "left", vertical="center")
+                                    cell.alignment = Alignment(horizontal="center" if col_idx in [2, 3, 7, 8, 9] else "left", vertical="center")
                             curr_r += 1
 
         # Renglón Final: TOTAL GENERAL CONSOLIDADO
@@ -6719,6 +6726,51 @@ class UserSniperOperarUpdate(BaseModel):
     idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
     symbol: str = Field(..., description="Símbolo en userSNIPER")
     operar: bool = Field(..., description="Indica si se generan órdenes para este par SNIPER")
+
+
+class UserBreakoutCreate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo del activo (ej. EUR/USD)")
+    Temporalidad: Optional[str] = Field("5min", description="Temporalidad operativa de velas")
+    periodo: Optional[int] = Field(180, description="Días de historial")
+    sesion: Optional[str] = Field("NY", description="Sesión operativa: NY o LONDRES")
+    horaInicio: Optional[str] = Field("08:30", description="Hora de apertura del rango (HH:MM)")
+    duracionRangoMin: Optional[int] = Field(15, description="Duración en minutos de la formación del rango")
+    horaFin: Optional[str] = Field("11:00", description="Hora límite después de la cual no se permiten nuevas entradas")
+    minRr: Optional[float] = Field(1.0, description="Relación Riesgo:Beneficio mínima")
+    maxRr: Optional[float] = Field(2.0, description="Relación Riesgo:Beneficio máxima")
+    operar: Optional[bool] = Field(True, description="Indica si opera en automático")
+    accionCierre: Optional[str] = Field("Continua", description="Acción al cerrar posición (Continua o Para)")
+    tipoCierre: Optional[str] = Field("Estructural", description="Tipo de cierre de posición")
+    usarBreakEven: Optional[bool] = Field(True, description="Mueve a BreakEven al avanzar hacia TP")
+    usarTSL: Optional[bool] = Field(False, description="Activa Trailing Stop Loss tras BreakEven")
+    usarEma200: Optional[bool] = Field(True, description="Filtro de tendencia macro EMA 200")
+    usarImpulseMacd: Optional[bool] = Field(True, description="Filtro de confirmación Impulse MACD")
+    cuerpoVelaMin: Optional[float] = Field(0.60, description="Filtro de calidad de vela (cuerpo >= 60%)")
+    multiplicadorRiesgo: Optional[float] = Field(1.0, description="Multiplicador de riesgo financiero")
+
+
+class UserBreakoutDelete(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo a borrar de userBREAKOUT")
+    id: Optional[int] = Field(None, description="ID del registro en userBREAKOUT opcional")
+
+
+class UserBreakoutOperarUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo en userBREAKOUT")
+    operar: bool = Field(..., description="Indica si se generan órdenes para este par BREAKOUT")
+
+
+class UserBreakoutBeTslUpdate(BaseModel):
+    idUsuario: int = Field(..., description="ID del usuario")
+    idCuenta: Optional[int] = Field(None, description="ID de la cuenta asociada")
+    symbol: str = Field(..., description="Símbolo en userBREAKOUT")
+    usarBreakEven: Optional[bool] = Field(True, description="Mueve a BreakEven")
+    usarTSL: Optional[bool] = Field(False, description="Activa Trailing Stop Loss")
 
 
 @router.get("/user-cart/buscar")
@@ -9167,6 +9219,78 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     db.add(newRow)
                     insertedCount += 1
                 copiedCount += 1
+        elif strat in ["BREAKOUT", "BREAKOUTNY"]:
+            sourceRows = db.query(UserBreakout).filter(
+                UserBreakout.idCuenta == payload.idCuentaOrigen,
+                (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+            ).all()
+
+            for sourceRow in sourceRows:
+                sym = sourceRow.symbol
+                if sym in openPositionsDest:
+                    omittedItems.append(sym)
+                    continue
+
+                destRow = db.query(UserBreakout).filter(
+                    UserBreakout.idCuenta == payload.idCuentaDestino,
+                    UserBreakout.symbol == sym
+                ).first()
+
+                if destRow:
+                    destRow.Temporalidad = sourceRow.Temporalidad
+                    destRow.periodo = sourceRow.periodo
+                    destRow.sesion = sourceRow.sesion
+                    destRow.horaInicio = sourceRow.horaInicio
+                    destRow.duracionRangoMin = sourceRow.duracionRangoMin
+                    destRow.horaFin = sourceRow.horaFin
+                    destRow.minRr = sourceRow.minRr
+                    destRow.maxRr = sourceRow.maxRr
+                    destRow.accionCierre = sourceRow.accionCierre
+                    destRow.tipoCierre = sourceRow.tipoCierre
+                    destRow.usarBreakEven = sourceRow.usarBreakEven
+                    destRow.usarTSL = sourceRow.usarTSL
+                    destRow.usarEma200 = sourceRow.usarEma200
+                    destRow.usarImpulseMacd = sourceRow.usarImpulseMacd
+                    destRow.cuerpoVelaMin = sourceRow.cuerpoVelaMin
+                    destRow.multiplicadorRiesgo = sourceRow.multiplicadorRiesgo
+                    destRow.createdAt = sourceRow.createdAt
+                    destRow.operar = sourceRow.operar
+                    destRow.estadoRecomendacion = sourceRow.estadoRecomendacion
+                    destRow.fechaRecomendacion = sourceRow.fechaRecomendacion
+                    destRow.origen = sourceRow.origen
+                    destRow.borrado = False
+                    updatedCount += 1
+                else:
+                    newRow = UserBreakout(
+                        idUsuario=payload.idUsuarioDestino,
+                        idCuenta=payload.idCuentaDestino,
+                        symbol=sym,
+                        Temporalidad=sourceRow.Temporalidad,
+                        periodo=sourceRow.periodo,
+                        sesion=sourceRow.sesion,
+                        horaInicio=sourceRow.horaInicio,
+                        duracionRangoMin=sourceRow.duracionRangoMin,
+                        horaFin=sourceRow.horaFin,
+                        minRr=sourceRow.minRr,
+                        maxRr=sourceRow.maxRr,
+                        operar=sourceRow.operar,
+                        accionCierre=sourceRow.accionCierre,
+                        tipoCierre=sourceRow.tipoCierre,
+                        usarBreakEven=sourceRow.usarBreakEven,
+                        usarTSL=sourceRow.usarTSL,
+                        usarEma200=sourceRow.usarEma200,
+                        usarImpulseMacd=sourceRow.usarImpulseMacd,
+                        cuerpoVelaMin=sourceRow.cuerpoVelaMin,
+                        multiplicadorRiesgo=sourceRow.multiplicadorRiesgo,
+                        createdAt=sourceRow.createdAt,
+                        estadoRecomendacion=sourceRow.estadoRecomendacion,
+                        fechaRecomendacion=sourceRow.fechaRecomendacion,
+                        origen=sourceRow.origen,
+                        borrado=False
+                    )
+                    db.add(newRow)
+                    insertedCount += 1
+                copiedCount += 1
         else:
             raise HTTPException(status_code=400, detail=f"Estrategia '{payload.estrategia}' no soportada")
 
@@ -9190,6 +9314,767 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
         db.rollback()
         logger.error(f"Error al copiar parametrizaciones de estrategia: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINTS ESTRATEGIA: BREAKOUT (Ruptura de Rango Apertura NY / Londres)
+# ==============================================================================
+
+@router.get("/user-breakout/buscar")
+def findUserBreakout(
+    idUsuario: Optional[int] = None,
+    symbol: str = "",
+    idCuenta: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Busca la configuración de un par guardado en userBREAKOUT por cuenta/usuario y symbol.
+    """
+    symbol = unquote(unquote(str(symbol or ""))).strip()
+    query = db.query(UserBreakout).filter(
+        (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+    )
+    if idCuenta:
+        query = query.filter(UserBreakout.idCuenta == idCuenta)
+    elif idUsuario:
+        query = query.filter(UserBreakout.idUsuario == idUsuario)
+
+    if symbol:
+        clean = symbol.replace("/", "").upper()
+        items = query.all()
+        matched = [r for r in items if r.symbol.replace("/", "").upper() == clean]
+        if matched:
+            r = matched[0]
+            return {
+                "id": r.id,
+                "idUsuario": r.idUsuario,
+                "idCuenta": r.idCuenta,
+                "symbol": r.symbol,
+                "Temporalidad": r.Temporalidad or "5min",
+                "periodo": r.periodo or 180,
+                "sesion": r.sesion or "NY",
+                "horaInicio": r.horaInicio or "08:30",
+                "duracionRangoMin": r.duracionRangoMin or 15,
+                "horaFin": r.horaFin or "11:00",
+                "minRr": float(r.minRr or 1.0),
+                "maxRr": float(r.maxRr or 2.0),
+                "operar": bool(r.operar),
+                "accionCierre": r.accionCierre or "Continua",
+                "tipoCierre": r.tipoCierre or "Estructural",
+                "usarBreakEven": bool(r.usarBreakEven if r.usarBreakEven is not None else True),
+                "usarTSL": bool(r.usarTSL if r.usarTSL is not None else False),
+                "usarEma200": bool(r.usarEma200 if r.usarEma200 is not None else True),
+                "usarImpulseMacd": bool(r.usarImpulseMacd if r.usarImpulseMacd is not None else True),
+                "cuerpoVelaMin": float(r.cuerpoVelaMin or 0.60),
+                "multiplicadorRiesgo": float(r.multiplicadorRiesgo or 1.0),
+                "origen": r.origen or "MANUAL",
+                "estadoRecomendacion": r.estadoRecomendacion or "MANUAL"
+            }
+    return None
+
+
+@router.get("/user-breakout/{idUsuario}")
+def getUserBreakoutList(idUsuario: int, idCuenta: Optional[int] = None, db: Session = Depends(get_db)):
+    """
+    Obtiene todos los pares BREAKOUT guardados en userBREAKOUT para la cuenta o usuario.
+    """
+    if idCuenta:
+        query = db.query(UserBreakout).filter(
+            UserBreakout.idCuenta == idCuenta,
+            (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+        )
+    else:
+        query = db.query(UserBreakout).filter(
+            UserBreakout.idUsuario == idUsuario,
+            (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+        )
+    items = query.order_by(UserBreakout.symbol.asc()).all()
+
+    results = []
+    start_week_str = get_current_week_start_str()
+    for r in items:
+        target_account = r.idCuenta or idCuenta
+        try:
+            m_data = _get_real_trades_movimientos_data(r.symbol, r.symbol, idCuenta=target_account, strategy="BREAKOUT", startDate=start_week_str)
+            s_data = m_data.get("summary", {})
+            pnl_pct = float(s_data.get("totalReturnPct", 0.0) or 0.0)
+            net_profit = float(s_data.get("netProfit", 0.0) or 0.0)
+            closed_cnt = int(s_data.get("closedTrades", 0) or 0)
+            open_cnt = int(s_data.get("openTrades", 0) or 0)
+            win_cnt = int(s_data.get("winningTrades", 0) or 0)
+            win_rate = float(s_data.get("winRate", 0.0) or 0.0)
+            open_pnl = round(sum(t.get("netPnl", 0.0) for t in m_data.get("trades", []) if t.get("status") == "OPEN"), 2)
+            has_open = (open_cnt > 0)
+        except Exception as e:
+            logger.warning(f"Error calculando hechos BREAKOUT para {r.symbol}: {e}")
+            pnl_pct = 0.0
+            net_profit = 0.0
+            closed_cnt = 0
+            open_cnt = 0
+            win_cnt = 0
+            win_rate = 0.0
+            open_pnl = 0.0
+            has_open = False
+
+        results.append({
+            "id": r.id,
+            "idUsuario": r.idUsuario,
+            "idCuenta": r.idCuenta,
+            "symbol": r.symbol,
+            "numerador": r.symbol,
+            "denominador": "",
+            "Temporalidad": r.Temporalidad or "5min",
+            "temporalidad": r.Temporalidad or "5min",
+            "periodo": r.periodo or 180,
+            "dias": r.periodo or 180,
+            "sesion": r.sesion or "NY",
+            "horaInicio": r.horaInicio or "08:30",
+            "duracionRangoMin": r.duracionRangoMin or 15,
+            "horaFin": r.horaFin or "11:00",
+            "minRr": float(r.minRr if r.minRr is not None else 1.0),
+            "maxRr": float(r.maxRr if r.maxRr is not None else 2.0),
+            "operar": bool(r.operar),
+            "accionCierre": r.accionCierre or "Continua",
+            "tipoCierre": r.tipoCierre or "Estructural",
+            "usarBreakEven": bool(r.usarBreakEven if r.usarBreakEven is not None else True),
+            "usarTSL": bool(r.usarTSL if r.usarTSL is not None else False),
+            "usarEma200": bool(r.usarEma200 if r.usarEma200 is not None else True),
+            "usarImpulseMacd": bool(r.usarImpulseMacd if r.usarImpulseMacd is not None else True),
+            "cuerpoVelaMin": float(r.cuerpoVelaMin if r.cuerpoVelaMin is not None else 0.60),
+            "multiplicadorRiesgo": float(r.multiplicadorRiesgo if r.multiplicadorRiesgo is not None else 1.0),
+            "origen": r.origen or "MANUAL",
+            "estadoRecomendacion": r.estadoRecomendacion or "MANUAL",
+            "fechaRecomendacion": r.fechaRecomendacion.strftime("%Y-%m-%d %H:%M:%S") if hasattr(r.fechaRecomendacion, "strftime") else (str(r.fechaRecomendacion) if r.fechaRecomendacion else None),
+            "createdAt": r.createdAt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(r.createdAt, "strftime") else (str(r.createdAt) if r.createdAt else None),
+            "hasOpenTrades": has_open,
+            "pnlPct": pnl_pct,
+            "netProfit": net_profit,
+            "openPnl": open_pnl,
+            "closedTrades": closed_cnt,
+            "openTrades": open_cnt,
+            "winningTrades": win_cnt,
+            "winRate": win_rate
+        })
+    return results
+
+
+@router.post("/user-breakout/guardar")
+async def saveUserBreakout(payload: UserBreakoutCreate, db: Session = Depends(get_db)):
+    """
+    Guarda o actualiza (UPSERT) en userBREAKOUT la configuración de un par para la estrategia BREAKOUT.
+    """
+    try:
+        payload.symbol = unquote(unquote(str(payload.symbol or ""))).strip()
+        cuentaId = payload.idCuenta
+        if not cuentaId:
+            uc = db.query(UsuarioCuenta).filter(
+                UsuarioCuenta.idUsuario == payload.idUsuario,
+                UsuarioCuenta.activo == True
+            ).order_by(UsuarioCuenta.idUsuarioCuenta.asc()).first()
+            cuentaId = uc.idCuenta if uc else 1
+
+        query = db.query(UserBreakout).filter(
+            UserBreakout.idCuenta == cuentaId,
+            UserBreakout.symbol == payload.symbol
+        )
+        existing = query.order_by(UserBreakout.id.desc()).first()
+
+        temporalidad_val = payload.Temporalidad or "5min"
+        periodo_val = int(payload.periodo or 180)
+        sesion_val = str(payload.sesion or "NY").strip().upper()
+        hora_inicio = str(payload.horaInicio or "08:30").strip()
+        dur_rango = int(payload.duracionRangoMin or 15)
+        hora_fin = str(payload.horaFin or "11:00").strip()
+        min_rr = float(payload.minRr if payload.minRr is not None else 1.0)
+        max_rr = float(payload.maxRr if payload.maxRr is not None else 2.0)
+        operar_val = bool(payload.operar) if payload.operar is not None else True
+        accion_cierre = str(payload.accionCierre or "Continua").strip()
+        tipo_cierre = str(payload.tipoCierre or "Estructural").strip()
+        usar_be = bool(payload.usarBreakEven) if payload.usarBreakEven is not None else True
+        usar_tsl = bool(payload.usarTSL) if payload.usarTSL is not None else False
+        usar_ema = bool(payload.usarEma200) if payload.usarEma200 is not None else True
+        usar_macd = bool(payload.usarImpulseMacd) if payload.usarImpulseMacd is not None else True
+        cuerpo_min = float(payload.cuerpoVelaMin if payload.cuerpoVelaMin is not None else 0.60)
+        mult_riesgo = float(payload.multiplicadorRiesgo if payload.multiplicadorRiesgo is not None else 1.0)
+
+        if existing:
+            existing.idUsuario = payload.idUsuario
+            existing.Temporalidad = temporalidad_val
+            existing.periodo = periodo_val
+            existing.sesion = sesion_val
+            existing.horaInicio = hora_inicio
+            existing.duracionRangoMin = dur_rango
+            existing.horaFin = hora_fin
+            existing.minRr = min_rr
+            existing.maxRr = max_rr
+            existing.operar = operar_val
+            existing.accionCierre = accion_cierre
+            existing.tipoCierre = tipo_cierre
+            existing.usarBreakEven = usar_be
+            existing.usarTSL = usar_tsl
+            existing.usarEma200 = usar_ema
+            existing.usarImpulseMacd = usar_macd
+            existing.cuerpoVelaMin = cuerpo_min
+            existing.multiplicadorRiesgo = mult_riesgo
+            existing.borrado = False
+            db.commit()
+            db.refresh(existing)
+            return {"status": "success", "message": f"Configuración de {payload.symbol} actualizada", "id": existing.id}
+        else:
+            new_item = UserBreakout(
+                idUsuario=payload.idUsuario,
+                idCuenta=cuentaId,
+                symbol=payload.symbol,
+                Temporalidad=temporalidad_val,
+                periodo=periodo_val,
+                sesion=sesion_val,
+                horaInicio=hora_inicio,
+                duracionRangoMin=dur_rango,
+                horaFin=hora_fin,
+                minRr=min_rr,
+                maxRr=max_rr,
+                operar=operar_val,
+                accionCierre=accion_cierre,
+                tipoCierre=tipo_cierre,
+                usarBreakEven=usar_be,
+                usarTSL=usar_tsl,
+                usarEma200=usar_ema,
+                usarImpulseMacd=usar_macd,
+                cuerpoVelaMin=cuerpo_min,
+                multiplicadorRiesgo=mult_riesgo,
+                origen="MANUAL",
+                estadoRecomendacion="MANUAL",
+                borrado=False
+            )
+            db.add(new_item)
+            db.commit()
+            db.refresh(new_item)
+            return {"status": "success", "message": f"Par {payload.symbol} guardado en userBREAKOUT", "id": new_item.id}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al guardar par BREAKOUT {payload.symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-breakout/borrar")
+def deleteUserBreakout(payload: UserBreakoutDelete, db: Session = Depends(get_db)):
+    """
+    Elimina (borrado lógico) un par de userBREAKOUT.
+    """
+    try:
+        clean = unquote(unquote(str(payload.symbol or ""))).strip().replace("/", "").upper()
+        query = db.query(UserBreakout).filter(
+            (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+        )
+        if payload.id:
+            query = query.filter(UserBreakout.id == payload.id)
+        elif payload.idCuenta:
+            query = query.filter(UserBreakout.idCuenta == payload.idCuenta)
+        else:
+            query = query.filter(UserBreakout.idUsuario == payload.idUsuario)
+
+        items = query.all()
+        matched = [r for r in items if r.symbol.replace("/", "").upper() == clean]
+        if not matched:
+            return {"status": "not_found", "message": f"No se encontró {payload.symbol} para borrar"}
+
+        for r in matched:
+            r.borrado = True
+        db.commit()
+        return {"status": "success", "message": f"Par {payload.symbol} eliminado de userBREAKOUT"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al borrar {payload.symbol} de userBREAKOUT: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-breakout/update-operar")
+def updateUserBreakoutOperar(payload: UserBreakoutOperarUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza la bandera 'operar' en userBREAKOUT.
+    """
+    try:
+        clean = unquote(unquote(str(payload.symbol or ""))).strip().replace("/", "").upper()
+        query = db.query(UserBreakout).filter(
+            (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+        )
+        if payload.idCuenta:
+            query = query.filter(UserBreakout.idCuenta == payload.idCuenta)
+        else:
+            query = query.filter(UserBreakout.idUsuario == payload.idUsuario)
+
+        items = query.all()
+        matched = [r for r in items if r.symbol.replace("/", "").upper() == clean]
+        if not matched:
+            raise HTTPException(status_code=404, detail=f"No se encontró {payload.symbol}")
+
+        for r in matched:
+            r.operar = bool(payload.operar)
+        db.commit()
+        return {"status": "success", "message": f"Estado de operación actualizado para {payload.symbol}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error actualizando operar para {payload.symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user-breakout/update-be-tsl")
+def updateUserBreakoutBeTsl(payload: UserBreakoutBeTslUpdate, db: Session = Depends(get_db)):
+    """
+    Actualiza las opciones de BreakEven y TSL en userBREAKOUT.
+    """
+    try:
+        clean = unquote(unquote(str(payload.symbol or ""))).strip().replace("/", "").upper()
+        query = db.query(UserBreakout).filter(
+            (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+        )
+        if payload.idCuenta:
+            query = query.filter(UserBreakout.idCuenta == payload.idCuenta)
+        else:
+            query = query.filter(UserBreakout.idUsuario == payload.idUsuario)
+
+        items = query.all()
+        matched = [r for r in items if r.symbol.replace("/", "").upper() == clean]
+        if not matched:
+            raise HTTPException(status_code=404, detail=f"No se encontró {payload.symbol}")
+
+        for r in matched:
+            if payload.usarBreakEven is not None:
+                r.usarBreakEven = bool(payload.usarBreakEven)
+            if payload.usarTSL is not None:
+                r.usarTSL = bool(payload.usarTSL)
+        db.commit()
+        return {"status": "success", "message": f"Opciones de BE y TSL actualizadas para {payload.symbol}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error actualizando BE/TSL para {payload.symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades/active-summary-breakout/{idCuenta}")
+def getActiveBreakoutTradesSummary(idCuenta: int, db: Session = Depends(get_db)):
+    """
+    Obtiene las posiciones activas en trades para la estrategia BREAKOUT en la cuenta.
+    """
+    sql = text("""
+        SELECT idTrade, idCuenta, strategy, setup, symbol, direction,
+               openTime, size, entryPrice, stopLoss, takeProfit, isBreakEven,
+               margin_used, pnl, intervalo, candleTime, status, ticketId
+        FROM trades
+        WHERE idCuenta = :idc
+          AND status = 'OPEN'
+          AND strategy IN ('BREAKOUT', 'BreakoutNY')
+        ORDER BY symbol, openTime ASC, idTrade ASC
+    """)
+    rows = db.execute(sql, {"idc": idCuenta}).mappings().fetchall()
+    if not rows:
+        return []
+
+    excent_positions = get_excent_positions_map(idCuenta, db)
+
+    by_symbol = {}
+    for r in rows:
+        sym = r["symbol"] or r["setup"] or "BREAKOUT"
+        by_symbol.setdefault(sym, []).append(r)
+
+    results = []
+    for sym, t_list in by_symbol.items():
+        clean = sym.replace("/", "").upper()
+        row_s = db.execute(text("SELECT quote_currency, pip, priceOffset FROM symbols WHERE UPPER(REPLACE(symbol, '/', '')) = :s LIMIT 1"), {"s": clean}).fetchone()
+        pip_size = float(row_s[1]) if row_s and row_s[1] is not None and float(row_s[1]) > 0 else (0.01 if "JPY" in sym else 0.0001)
+        p_offset = float(row_s[2]) if row_s and len(row_s) > 2 and row_s[2] is not None else 0.0
+
+        tot_margin = 0.0
+        tot_pnl = 0.0
+        tot_size = 0.0
+        w_entry = 0.0
+        open_dates = []
+        dir_str = ""
+        trade_items = []
+        last_px = None
+
+        for t in t_list:
+            sz = float(t["size"] or 0.0)
+            ep = float(t["entryPrice"] or 0.0)
+            mg = float(t["margin_used"] or 0.0)
+            d_str = str(t["direction"] or "LARGO").upper()
+            dir_str = d_str
+
+            ticket = str(t.get("ticketId") or "").strip()
+            ex_pos = excent_positions.get(ticket) if (excent_positions and ticket) else None
+
+            if ex_pos:
+                cur_px = float(ex_pos["currentPrice"]) if ex_pos.get("currentPrice") else float(ep or 1.0)
+                item_pnl = round(float(ex_pos.get("netProfit", 0.0)), 2)
+                if ex_pos.get("marginRequired") is not None and ex_pos["marginRequired"] > 0:
+                    mg = float(ex_pos["marginRequired"])
+            else:
+                live_px = get_live_price_from_mt5(sym, direction=d_str)
+                if live_px is not None:
+                    cur_px = float(live_px)
+                else:
+                    row_c = db.execute(text("SELECT close FROM candles WHERE UPPER(REPLACE(symbol, '/', '')) = :s ORDER BY timestamp DESC LIMIT 1"), {"s": clean}).fetchone()
+                    cur_px = float(row_c[0]) if row_c and row_c[0] else float(ep or 1.0)
+                if p_offset != 0.0:
+                    cur_px = cur_px + p_offset
+
+                item_pnl, _, _, _ = calculate_unrealized_pnl(
+                    symbol=sym,
+                    direction=d_str,
+                    entry_price=ep,
+                    current_price=cur_px,
+                    size=sz,
+                    pip_size=pip_size
+                )
+                item_pnl = round(float(item_pnl or 0.0), 2)
+
+            last_px = cur_px
+            tot_size += sz
+            tot_margin += mg
+            tot_pnl += item_pnl
+            w_entry += (ep * sz)
+            if t["openTime"]:
+                open_dates.append(t["openTime"])
+
+            trade_items.append({
+                "idTrade": t["idTrade"],
+                "ticketId": ticket,
+                "direction": d_str,
+                "size": sz,
+                "entryPrice": ep,
+                "currentPrice": cur_px,
+                "stopLoss": float(t["stopLoss"]) if t.get("stopLoss") is not None else None,
+                "takeProfit": float(t["takeProfit"]) if t.get("takeProfit") is not None else None,
+                "pnl": item_pnl,
+                "margin": mg,
+                "openTime": str(t["openTime"] or "")
+            })
+
+        avg_entry = round(w_entry / tot_size, 5) if tot_size > 0 else 0.0
+        earliest_open = min(open_dates) if open_dates else ""
+        first_open_str = str(earliest_open).split(".")[0] if earliest_open else ""
+
+        results.append({
+            "idTrade": t_list[0]["idTrade"],
+            "idCuenta": idCuenta,
+            "strategy": "BREAKOUT",
+            "symbol": sym,
+            "direction": dir_str,
+            "size": round(tot_size, 2),
+            "entryPrice": avg_entry,
+            "currentPrice": last_px,
+            "margin": round(tot_margin, 2),
+            "pnl": round(tot_pnl, 2),
+            "openTime": first_open_str,
+            "tradesCount": len(t_list),
+            "trades": trade_items
+        })
+    return results
+
+
+@router.post("/trades/close-breakout/{idCuenta}")
+async def manual_close_breakout(
+    idCuenta: int,
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """
+    Cierre manual de emergencia para posiciones de la estrategia BREAKOUT.
+    """
+    try:
+        from backend.services.trade_executor import execute_single_asset_close
+        symbol = str(payload.get("symbol") or "").strip()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Falta el símbolo para cerrar la posición de BREAKOUT")
+
+        sql = text("""
+            SELECT idTrade, symbol, direction, size, entryPrice, ticketId
+            FROM trades
+            WHERE idCuenta = :idc
+              AND status = 'OPEN'
+              AND strategy IN ('BREAKOUT', 'BreakoutNY')
+              AND (UPPER(REPLACE(symbol, '/', '')) = UPPER(REPLACE(:sym, '/', '')) OR setup = :sym)
+        """)
+        rows = db.execute(sql, {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
+        if not rows:
+            return {"status": "ok", "message": f"No hay posiciones abiertas de BREAKOUT para {symbol}"}
+
+        closed_count = 0
+        for r in rows:
+            trade_id = r["idTrade"]
+            direction = str(r["direction"] or "LARGO").upper()
+            close_dir = "SELL" if "LARG" in direction or "BUY" in direction else "BUY"
+            size = float(r["size"] or 0.0)
+            ticket = r["ticketId"]
+            success = await asyncio.to_thread(
+                execute_single_asset_close,
+                idCuenta=idCuenta,
+                symbol=symbol,
+                direction=close_dir,
+                size=size,
+                ticketId=ticket,
+                tradeId=trade_id,
+                strategy="BREAKOUT"
+            )
+            if success:
+                closed_count += 1
+
+        return {
+            "status": "success",
+            "message": f"Cierre ejecutado: {closed_count} sub-orden(es) cerradas para {symbol}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cerrando posición BREAKOUT para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/breakout/analysis/{symbol:path}")
+async def getBreakoutAnalysis(
+    symbol: str,
+    timeframe: str = "5min",
+    days: int = 60,
+    idCuenta: Optional[int] = None,
+    multiplicadorRiesgo: Optional[float] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Obtiene el historial de velas (5min), rango de apertura matutina (NY o Londres),
+    zoom de horario de la sesión, señales de ruptura y métricas para BREAKOUT.
+    """
+    try:
+        from backend.services.microBreakout import (
+            fetchBreakoutCandlesHistory,
+            calculateBreakoutRangeAndSignals,
+            getAdaptiveConfigForBreakout
+        )
+
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        tf_lower = str(timeframe or "5min").lower().strip()
+
+        # 1. Obtener velas históricas (por defecto 5min para BREAKOUT)
+        limitCandles = max(500, min(3500, int(days or 60) * 150))
+        df = await asyncio.to_thread(fetchBreakoutCandlesHistory, symbol, tf_lower, max(15, int(days or 60)), limitCandles)
+        if df.empty or len(df) < 20:
+            raise HTTPException(status_code=404, detail=f"Sin velas suficientes para {symbol} en temporalidad {timeframe}")
+
+        # 2. Configuración adaptativa
+        adaptiveCfg = getAdaptiveConfigForBreakout(db, symbol)
+
+        sesionVal = str(adaptiveCfg.get("sesion", "NY"))
+        horaInicioVal = str(adaptiveCfg.get("horaInicio", "08:30"))
+        durRangoVal = int(adaptiveCfg.get("duracionRangoMin", 15))
+        horaFinVal = str(adaptiveCfg.get("horaFin", "11:00"))
+        minRrVal = float(adaptiveCfg.get("minRr", 1.0))
+        usarEmaVal = bool(adaptiveCfg.get("usarEma200", True))
+        usarMacdVal = bool(adaptiveCfg.get("usarImpulseMacd", True))
+        cuerpoVelaVal = float(adaptiveCfg.get("cuerpoVelaMin", 0.60))
+        usarBeVal = bool(adaptiveCfg.get("usarBreakEven", True))
+        usarTslVal = bool(adaptiveCfg.get("usarTSL", False))
+
+        accountCap = 1000.0
+        allocPct = 1.0
+        multRiesgoVal = 1.0
+
+        if idCuenta:
+            accRow = db.execute(text("SELECT Capital, riesgoPorOperacion FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).fetchone()
+            baseRiesgo = 1.0
+            if accRow:
+                if accRow[0]:
+                    accountCap = float(accRow[0])
+                if accRow[1] is not None and float(accRow[1]) > 0:
+                    baseRiesgo = float(accRow[1])
+
+            userCfgRow = db.execute(text("""
+                SELECT sesion, horaInicio, duracionRangoMin, horaFin, minRr, maxRr,
+                       usarBreakEven, usarTSL, usarEma200, usarImpulseMacd, cuerpoVelaMin, multiplicadorRiesgo
+                FROM userBREAKOUT
+                WHERE idCuenta = :idc AND (symbol = :sym OR REPLACE(symbol, '/', '') = REPLACE(:sym, '/', ''))
+                LIMIT 1
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchone()
+
+            if userCfgRow:
+                if userCfgRow.get("sesion"): sesionVal = str(userCfgRow["sesion"])
+                if userCfgRow.get("horaInicio"): horaInicioVal = str(userCfgRow["horaInicio"])
+                if userCfgRow.get("duracionRangoMin"): durRangoVal = int(userCfgRow["duracionRangoMin"])
+                if userCfgRow.get("horaFin"): horaFinVal = str(userCfgRow["horaFin"])
+                if userCfgRow.get("minRr") is not None: minRrVal = float(userCfgRow["minRr"])
+                if userCfgRow.get("usarBreakEven") is not None: usarBeVal = bool(userCfgRow["usarBreakEven"])
+                if userCfgRow.get("usarTSL") is not None: usarTslVal = bool(userCfgRow["usarTSL"])
+                if userCfgRow.get("usarEma200") is not None: usarEmaVal = bool(userCfgRow["usarEma200"])
+                if userCfgRow.get("usarImpulseMacd") is not None: usarMacdVal = bool(userCfgRow["usarImpulseMacd"])
+                if userCfgRow.get("cuerpoVelaMin") is not None: cuerpoVelaVal = float(userCfgRow["cuerpoVelaMin"])
+                if userCfgRow.get("multiplicadorRiesgo") is not None: multRiesgoVal = float(userCfgRow["multiplicadorRiesgo"])
+
+            if multiplicadorRiesgo is not None:
+                try:
+                    multRiesgoVal = max(0.1, float(multiplicadorRiesgo))
+                except Exception:
+                    pass
+
+            allocPct = round(baseRiesgo * multRiesgoVal, 2)
+
+        # 3. Calcular Rangos y Señales de Ruptura
+        calcResult = await asyncio.to_thread(
+            calculateBreakoutRangeAndSignals,
+            df=df,
+            symbol=symbol,
+            sesion=sesionVal,
+            horaInicio=horaInicioVal,
+            duracionRangoMin=durRangoVal,
+            horaFin=horaFinVal,
+            minRr=minRrVal,
+            usarEma200=usarEmaVal,
+            usarImpulseMacd=usarMacdVal,
+            cuerpoVelaMin=cuerpoVelaVal
+        )
+
+        # 4. Formatear velas para la gráfica (últimas 250 velas)
+        df_live = df.tail(250)
+        historyList = []
+        for idx, row in df_live.iterrows():
+            ts_str = str(idx)
+            if hasattr(idx, "strftime"):
+                ts_str = idx.strftime("%Y-%m-%d %H:%M")
+            historyList.append({
+                "datetime": ts_str,
+                "open": round(float(row["open"]), 5),
+                "high": round(float(row["high"]), 5),
+                "low": round(float(row["low"]), 5),
+                "close": round(float(row["close"]), 5),
+                "volume": float(row.get("volume", 0.0) or 0.0)
+            })
+
+        # 5. Consultar trade activo en trades para esta cuenta y símbolo
+        activeTrade = None
+        activeTradesList = []
+        currentPx = float(df["close"].iloc[-1])
+        openTradeRows = []
+        if idCuenta:
+            openTradeRows = db.execute(text("""
+                SELECT idTrade, symbol, direction, size, entryPrice, stopLoss, takeProfit, isBreakEven,
+                       margin_used, pnl, openTime, candleTime, status, ticketId
+                FROM trades
+                WHERE idCuenta = :idc
+                  AND strategy IN ('BREAKOUT', 'BreakoutNY')
+                  AND (REPLACE(symbol, '/', '') = REPLACE(:sym, '/', '') OR setup = :sym)
+                  AND status = 'OPEN'
+                ORDER BY idTrade ASC
+            """), {"idc": idCuenta, "sym": symbol}).mappings().fetchall()
+
+        if openTradeRows:
+            for row in openTradeRows:
+                rDir = str(row["direction"] or "LARGO").upper()
+                rIsLong = "LARG" in rDir or "BUY" in rDir
+                rEntryPx = float(row["entryPrice"] or currentPx)
+                rSl = float(row["stopLoss"]) if row.get("stopLoss") is not None else None
+                rTp = float(row["takeProfit"]) if row.get("takeProfit") is not None else None
+                rIsBe = bool(row.get("isBreakEven", 0))
+                rSize = float(row["size"] or 0.0)
+                rMargin = float(row["margin_used"] or 0.0)
+                dt_val = row["openTime"] or row["candleTime"]
+
+                activeTradesList.append({
+                    "idTrade": row["idTrade"],
+                    "symbol": symbol,
+                    "direction": rDir,
+                    "isLong": rIsLong,
+                    "entryPrice": rEntryPx,
+                    "currentPrice": currentPx,
+                    "stopLoss": rSl,
+                    "takeProfit": rTp,
+                    "isBreakEven": rIsBe,
+                    "size": rSize,
+                    "margin": rMargin,
+                    "pnl": round(float(row.get("pnl") or 0.0), 2),
+                    "openTime": dt_val.strftime("%Y-%m-%d %H:%M") if hasattr(dt_val, "strftime") else str(dt_val or ""),
+                    "ticketId": str(row.get("ticketId") or "")
+                })
+            activeTrade = activeTradesList[0]
+
+        return {
+            "status": "success",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "currentPrice": currentPx,
+            "initialCapital": accountCap,
+            "allocationPct": allocPct,
+            "multiplicadorRiesgo": multRiesgoVal,
+            "history": historyList,
+            "currentRange": calcResult.get("currentRange"),
+            "sessionZoom": calcResult.get("sessionZoom"),
+            "signals": calcResult.get("signals", []),
+            "backtest": {
+                "metrics": calcResult.get("metrics", {}),
+                "trades": calcResult.get("trades", []),
+                "equityCurve": calcResult.get("equityCurve", []),
+                "totalBars": len(df),
+                "totalDays": int(days or 60),
+                "initialCapital": accountCap
+            },
+            "adaptiveConfig": adaptiveCfg,
+            "activeTrade": activeTrade,
+            "activeTrades": activeTradesList
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en getBreakoutAnalysis para {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/breakout/optimize/{symbol:path}")
+async def optimizeBreakoutSymbolEndpoint(
+    symbol: str,
+    payload: Dict[str, Any] = {},
+    idCuenta: Optional[int] = None,
+    days: int = 60,
+    db: Session = Depends(get_db)
+):
+    """
+    Ejecuta el optimizador adaptativo para una emisora en la estrategia BREAKOUT.
+    Determina la mejor sesión (NY vs. LONDRES), duración de rango, hora límite y R:R.
+    """
+    try:
+        from backend.services.microBreakoutOptimizer import optimizeBreakoutForSymbol
+        symbol = unquote(unquote(str(symbol or ""))).strip()
+        effAccId = idCuenta or payload.get("idCuenta")
+        res = await asyncio.to_thread(optimizeBreakoutForSymbol, symbol=symbol, days=days, idCuenta=effAccId)
+        return res
+    except Exception as e:
+        logger.error(f"Error optimizando {symbol} para BREAKOUT: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/breakout/optimize-all")
+async def optimizeAllBreakoutEndpoint(
+    payload: Dict[str, Any] = {},
+    idCuenta: Optional[int] = None,
+    days: int = 60,
+    db: Session = Depends(get_db)
+):
+    """
+    Ejecuta el optimizador para todo el universo de emisoras y devuelve
+    la tabla de recomendaciones institucionales para BREAKOUT.
+    """
+    try:
+        from backend.services.microBreakoutOptimizer import optimizeAllBreakout
+        effAccId = idCuenta or payload.get("idCuenta")
+        res = await asyncio.to_thread(optimizeAllBreakout, days=days, idCuenta=effAccId)
+        return {
+            "status": "success",
+            "totalAnalyzed": len(res),
+            "recommendations": res
+        }
+    except Exception as e:
+        logger.error(f"Error optimizando universo BREAKOUT: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

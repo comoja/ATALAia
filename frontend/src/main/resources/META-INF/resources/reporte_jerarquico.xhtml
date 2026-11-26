@@ -562,11 +562,16 @@
                 </p:column>
 
                 <!-- COLUMNA 2: TASA ANUAL EQUIVALENTE (TAE) -->
-                <p:column headerText="Tasa Anual Equivalente" style="width: 12%; text-align: right;">
-                    <span class="#{item.tasaAnualEquivalente >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}"
-                          style="font-weight: #{item.tipo eq 'HECHO' ? '600' : '850'}; font-size: #{item.tipo eq 'USUARIO' ? '1.08rem' : '0.98rem'};">
-                        #{item.formattedTasaAnualEquivalente}
-                    </span>
+                <p:column headerText="Tasa Anual Equivalente" style="width: 13%; text-align: right;">
+                    <h:panelGroup rendered="#{item.tipo eq 'USUARIO' or item.tipo eq 'CUENTA'}">
+                        <span class="#{item.tasaAnualEquivalente >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}"
+                              style="font-weight: 850; font-size: #{item.tipo eq 'USUARIO' ? '1.08rem' : '0.98rem'};">
+                            #{item.formattedTasaAnualEquivalente}
+                        </span>
+                    </h:panelGroup>
+                    <h:panelGroup rendered="#{item.tipo ne 'USUARIO' and item.tipo ne 'CUENTA'}">
+                        <span style="color: #94a3b8; font-weight: 500;">—</span>
+                    </h:panelGroup>
                 </p:column>
 
                 <!-- COLUMNA 3: TIPO / DIRECCIÓN -->

@@ -456,6 +456,7 @@ public class ReportesBean implements Serializable {
                 this.nuevoFolio = "";
                 this.nuevaFecha = LocalDate.now();
 
+                DashboardBean.invalidateUserAccountsCache(null);
                 loadUserAccounts();
                 consultarEstadoCuenta();
 

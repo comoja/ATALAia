@@ -1,0 +1,797 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui:composition xmlns="http://www.w3.org/1999/xhtml" xmlns:h="http://xmlns.jcp.org/jsf/html"
+    xmlns:f="http://xmlns.jcp.org/jsf/core" xmlns:p="http://primefaces.org/ui"
+    xmlns:ui="http://xmlns.jcp.org/jsf/facelets">
+
+    <!-- ========================================================================= -->
+    <!-- HIDDEN INPUTS DE ESTRATEGIA BREAKOUT (EMBER FLAME #ea580c)                 -->
+    <!-- ========================================================================= -->
+    <h:inputHidden id="activeBreakoutPair" value="#{dashboardBean.selectedBreakoutPair}" />
+    <h:inputHidden id="breakoutHistoryJsonData" value="#{dashboardBean.breakoutHistoryJson}" />
+    <h:inputHidden id="breakoutRangeJsonData" value="#{dashboardBean.breakoutRangeJson}" />
+    <h:inputHidden id="breakoutZoomJsonData" value="#{dashboardBean.breakoutZoomJson}" />
+    <h:inputHidden id="breakoutActiveTradesJsonData" value="#{dashboardBean.breakoutActiveTradesJson}" />
+    <h:inputHidden id="breakoutRealTradesJsonData" value="#{dashboardBean.breakoutRealTradesJson}" />
+    <h:inputHidden id="breakoutRealTradesEquityCurveJsonData" value="#{dashboardBean.breakoutRealTradesEquityCurveJson}" />
+    <h:inputHidden id="breakoutBtHistoryJsonData" value="#{dashboardBean.breakoutBtHistoryJson}" />
+    <h:inputHidden id="breakoutBtTradesJsonData" value="#{dashboardBean.breakoutBtTradesJson}" />
+    <h:inputHidden id="breakoutBtEquityCurveJsonData" value="#{dashboardBean.breakoutBtEquityCurveJson}" />
+
+    <!-- Polling en vivo para BREAKOUT (10 segundos, no invasivo) -->
+    <p:poll id="breakoutLivePoll" widgetVar="breakoutLivePollWidget" interval="10" global="false"
+        enabled="#{dashboardBean.activeStrategy eq 'BREAKOUT'}" listener="#{dashboardBean.analyzeBreakoutPair}"
+        process="@this"
+        update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:breakoutRealTradesJsonData"
+        oncomplete="renderBreakoutChart(); if (typeof updateBreakoutLiveTimestamp === 'function') updateBreakoutLiveTimestamp();" />
+
+    <p:remoteCommand name="rcRefreshBreakoutChart" actionListener="#{dashboardBean.analyzeBreakoutPair}" process="@this"
+        global="false" update=":aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData"
+        oncomplete="renderBreakoutChart(); if (typeof updateBreakoutLiveTimestamp === 'function') updateBreakoutLiveTimestamp();" />
+
+    <!-- ========================================================================= -->
+    <!-- CONTENEDOR ESTRATEGIA 4: BREAKOUT (TEMA EMBER FLAME #ea580c)              -->
+    <!-- ========================================================================= -->
+    <div id="strategyBreakoutWrapper"
+        style="display: #{dashboardBean.activeStrategy eq 'BREAKOUT' ? 'flex' : 'none'}; flex-direction: column; flex: 1; min-height: 0; position: relative;">
+
+        <p:tabView id="breakoutTabView" widgetVar="breakoutTabViewWidget"
+            activeIndex="#{dashboardBean.activeBreakoutTabIndex}" onTabShow="handleBreakoutTabShow(index);">
+            <p:ajax event="tabChange" listener="#{dashboardBean.onBreakoutTabChange}" />
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 1: CALIBRACIÓN Y MONITOREO EN VIVO BREAKOUT                   -->
+            <!-- ===================================================================== -->
+            <p:tab>
+                <f:facet name="title">
+                    <svg class="config-tab-icon" xmlns="http://www.w3.org/2000/svg" width="34" height="30"
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                        stroke-linejoin="round" style="display: inline-block; vertical-align: middle;"
+                        title="Configuración">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </f:facet>
+                <div class="dashboard-grid">
+
+                    <!-- COLUMNA IZQUIERDA: CONTROLES DE CALIBRACIÓN BREAKOUT -->
+                    <p:panel styleClass="aether-panel">
+                        <f:facet name="header">
+                            <div
+                                style="display: flex; align-items: center; justify-content: flex-start; width: 100%; flex-wrap: nowrap; gap: 8px;">
+                                <div
+                                    style="display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0;">
+                                    <span class="aether-calibracion-title"
+                                        style="font-weight: 700; color: #ea580c; font-size: 1.25rem; letter-spacing: -0.2px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                        <i class="pi pi-bolt"
+                                            style="font-size: 1.25rem; color: #ea580c; vertical-align: middle;"></i>Calibración BREAKOUT
+                                    </span>
+                                </div>
+                                <div class="aether-cuenta-header-box" onclick="event.stopPropagation();"
+                                    style="display: inline-flex; align-items: center; justify-content: flex-start; gap: 4px; flex-shrink: 0; flex-wrap: nowrap;">
+                                    <p:selectOneMenu id="breakoutCuentaSelector"
+                                        value="#{dashboardBean.selectedAccountId}"
+                                        styleClass="aether-input aether-cuenta-selector"
+                                        style="min-width: 110px; max-width: 165px; width: 145px; height: 28px !important; line-height: 28px !important; font-size: 0.95rem !important;">
+                                        <f:selectItems value="#{dashboardBean.userAccountsCombo}" var="c"
+                                            itemLabel="#{c.nombreCuenta}" itemValue="#{c.idCuenta}" />
+                                        <p:ajax process="@this" update=":aetherForm"
+                                            oncomplete="if (typeof renderBreakoutChart === 'function') renderBreakoutChart();"
+                                            listener="#{dashboardBean.onCuentaChange}" />
+                                    </p:selectOneMenu>
+                                    <p:commandButton icon="pi pi-refresh" action="#{dashboardBean.refreshDashboard}"
+                                        process="@this" update=":aetherForm" oncomplete="if (typeof renderBreakoutChart === 'function') renderBreakoutChart();"
+                                        styleClass="aether-btn-secondary"
+                                        style="width: 32px !important; height: 32px !important; min-width: 32px !important; padding: 0 !important; border-radius: 50% !important; display: inline-flex !important; align-items: center !important; justify-content: center !important;"
+                                        title="Actualizar datos y pares BREAKOUT" />
+                                </div>
+                            </div>
+                        </f:facet>
+
+                        <p:accordionPanel id="breakoutLeftAccordion" multiple="false"
+                            activeIndex="#{dashboardBean.activeBreakoutAccordionIndex}" styleClass="aether-accordion"
+                            dynamic="true">
+                            <p:ajax event="tabChange" listener="#{dashboardBean.onBreakoutAccordionTabChange}" />
+
+                            <!-- SUB-SECCIÓN 1: EMISORAS DE LA ESTRATEGIA BREAKOUT -->
+                            <p:tab id="tabUserBreakout">
+                                <f:facet name="title">
+                                    <span style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-right: 4px;">
+                                        <span>
+                                            <i class="pi pi-bolt" style="color: #ea580c; margin-right: 6px;"></i>Emisoras en BREAKOUT (#{dashboardBean.userBreakoutList != null ? dashboardBean.userBreakoutList.size() : 0})
+                                        </span>
+                                    </span>
+                                </f:facet>
+
+                                <div style="display: flex; gap: 8px; margin-bottom: 8px; justify-content: space-between; align-items: center;">
+                                    <p:commandButton value="⚡ Optimizar Universo" icon="pi pi-bolt"
+                                        actionListener="#{dashboardBean.optimizarTodosBreakout}"
+                                        disabled="#{dashboardBean.readOnly}"
+                                        process="@this" update=":aetherForm:breakoutTabView:breakoutOptTable :aetherForm:growl"
+                                        oncomplete="PF('breakoutTabViewWidget').select(2);"
+                                        style="font-size: 0.82rem; padding: 4px 10px; background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700;"
+                                        title="Evalúa el universo de activos y recomienda las mejores emisoras para BREAKOUT" />
+
+                                    <p:commandButton value="Nuevo Par" icon="pi pi-plus"
+                                        disabled="#{dashboardBean.readOnly}"
+                                        onclick="PF('dlgAgregarParBreakout').show();"
+                                        styleClass="ui-button-outlined"
+                                        style="font-size: 0.82rem; padding: 4px 10px; color: #ea580c; border-color: #ea580c; font-weight: 700;" />
+                                </div>
+
+                                <p:dataTable id="userBreakoutTable" value="#{dashboardBean.userBreakoutList}" var="ub"
+                                    selection="#{dashboardBean.selectedUserBreakout}" selectionMode="single"
+                                    rowKey="#{ub.id}" scrollable="true" scrollHeight="280px"
+                                    styleClass="aether-table-compact"
+                                    emptyMessage="No hay emisoras asignadas a BREAKOUT. Pulsa 'Nuevo Par' o 'Optimizar Universo'.">
+                                    <p:ajax event="rowSelect" listener="#{dashboardBean.onBreakoutRowSelect}"
+                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:breakoutActiveTradesJsonData :aetherForm:activeBreakoutPair"
+                                        oncomplete="renderBreakoutChart();" />
+
+                                    <p:column headerText="Emisora" style="width: 32%;">
+                                        <span style="font-weight: 800; color: #ea580c; font-size: 0.95rem;">#{ub.numerador}</span>
+                                        <span class="#{ub.estadoRecomendacion eq 'RECOMENDADA' ? 'badge-success' : (ub.estadoRecomendacion eq 'NUEVA' ? 'badge-warning' : '')}"
+                                            style="margin-left: 4px; font-size: 0.68rem; padding: 1px 4px; border-radius: 4px;">
+                                            #{ub.estadoRecomendacion}
+                                        </span>
+                                    </p:column>
+                                    <p:column headerText="Sesión" style="width: 24%; text-align: center;">
+                                        <span style="font-weight: 700; font-size: 0.85rem; color: #475569;">#{ub.sesion} (#{ub.horaInicio})</span>
+                                    </p:column>
+                                    <p:column headerText="Límite" style="width: 22%; text-align: center;">
+                                        <span style="font-weight: 700; font-size: 0.82rem; color: #b91c1c;">≤ #{ub.horaFin}</span>
+                                    </p:column>
+                                    <p:column headerText="Auto" style="width: 22%; text-align: center;">
+                                        <p:inputSwitch value="#{ub.operar}" disabled="#{dashboardBean.readOnly}">
+                                            <p:ajax listener="#{dashboardBean.onBreakoutOperarToggle}" />
+                                        </p:inputSwitch>
+                                    </p:column>
+                                </p:dataTable>
+                            </p:tab>
+
+                            <!-- SUB-SECCIÓN 2: CALIBRACIÓN TÁCTICA BREAKOUT -->
+                            <p:tab id="tabCalibBreakout" title="#{dashboardBean.breakoutCalibrationTabTitle}">
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+
+                                    <!-- Símbolo y Sesión -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Emisora:</label>
+                                            <p:selectOneMenu id="breakoutSymbolSelect" value="#{dashboardBean.selectedBreakoutPair}"
+                                                styleClass="aether-input" style="width: 100%;">
+                                                <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
+                                                    itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
+                                                <p:ajax listener="#{dashboardBean.onBreakoutSymbolChange}"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:activeBreakoutPair"
+                                                    oncomplete="renderBreakoutChart();" />
+                                            </p:selectOneMenu>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Sesión de Apertura:</label>
+                                            <p:selectOneMenu id="breakoutSesionSelect" value="#{dashboardBean.breakoutSesion}"
+                                                styleClass="aether-input" style="width: 100%;">
+                                                <f:selectItem itemLabel="Nueva York (08:30 NY)" itemValue="NY" />
+                                                <f:selectItem itemLabel="Londres (08:00 LDN / 03:00 NY)" itemValue="LONDRES" />
+                                            </p:selectOneMenu>
+                                        </div>
+                                    </div>
+
+                                    <!-- Hora Inicio y Duración Rango -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Hora Apertura Rango:</label>
+                                            <p:inputText id="breakoutHoraInicio" value="#{dashboardBean.breakoutHoraInicio}"
+                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 700;" />
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">Duración Rango:</label>
+                                            <p:selectOneMenu id="breakoutDuracionRango" value="#{dashboardBean.breakoutDuracionRangoMin}"
+                                                styleClass="aether-input" style="width: 100%;">
+                                                <f:selectItem itemLabel="15 minutos (3 velas M5)" itemValue="15" />
+                                                <f:selectItem itemLabel="30 minutos (6 velas M5)" itemValue="30" />
+                                            </p:selectOneMenu>
+                                        </div>
+                                    </div>
+
+                                    <!-- Hora Límite (Cutoff Time) y R:R Mínimo -->
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #b91c1c;"
+                                                title="Después de esta hora el sistema no abrirá nuevas posiciones para la sesión">
+                                                ⛔ Hora Límite (No Entrar):
+                                            </label>
+                                            <p:inputText id="breakoutHoraFin" value="#{dashboardBean.breakoutHoraFin}"
+                                                styleClass="aether-input" style="width: 100%; text-align: center; font-weight: 800; color: #b91c1c; border-color: #fca5a5;" />
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 0.82rem; font-weight: 700; color: #475569;">R:R Mínimo:</label>
+                                            <p:selectOneMenu id="breakoutMinRrSelect" value="#{dashboardBean.breakoutMinRr}"
+                                                styleClass="aether-input" style="width: 100%;">
+                                                <f:selectItem itemLabel="1.0 : 1 (100% Riesgo)" itemValue="1.0" />
+                                                <f:selectItem itemLabel="1.2 : 1 (120% Riesgo)" itemValue="1.2" />
+                                                <f:selectItem itemLabel="1.5 : 1 (150% Riesgo)" itemValue="1.5" />
+                                                <f:selectItem itemLabel="2.0 : 1 (200% Riesgo)" itemValue="2.0" />
+                                            </p:selectOneMenu>
+                                        </div>
+                                    </div>
+
+                                    <!-- Filtros Institucionales -->
+                                    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px;">
+                                        <div style="font-size: 0.8rem; font-weight: 800; color: #c2410c;">Filtros de Seguridad Institucional:</div>
+                                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                                            <div style="display: flex; align-items: center; gap: 4px;">
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarEma200}" id="chkEma200" />
+                                                <label for="chkEma200" style="font-size: 0.8rem; font-weight: 600;">EMA 200 (Tendencia)</label>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 4px;">
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarImpulseMacd}" id="chkMacd" />
+                                                <label for="chkMacd" style="font-size: 0.8rem; font-weight: 600;">Impulse MACD</label>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 4px;">
+                                                <p:selectBooleanCheckbox value="#{dashboardBean.breakoutUsarBreakEven}" id="chkBe" />
+                                                <label for="chkBe" style="font-size: 0.8rem; font-weight: 600;">BreakEven Auto</label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Botones de Acción -->
+                                    <div style="display: flex; gap: 6px; margin-top: 6px;">
+                                        <p:commandButton value="Guardar Par" icon="pi pi-save"
+                                            actionListener="#{dashboardBean.guardarBreakout}"
+                                            disabled="#{dashboardBean.readOnly}"
+                                            process="@this :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout"
+                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:growl"
+                                            style="flex: 1; background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700; font-size: 0.85rem;" />
+
+                                        <p:commandButton value="Calibrar" icon="pi pi-cog"
+                                            actionListener="#{dashboardBean.optimizarBreakoutPair}"
+                                            disabled="#{dashboardBean.readOnly}"
+                                            process="@this"
+                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
+                                            oncomplete="renderBreakoutChart();"
+                                            styleClass="ui-button-warning"
+                                            style="background: #f97316; border-color: #f97316; font-weight: 700; font-size: 0.85rem;"
+                                            title="Auto-calibrar este par buscando su sesión y horario óptimos" />
+
+                                        <p:commandButton icon="pi pi-trash"
+                                            actionListener="#{dashboardBean.borrarBreakout}"
+                                            disabled="#{dashboardBean.readOnly}"
+                                            rendered="#{dashboardBean.breakoutExistsInDb}"
+                                            process="@this"
+                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:growl"
+                                            styleClass="ui-button-danger ui-button-outlined"
+                                            style="width: 36px; padding: 0;"
+                                            title="Remover par de la estrategia BREAKOUT" />
+                                    </div>
+                                </div>
+                            </p:tab>
+
+                            <!-- SUB-SECCIÓN 3: POSICIONES ACTIVAS BREAKOUT -->
+                            <p:tab id="tabBreakoutActivePositions" title="Posiciones Activas">
+                                <div style="display: flex; justify-content: flex-end; margin-bottom: 6px;">
+                                    <p:commandButton value="Cerrar de Emergencia" icon="pi pi-power-off"
+                                        actionListener="#{dashboardBean.cerrarPosicionBreakout(dashboardBean.selectedBreakoutPair)}"
+                                        disabled="#{dashboardBean.readOnly}"
+                                        process="@this"
+                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabBreakoutActivePositions :aetherForm:growl"
+                                        styleClass="ui-button-danger"
+                                        style="font-size: 0.82rem; padding: 4px 10px; font-weight: 700;" />
+                                </div>
+                                <div id="breakoutActiveTradesContainer" style="font-size: 0.85rem; color: #64748b; text-align: center; padding: 12px;">
+                                    Monitoreando órdenes activas en MT5 / broker...
+                                </div>
+                            </p:tab>
+                        </p:accordionPanel>
+                    </p:panel>
+
+                    <!-- COLUMNA DERECHA: GRÁFICA TÁCTICA BREAKOUT EN VIVO -->
+                    <div id="breakoutRightChartColumn" class="strategy-right-column">
+                        <div class="strategy-chart-card">
+
+                            <!-- ENCABEZADO DE GRÁFICA Y ZOOM DE HORARIO -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #ffffff; border-bottom: 1px solid #fed7aa; flex-wrap: wrap; gap: 8px;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    <span style="font-weight: 900; font-size: 1.25rem; color: #ea580c;">
+                                        #{dashboardBean.selectedBreakoutPair}
+                                    </span>
+                                    <span style="font-size: 0.88rem; font-weight: 800; background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; padding: 2px 8px; border-radius: 6px;">
+                                        Sesión #{dashboardBean.breakoutSesion} (5min)
+                                    </span>
+                                    <span id="breakoutRangeStatusBadge" style="font-size: 0.82rem; font-weight: 800; background: #f1f5f9; color: #334155; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                                        Rango: #{dashboardBean.breakoutHoraInicio} (#{dashboardBean.breakoutDuracionRangoMin}m)
+                                    </span>
+                                    <span style="font-size: 0.82rem; font-weight: 800; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 6px;">
+                                        Límite: ≤ #{dashboardBean.breakoutHoraFin}
+                                    </span>
+                                </div>
+
+                                <!-- CONTROLES DE ZOOM Y REFRESCO -->
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <button type="button" onclick="zoomBreakoutSession();" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-icon-left"
+                                        style="font-size: 0.82rem; padding: 4px 10px; background: #ea580c; border: 1px solid #ea580c; color: #fff; font-weight: 800; border-radius: 6px; cursor: pointer;"
+                                        title="Hacer zoom en el horario de apertura matutina de la sesión">
+                                        <i class="pi pi-search-plus" style="margin-right: 4px;"></i>Zoom Sesión
+                                    </button>
+                                    <button type="button" onclick="resetBreakoutZoom();" class="ui-button ui-widget ui-state-default ui-corner-all ui-button-text-icon-left"
+                                        style="font-size: 0.82rem; padding: 4px 8px; background: #f8fafc; border: 1px solid #cbd5e1; color: #475569; font-weight: 700; border-radius: 6px; cursor: pointer;"
+                                        title="Ver todo el historial de 250 velas">
+                                        <i class="pi pi-globe" style="margin-right: 4px;"></i>Ver Todo
+                                    </button>
+                                    <p:commandButton icon="pi pi-refresh" onclick="rcRefreshBreakoutChart();"
+                                        styleClass="ui-button-outlined"
+                                        style="width: 30px; height: 30px; padding: 0; color: #ea580c; border-color: #ea580c;"
+                                        title="Refrescar gráfica" />
+                                </div>
+                            </div>
+
+                            <!-- CANVAS DE GRÁFICA BREAKOUT CHART.JS -->
+                            <div class="strategy-canvas-wrapper" style="position: relative; flex: 1; min-height: 420px;">
+                                <canvas id="breakoutChart" style="width: 100%; height: 100%;"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 2: GRÁFICA COMPLETA BREAKOUT                                  -->
+            <!-- ===================================================================== -->
+            <p:tab id="tabGraficaBreakout" titletip="Grafica" titleStyleClass="mobile-chart-tab-header">
+                <f:facet name="title">
+                    <span class="grafica-tab-icon" title="Grafica"
+                        style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/grafica.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
+                <div id="mobileBreakoutChartMountPoint" style="padding: 8px 10px; height: 100%; box-sizing: border-box;">
+                </div>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 3: BACKTESTING & OPTIMIZADOR INSTITUCIONAL                     -->
+            <!-- ===================================================================== -->
+            <p:tab titletip="BackTesting &amp; Optimizador">
+                <f:facet name="title">
+                    <span class="backtest-tab-icon" title="BackTesting"
+                        style="display: inline-block; width: 38px; height: 32px; -webkit-mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/backtest.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
+                <div style="padding: 12px; overflow-y: auto; height: 100%; box-sizing: border-box;">
+
+                    <!-- KPIS PRINCIPALES -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                        <div style="background: #fff7ed; border: 1.5px solid #fdba74; border-radius: 8px; padding: 10px; text-align: center;">
+                            <span style="font-size: 0.8rem; font-weight: 700; color: #9a3412;">Win Rate</span>
+                            <div style="font-size: 1.6rem; font-weight: 900; color: #ea580c;">#{dashboardBean.breakoutBtMetrics.formattedWinRate}%</div>
+                            <span style="font-size: 0.75rem; color: #64748b;">#{dashboardBean.breakoutBtMetrics.winningTrades} W / #{dashboardBean.breakoutBtMetrics.losingTrades} L</span>
+                        </div>
+                        <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 10px; text-align: center;">
+                            <span style="font-size: 0.8rem; font-weight: 700; color: #166534;">Profit Factor</span>
+                            <div style="font-size: 1.6rem; font-weight: 900; color: #16a34a;">#{dashboardBean.breakoutBtMetrics.formattedProfitFactor}</div>
+                            <span style="font-size: 0.75rem; color: #64748b;">Esperanza Matemática</span>
+                        </div>
+                        <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; text-align: center;">
+                            <span style="font-size: 0.8rem; font-weight: 700; color: #334155;">PnL Neto Estimado</span>
+                            <div style="font-size: 1.6rem; font-weight: 900; color: #{dashboardBean.breakoutBtMetrics.netProfit >= 0 ? '#16a34a' : '#dc2626'};">
+                                $#{dashboardBean.breakoutBtMetrics.formattedNetProfit} USD
+                            </div>
+                            <span style="font-size: 0.75rem; color: #64748b;">#{dashboardBean.breakoutBtMetrics.totalTrades} Operaciones</span>
+                        </div>
+                        <div style="background: #fef2f2; border: 1.5px solid #fca5a5; border-radius: 8px; padding: 10px; text-align: center;">
+                            <span style="font-size: 0.8rem; font-weight: 700; color: #991b1b;">Max Drawdown</span>
+                            <div style="font-size: 1.6rem; font-weight: 900; color: #dc2626;">-#{dashboardBean.breakoutBtMetrics.formattedMaxDrawdown}%</div>
+                            <span style="font-size: 0.75rem; color: #64748b;">Control de Pérdida</span>
+                        </div>
+                    </div>
+
+                    <!-- TABLA DEL OPTIMIZADOR INSTITUCIONAL -->
+                    <div style="background: #ffffff; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-weight: 800; font-size: 1.15rem; color: #ea580c;">
+                                <i class="pi pi-bolt" style="margin-right: 6px;"></i>Optimizador y Recomendaciones de Emisoras BREAKOUT
+                            </span>
+                            <p:commandButton value="⚡ Re-analizar Universo" icon="pi pi-refresh"
+                                actionListener="#{dashboardBean.optimizarTodosBreakout}"
+                                process="@this" update=":aetherForm:breakoutTabView:breakoutOptTable :aetherForm:growl"
+                                style="font-size: 0.82rem; padding: 4px 10px; background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700;" />
+                        </div>
+
+                        <p:dataTable id="breakoutOptTable" value="#{dashboardBean.breakoutOptimizerList}" var="bo"
+                            styleClass="aether-table-compact" scrollable="true" scrollHeight="260px"
+                            emptyMessage="Pulsa '⚡ Re-analizar Universo' para obtener las recomendaciones del optimizador para BREAKOUT.">
+
+                            <p:column headerText="Emisora" style="width: 14%;">
+                                <span style="font-weight: 800; color: #0f172a; font-size: 0.95rem;">#{bo.symbol}</span>
+                            </p:column>
+                            <p:column headerText="Recomendación" style="width: 18%; text-align: center;">
+                                <span style="font-weight: 800; font-size: 0.82rem; padding: 3px 8px; border-radius: 6px; #{bo.recomendada ? 'background: #dcfce7; color: #166534; border: 1px solid #86efac;' : ('NEUTRAL' eq bo.recommendation ? 'background: #fef9c3; color: #854d0e; border: 1px solid #fde047;' : 'background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;')}">
+                                    #{bo.recommendation} #{bo.recomendada ? '⭐' : ''}
+                                </span>
+                            </p:column>
+                            <p:column headerText="Sesión Óptima" style="width: 14%; text-align: center;">
+                                <span style="font-weight: 700; color: #475569;">#{bo.sesion} (#{bo.horaInicio})</span>
+                            </p:column>
+                            <p:column headerText="Hora Límite" style="width: 12%; text-align: center;">
+                                <span style="font-weight: 800; color: #b91c1c;">≤ #{bo.horaFin}</span>
+                            </p:column>
+                            <p:column headerText="Win Rate" style="width: 12%; text-align: center;">
+                                <span style="font-weight: 800; color: #{bo.winRate >= 60 ? '#16a34a' : '#334155'};">#{bo.winRate}%</span>
+                            </p:column>
+                            <p:column headerText="Profit Factor" style="width: 12%; text-align: center;">
+                                <span style="font-weight: 800; color: #{bo.profitFactor >= 1.3 ? '#16a34a' : '#334155'};">#{bo.profitFactor}</span>
+                            </p:column>
+                            <p:column headerText="PnL Estimado" style="width: 12%; text-align: right;">
+                                <span style="font-weight: 800; color: #{bo.netProfit >= 0 ? '#16a34a' : '#dc2626'};">$#{bo.netProfit}</span>
+                            </p:column>
+                            <p:column headerText="Acción" style="width: 10%; text-align: center;">
+                                <p:commandButton icon="pi pi-check" value="Aplicar"
+                                    actionListener="#{dashboardBean.aplicarRecomendacionBreakout(bo)}"
+                                    process="@this" update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:growl"
+                                    oncomplete="renderBreakoutChart();"
+                                    styleClass="ui-button-success ui-button-sm"
+                                    style="font-size: 0.78rem; padding: 2px 8px;"
+                                    title="Configurar y guardar esta emisora con sus parámetros óptimos recomendados" />
+                            </p:column>
+                        </p:dataTable>
+                    </div>
+
+                    <!-- BITÁCORA DETALLADA DE TRADES HISTÓRICOS SIMULADOS -->
+                    <div style="background: #ffffff; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px;">
+                        <span style="font-weight: 800; font-size: 1.15rem; color: #ea580c; display: block; margin-bottom: 8px;">
+                            <i class="pi pi-list" style="margin-right: 6px;"></i>Bitácora de Trades Simulados (#{dashboardBean.selectedBreakoutPair})
+                        </span>
+                        <p:dataTable id="breakoutBtTradesTable" value="#{dashboardBean.breakoutBtTradesList}" var="bt"
+                            scrollable="true" scrollHeight="220px" styleClass="aether-table-compact"
+                            emptyMessage="Sin operaciones simuladas registradas.">
+                            <p:column headerText="Dirección" style="width: 12%; text-align: center;">
+                                <span style="font-weight: 800; padding: 2px 8px; border-radius: 4px; #{bt.direction eq 'LARGO' ? 'background: #dcfce7; color: #166534;' : 'background: #fee2e2; color: #991b1b;'}">
+                                    #{bt.direction}
+                                </span>
+                            </p:column>
+                            <p:column headerText="Fecha Entrada" style="width: 22%; text-align: center;">
+                                <span style="font-weight: 700; color: #0f172a;">#{bt.entryDate}</span>
+                            </p:column>
+                            <p:column headerText="Px Entrada" style="width: 16%; text-align: right;">
+                                <h:outputText value="#{bt.entryPriceA}"><f:convertNumber pattern="#,##0.00000" /></h:outputText>
+                            </p:column>
+                            <p:column headerText="Px Cierre" style="width: 16%; text-align: right;">
+                                <h:outputText value="#{bt.exitPriceA}"><f:convertNumber pattern="#,##0.00000" /></h:outputText>
+                            </p:column>
+                            <p:column headerText="Pips" style="width: 14%; text-align: right;">
+                                <span style="font-weight: 800; color: #{bt.pipsA >= 0 ? '#16a34a' : '#dc2626'};">
+                                    #{bt.pipsA >= 0 ? '+' : ''}#{bt.pipsA}
+                                </span>
+                            </p:column>
+                            <p:column headerText="Motivo" style="width: 20%; text-align: center;">
+                                <span style="font-weight: 700; font-size: 0.8rem; color: #64748b;">#{bt.exitReason}</span>
+                            </p:column>
+                        </p:dataTable>
+                    </div>
+                </div>
+            </p:tab>
+
+            <!-- ===================================================================== -->
+            <!-- PESTAÑA 4: HECHOS (TRADES REALES EJECUTADOS EN MT5 / BROKER)           -->
+            <!-- ===================================================================== -->
+            <p:tab titletip="Hechos">
+                <f:facet name="title">
+                    <span class="hechos-tab-icon" title="Hechos"
+                        style="display: inline-block; width: 34px; height: 30px; -webkit-mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/hechos.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle;"></span>
+                </f:facet>
+                <div style="padding: 12px; overflow-y: auto; height: 100%; box-sizing: border-box;">
+                    <div style="background: #ffffff; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                            <span style="font-weight: 800; font-size: 1.15rem; color: #ea580c;">
+                                <i class="pi pi-list" style="margin-right: 6px;"></i>Órdenes Reales Ejecutadas (BREAKOUT)
+                            </span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <p:datePicker value="#{dashboardBean.breakoutRealTradesStartDate}" pattern="yyyy-MM-dd" showIcon="true" style="width: 150px;" />
+                                <p:datePicker value="#{dashboardBean.breakoutRealTradesEndDate}" pattern="yyyy-MM-dd" showIcon="true" style="width: 150px;" />
+                                <p:commandButton value="Filtrar" icon="pi pi-filter"
+                                    actionListener="#{dashboardBean.loadBreakoutRealTradesMovimientos}"
+                                    process="@this" update=":aetherForm:breakoutTabView:breakoutRealTradesTable"
+                                    style="background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700; font-size: 0.85rem;" />
+                            </div>
+                        </div>
+
+                        <p:dataTable id="breakoutRealTradesTable" value="#{dashboardBean.breakoutRealTradesList}" var="rtt"
+                            scrollable="true" scrollHeight="360px" styleClass="aether-table-compact"
+                            emptyMessage="No hay operaciones reales ejecutadas para la estrategia BREAKOUT en este periodo.">
+                            <p:column headerText="#" style="width: 5%; text-align: center;">
+                                <span style="font-weight: 700;">#{rtt.tradeNum}</span>
+                            </p:column>
+                            <p:column headerText="Ticket" style="width: 14%; text-align: center;">
+                                <span style="font-weight: 700; color: #475569;">#{rtt.ticketId}</span>
+                            </p:column>
+                            <p:column headerText="Símbolo" style="width: 14%; text-align: center;">
+                                <span style="font-weight: 800; color: #ea580c;">#{rtt.symbol}</span>
+                            </p:column>
+                            <p:column headerText="Dirección" style="width: 12%; text-align: center;">
+                                <span style="font-weight: 800; padding: 2px 6px; border-radius: 4px; #{rtt.direction eq 'BUY' or rtt.direction eq 'LARGO' ? 'background: #dcfce7; color: #166534;' : 'background: #fee2e2; color: #991b1b;'}">
+                                    #{rtt.direction}
+                                </span>
+                            </p:column>
+                            <p:column headerText="Volumen" style="width: 10%; text-align: right;">
+                                <h:outputText value="#{rtt.size}"><f:convertNumber pattern="#,##0.00" /></h:outputText>
+                            </p:column>
+                            <p:column headerText="Px Entrada" style="width: 15%; text-align: right;">
+                                <h:outputText value="#{rtt.entryPrice}"><f:convertNumber pattern="#,##0.00000" /></h:outputText>
+                            </p:column>
+                            <p:column headerText="Px Salida" style="width: 15%; text-align: right;">
+                                <h:outputText value="#{rtt.exitPrice}"><f:convertNumber pattern="#,##0.00000" /></h:outputText>
+                            </p:column>
+                            <p:column headerText="PnL Neto" style="width: 15%; text-align: right;">
+                                <span style="font-weight: 900; color: #{rtt.netPnl >= 0 ? '#16a34a' : '#dc2626'};">
+                                    $#{rtt.netPnl}
+                                </span>
+                            </p:column>
+                        </p:dataTable>
+                    </div>
+                </div>
+            </p:tab>
+        </p:tabView>
+    </div>
+
+    <!-- DIÁLOGO PARA AGREGAR NUEVO PAR EN BREAKOUT -->
+    <p:dialog id="dlgAgregarParBreakout" widgetVar="dlgAgregarParBreakout" header="Añadir Emisora a BREAKOUT"
+        modal="true" responsive="true" width="400" resizable="false">
+        <h:panelGrid columns="1" style="width: 100%; gap: 10px;">
+            <label style="font-weight: 700; color: #475569;">Selecciona la Emisora:</label>
+            <p:selectOneMenu id="nuevoParBreakoutSelect" value="#{dashboardBean.selectedBreakoutPair}" style="width: 100%;">
+                <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
+                    itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
+            </p:selectOneMenu>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
+                <p:commandButton value="Cancelar" onclick="PF('dlgAgregarParBreakout').hide();" styleClass="ui-button-secondary" />
+                <p:commandButton value="Añadir y Calibrar" icon="pi pi-check"
+                    actionListener="#{dashboardBean.guardarBreakout}"
+                    oncomplete="PF('dlgAgregarParBreakout').hide(); renderBreakoutChart();"
+                    process="@this nuevoParBreakoutSelect"
+                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
+                    style="background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700;" />
+            </div>
+        </h:panelGrid>
+    </p:dialog>
+
+    <!-- ========================================================================= -->
+    <!-- JAVASCRIPT: RENDERIZADOR TÁCTICO DE GRÁFICA BREAKOUT (CANVAS + CHART.JS) -->
+    <!-- ========================================================================= -->
+    <script type="text/javascript">
+    // <![CDATA[
+    var _breakoutChartInstance = null;
+
+    function parseBreakoutDateMs(str) {
+        if (!str) return null;
+        try {
+            var d = new Date(str);
+            if (!isNaN(d.getTime())) return d.getTime();
+            var parts = str.replace('T', ' ').split(/[- :]/);
+            if (parts.length >= 5) {
+                return new Date(parts[0], parts[1]-1, parts[2], parts[3], parts[4], parts[5] || 0).getTime();
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function zoomBreakoutSession() {
+        var zoomEl = document.querySelector("[id$='breakoutZoomJsonData']");
+        if (!zoomEl || !zoomEl.value || zoomEl.value === '{}') return;
+        try {
+            var z = JSON.parse(zoomEl.value);
+            if (z && z.startTsMs && z.endTsMs && _breakoutChartInstance) {
+                _breakoutChartInstance.options.scales.x.min = z.startTsMs;
+                _breakoutChartInstance.options.scales.x.max = z.endTsMs;
+                _breakoutChartInstance.update();
+            }
+        } catch(e) {
+            console.warn('Error aplicando zoom BREAKOUT:', e);
+        }
+    }
+
+    function resetBreakoutZoom() {
+        if (_breakoutChartInstance) {
+            delete _breakoutChartInstance.options.scales.x.min;
+            delete _breakoutChartInstance.options.scales.x.max;
+            _breakoutChartInstance.update();
+        }
+    }
+
+    function handleBreakoutTabShow(index) {
+        if (index === 0 || index === 1) {
+            setTimeout(renderBreakoutChart, 60);
+        }
+    }
+
+    function renderBreakoutChart() {
+        try {
+            var canvas = document.getElementById('breakoutChart');
+            if (!canvas) return;
+            if (canvas.offsetParent === null) return;
+
+            var histEl = document.querySelector("[id$='breakoutHistoryJsonData']");
+            var histStr = histEl ? histEl.value : '[]';
+            if (!histStr || histStr === '[]') return;
+
+            var rawCandles = JSON.parse(histStr);
+            if (!rawCandles || rawCandles.length === 0) return;
+            if (rawCandles.length > 250) {
+                rawCandles = rawCandles.slice(-250);
+            }
+
+            var rangeEl = document.querySelector("[id$='breakoutRangeJsonData']");
+            var rangeObj = null;
+            try {
+                if (rangeEl && rangeEl.value) rangeObj = JSON.parse(rangeEl.value);
+            } catch(e) {}
+
+            var pricePoints = [];
+            for (var i = 0; i < rawCandles.length; i++) {
+                var c = rawCandles[i];
+                var ts = parseBreakoutDateMs(c.datetime);
+                if (!ts) continue;
+                pricePoints.push({
+                    x: ts,
+                    y: Number(c.close),
+                    open: Number(c.open),
+                    high: Number(c.high),
+                    low: Number(c.low),
+                    close: Number(c.close),
+                    volume: Number(c.volume || 0)
+                });
+            }
+
+            var datasets = [
+                {
+                    label: 'Precio (5min)',
+                    data: pricePoints,
+                    borderColor: '#ea580c',
+                    backgroundColor: 'rgba(234, 88, 12, 0.05)',
+                    borderWidth: 2.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    fill: false,
+                    tension: 0.1,
+                    order: 5
+                }
+            ];
+
+            // Plugin para dibujar la Caja del Rango de Apertura y la Línea Límite
+            var breakoutRangeDrawPlugin = {
+                id: 'breakoutRangeDrawPlugin',
+                beforeDraw: function(chart) {
+                    if (!rangeObj || !rangeObj.rangeHigh || !rangeObj.rangeLow) return;
+                    var ctx = chart.ctx;
+                    var xScale = chart.scales.x;
+                    var yScale = chart.scales.y;
+
+                    var yHigh = yScale.getPixelForValue(rangeObj.rangeHigh);
+                    var yLow = yScale.getPixelForValue(rangeObj.rangeLow);
+                    var tStart = parseBreakoutDateMs(rangeObj.rangeStart);
+                    var tEnd = parseBreakoutDateMs(rangeObj.rangeEnd);
+                    var tCutoff = parseBreakoutDateMs(rangeObj.cutoffTime);
+
+                    var xStart = tStart ? xScale.getPixelForValue(tStart) : xScale.left;
+                    var xEnd = tEnd ? xScale.getPixelForValue(tEnd) : xScale.right;
+                    var xCutoff = tCutoff ? xScale.getPixelForValue(tCutoff) : null;
+
+                    ctx.save();
+                    try {
+                        // 1. Sombreado de la caja del rango
+                        if (xStart !== null && xEnd !== null && !isNaN(xStart) && !isNaN(xEnd)) {
+                            var boxX = Math.min(xStart, xEnd);
+                            var boxW = Math.max(12, Math.abs(xEnd - xStart));
+                            var boxY = Math.min(yHigh, yLow);
+                            var boxH = Math.max(6, Math.abs(yLow - yHigh));
+
+                            var grad = ctx.createLinearGradient(0, boxY, 0, boxY + boxH);
+                            grad.addColorStop(0, 'rgba(234, 88, 12, 0.22)');
+                            grad.addColorStop(1, 'rgba(234, 88, 12, 0.06)');
+                            ctx.fillStyle = grad;
+                            ctx.fillRect(boxX, boxY, boxW, boxH);
+
+                            ctx.strokeStyle = '#ea580c';
+                            ctx.lineWidth = 1.6;
+                            ctx.setLineDash([4, 3]);
+                            ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+                            ctx.setLineDash([]);
+                            ctx.fillStyle = '#c2410c';
+                            ctx.font = 'bold 10px sans-serif';
+                            ctx.fillText('RANGO ' + (rangeObj.session || 'NY') + ' (' + (rangeObj.rangeSizePips || '') + ' pips)', boxX + 6, boxY + 14);
+                        }
+
+                        // 2. Línea horizontal superior (Breakout Alcista)
+                        ctx.strokeStyle = '#16a34a';
+                        ctx.lineWidth = 1.8;
+                        ctx.setLineDash([5, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(xStart || xScale.left, yHigh);
+                        ctx.lineTo(xCutoff || xScale.right, yHigh);
+                        ctx.stroke();
+
+                        ctx.setLineDash([]);
+                        ctx.fillStyle = '#16a34a';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.fillText('▲ MAX RANGO (' + Number(rangeObj.rangeHigh).toFixed(5) + ')', (xCutoff || xScale.right) - 150, yHigh - 4);
+
+                        // 3. Línea horizontal inferior (Breakout Bajista)
+                        ctx.strokeStyle = '#dc2626';
+                        ctx.lineWidth = 1.8;
+                        ctx.setLineDash([5, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(xStart || xScale.left, yLow);
+                        ctx.lineTo(xCutoff || xScale.right, yLow);
+                        ctx.stroke();
+
+                        ctx.setLineDash([]);
+                        ctx.fillStyle = '#dc2626';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.fillText('▼ MIN RANGO (' + Number(rangeObj.rangeLow).toFixed(5) + ')', (xCutoff || xScale.right) - 150, yLow + 12);
+
+                        // 4. Línea vertical de Hora Límite
+                        if (xCutoff !== null && !isNaN(xCutoff) && xCutoff >= xScale.left && xCutoff <= xScale.right) {
+                            ctx.strokeStyle = '#b91c1c';
+                            ctx.lineWidth = 2.2;
+                            ctx.setLineDash([6, 3]);
+                            ctx.beginPath();
+                            ctx.moveTo(xCutoff, yScale.top);
+                            ctx.lineTo(xCutoff, yScale.bottom);
+                            ctx.stroke();
+
+                            ctx.setLineDash([]);
+                            ctx.fillStyle = '#b91c1c';
+                            ctx.font = 'bold 10px sans-serif';
+                            ctx.fillText('⛔ HORA LÍMITE (NO ENTRAR)', xCutoff + 5, yScale.top + 25);
+                        }
+                    } finally {
+                        ctx.restore();
+                    }
+                }
+            };
+
+            if (_breakoutChartInstance) {
+                _breakoutChartInstance.destroy();
+            }
+
+            _breakoutChartInstance = new Chart(canvas, {
+                type: 'line',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    var pt = ctx.raw;
+                                    return 'Precio: ' + (pt ? pt.y : '');
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute',
+                                stepSize: 30,
+                                displayFormats: { minute: 'HH:mm', hour: 'HH:mm' }
+                            },
+                            grid: { color: 'rgba(0,0,0,0.04)' }
+                        },
+                        y: {
+                            position: 'right',
+                            grid: { color: 'rgba(0,0,0,0.06)' }
+                        }
+                    }
+                },
+                plugins: [breakoutRangeDrawPlugin]
+            });
+
+        } catch(e) {
+            console.error('Error renderizando gráfica BREAKOUT:', e);
+        }
+    }
+    // ]]>
+    </script>
+</ui:composition>
