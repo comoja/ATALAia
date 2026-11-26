@@ -42,6 +42,24 @@ public class DashboardBean implements Serializable {
 
     // --- Catalogo de Simbolos desde BD ---
     private List<RatioSymbolDto> availablePairs = new ArrayList<>();
+
+    // --- Caché estático institucional para acelerar navegación instantánea entre vistas ---
+    private static volatile List<RatioSymbolDto> cachedCatalogo = null;
+    private static volatile long cachedCatalogoTimestamp = 0;
+    private static final long CATALOGO_TTL_MS = 600_000; // 10 minutos de caché
+    private static final java.util.concurrent.ConcurrentHashMap<Integer, List<UserAccountDto>> cachedUserAccountsMap = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<Integer, Long> cachedUserAccountsTimestamp = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long ACCOUNTS_TTL_MS = 120_000; // 2 minutos de caché
+
+    public static void invalidateUserAccountsCache(Integer userId) {
+        if (userId != null) {
+            cachedUserAccountsMap.remove(userId);
+            cachedUserAccountsTimestamp.remove(userId);
+        } else {
+            cachedUserAccountsMap.clear();
+            cachedUserAccountsTimestamp.clear();
+        }
+    }
             // --- DTOs del Motor Cuantitativo (Pair Trading & Reversión a la Media) ---
         // --- DTOs para el Backtest de Señales Gráficas (Triángulos y Cuadros) ---
     // ==========================================
@@ -3839,7 +3857,10 @@ public class DashboardBean implements Serializable {
         loadCatalogo();
         loadUserAccounts();
         loadUserRatiosList();
-        loadAllActiveCycles();
+        // Carga de ciclos optimizada: si existen ratios, se delega a onSelectUserRatio para evitar duplicidad
+        if (userRatiosList == null || userRatiosList.isEmpty()) {
+            loadAllActiveCycles();
+        }
 
         // Auto-seleccionar ratio: si ya hay uno seleccionado o activo, preservarlo; de lo contrario, el primero
         if (userRatiosList != null && !userRatiosList.isEmpty()) {
@@ -3894,7 +3915,10 @@ public class DashboardBean implements Serializable {
         loadCatalogo();
         loadUserAccounts();
         loadUserRatiosList();
-        loadAllActiveCycles();
+        // Carga de ciclos optimizada: si existen ratios, se delega a onSelectUserRatio para evitar duplicidad
+        if (userRatiosList == null || userRatiosList.isEmpty()) {
+            loadAllActiveCycles();
+        }
 
         // Preservar el ratio que el usuario estaba revisando
         if (userRatiosList != null && !userRatiosList.isEmpty()) {
@@ -4165,6 +4189,14 @@ public class DashboardBean implements Serializable {
      */
     public void loadCatalogo() {
         try {
+            long now = System.currentTimeMillis();
+            if (cachedCatalogo != null && !cachedCatalogo.isEmpty() && (now - cachedCatalogoTimestamp < CATALOGO_TTL_MS)) {
+                this.availablePairs = new ArrayList<>(cachedCatalogo);
+                log.info("Catálogo recuperado instantáneamente desde caché en memoria ({} símbolos).", this.availablePairs.size());
+                setDefaultPairsSelection();
+                return;
+            }
+
             log.info("Cargando catálogo de símbolos desde el backend...");
             RestTemplate restTemplate = new RestTemplate();
             String url = backendUrl + "/api/v1/catalogo";
@@ -4177,26 +4209,32 @@ public class DashboardBean implements Serializable {
                     this.availablePairs.add(pair);
                 }
             }
-            log.info("Catálogo cargado con éxito. Total símbolos: {}", this.availablePairs.size());
+            cachedCatalogo = new ArrayList<>(this.availablePairs);
+            cachedCatalogoTimestamp = now;
+            log.info("Catálogo cargado con éxito y almacenado en caché. Total símbolos: {}", this.availablePairs.size());
 
-            if (!this.availablePairs.isEmpty()) {
-                boolean foundA = false, foundB = false;
-                for (RatioSymbolDto p : this.availablePairs) {
-                    if (p.getPairName() != null && p.getPairName().equals(selectedPair))
-                        foundA = true;
-                    if (p.getPairName() != null && p.getPairName().equals(selectedPair2))
-                        foundB = true;
-                }
-                if (!foundA && this.availablePairs.size() >= 1)
-                    selectedPair = this.availablePairs.get(0).getPairName();
-                if (!foundB && this.availablePairs.size() >= 2)
-                    selectedPair2 = this.availablePairs.get(1).getPairName();
-                else if (!foundB && this.availablePairs.size() >= 1)
-                    selectedPair2 = this.availablePairs.get(0).getPairName();
-            }
+            setDefaultPairsSelection();
         } catch (Exception e) {
             log.error("Error al cargar el catálogo de símbolos desde el backend", e);
-            this.availablePairs = new ArrayList<>();
+            this.availablePairs = (cachedCatalogo != null) ? new ArrayList<>(cachedCatalogo) : new ArrayList<>();
+        }
+    }
+
+    private void setDefaultPairsSelection() {
+        if (!this.availablePairs.isEmpty()) {
+            boolean foundA = false, foundB = false;
+            for (RatioSymbolDto p : this.availablePairs) {
+                if (p.getPairName() != null && p.getPairName().equals(selectedPair))
+                    foundA = true;
+                if (p.getPairName() != null && p.getPairName().equals(selectedPair2))
+                    foundB = true;
+            }
+            if (!foundA && this.availablePairs.size() >= 1)
+                selectedPair = this.availablePairs.get(0).getPairName();
+            if (!foundB && this.availablePairs.size() >= 2)
+                selectedPair2 = this.availablePairs.get(1).getPairName();
+            else if (!foundB && this.availablePairs.size() >= 1)
+                selectedPair2 = this.availablePairs.get(0).getPairName();
         }
     }
 
@@ -5158,7 +5196,7 @@ public class DashboardBean implements Serializable {
         }
     }
 
-                public void loadUserAccounts() {
+    public void loadUserAccounts() {
         try {
             Integer userId = null;
             if (this.nuevaCuentaUsuarioId != null && securityBean != null && securityBean.isAdmin()) {
@@ -5168,6 +5206,16 @@ public class DashboardBean implements Serializable {
             }
             if (userId == null) {
                 userId = 1;
+            }
+
+            long now = System.currentTimeMillis();
+            List<UserAccountDto> cachedAccs = cachedUserAccountsMap.get(userId);
+            Long cachedTime = cachedUserAccountsTimestamp.get(userId);
+            if (cachedAccs != null && cachedTime != null && (now - cachedTime < ACCOUNTS_TTL_MS)) {
+                this.userAccountsCombo = new ArrayList<>(cachedAccs);
+                log.info("Cuentas para usuario {} recuperadas instantáneamente desde caché en memoria ({} cuentas).", userId, cachedAccs.size());
+                selectDefaultAccount(this.userAccountsCombo);
+                return;
             }
 
             RestTemplate restTemplate = new RestTemplate();
@@ -5196,26 +5244,32 @@ public class DashboardBean implements Serializable {
                 }
             }
             this.userAccountsCombo = list;
-            log.info("Cargadas {} cuentas para el usuario {}", list.size(), userId);
+            cachedUserAccountsMap.put(userId, new ArrayList<>(list));
+            cachedUserAccountsTimestamp.put(userId, now);
+            log.info("Cargadas {} cuentas para el usuario {} y guardadas en caché.", list.size(), userId);
 
-            if (!list.isEmpty()) {
-                boolean accountFound = false;
-                if (selectedAccountId != null) {
-                    for (UserAccountDto acc : list) {
-                        if (acc.getIdCuenta().equals(selectedAccountId)) {
-                            accountFound = true;
-                            break;
-                        }
-                    }
-                }
-                if (!accountFound) {
-                    this.selectedAccountId = list.get(0).getIdCuenta();
-                }
-            } else {
-                this.selectedAccountId = null;
-            }
+            selectDefaultAccount(this.userAccountsCombo);
         } catch (Exception e) {
             log.error("Error al cargar cuentas del usuario: {}", e.getMessage());
+        }
+    }
+
+    private void selectDefaultAccount(List<UserAccountDto> list) {
+        if (list != null && !list.isEmpty()) {
+            boolean accountFound = false;
+            if (selectedAccountId != null) {
+                for (UserAccountDto acc : list) {
+                    if (acc.getIdCuenta().equals(selectedAccountId)) {
+                        accountFound = true;
+                        break;
+                    }
+                }
+            }
+            if (!accountFound) {
+                this.selectedAccountId = list.get(0).getIdCuenta();
+            }
+        } else {
+            this.selectedAccountId = null;
         }
     }
 

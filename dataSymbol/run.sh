@@ -13,12 +13,6 @@ if [ ! -x "$PYTHON_BIN" ]; then
     PYTHON_BIN="python3"
 fi
 
-echo "[INFO] Usando Python: $PYTHON_BIN"
+echo "[INFO] Usando Python: $PYTHON_BIN (Modo Producción directo sin watchfiles)"
 cd "$projectRoot" || exit 1
-
-if [ -x "$WATCHFILES_BIN" ]; then
-    echo "[INFO] Modo Hot-Reload activo (watchfiles)"
-    exec "$WATCHFILES_BIN" --filter python "$PYTHON_BIN $scriptDir/mainOrchestrator.py" "$scriptDir" "$projectRoot/middleware"
-else
-    exec "$PYTHON_BIN" "$scriptDir/mainOrchestrator.py" "$@"
-fi
+exec "$PYTHON_BIN" "$scriptDir/mainOrchestrator.py" "$@"

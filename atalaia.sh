@@ -111,10 +111,10 @@ startServices() {
         echo "✅ MT5 Bridge levantado (PID: $bridgePid) | http://localhost:8005"
     fi
 
-    # 3. Levantar el Backend con Hot-Reload (FastAPI - puerto 8004)
-    echo "⚡ Iniciando Backend FastAPI en puerto 8004 con Auto-Reload..."
+    # 3. Levantar el Backend (FastAPI - puerto 8004 en Modo Producción)
+    echo "⚡ Iniciando Backend FastAPI en puerto 8004 (Modo Producción)..."
     cd "$scriptDir" || exit 1
-    nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload > "$logsDir/backend_output.log" 2>&1 &
+    nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 > "$logsDir/backend_output.log" 2>&1 &
     backendPid=$!
     disown $backendPid 2>/dev/null || true
     echo "$backendPid" > "$backendPidFile"
@@ -213,7 +213,7 @@ startServices() {
             if [ -n "$backendPid" ] && ! kill -0 "$backendPid" 2>/dev/null; then
                 echo "⚠️ [Daemon Watchdog] Backend FastAPI (PID $backendPid) no responde o terminó. Reiniciando..."
                 cd "$scriptDir" || exit 1
-                nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 --reload >> "$logsDir/backend_output.log" 2>&1 &
+                nohup "$uvicornCmd" backend.main:app --host 0.0.0.0 --port 8004 >> "$logsDir/backend_output.log" 2>&1 &
                 backendPid=$!
                 disown $backendPid 2>/dev/null || true
                 echo "$backendPid" > "$backendPidFile"

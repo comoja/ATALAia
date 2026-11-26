@@ -5568,6 +5568,26 @@ def generarDatosReporteJerarquico(
         dias_periodo = 30
     factor_anual = 365.0 / dias_periodo
 
+    def calcular_tae(net: float, cap_base: float, dias: int) -> float:
+        """Calcula la Tasa Anual Equivalente (TAE / APY) con capitalización compuesta."""
+        if cap_base <= 0 or dias <= 0:
+            return 0.0
+        r = net / cap_base
+        if 1.0 + r <= 0:
+            return -100.0
+        try:
+            exp = 365.0 / max(1, dias)
+            val = (math.pow(1.0 + r, exp) - 1.0) * 100.0
+            if val > 999999.0:
+                return 999999.0
+            elif val < -100.0:
+                return -100.0
+            return round(val, 2)
+        except OverflowError:
+            return 999999.0
+        except Exception:
+            return round(r * (365.0 / dias) * 100.0, 2)
+
     clauses = [
         "t.status = 'CLOSED'",
         "t.closeTime >= :dt_start",
@@ -5658,10 +5678,10 @@ def generarDatosReporteJerarquico(
         is_win = net > 0
         is_loss = net < 0
 
-        # Tasa Anual Real a nivel Hecho (retorno sobre nocional operado proyectado a 365 días)
+        # Tasa Anual Equivalente (TAE) a nivel Hecho
         notional_hecho = vol * float(r.entryPrice or 0.0)
         cap_base_hecho = notional_hecho if notional_hecho > 0 else (cap_cuenta if cap_cuenta > 0 else 1.0)
-        tasa_hecho = round((net / cap_base_hecho) * factor_anual * 100.0, 2)
+        tasa_hecho = calcular_tae(net, cap_base_hecho, dias_periodo)
 
         g_trades += 1
         g_bruto += pnl
@@ -5752,6 +5772,7 @@ def generarDatosReporteJerarquico(
             'pnlBruto': round(pnl, 2),
             'commission': round(comm, 2),
             'pnlNeto': round(net, 2),
+            'tasaAnualEquivalente': tasa_hecho,
             'tasaAnualReal': tasa_hecho,
             'status': r.status
         })
@@ -5769,7 +5790,9 @@ def generarDatosReporteJerarquico(
         tot_capital_global += u_cap
         cap_base_u = u_cap if u_cap > 0 else (u['volumen'] if u['volumen'] > 0 else 1.0)
         u['capitalTotal'] = round(u_cap, 2)
-        u['tasaAnualReal'] = round((u['pnlNeto'] / cap_base_u) * factor_anual * 100.0, 2)
+        tae_u = calcular_tae(u['pnlNeto'], cap_base_u, dias_periodo)
+        u['tasaAnualEquivalente'] = tae_u
+        u['tasaAnualReal'] = tae_u
 
         cuentas_list = []
         for c in u['cuentas'].values():
@@ -5781,7 +5804,9 @@ def generarDatosReporteJerarquico(
 
             cap_c = float(c.get('capitalCuenta', 0.0) or 0.0)
             cap_base_c = cap_c if cap_c > 0 else (c['volumen'] if c['volumen'] > 0 else 1.0)
-            c['tasaAnualReal'] = round((c['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
+            tae_c = calcular_tae(c['pnlNeto'], cap_base_c, dias_periodo)
+            c['tasaAnualEquivalente'] = tae_c
+            c['tasaAnualReal'] = tae_c
 
             strat_list = []
             for st in c['estrategias'].values():
@@ -5790,7 +5815,9 @@ def generarDatosReporteJerarquico(
                 st['comisiones'] = round(st['comisiones'], 2)
                 st['pnlNeto'] = round(st['pnlNeto'], 2)
                 st['volumen'] = round(st['volumen'], 4)
-                st['tasaAnualReal'] = round((st['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
+                tae_st = calcular_tae(st['pnlNeto'], cap_base_c, dias_periodo)
+                st['tasaAnualEquivalente'] = tae_st
+                st['tasaAnualReal'] = tae_st
 
                 inst_list = []
                 for ins in st['instrumentos'].values():
@@ -5799,7 +5826,9 @@ def generarDatosReporteJerarquico(
                     ins['comisiones'] = round(ins['comisiones'], 2)
                     ins['pnlNeto'] = round(ins['pnlNeto'], 2)
                     ins['volumen'] = round(ins['volumen'], 4)
-                    ins['tasaAnualReal'] = round((ins['pnlNeto'] / cap_base_c) * factor_anual * 100.0, 2)
+                    tae_ins = calcular_tae(ins['pnlNeto'], cap_base_c, dias_periodo)
+                    ins['tasaAnualEquivalente'] = tae_ins
+                    ins['tasaAnualReal'] = tae_ins
                     inst_list.append(ins)
 
                 inst_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
@@ -5817,7 +5846,7 @@ def generarDatosReporteJerarquico(
     usuarios_list.sort(key=lambda x: x['pnlNeto'], reverse=True)
     g_wr = round((g_wins / g_trades * 100), 1) if g_trades else 0.0
     cap_base_g = tot_capital_global if tot_capital_global > 0 else (g_vol if g_vol > 0 else 1.0)
-    g_tasa = round((g_neto / cap_base_g) * factor_anual * 100.0, 2)
+    g_tasa = calcular_tae(g_neto, cap_base_g, dias_periodo)
 
     return {
         'periodo': {
@@ -5834,6 +5863,7 @@ def generarDatosReporteJerarquico(
             'pnlBruto': round(g_bruto, 2),
             'comisiones': round(g_comm, 2),
             'pnlNeto': round(g_neto, 2),
+            'tasaAnualEquivalente': g_tasa,
             'tasaAnualReal': g_tasa,
             'capitalTotal': round(tot_capital_global, 2)
         },
@@ -5934,7 +5964,8 @@ def api_exportar_reporte_jerarquico_excel(
         cell_sub = ws["A2"]
         p_info = data["periodo"]
         rg = data["resumenGeneral"]
-        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} ({p_info.get('diasPeriodo', 30)} días) | Tasa Anual Real: {rg.get('tasaAnualReal', 0.0):+.2f}% | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
+        tae_global = rg.get('tasaAnualEquivalente', rg.get('tasaAnualReal', 0.0))
+        cell_sub.value = f"Periodo: {p_info['fechaInicio']} al {p_info['fechaFin']} ({p_info.get('diasPeriodo', 30)} días) | Tasa Anual Equivalente (TAE): {tae_global:+.2f}% | Total Trades: {rg['totalTrades']} | Win Rate: {rg['winRate']}% | PnL Neto: ${rg['pnlNeto']:,.2f} USD"
         cell_sub.font = font_sub
         cell_sub.fill = fill_hdr
         cell_sub.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -5943,7 +5974,7 @@ def api_exportar_reporte_jerarquico_excel(
         # Renglón 4: Columnas de datos
         headers = [
             "Nivel / Jerarquía (Usuario ➔ Cuenta ➔ Estrategia ➔ Instrumento ➔ Hecho)",
-            "Tasa Anual Real",
+            "Tasa Anual Equivalente",
             "Tipo / Dir",
             "Volumen",
             "Px Entrada",
@@ -5968,9 +5999,10 @@ def api_exportar_reporte_jerarquico_excel(
         for u in data.get("usuarios", []):
             # Nivel 1: Usuario (TOTAL USUARIO)
             ws.row_dimensions[curr_r].height = 22
+            tae_u = u.get('tasaAnualEquivalente', u.get('tasaAnualReal', 0.0))
             row_vals = [
                 f"👤 USUARIO: {u['nombreUsuario']} ({u['username']})   [TOTAL]",
-                f"{u.get('tasaAnualReal', 0.0):+.2f}%",
+                f"{tae_u:+.2f}%",
                 "-",
                 u["volumen"],
                 "-", "-", "-", "-",
@@ -5994,9 +6026,10 @@ def api_exportar_reporte_jerarquico_excel(
             for c in u.get("cuentas", []):
                 # Nivel 2: Cuenta (SUBTOTAL CUENTA)
                 ws.row_dimensions[curr_r].height = 20
+                tae_c = c.get('tasaAnualEquivalente', c.get('tasaAnualReal', 0.0))
                 row_vals = [
                     f"   💼 CUENTA: {c['nombreCuenta']} [{c['brokerType']}]   [SUBTOTAL]",
-                    f"{c.get('tasaAnualReal', 0.0):+.2f}%",
+                    f"{tae_c:+.2f}%",
                     "-",
                     c["volumen"],
                     "-", "-", "-", "-",
@@ -6020,9 +6053,10 @@ def api_exportar_reporte_jerarquico_excel(
                 for st in c.get("estrategias", []):
                     # Nivel 3: Estrategia (SUBTOTAL ESTRATEGIA)
                     ws.row_dimensions[curr_r].height = 19
+                    tae_st = st.get('tasaAnualEquivalente', st.get('tasaAnualReal', 0.0))
                     row_vals = [
                         f"      🎯 ESTRATEGIA: {st['estrategia']}   [SUBTOTAL]",
-                        f"{st.get('tasaAnualReal', 0.0):+.2f}%",
+                        f"{tae_st:+.2f}%",
                         "-",
                         st["volumen"],
                         "-", "-", "-", "-",
@@ -6046,9 +6080,10 @@ def api_exportar_reporte_jerarquico_excel(
                     for ins in st.get("instrumentos", []):
                         # Nivel 4: Instrumento (SUBTOTAL INSTRUMENTO)
                         ws.row_dimensions[curr_r].height = 18
+                        tae_ins = ins.get('tasaAnualEquivalente', ins.get('tasaAnualReal', 0.0))
                         row_vals = [
                             f"         💱 INSTRUMENTO: {ins['instrumento']}   [SUBTOTAL]",
-                            f"{ins.get('tasaAnualReal', 0.0):+.2f}%",
+                            f"{tae_ins:+.2f}%",
                             "-",
                             ins["volumen"],
                             "-", "-", "-", "-",
@@ -6074,7 +6109,7 @@ def api_exportar_reporte_jerarquico_excel(
                             ws.row_dimensions[curr_r].height = 16
                             pnl_val = h["pnlNeto"]
                             font_pnl = Font(name="Calibri", size=9, bold=True, color=c_green if pnl_val >= 0 else c_red)
-                            tasa_val = h.get("tasaAnualReal", 0.0)
+                            tasa_val = h.get("tasaAnualEquivalente", h.get("tasaAnualReal", 0.0))
                             font_tasa = Font(name="Calibri", size=9, bold=True, color=c_green if tasa_val >= 0 else c_red)
                             row_vals = [
                                 f"            • Hecho #{h['idTrade']} (Ticket: {h['ticketId']})",
@@ -6122,9 +6157,10 @@ def api_exportar_reporte_jerarquico_excel(
             top=Side(style='thin', color='94A3B8'),
             bottom=Side(style='double', color='0F172A')
         )
+        tae_global = rg.get('tasaAnualEquivalente', rg.get('tasaAnualReal', 0.0))
         row_total_vals = [
             "★ TOTAL GENERAL CONSOLIDADO",
-            f"{rg.get('tasaAnualReal', 0.0):+.2f}%",
+            f"{tae_global:+.2f}%",
             "-",
             rg.get("volumen", 0.0),
             "-", "-", "-", "-",

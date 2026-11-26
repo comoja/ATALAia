@@ -535,6 +535,7 @@
 
         <div class="treetable-container">
             <p:treeTable id="treeTableJerarquico" value="#{reporteJerarquicoBean.rootNode}" var="item"
+                         dynamic="true" cache="true"
                          styleClass="aether-treetable"
                          rowStyleClass="#{reporteJerarquicoBean.getRowStyleClass(item)}"
                          emptyMessage="No se encontraron operaciones registradas en el periodo seleccionado."
@@ -560,11 +561,11 @@
                     </h:panelGroup>
                 </p:column>
 
-                <!-- COLUMNA 2: TASA ANUAL REAL -->
-                <p:column headerText="Tasa Anual Real" style="width: 12%; text-align: right;">
-                    <span class="#{item.tasaAnualReal >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}"
+                <!-- COLUMNA 2: TASA ANUAL EQUIVALENTE (TAE) -->
+                <p:column headerText="Tasa Anual Equivalente" style="width: 12%; text-align: right;">
+                    <span class="#{item.tasaAnualEquivalente >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}"
                           style="font-weight: #{item.tipo eq 'HECHO' ? '600' : '850'}; font-size: #{item.tipo eq 'USUARIO' ? '1.08rem' : '0.98rem'};">
-                        #{item.formattedTasaAnualReal}
+                        #{item.formattedTasaAnualEquivalente}
                     </span>
                 </p:column>
 
@@ -616,8 +617,8 @@
                 <p:columnGroup type="footer">
                     <p:row>
                         <p:column footerText="★ TOTAL GENERAL CONSOLIDADO" style="text-align: left; font-weight: 900; font-size: 1.05rem;" />
-                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiTasaAnualReal}"
-                                  styleClass="#{reporteJerarquicoBean.kpiTasaAnualReal >= 0 ? 'footer-pnl-pos' : 'footer-pnl-neg'}"
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiTasaAnualEquivalente}"
+                                  styleClass="#{reporteJerarquicoBean.kpiTasaAnualEquivalente >= 0 ? 'footer-pnl-pos' : 'footer-pnl-neg'}"
                                   style="text-align: right; font-weight: 900; font-size: 1.05rem;" />
                         <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
                         <p:column footerText="#{reporteJerarquicoBean.formattedKpiTotalTrades} (#{reporteJerarquicoBean.kpiWinRate}%)" style="text-align: center; font-weight: 800;" />
