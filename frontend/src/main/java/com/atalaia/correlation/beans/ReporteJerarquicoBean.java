@@ -63,6 +63,7 @@ public class ReporteJerarquicoBean implements Serializable {
     private Double kpiComisiones = 0.0;
     private Double kpiWinRate = 0.0;
     private Double kpiVolumen = 0.0;
+    private Double kpiTasaAnualReal = 0.0;
     private Integer kpiTotalTrades = 0;
     private Integer kpiTradesGanadores = 0;
     private Integer kpiTradesPerdedores = 0;
@@ -175,6 +176,7 @@ public class ReporteJerarquicoBean implements Serializable {
                 this.kpiPnlBruto = rg.path("pnlBruto").asDouble(0.0);
                 this.kpiComisiones = rg.path("comisiones").asDouble(0.0);
                 this.kpiPnlNeto = rg.path("pnlNeto").asDouble(0.0);
+                this.kpiTasaAnualReal = rg.path("tasaAnualReal").asDouble(0.0);
 
                 // Construir Árbol Jerárquico TreeNode
                 this.rootNode = new DefaultTreeNode(new ReporteItemDto("ROOT", "Raíz", "", "", 0.0, 0.0, 0.0, "", "", "ACTIVE", 0, 0, 0, 0.0, 0.0, 0.0, 0.0), null);
@@ -201,6 +203,7 @@ public class ReporteJerarquicoBean implements Serializable {
                             uNode.path("comisiones").asDouble(0.0),
                             uNode.path("pnlNeto").asDouble(0.0)
                     );
+                    uDto.setTasaAnualReal(uNode.path("tasaAnualReal").asDouble(0.0));
                     TreeNode uTree = new DefaultTreeNode(uDto, this.rootNode);
                     uTree.setExpanded(true); // Usuario expandido por defecto
 
@@ -224,6 +227,7 @@ public class ReporteJerarquicoBean implements Serializable {
                                 cNode.path("comisiones").asDouble(0.0),
                                 cNode.path("pnlNeto").asDouble(0.0)
                         );
+                        cDto.setTasaAnualReal(cNode.path("tasaAnualReal").asDouble(0.0));
                         TreeNode cTree = new DefaultTreeNode(cDto, uTree);
                         cTree.setExpanded(true); // Cuenta expandida por defecto
 
@@ -246,6 +250,7 @@ public class ReporteJerarquicoBean implements Serializable {
                                     stNode.path("comisiones").asDouble(0.0),
                                     stNode.path("pnlNeto").asDouble(0.0)
                             );
+                            stDto.setTasaAnualReal(stNode.path("tasaAnualReal").asDouble(0.0));
                             TreeNode stTree = new DefaultTreeNode(stDto, cTree);
                             stTree.setExpanded(false); // Estrategia colapsada por defecto para limpieza visual
 
@@ -268,6 +273,7 @@ public class ReporteJerarquicoBean implements Serializable {
                                         insNode.path("comisiones").asDouble(0.0),
                                         insNode.path("pnlNeto").asDouble(0.0)
                                 );
+                                insDto.setTasaAnualReal(insNode.path("tasaAnualReal").asDouble(0.0));
                                 TreeNode insTree = new DefaultTreeNode(insDto, stTree);
                                 insTree.setExpanded(false);
 
@@ -292,6 +298,7 @@ public class ReporteJerarquicoBean implements Serializable {
                                             hNode.path("commission").asDouble(0.0),
                                             hNode.path("pnlNeto").asDouble(0.0)
                                     );
+                                    hDto.setTasaAnualReal(hNode.path("tasaAnualReal").asDouble(0.0));
                                     new DefaultTreeNode(hDto, insTree);
                                 }
                             }
@@ -461,6 +468,12 @@ public class ReporteJerarquicoBean implements Serializable {
         return String.format(Locale.US, "%,d ops", val);
     }
 
+    public String getFormattedKpiTasaAnualReal() {
+        String sign = (kpiTasaAnualReal != null && kpiTasaAnualReal >= 0) ? "+" : "";
+        double val = (kpiTasaAnualReal != null) ? kpiTasaAnualReal : 0.0;
+        return String.format(Locale.US, "%s%.2f%%", sign, val);
+    }
+
     public String getRowStyleClass(ReporteItemDto item) {
         if (item == null || item.getTipo() == null) {
             return "node-hecho";
@@ -491,6 +504,7 @@ public class ReporteJerarquicoBean implements Serializable {
         private Double pnlBruto;
         private Double comisiones;
         private Double pnlNeto;
+        private Double tasaAnualReal = 0.0;
 
         public ReporteItemDto(String tipo, String concepto, String subtitulo, String direccion,
                               Double volumen, Double entryPrice, Double exitPrice, String openTime, String closeTime,
@@ -586,6 +600,16 @@ public class ReporteJerarquicoBean implements Serializable {
                 return String.format(Locale.US, "%,.0f u", volumen);
             }
             return String.format(Locale.US, "%,.2f u", volumen);
+        }
+
+        public String getFormattedTasaAnualReal() {
+            if (tasaAnualReal == null) return "0.00%";
+            String sign = tasaAnualReal >= 0 ? "+" : "";
+            return String.format(Locale.US, "%s%.2f%%", sign, tasaAnualReal);
+        }
+
+        public String getTasaAnualRealColor() {
+            return (tasaAnualReal != null && tasaAnualReal >= 0) ? "#059669" : "#dc2626";
         }
 
         public boolean isTotal() {

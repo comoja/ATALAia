@@ -24,7 +24,9 @@ def _clean_html_for_telegram(text: str) -> str:
     def centerTextReplacer(match):
         content = match.group(1)
         maxWidth = 40  # Assumed width for centering
-        spacesNeeded = (maxWidth - len(content)) // 2
+        # Limpiar tags HTML para medir longitud visual exacta
+        visualText = re.sub(r'<.*?>', '', content)
+        spacesNeeded = (maxWidth - len(visualText)) // 2
         return " " * spacesNeeded + content if spacesNeeded > 0 else content
 
     text = re.sub(r'<center>(.*?)</center>', centerTextReplacer, text, flags=re.DOTALL)

@@ -711,13 +711,78 @@
 
                                     <!-- Si NO HAY posiciones en curso -->
                                     <h:panelGroup rendered="#{!dashboardBean.activeCycleSummary.hasActiveCycle}">
-                                        <div
-                                            style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; text-align: center;">
+                                        <div id="noActiveCycleCard"
+                                            style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; text-align: center; transition: all 0.2s ease;">
                                             <div
                                                 style="font-weight: 700; font-size: 0.80rem; color: #64748b; display: flex; align-items: center; justify-content: center; gap: 6px;">
                                                 <i class="pi pi-info-circle"
                                                     style="font-size: 0.85rem; color: #94a3b8;"></i>
                                                 Sin operaciones en curso para este ratio
+                                            </div>
+                                            <div style="font-size: 0.70rem; color: #94a3b8; margin-top: 4px;">
+                                                💡 Coloca el cursor en el último punto del gráfico para proyectar ganancia al cruce
+                                            </div>
+                                        </div>
+
+                                        <!-- Tarjeta Dinámica de Simulación al pasar el mouse por el último punto -->
+                                        <div id="simulatedRatioPreviewCard"
+                                            style="display: none; background: #ffffff; border: 1.5px solid #10b981; border-radius: 10px; padding: 10px 12px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15); transition: all 0.2s ease;">
+                                            <div
+                                                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px;">
+                                                <div
+                                                    style="font-weight: 800; font-size: 0.82rem; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                                    <span
+                                                        style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                                                    <span>SIMULACIÓN AL CRUCE</span>
+                                                </div>
+                                                <span id="simBadgePnl"
+                                                    style="font-size: 0.74rem; font-weight: 800; color: #15803d; background: #dcfce7; border: 1px solid #86efac; border-radius: 8px; padding: 1px 7px;">
+                                                    +$0.00 (+0.0%)
+                                                </span>
+                                            </div>
+
+                                            <!-- PnL Proyectado, Margen Estimado y Retorno -->
+                                            <div id="simStatsGrid"
+                                                style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 4px; align-items: center;">
+                                                <div style="text-align: left;">
+                                                    <div style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                        Proy. Cruce</div>
+                                                    <div id="simTotalPnlText"
+                                                        style="font-size: 0.88rem; font-weight: 800; color: #15803d;">
+                                                        +$0.00 USD</div>
+                                                </div>
+                                                <div style="text-align: left;">
+                                                    <div style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                        Margen Req.</div>
+                                                    <div id="simMarginText"
+                                                        style="font-size: 0.80rem; font-weight: 700; color: #334155;">
+                                                        $0.00 USD</div>
+                                                </div>
+                                                <div style="text-align: left;">
+                                                    <div style="font-size: 0.62rem; color: #64748b; font-weight: 700; text-transform: uppercase;">
+                                                        Retorno Est.</div>
+                                                    <div id="simReturnPctText"
+                                                        style="font-size: 0.88rem; font-weight: 800; color: #15803d;">
+                                                        +0.00%</div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Detalle de Patas Simuladas -->
+                                            <div style="font-size: 0.70rem; color: #334155; line-height: 1.4; border-top: 1px dashed #e2e8f0; padding-top: 5px;">
+                                                <div id="simLegA" style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                                                    <span>🔵 <b>Par A</b></span>
+                                                    <span>$0.00 (0.0 pips)</span>
+                                                </div>
+                                                <div id="simLegB" style="display: flex; justify-content: space-between;">
+                                                    <span>🟠 <b>Par B</b></span>
+                                                    <span>$0.00 (0.0 pips)</span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Recomendación al usuario para Guardar / Activar -->
+                                            <div id="simAdviceBox"
+                                                style="margin-top: 6px; padding: 4px 6px; background: #f0fdf4; border-radius: 4px; font-size: 0.67rem; color: #166534; font-weight: 700; text-align: center;">
+                                                💡 Conviene guardar el ratio y dejar que se active
                                             </div>
                                         </div>
                                     </h:panelGroup>
@@ -6214,7 +6279,7 @@ line-height: 1.2;">
 
                                     if (xCross && yCross && xCross >= chartArea.left - 50 && xCross <= chartArea.right + 120) {
                                         function calcProjPnl(pairName, pxCross, avgPx, pnlVal, isBuyDir) {
-                                            if (!pxCross || !avgPx) return null;
+                                            if (!pxCross) return null;
                                             const cleanTarget = String(pairName || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
                                             if (activeTrades && activeTrades.length > 0) {
                                                 let tot = 0;
@@ -6236,8 +6301,23 @@ line-height: 1.2;">
                                                 });
                                                 if (found) return tot;
                                             }
-                                            const curDiff = isBuyDir ? (pxCross - avgPx) : (avgPx - pxCross);
-                                            return curDiff * 100000.0 * 0.01;
+                                            // Si no hay operaciones en curso, simular desde el último precio conocido (10,000 unidades)
+                                            let basePx = avgPx;
+                                            let isBuy = isBuyDir;
+                                            if (!basePx || basePx <= 0) {
+                                                const lastRaw = (rawData && rawData.length > 0) ? rawData[rawData.length - 1] : null;
+                                                const isA = (pairName === pairA);
+                                                basePx = isA ? (lastRaw ? lastRaw.priceA : 0) : (lastRaw ? lastRaw.priceB : 0);
+                                                const lastNormA = (priceASeries && priceASeries.length > 0) ? priceASeries[priceASeries.length - 1].y : 0;
+                                                const lastNormB = (priceBSeries && priceBSeries.length > 0) ? priceBSeries[priceBSeries.length - 1].y : 0;
+                                                isBuy = isA ? (lastNormA < lastNormB) : (lastNormB < lastNormA);
+                                            }
+                                            if (!basePx || basePx <= 0) return null;
+
+                                            const delta = isBuy ? (pxCross - basePx) : (basePx - pxCross);
+                                            const isUsdDenom = cleanTarget.endsWith('USD') && !cleanTarget.startsWith('USD');
+                                            const div = isUsdDenom ? 1.0 : (pxCross > 0 ? pxCross : basePx);
+                                            return (delta * 10000.0) / div;
                                         }
 
                                         const projPnlA = calcProjPnl(pairA, cInfo.pxCrossA, avgPxA, pnlAVal, isBuyA);
@@ -6596,6 +6676,12 @@ line-height: 1.2;">
 
                                     if (tooltipModel.opacity === 0) {
                                         tooltipEl.style.opacity = 0;
+                                        const simCard = document.getElementById('simulatedRatioPreviewCard');
+                                        const noTradesCard = document.getElementById('noActiveCycleCard');
+                                        if (simCard && noTradesCard) {
+                                            simCard.style.display = 'none';
+                                            noTradesCard.style.display = 'block';
+                                        }
                                         return;
                                     }
 
@@ -6611,6 +6697,13 @@ line-height: 1.2;">
 
                                     // CASO A: El cursor está en la zona de PROYECCIÓN FUTURA (más allá de la última vela real)
                                     if (hoverMs > (lastRealTs + (candleStepMs * 0.35))) {
+                                        const simCard = document.getElementById('simulatedRatioPreviewCard');
+                                        const noTradesCard = document.getElementById('noActiveCycleCard');
+                                        if (simCard && noTradesCard) {
+                                            simCard.style.display = 'none';
+                                            noTradesCard.style.display = 'block';
+                                        }
+
                                         // A.1 Cruce Estimado
                                         const fcDs = chart.data.datasets.find(d => d.data && d.data.some(p => p && p.forecastData));
                                         let fcPoint = null;
@@ -6707,6 +6800,153 @@ line-height: 1.2;">
 
                                     let innerHtml = '<thead><tr><th colspan="2" style="text-align:left; border-bottom:1px solid rgba(163,177,198,0.4); padding-bottom:6px; font-family:\'Plus Jakarta Sans\',sans-serif; color:#1e293b; font-size:13px; font-weight:700;">' +
                                         formattedDate + ' <span style="font-size:11px; color:#64748b; font-weight:600;">(Vela #' + (index + 1) + ')</span></th></tr></thead><tbody>';
+
+                                    const isLastCandle = (index === dates.length - 1);
+                                    const simCard = document.getElementById('simulatedRatioPreviewCard');
+                                    const noTradesCard = document.getElementById('noActiveCycleCard');
+
+                                    // Si no tiene entradas activas y el mouse está en el último punto del precio:
+                                    // Calcular una entrada y proyectar el valor de la ganancia al cruce
+                                    if (!hasActiveCycle && isLastCandle) {
+                                        const simPxA = (rawItem && rawItem.priceA !== null && rawItem.priceA !== undefined) ? rawItem.priceA : 0;
+                                        const simPxB = (rawItem && rawItem.priceB !== null && rawItem.priceB !== undefined) ? rawItem.priceB : 0;
+                                        const normA = (priceASeries[index] && priceASeries[index].y !== null) ? priceASeries[index].y : 0;
+                                        const normB = (priceBSeries[index] && priceBSeries[index].y !== null) ? priceBSeries[index].y : 0;
+
+                                        // Dirección al cruce por reversión al equilibrio (convergencia)
+                                        const simIsBuyA = (normA < normB);
+                                        const simIsBuyB = !simIsBuyA;
+                                        const simDirA = simIsBuyA ? 'COMPRA' : 'VENTA';
+                                        const simDirB = simIsBuyB ? 'COMPRA' : 'VENTA';
+
+                                        // Precio objetivo al cruce
+                                        const cInfo = chart.crossForecastInfo;
+                                        let targetCrossPxA, targetCrossPxB, targetNormEq;
+                                        if (cInfo && cInfo.pxCrossA && cInfo.pxCrossB) {
+                                            targetCrossPxA = cInfo.pxCrossA;
+                                            targetCrossPxB = cInfo.pxCrossB;
+                                            targetNormEq = cInfo.crossNormY;
+                                        } else {
+                                            targetNormEq = (typeof avgOfMean === 'number' && !isNaN(avgOfMean)) ? avgOfMean : ((normA + normB) / 2);
+                                            const rA = (maxA - minA) > 1e-8 ? (maxA - minA) : 1.0;
+                                            const rB = (maxB - minB) > 1e-8 ? (maxB - minB) : 1.0;
+                                            targetCrossPxA = minA + (targetNormEq * rA);
+                                            targetCrossPxB = minB + (targetNormEq * rB);
+                                        }
+
+                                        // Cálculos de Pips y Ganancia en USD (10,000 unidades / 0.10 lote estándar institucional)
+                                        const simUnits = 10000;
+                                        const pipSzA = pairA.includes('JPY') ? 0.01 : (pairA.includes('XAU') ? 0.1 : (pairA.includes('XAG') ? 0.01 : 0.0001));
+                                        const pipSzB = pairB.includes('JPY') ? 0.01 : (pairB.includes('XAU') ? 0.1 : (pairB.includes('XAG') ? 0.01 : 0.0001));
+
+                                        const deltaA = simIsBuyA ? (targetCrossPxA - simPxA) : (simPxA - targetCrossPxA);
+                                        const deltaB = simIsBuyB ? (targetCrossPxB - simPxB) : (simPxB - targetCrossPxB);
+                                        const pipsA = pipSzA > 0 ? (deltaA / pipSzA) : 0;
+                                        const pipsB = pipSzB > 0 ? (deltaB / pipSzB) : 0;
+
+                                        const cleanSymA = pairA.replace(/[^A-Za-z]/g, '').toUpperCase();
+                                        const cleanSymB = pairB.replace(/[^A-Za-z]/g, '').toUpperCase();
+                                        const isUsdDenomA = cleanSymA.endsWith('USD') && !cleanSymA.startsWith('USD');
+                                        const isUsdDenomB = cleanSymB.endsWith('USD') && !cleanSymB.startsWith('USD');
+
+                                        const divA = isUsdDenomA ? 1.0 : (targetCrossPxA > 0 ? targetCrossPxA : (simPxA > 0 ? simPxA : 1.0));
+                                        const divB = isUsdDenomB ? 1.0 : (targetCrossPxB > 0 ? targetCrossPxB : (simPxB > 0 ? simPxB : 1.0));
+
+                                        const pnlA = (deltaA * simUnits) / divA;
+                                        const pnlB = (deltaB * simUnits) / divB;
+                                        const totalProjPnl = pnlA + pnlB;
+
+                                        const margA = cleanSymA.startsWith('USD') ? (simUnits * 0.005) : (simUnits * simPxA * 0.005);
+                                        const margB = cleanSymB.startsWith('USD') ? (simUnits * 0.005) : (simUnits * simPxB * 0.005);
+                                        const totalMargin = (margA + margB) > 0 ? (margA + margB) : 100.0;
+                                        const retPct = (totalProjPnl / totalMargin) * 100.0;
+
+                                        const decA = pairA.includes('JPY') ? 3 : 5;
+                                        const decB = pairB.includes('JPY') ? 3 : 5;
+                                        const pnlColor = totalProjPnl >= 0 ? '#15803d' : '#dc2626';
+                                        const pnlSign = totalProjPnl >= 0 ? '+' : '-';
+
+                                        // Bloque destacado de Simulación dentro del Tooltip
+                                        innerHtml += '<tr><td colspan="2" style="padding:4px 0;">' +
+                                            '<div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(2, 132, 199, 0.12)); border: 1.5px solid #10b981; border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;">' +
+                                            '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px;">' +
+                                            '  <span style="font-weight: 800; font-size: 11px; color: #047857; display: flex; align-items: center; gap: 4px;">' +
+                                            '    🎯 SIMULACIÓN DE ENTRADA AL CRUCE</span>' +
+                                            '  <span style="font-size: 9px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 1px 5px; border-radius: 4px; border: 1px solid #86efac;">10k u (0.10 lot)</span>' +
+                                            '</div>' +
+                                            '<div style="font-size: 11px; color: #1e293b; margin-bottom: 2px;">' +
+                                            '  ● <b style="color:#007bff;">' + pairA + '</b> <span style="font-weight:700; color:' + (simIsBuyA ? '#16a34a' : '#dc2626') + ';">[' + simDirA + ']</span> @ ' + simPxA.toFixed(decA) + ' ➜ Cruce: ' + targetCrossPxA.toFixed(decA) + ' <b style="color:' + (pnlA >= 0 ? '#16a34a' : '#dc2626') + ';">(' + (pnlA >= 0 ? '+' : '') + '$' + pnlA.toFixed(2) + ' | ' + (pipsA >= 0 ? '+' : '') + pipsA.toFixed(1) + 'p)</b>' +
+                                            '</div>' +
+                                            '<div style="font-size: 11px; color: #1e293b; margin-bottom: 4px;">' +
+                                            '  ● <b style="color:#ff8c00;">' + pairB + '</b> <span style="font-weight:700; color:' + (simIsBuyB ? '#16a34a' : '#dc2626') + ';">[' + simDirB + ']</span> @ ' + simPxB.toFixed(decB) + ' ➜ Cruce: ' + targetCrossPxB.toFixed(decB) + ' <b style="color:' + (pnlB >= 0 ? '#16a34a' : '#dc2626') + ';">(' + (pnlB >= 0 ? '+' : '') + '$' + pnlB.toFixed(2) + ' | ' + (pipsB >= 0 ? '+' : '') + pipsB.toFixed(1) + 'p)</b>' +
+                                            '</div>' +
+                                            '<div style="border-top: 1px dashed #cbd5e1; padding-top: 4px; display: flex; align-items: center; justify-content: space-between;">' +
+                                            '  <span style="font-size: 11px; font-weight: 800; color: #0f172a;">Ganancia Proyectada al Cruce:</span>' +
+                                            '  <span style="font-size: 12px; font-weight: 800; color: ' + pnlColor + '; background: ' + (totalProjPnl >= 0 ? '#dcfce7' : '#fee2e2') + '; padding: 1px 6px; border-radius: 4px;">' +
+                                            '    ' + (totalProjPnl >= 0 ? '🟢 +' : '🔴 -') + '$' + Math.abs(totalProjPnl).toFixed(2) + ' USD (' + (retPct >= 0 ? '+' : '') + retPct.toFixed(1) + '%)' +
+                                            '  </span>' +
+                                            '</div>' +
+                                            '<div style="font-size: 10px; color: ' + (totalProjPnl > 0 ? '#047857' : '#64748b') + '; font-weight: 700; margin-top: 3px; text-align: center;">' +
+                                            '  ' + (totalProjPnl > 0 ? '💡 Conviene guardar el ratio y dejar que se active para este cruce' : '⚠️ Sin ventaja de convergencia clara') +
+                                            '</div>' +
+                                            '</div></td></tr>';
+
+                                        // Actualizamos la tarjeta dinámica en el panel izquierdo (si existe en DOM)
+                                        if (simCard && noTradesCard) {
+                                            noTradesCard.style.display = 'none';
+                                            simCard.style.display = 'block';
+
+                                            const pnlAbs = Math.abs(totalProjPnl).toFixed(2);
+                                            const retFormatted = retPct.toFixed(1);
+
+                                            const badgeEl = document.getElementById('simBadgePnl');
+                                            if (badgeEl) {
+                                                badgeEl.textContent = pnlSign + '$' + pnlAbs + ' (' + (retPct >= 0 ? '+' : '') + retFormatted + '%)';
+                                                badgeEl.style.color = totalProjPnl >= 0 ? '#15803d' : '#dc2626';
+                                                badgeEl.style.background = totalProjPnl >= 0 ? '#dcfce7' : '#fee2e2';
+                                                badgeEl.style.borderColor = totalProjPnl >= 0 ? '#86efac' : '#fca5a5';
+                                            }
+                                            const totalPnlEl = document.getElementById('simTotalPnlText');
+                                            if (totalPnlEl) {
+                                                totalPnlEl.textContent = pnlSign + '$' + pnlAbs + ' USD';
+                                                totalPnlEl.style.color = totalProjPnl >= 0 ? '#15803d' : '#dc2626';
+                                            }
+                                            const marginEl = document.getElementById('simMarginText');
+                                            if (marginEl) {
+                                                marginEl.textContent = '$' + totalMargin.toFixed(2) + ' USD';
+                                            }
+                                            const retEl = document.getElementById('simReturnPctText');
+                                            if (retEl) {
+                                                retEl.textContent = (retPct >= 0 ? '+' : '') + retFormatted + '%';
+                                                retEl.style.color = totalProjPnl >= 0 ? '#15803d' : '#dc2626';
+                                            }
+                                            const legAEl = document.getElementById('simLegA');
+                                            if (legAEl) {
+                                                legAEl.innerHTML = '<span>🔵 <b>' + pairA + '</b> (' + simDirA + '):</span> <span style="font-weight:700; color:' + (pnlA >= 0 ? '#16a34a' : '#dc2626') + ';">' + (pnlA >= 0 ? '+' : '') + '$' + pnlA.toFixed(2) + ' (' + (pipsA >= 0 ? '+' : '') + pipsA.toFixed(1) + ' pips)</span>';
+                                            }
+                                            const legBEl = document.getElementById('simLegB');
+                                            if (legBEl) {
+                                                legBEl.innerHTML = '<span>🟠 <b>' + pairB + '</b> (' + simDirB + '):</span> <span style="font-weight:700; color:' + (pnlB >= 0 ? '#16a34a' : '#dc2626') + ';">' + (pnlB >= 0 ? '+' : '') + '$' + pnlB.toFixed(2) + ' (' + (pipsB >= 0 ? '+' : '') + pipsB.toFixed(1) + ' pips)</span>';
+                                            }
+                                            const adviceEl = document.getElementById('simAdviceBox');
+                                            if (adviceEl) {
+                                                if (totalProjPnl > 0) {
+                                                    adviceEl.innerHTML = '💡 <b>Conviene guardar y dejar que se active</b> (Proyección +' + pnlSign + '$' + pnlAbs + ' USD al cruce)';
+                                                    adviceEl.style.background = '#f0fdf4';
+                                                    adviceEl.style.color = '#166534';
+                                                } else {
+                                                    adviceEl.innerHTML = '⚠️ Proyección neutra o reducida al cruce';
+                                                    adviceEl.style.background = '#fef2f2';
+                                                    adviceEl.style.color = '#991b1b';
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        if (simCard && noTradesCard) {
+                                            simCard.style.display = 'none';
+                                            noTradesCard.style.display = 'block';
+                                        }
+                                    }
 
                                     // Si en esta vela hay una Entrada Activa / Vigente, mostrarla en primer lugar
                                     if (entryGroups && entryGroups.length > 0) {
@@ -6946,6 +7186,17 @@ line-height: 1.2;">
                     },
                     plugins: [hemisphereBackgroundPlugin, activePositionEntryPlugin]
                 });
+
+                if (window.aetherChart && window.aetherChart.canvas) {
+                    window.aetherChart.canvas.addEventListener('mouseleave', function () {
+                        const simCard = document.getElementById('simulatedRatioPreviewCard');
+                        const noTradesCard = document.getElementById('noActiveCycleCard');
+                        if (simCard && noTradesCard) {
+                            simCard.style.display = 'none';
+                            noTradesCard.style.display = 'block';
+                        }
+                    });
+                }
 
                 if (typeof loadForecastAndNewsAsync === 'function') {
                     loadForecastAndNewsAsync(window.aetherChart, pairA, pairB, smaPeriod, minA, maxA, minB, maxB, avgOfMean, rawData, dates, timeUnit, priceASeries, priceBSeries);

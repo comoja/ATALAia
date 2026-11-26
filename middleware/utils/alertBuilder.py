@@ -87,15 +87,15 @@ def buildAlertMessage(
     
     # Mapeo estricto: LARGO = COMPRA, CORTO = VENTA
     directionStr = "COMPRA" if direction == "LARGO" else "VENTA"
+    is_buy = (direction == "LARGO")
+    boxEmoji = "🟩" if is_buy else "🟥"
+    dirBadge = "🟢 COMPRA" if is_buy else "🔴 VENTA"
     is_adjustment = signal.get('is_adjustment', False)
     
     if is_adjustment:
-        title_base = "SEÑAL DE AJUSTE"
-        colorHeaderIni = "🟩" if direction == "LARGO" else "🟥"
-        colorHeader = "🟧"  # Naranja para ajustes, diferente de compra/venta
+        title_base = "AJUSTE"
     else:
-        title_base = f"SEÑAL DE {directionStr}"
-        colorHeader = "🟩" if direction == "LARGO" else "🟥"
+        title_base = "SEÑAL"
     
     close = signal.get('entryPrice', signal.get('entrada', 0))
     tp = trade.get('takeProfit', signal.get('take_profit', 0))
@@ -105,37 +105,31 @@ def buildAlertMessage(
     confianza = signal.get('confidence', signal.get('confianza', 0))
     setup = signal.get('setup', signal.get('tipo_entrada', 'N/A'))
 
-    header = f"{colorHeader}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeader}" if not is_adjustment else f"{colorHeaderIni}{colorHeader}{colorHeader} <b>{title_base}</b> {colorHeader}{colorHeader}{colorHeaderIni}"
-
+    nowStr = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     text = (
-        f"{header}\n"
-        f"<i><b><center>{strategyName}</center></b></i>\n"
-        f"<center>👤  <b>{trade.get('accountName', 'N/A')}</b></center>\n"
-        f"<b><center>{trade['symbol']} ({trade.get('intervalo', 'N/A')})</center></b>\n"
-        f"<center>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</center>\n"
-        f"━━━━━━━━━━━━━━━\n"
+        f"<center>{boxEmoji} <b>ATALA.ia {strategyName.upper()} {title_base}</b> {boxEmoji}</center>\n"
+        f"<center><b> {trade['symbol']} ({trade.get('intervalo', 'N/A')}) </b></center>\n"
+        f"<center><b> {trade.get('accountName', 'N/A')} </b></center>\n"
+        f"<center>{nowStr}</center>\n"
+        f"━━━━━━━━━━━━━━━━━\n"
     )
     
     if is_adjustment:
         text += f"<center>⚠️ <b>Revisar operación abierta</b> ⚠️</center>\n"
-        text += f"<center><i>Nuevos niveles detectados</i></center>\n<center><i>ajustar TP/SL o cerrar</i></center>\n"
-        text += f"━━━━━━━━━━━━━━━\n"
+        text += f"<center><i>Nuevos niveles detectados: ajustar TP/SL o cerrar</i></center>\n"
+        text += f"━━━━━━━━━━━━━━━━━\n"
     
-    text += (
-        f"<center>Setup: <b>{setup}</b></center>\n"
-        f"<center>Confianza: <b>{confianza:,.2f}%</b></center>\n"
-    )
+    text += f"🎯 <b>Señal:</b> {setup} | <b>Confianza:</b> {confianza:,.2f}%\n"
+    text += f"📍 <b>Orden:</b> {dirBadge} <b>{trade['symbol']}</b>\n"
     
     sentiment = signal.get('marketSentiment', 0.0)
-    sentiment_emoji = "⚪️"
-    if sentiment > 0.2: sentiment_emoji = "🟢"
-    elif sentiment < -0.2: sentiment_emoji = "🔴"
-    
-    text += f"<center>🤖 AI Sent: <b>{sentiment_emoji} {sentiment:.2f}</b></center>\n"
+    if sentiment and abs(sentiment) > 0.01:
+        sentiment_emoji = "🟢" if sentiment > 0.2 else ("🔴" if sentiment < -0.2 else "⚪️")
+        text += f"🤖 <b>AI Sent:</b> {sentiment_emoji} {sentiment:.2f}\n"
     
     imminent = signal.get('imminentNews')
     if imminent:
-        text += f"<center><b>{imminent}</b></center>\n"
+        text += f"⚠️ <b>Noticia:</b> {imminent}\n"
         
     # Calcular distancia de Stop Loss dinámico y Trail
     slDistPrice = abs(close - sl)
@@ -155,28 +149,17 @@ def buildAlertMessage(
     else:
         trailInfo = f"{slDistPips:.1f} pips"
 
-    text += f"━━━━━━━━━━━━━━━\n"
-
+    text += f"🔹 <b>Precio Entrada:</b> <b>{close:,.5f}</b>\n"
     if direction == "LARGO":
-        text += (
-            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
-        )
+        text += f"🟢 <b>Take Profit:</b> <b>{tp:,.5f}</b>\n"
         if be:
-            text += f"🟠 BREAK EVEN:  <b>{be:,.5f}</b>\n"
-        text += (
-            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
-            f"🔴 STOP LOSS TRAIL: <b>{sl:,.5f} ({trailInfo})</b>\n"
-        )
+            text += f"🟠 <b>Break Even:</b> <b>{be:,.5f}</b>\n"
+        text += f"🔴 <b>Stop Loss:</b> <b>{sl:,.5f} ({trailInfo})</b>\n"
     else:
-        text += (
-            f"🔴 STOP LOSS TRAIL: <b>{sl:,.5f} ({trailInfo})</b>\n"
-            f"🔹 ENTRADA:     <b>{close:,.5f}</b>\n"
-        )
+        text += f"🔴 <b>Stop Loss:</b> <b>{sl:,.5f} ({trailInfo})</b>\n"
         if be:
-            text += f"🟠 BREAK EVEN:  <b>{be:,.5f}</b>\n"
-        text += (
-            f"🟢 TAKE PROFIT: <b>{tp:,.5f}</b>\n"
-        )
+            text += f"🟠 <b>Break Even:</b> <b>{be:,.5f}</b>\n"
+        text += f"🟢 <b>Take Profit:</b> <b>{tp:,.5f}</b>\n"
 
     # Calcular multiplo y formatear cantidad para evitar exceder el margen de 0.25%
     sizeVal = float(trade['size'])
@@ -232,10 +215,10 @@ def buildAlertMessage(
         import logging
         logging.getLogger("execution").error(f"Error calculando multiplos en buildAlertMessage: {e}")
         
-    text += f"     CANTIDAD:  <b>{qtyStr}</b>\n"
+    text += f"📦 <b>Volumen:</b> <b>{qtyStr} unidades</b>\n"
     if trade.get('margin_used'):
-        text += f"     MARGEN EST: <b>${trade['margin_used']:,.2f} USD</b>\n"
-    text += f"━━━━━━━━━━━━━━━\n"
+        text += f"💼 <b>Margen Est:</b> <b>${trade['margin_used']:,.2f} USD</b>\n"
+    text += f"━━━━━━━━━━━━━━━━━\n"
 
     
     if extraFields:
@@ -249,7 +232,7 @@ def buildAlertMessage(
             else:
                 text += f"• {key}: <b>{value}</b>\n"
     
-    text += f"━━━━━━━━━━━━━━━\n"
+    text += f"━━━━━━━━━━━━━━━━━\n"
     
     return text
 

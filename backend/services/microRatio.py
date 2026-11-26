@@ -664,10 +664,12 @@ def buildRatioLotEntryAlertMessage(
 ) -> str:
     """Construye el mensaje formal de Telegram para un lote confirmado en FOREX.com."""
     nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    dirBadge = "🟢 COMPRA" if ("LARG" in str(direction).upper() or "BUY" in str(direction).upper()) else "🔴 VENTA"
+    isBuy = ("LARG" in str(direction).upper() or "BUY" in str(direction).upper())
+    boxEmoji = "🟩" if isBuy else "🟥"
+    dirBadge = "🟢 COMPRA" if isBuy else "🔴 VENTA"
 
     lines = [
-        f"<center>🟩 <b>ATALA.ia ORDEN EJECUTADA</b> 🟩</center>",
+        f"<center>{boxEmoji} <b>ATALA.ia ORDEN EJECUTADA</b> {boxEmoji}</center>",
         f"<center><b> {numerador} ⇄ {denominador} ({periodo.upper()}) </b></center>",
         f"<center><b> {accountName} </b></center>",
         f"<center>{nowStr}</center>",
@@ -750,7 +752,16 @@ def buildRatioExitAlertMessage(
     closeReason: str = "CONVERGENCIA"
 ) -> str:
     """Construye el mensaje de liquidación por cruce de precios o solicitud manual para Telegram."""
-    pnlSign = "+" if totalNetPnl >= 0 else ""
+    isProfit = (totalNetPnl >= 0)
+    boxEmoji = "🟩" if isProfit else "🟥"
+    circleTotal = "🟢" if isProfit else "🔴"
+    pnlSign = "+" if isProfit else "-"
+
+    circleA = "🟢" if pnlA >= 0 else "🔴"
+    pnlSignA = "+" if pnlA >= 0 else "-"
+    circleB = "🟢" if pnlB >= 0 else "🔴"
+    pnlSignB = "+" if pnlB >= 0 else "-"
+
     retPct = ((totalNetPnl / totalMarginReleased) * 100.0) if totalMarginReleased > 0 else 0.0
     retSign = "+" if retPct >= 0 else ""
     nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -784,19 +795,19 @@ def buildRatioExitAlertMessage(
         body_reason = closeReason
 
     lines = [
-        f"<center>🟥<b>ATALA.ia CIERRE {header_reason}</b>🟥</center>",
-        f"<center><b>   {numerador} ⇄ {denominador} ({periodo.upper()})</b></center>",
-        f"<center><b>   {accountName} </b></center>",
+        f"<center>{boxEmoji} <b>ATALA.ia CIERRE {header_reason}</b> {boxEmoji}</center>",
+        f"<center><b> {numerador} ⇄ {denominador} ({periodo.upper()}) </b></center>",
+        f"<center><b> {accountName} </b></center>",
         f"<center>{nowStr}</center>",
-        "━━━━━━━━━━━━━━━━━━━━",
-        f"<center> <b>LIQUIDACIÓN {body_reason}:</b></center>",
-        f"   <b>{numerador} ({dirA}):</b> {pipsA:+,.1f} pips  |  <b>{pnlA:+,.2f} USD</b>",
-        f"   <b>{denominador} ({dirB}):</b> {pipsB:+,.1f} pips  |  <b>{pnlB:+,.2f} USD</b>",
-        "━━━━━━━━━━━━━━━━━━━━",
-        f"💵 <b>PnL NETO TOTAL:       {pnlSign}${totalNetPnl:,.2f} USD ({retSign}{retPct:,.1f}%)</b>",
-        f"💼 Margen Liberado:       <b>${totalMarginReleased:,.2f} USD</b>",
-        f"💰 Capital:  <b>${newAccountCapital:,.2f} USD</b>",
-        "━━━━━━━━━━━━━━━━━━━━"
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Motivo:</b> LIQUIDACIÓN {body_reason}",
+        f"📍 <b>{numerador} ({dirA}):</b> {pipsA:+,.1f} pips | {circleA} <b>{pnlSignA}${abs(pnlA):,.2f} USD</b>",
+        f"📍 <b>{denominador} ({dirB}):</b> {pipsB:+,.1f} pips | {circleB} <b>{pnlSignB}${abs(pnlB):,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━",
+        f"💵 <b>Resultado:</b> {circleTotal} <b>{pnlSign}${abs(totalNetPnl):,.2f} USD</b> ({retSign}{retPct:,.1f}%)",
+        f"💼 <b>Margen Liberado:</b> <b>${totalMarginReleased:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${newAccountCapital:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━"
     ]
     return "\n".join(lines)
 
@@ -1917,16 +1928,32 @@ def openSingleCoverageTrade(
     title = "COBERTURA INICIAL ACTIVADA" if strategyName == "COBERTURA INICIAL" else "COBERTURA ACTIVADA"
     descMotivo = f"Primer cuadro/triángulo del ratio ({legReason})" if strategyName == "COBERTURA INICIAL" else f"Pérdida en pata supera -25.0% ({legReason})"
     descSub = "Cobertura inicial simultánea en sentido contrario al ratio." if strategyName == "COBERTURA INICIAL" else "Posición congelada para proteger capital."
-    msg = (
-        f"🛡️ <b>[{title}]</b>\n"
-        f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
-        f"<b>Ratio:</b> {setupName}\n"
-        f"<b>Símbolo:</b> {symbol}\n"
-        f"<b>Operación:</b> {direction} {size:,.0f} unidades @ {fillPrice}\n"
-        f"<b>Margen:</b> ${chunkMargin:.2f} USD\n"
-        f"<b>Motivo:</b> {descMotivo}\n"
+
+    isBuy = ("LARG" in str(direction).upper() or "BUY" in str(direction).upper())
+    boxEmoji = "🟩" if isBuy else "🟥"
+    dirBadge = "🟢 COMPRA" if isBuy else "🔴 VENTA"
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
+    accountCapitalRemaining = float(capRow["Capital"]) if capRow and capRow.get("Capital") is not None else 0.0
+
+    lines = [
+        f"<center>{boxEmoji} <b>ATALA.ia COBERTURA EJECUTADA</b> {boxEmoji}</center>",
+        f"<center><b> {setupName} </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Señal:</b> {title} ({descMotivo})",
+        f"📍 <b>Orden:</b> {dirBadge} <b>{symbol}</b>",
+        f"🔹 <b>Precio Ejecución:</b> <b>{fillPrice:,.5f}</b>",
+        f"📦 <b>Volumen:</b> <b>{size:,.0f} unidades</b>",
+        f"🎟️ <b>Ticket ID (Broker):</b> <code>{ticketId}</code>",
+        f"💼 <b>Margen Retenido:</b> <b>${chunkMargin:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${accountCapitalRemaining:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━",
         f"<i>{descSub}</i>"
-    )
+    ]
+    msg = "\n".join(lines)
     dispatchRatioTelegramAlert(idCuenta, msg)
     logger.info(f"✅ [{setupName}] {strategyName} activada con éxito para {symbol} (Trade #{newTradeId} | Ticket {ticketId}).")
     return {
@@ -2051,16 +2078,32 @@ def closeSingleCoverageTrade(
         })
 
     titleClose = f"{stratName} CERRADA"
-    msg = (
-        f"🎯 <b>[{titleClose}]</b>\n"
-        f"<b>Cuenta:</b> #{idCuenta} ({accountName})\n"
-        f"<b>Ratio:</b> {setupName}\n"
-        f"<b>Símbolo:</b> {sym} ({direction})\n"
-        f"<b>PnL Cobertura:</b> {pnl:+.2f} USD ({returnPct:+.2f}%)\n"
-        f"<b>Precio Salida:</b> {latestPrice}\n"
-        f"<b>Motivo:</b> {closeReason}\n"
-        f"<i>Margen liberado: ${marginUsed:.2f} USD</i>"
-    )
+    isProfit = (pnl >= 0)
+    boxEmoji = "🟩" if isProfit else "🟥"
+    circleResult = "🟢" if isProfit else "🔴"
+    pnlSign = "+" if isProfit else "-"
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    raw_dir = str(direction).upper()
+    dirBadge = "🟢 COMPRA" if ("LARG" in raw_dir or "BUY" in raw_dir) else "🔴 VENTA"
+
+    capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
+    accountCapitalRemaining = float(capRow["Capital"]) if capRow and capRow.get("Capital") is not None else 0.0
+
+    lines = [
+        f"<center>{boxEmoji} <b>ATALA.ia CIERRE COBERTURA</b> {boxEmoji}</center>",
+        f"<center><b> {setupName} </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Motivo:</b> {closeReason}",
+        f"📍 <b>Posición:</b> {dirBadge} <b>{sym}</b>",
+        f"🔹 <b>Precio Salida:</b> <b>{latestPrice:,.5f}</b>",
+        f"💵 <b>Resultado:</b> {circleResult} <b>{pnlSign}${abs(pnl):,.2f} USD</b> ({returnPct:+.2f}%)",
+        f"💼 <b>Margen Liberado:</b> <b>${marginUsed:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${accountCapitalRemaining:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━"
+    ]
+    msg = "\n".join(lines)
     dispatchRatioTelegramAlert(idCuenta, msg)
     logger.info(f"✅ [{setupName}] Cobertura cerrada con éxito para {sym}: PnL {pnl:+.2f} USD ({returnPct:+.2f}%).")
     if returnDetail:

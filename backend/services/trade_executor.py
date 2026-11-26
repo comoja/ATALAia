@@ -562,20 +562,37 @@ def execute_single_asset_entry(
     dbSession.commit()
 
     # 6. Alerta de Telegram enriquecida
-    dirEmoji = "🟢 COMPRA" if action == "buy" else "🔴 VENTA"
+    isBuy = (str(action).lower() == "buy" or "LARG" in str(action).upper() or "BUY" in str(action).upper())
+    boxEmoji = "🟩" if isBuy else "🟥"
+    dirBadge = "🟢 COMPRA" if isBuy else "🔴 VENTA"
     stratDisplay = "RIDER" if ("CART" in strategy.upper() or "RIDER" in strategy.upper()) else strategy
-    alertMsg = (
-        f"🎯 <b>[{stratDisplay} - ENTRADA CONFIRMADA]</b>\n\n"
-        f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
-        f"Activo: <b>{symbol}</b> ({timeframe})\n"
-        f"Operación: <b>{dirEmoji}</b> ({size:g} unidades)\n"
-        f"Precio Entrada: <b>{price:.5f}</b>\n"
-        f"Tickets Bróker: <code>{whRes.get('order_ids') or [whRes.get('order_id')]}</code>\n"
-        f"Margen Retenido: <b>${totalRealMargin:,.2f} USD</b>\n"
-        f"Ind. Margen: <b>{projInd:.1f}%</b> (Mín Req: {minMarginReq:.0f}%)\n"
-        f"Señal: <i>{signalType}</i>\n"
-        f"Hora: {now.strftime('%Y-%m-%d %H:%M:%S')} CST"
-    )
+
+    capRow = dbSession.execute(text("SELECT Capital FROM cuenta WHERE idCuenta = :idc"), {"idc": idCuenta}).mappings().fetchone()
+    curCapital = float(capRow["Capital"]) if capRow and capRow.get("Capital") is not None else 0.0
+
+    raw_tickets = whRes.get("order_ids") or [whRes.get("order_id")]
+    if isinstance(raw_tickets, list):
+        ticketDisplay = ", ".join(str(t) for t in raw_tickets if t)
+    else:
+        ticketDisplay = str(raw_tickets or "")
+
+    nowStr = now.strftime("%Y-%m-%d %H:%M:%S")
+    lines = [
+        f"<center>{boxEmoji} <b>ATALA.ia {stratDisplay} ORDEN EJECUTADA</b> {boxEmoji}</center>",
+        f"<center><b> {symbol} ({timeframe.upper()}) </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Señal:</b> {signalType} | <b>Ind. Margen:</b> {projInd:.1f}%",
+        f"📍 <b>Orden:</b> {dirBadge} <b>{symbol}</b>",
+        f"🔹 <b>Precio Ejecución:</b> <b>{price:,.5f}</b>",
+        f"📦 <b>Volumen:</b> <b>{size:g} unidades</b>",
+        f"🎟️ <b>Ticket ID (Broker):</b> <code>{ticketDisplay}</code>",
+        f"💼 <b>Margen Retenido:</b> <b>${totalRealMargin:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${curCapital:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━"
+    ]
+    alertMsg = "\n".join(lines)
     dispatch_strategy_telegram_alert(idCuenta, alertMsg)
 
     return {
@@ -704,20 +721,37 @@ def execute_single_asset_close(
     logger.info(f"✅ [{strategy}] Posición {symbol} (Trade #{idTrade}, Ticket: {tId}) CERRADA en Forex y BD. PnL: ${pnlVal:.2f} USD ({pipsVal:.1f} pips).")
 
     # Alerta de Telegram
-    accRow = dbSession.execute(text("SELECT Nombre FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).fetchone()
-    accountName = accRow[0] if accRow else f"Cuenta #{idCuenta}"
+    accRow = dbSession.execute(text("SELECT Nombre, Capital FROM cuenta WHERE idCuenta = :idc LIMIT 1"), {"idc": idCuenta}).mappings().fetchone()
+    accountName = accRow["Nombre"] if accRow and accRow.get("Nombre") else f"Cuenta #{idCuenta}"
+    curCapital = float(accRow["Capital"]) if accRow and accRow.get("Capital") is not None else 0.0
     stratDisplay = "RIDER" if ("CART" in strategy.upper() or "RIDER" in strategy.upper()) else strategy
-    pnlColor = "🟢" if pnlVal >= 0 else "🔴"
-    alertMsg = (
-        f"🏁 <b>[{stratDisplay} - CIERRE DE POSICIÓN]</b>\n\n"
-        f"Cuenta: <b>{accountName}</b> (#{idCuenta})\n"
-        f"Activo: <b>{symbol}</b>\n"
-        f"Ticket Bróker: <code>{tId}</code>\n"
-        f"Motivo: <i>{closeReason}</i>\n"
-        f"Entrada: <b>{entryPx:.5f}</b> | Salida: <b>{realExitPx:.5f}</b>\n"
-        f"Resultado: <b>{pnlColor} ${pnlVal:,.2f} USD</b> ({pipsVal:+.1f} pips)\n"
-        f"Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST"
-    )
+
+    isProfit = (pnlVal >= 0)
+    boxEmoji = "🟩" if isProfit else "🟥"
+    circleResult = "🟢" if isProfit else "🔴"
+    pnlSign = "+" if isProfit else "-"
+    raw_dir = str(tradeRow.get("direction", "")).upper()
+    dirLabel = "🟢 COMPRA" if ("LARG" in raw_dir or "BUY" in raw_dir) else ("🔴 VENTA" if ("CORT" in raw_dir or "SELL" in raw_dir) else raw_dir)
+    nowStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = [
+        f"<center>{boxEmoji} <b>ATALA.ia {stratDisplay} CIERRE DE POSICIÓN</b> {boxEmoji}</center>",
+        f"<center><b> {symbol} </b></center>",
+        f"<center><b> {accountName} </b></center>",
+        f"<center>{nowStr}</center>",
+        "━━━━━━━━━━━━━━━━━",
+        f"🎯 <b>Motivo:</b> {closeReason}",
+        f"📍 <b>Posición:</b> {dirLabel} <b>{symbol}</b>",
+        f"🔹 <b>Precio Entrada:</b> <b>{entryPx:,.5f}</b>",
+        f"🔹 <b>Precio Salida:</b> <b>{realExitPx:,.5f}</b>",
+        f"📦 <b>Volumen:</b> <b>{sz:g} unidades</b>",
+        f"🎟️ <b>Ticket ID (Broker):</b> <code>{tId}</code>",
+        f"💵 <b>Resultado:</b> {circleResult} <b>{pnlSign}${abs(pnlVal):,.2f} USD</b> ({pipsVal:+.1f} pips)",
+        f"💼 <b>Margen Liberado:</b> <b>${marginUsed:,.2f} USD</b>",
+        f"💰 <b>Capital Restante:</b> <b>${curCapital:,.2f} USD</b>",
+        "━━━━━━━━━━━━━━━━━"
+    ]
+    alertMsg = "\n".join(lines)
     dispatch_strategy_telegram_alert(idCuenta, alertMsg)
 
     return {"success": True, "pnl": round(pnlVal, 2), "exit_price": realExitPx}

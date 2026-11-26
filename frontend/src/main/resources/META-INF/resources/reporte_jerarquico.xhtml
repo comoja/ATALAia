@@ -541,7 +541,7 @@
                          tableStyle="width: 100%;">
 
                 <!-- COLUMNA 1: JERARQUÍA / CONCEPTO -->
-                <p:column headerText="Estructura Jerárquica" style="width: 27%; text-align: left;">
+                <p:column headerText="Estructura Jerárquica" style="width: 38%; text-align: left;">
                     <span class="badge-nivel" style="background: #{item.badgeBgColor}; color: #{item.badgeTextColor}; margin-right: 6px;">
                         #{item.tipo}
                     </span>
@@ -560,8 +560,16 @@
                     </h:panelGroup>
                 </p:column>
 
-                <!-- COLUMNA 2: TIPO / DIRECCIÓN -->
-                <p:column headerText="Dirección" style="width: 7%; text-align: center;">
+                <!-- COLUMNA 2: TASA ANUAL REAL -->
+                <p:column headerText="Tasa Anual Real" style="width: 12%; text-align: right;">
+                    <span class="#{item.tasaAnualReal >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}"
+                          style="font-weight: #{item.tipo eq 'HECHO' ? '600' : '850'}; font-size: #{item.tipo eq 'USUARIO' ? '1.08rem' : '0.98rem'};">
+                        #{item.formattedTasaAnualReal}
+                    </span>
+                </p:column>
+
+                <!-- COLUMNA 3: TIPO / DIRECCIÓN -->
+                <p:column headerText="Dirección" style="width: 8%; text-align: center;">
                     <h:panelGroup rendered="#{item.tipo eq 'HECHO'}">
                         <span class="badge-dir #{item.direccion eq 'COMPRA' or item.direccion eq 'LARGO' ? 'badge-largo' : 'badge-corto'}">
                             #{item.direccion}
@@ -572,33 +580,8 @@
                     </h:panelGroup>
                 </p:column>
 
-                <!-- COLUMNA 3: VOLUMEN -->
-                <p:column headerText="Volumen" style="width: 6%; text-align: right;">
-                    <span style="font-weight: 700;">#{item.formattedVolumen}</span>
-                </p:column>
-
-                <!-- COLUMNA 4: PRECIO ENTRADA -->
-                <p:column headerText="Px Entrada" style="width: 7%; text-align: right;">
-                    <span>#{item.tipo eq 'HECHO' ? item.entryPrice : '—'}</span>
-                </p:column>
-
-                <!-- COLUMNA 5: PRECIO SALIDA -->
-                <p:column headerText="Px Salida" style="width: 7%; text-align: right;">
-                    <span>#{item.tipo eq 'HECHO' ? item.exitPrice : '—'}</span>
-                </p:column>
-
-                <!-- COLUMNA 6: APERTURA -->
-                <p:column headerText="Apertura" style="width: 10%; text-align: center;">
-                    <span>#{item.tipo eq 'HECHO' ? item.openTime : '—'}</span>
-                </p:column>
-
-                <!-- COLUMNA 7: CIERRE -->
-                <p:column headerText="Cierre" style="width: 10%; text-align: center;">
-                    <span>#{item.tipo eq 'HECHO' ? item.closeTime : '—'}</span>
-                </p:column>
-
-                <!-- COLUMNA 8: TRADES / WIN RATE -->
-                <p:column headerText="Trades / WR" style="width: 8%; text-align: center;">
+                <!-- COLUMNA 4: TRADES / WIN RATE -->
+                <p:column headerText="Trades / WR" style="width: 12%; text-align: center;">
                     <h:panelGroup rendered="#{item.tipo ne 'HECHO'}">
                         <span style="font-weight: 800; color: #334155;">#{item.totalTrades} ops</span>
                         <span style="font-size: 0.95rem; color: #d97706; font-weight: 700; margin-left: 4px;">(#{item.winRate}%)</span>
@@ -610,20 +593,20 @@
                     </h:panelGroup>
                 </p:column>
 
-                <!-- COLUMNA 9: PNL BRUTO -->
-                <p:column headerText="PnL Bruto ($)" style="width: 7%; text-align: right;">
+                <!-- COLUMNA 5: PNL BRUTO -->
+                <p:column headerText="PnL Bruto ($)" style="width: 10%; text-align: right;">
                     <span class="#{item.pnlBruto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}" style="font-weight: #{item.tipo eq 'HECHO' ? '500' : '800'};">
                         #{item.formattedPnlBruto}
                     </span>
                 </p:column>
 
-                <!-- COLUMNA 10: COMISIONES -->
-                <p:column headerText="Comisión ($)" style="width: 5%; text-align: right;">
+                <!-- COLUMNA 6: COMISIONES -->
+                <p:column headerText="Comisión ($)" style="width: 8%; text-align: right;">
                     <span style="color: #b45309; font-weight: #{item.tipo eq 'HECHO' ? '500' : '750'};">#{item.formattedComisiones}</span>
                 </p:column>
 
-                <!-- COLUMNA 11: PNL NETO -->
-                <p:column headerText="PnL Neto ($ USD)" style="width: 6%; text-align: right;">
+                <!-- COLUMNA 7: PNL NETO -->
+                <p:column headerText="PnL Neto ($ USD)" style="width: 12%; text-align: right;">
                     <span class="#{item.pnlNeto >= 0 ? 'pnl-cell-pos' : 'pnl-cell-neg'}" style="font-weight: #{item.tipo eq 'HECHO' ? '600' : '900'}; font-size: #{item.tipo eq 'USUARIO' ? '1.10rem' : '1.02rem'};">
                         #{item.formattedPnlNeto}
                     </span>
@@ -633,11 +616,9 @@
                 <p:columnGroup type="footer">
                     <p:row>
                         <p:column footerText="★ TOTAL GENERAL CONSOLIDADO" style="text-align: left; font-weight: 900; font-size: 1.05rem;" />
-                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
-                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiVolumen}" style="text-align: right; font-weight: 800;" />
-                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
-                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
-                        <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
+                        <p:column footerText="#{reporteJerarquicoBean.formattedKpiTasaAnualReal}"
+                                  styleClass="#{reporteJerarquicoBean.kpiTasaAnualReal >= 0 ? 'footer-pnl-pos' : 'footer-pnl-neg'}"
+                                  style="text-align: right; font-weight: 900; font-size: 1.05rem;" />
                         <p:column footerText="—" style="text-align: center; color: #94a3b8;" />
                         <p:column footerText="#{reporteJerarquicoBean.formattedKpiTotalTrades} (#{reporteJerarquicoBean.kpiWinRate}%)" style="text-align: center; font-weight: 800;" />
                         <p:column footerText="#{reporteJerarquicoBean.formattedKpiPnlBruto}" style="text-align: right; font-weight: 900;" />
