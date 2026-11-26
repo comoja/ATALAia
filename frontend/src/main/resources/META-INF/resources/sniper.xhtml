@@ -226,9 +226,9 @@
                                 <div style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px;">
                                     <!-- Selector de Emisora y Multiplicador de Riesgo (Lado a Lado) -->
                                     <div
-                                        style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 8px; align-items: end;">
+                                        style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; width: 100%; box-sizing: border-box;">
                                         <!-- Columna Izquierda: Emisora -->
-                                        <div>
+                                        <div style="flex: 1.35; min-width: 0; box-sizing: border-box;">
                                             <div
                                                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
                                                 <label
@@ -243,7 +243,7 @@
                                                 value="#{dashboardBean.selectedSniperPair}"
                                                 disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
                                                 filter="true" filterMatchMode="contains"
-                                                style="width: 100%; font-weight: 800;">
+                                                style="width: 100% !important; max-width: 100% !important; font-weight: 800; box-sizing: border-box !important;">
                                                 <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
                                                     itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
                                                 <p:ajax process="@this" update=":aetherForm"
@@ -253,40 +253,44 @@
                                         </div>
 
                                         <!-- Columna Derecha: Multiplicador de Riesgo -->
-                                        <h:panelGroup layout="block" id="pnlRiesgoSniper">
-                                            <div
-                                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
-                                                <label style="font-weight: 700; color: #8c5d1e; font-size: 0.80rem;"
-                                                    title="Multiplicador de riesgo sobre la base de cuenta (#{dashboardBean.selectedAccountRiesgoPorOperacion}%)">
-                                                    <i class="pi pi-shield"
-                                                        style="font-size: 0.75rem; color: #b47b2b; margin-right: 2px;"></i>Riesgo:
-                                                </label>
-                                                <span
-                                                    style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 4px; border-radius: 3px;"
-                                                    title="Riesgo Efectivo = Base #{dashboardBean.selectedAccountRiesgoPorOperacion}% x Multiplicador">
-                                                    #{dashboardBean.formattedSniperRiesgoEfectivoPct}%
-                                                </span>
-                                            </div>
-                                            <p:inputNumber id="sniperMultRiesgoInput"
-                                                value="#{dashboardBean.sniperMultiplicadorRiesgo}" decimalPlaces="2"
-                                                minValue="0.10" maxValue="10.00" symbol="x" symbolPosition="s"
-                                                disabled="#{dashboardBean.sniperEditBlocked}" style="width: 100%;"
-                                                inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff;">
-                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
-                                                    update="pnlRiesgoSniper" oncomplete="handleUserSniperSelected();" />
-                                            </p:inputNumber>
-                                        </h:panelGroup>
+                                        <div style="flex: 1; min-width: 0; box-sizing: border-box;">
+                                            <h:panelGroup layout="block" id="pnlRiesgoSniper">
+                                                <div
+                                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                                    <label style="font-weight: 700; color: #8c5d1e; font-size: 0.80rem;"
+                                                        title="Multiplicador de riesgo sobre la base de cuenta (#{dashboardBean.selectedAccountRiesgoPorOperacion}%)">
+                                                        <i class="pi pi-shield"
+                                                            style="font-size: 0.75rem; color: #b47b2b; margin-right: 2px;"></i>Riesgo:
+                                                    </label>
+                                                    <span
+                                                        style="font-size: 0.75rem; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 1px 4px; border-radius: 3px;"
+                                                        title="Riesgo Efectivo = Base #{dashboardBean.selectedAccountRiesgoPorOperacion}% x Multiplicador">
+                                                        #{dashboardBean.formattedSniperRiesgoEfectivoPct}%
+                                                    </span>
+                                                </div>
+                                                <p:inputNumber id="sniperMultRiesgoInput"
+                                                    value="#{dashboardBean.sniperMultiplicadorRiesgo}" decimalPlaces="2"
+                                                    minValue="0.10" maxValue="10.00" symbol="x" symbolPosition="s"
+                                                    disabled="#{dashboardBean.sniperEditBlocked}" style="width: 100%;"
+                                                    inputStyleClass="aether-input"
+                                                    inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.88rem; padding: 4px 6px !important; color: #8c5d1e; background: #ffffff; box-sizing: border-box !important;">
+                                                    <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                        update="pnlRiesgoSniper" oncomplete="handleUserSniperSelected();" />
+                                                </p:inputNumber>
+                                            </h:panelGroup>
+                                        </div>
                                     </div>
 
-                                    <!-- Temporalidad y Días -->
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                        <div>
+                                    <!-- Temporalidad y Días Historial (Lado a Lado Compacto) -->
+                                    <div class="aether-tf-days-row"
+                                        style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; width: 100%; box-sizing: border-box;">
+                                        <div class="aether-tf-col" style="flex: 1.35; min-width: 0; box-sizing: border-box;">
                                             <label
                                                 style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Temporalidad:</label>
                                             <p:selectOneMenu id="sniperTimeframeSelect"
                                                 value="#{dashboardBean.sniperTimeframe}"
                                                 disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
-                                                style="width: 100%; font-weight: 800;">
+                                                style="width: 100% !important; max-width: 100% !important; font-weight: 800; box-sizing: border-box !important;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update=":aetherForm" oncomplete="handleUserSniperSelected();" />
                                                 <f:selectItem itemLabel="1 Minuto" itemValue="1min" />
@@ -298,38 +302,49 @@
                                                 <f:selectItem itemLabel="1 Día" itemValue="1d" />
                                             </p:selectOneMenu>
                                         </div>
-                                        <div>
+                                        <div class="aether-days-col" style="flex: 1; min-width: 0; box-sizing: border-box;">
                                             <label
-                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días
-                                                Historial:</label>
-                                            <p:spinner id="sniperDaysBackSpinner"
-                                                value="#{dashboardBean.sniperDaysBack}" min="30" max="365"
-                                                stepFactor="30" disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="width: 100%;">
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Días Historial:</label>
+                                            <p:inputNumber id="sniperDaysBackSpinner"
+                                                value="#{dashboardBean.sniperDaysBack}" decimalPlaces="0"
+                                                minValue="30" maxValue="365"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                                inputStyleClass="aether-input" style="width: 100%;"
+                                                inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.95rem; padding: 4px 6px !important; box-sizing: border-box !important;">
                                                 <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
                                                     update=":aetherForm" oncomplete="handleUserSniperSelected();" />
-                                            </p:spinner>
+                                            </p:inputNumber>
                                         </div>
                                     </div>
 
-                                    <!-- Confianza ML y R:R Mínimo -->
-                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                        <div>
+                                    <!-- Confianza ML y R:R Mínimo (Lado a Lado Compacto) -->
+                                    <div
+                                        style="display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; width: 100%; box-sizing: border-box;">
+                                        <div style="flex: 1; min-width: 0; box-sizing: border-box;">
                                             <label
-                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza
-                                                Mín ML (%):</label>
-                                            <p:spinner value="#{dashboardBean.sniperMinConfidence}" min="50.0"
-                                                max="95.0" stepFactor="5.0"
-                                                disabled="#{dashboardBean.sniperEditBlocked}" styleClass="aether-input"
-                                                style="width: 100%;" />
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">Confianza Mín ML:</label>
+                                            <p:inputNumber id="sniperMinConfidenceInput"
+                                                value="#{dashboardBean.sniperMinConfidence}" decimalPlaces="1"
+                                                minValue="50.0" maxValue="95.0" symbol="%" symbolPosition="s"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                                inputStyleClass="aether-input" style="width: 100%;"
+                                                inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.95rem; padding: 4px 6px !important; box-sizing: border-box !important;">
+                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                    update=":aetherForm" oncomplete="handleUserSniperSelected();" />
+                                            </p:inputNumber>
                                         </div>
-                                        <div>
+                                        <div style="flex: 1; min-width: 0; box-sizing: border-box;">
                                             <label
-                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R
-                                                Mínimo:</label>
-                                            <p:spinner value="#{dashboardBean.sniperMinRr}" min="1.0" max="5.0"
-                                                stepFactor="0.1" disabled="#{dashboardBean.sniperEditBlocked}"
-                                                styleClass="aether-input" style="width: 100%;" />
+                                                style="font-weight: 700; color: #334155; font-size: 0.85rem; display: block; margin-bottom: 3px;">R:R Mínimo:</label>
+                                            <p:inputNumber id="sniperMinRrInput"
+                                                value="#{dashboardBean.sniperMinRr}" decimalPlaces="1"
+                                                minValue="1.0" maxValue="5.0" symbol=":1" symbolPosition="s"
+                                                disabled="#{dashboardBean.sniperEditBlocked}"
+                                                inputStyleClass="aether-input" style="width: 100%;"
+                                                inputStyle="width: 100% !important; text-align: center; font-weight: 800; font-size: 0.95rem; padding: 4px 6px !important; box-sizing: border-box !important;">
+                                                <p:ajax process="@this" listener="#{dashboardBean.analyzeSniperPair}"
+                                                    update=":aetherForm" oncomplete="handleUserSniperSelected();" />
+                                            </p:inputNumber>
                                         </div>
                                     </div>
 
