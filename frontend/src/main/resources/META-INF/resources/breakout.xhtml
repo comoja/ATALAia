@@ -197,7 +197,7 @@
                                         <p:inputSwitch value="#{ub.operar}" disabled="#{dashboardBean.readOnly}">
                                             <p:ajax listener="#{dashboardBean.onBreakoutOperarToggle(ub)}"
                                                 process="@this"
-                                                update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:growl" />
+                                                update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:growl" />
                                         </p:inputSwitch>
                                     </p:column>
                                 </p:dataTable>
@@ -227,7 +227,7 @@
                                                 <f:selectItems value="#{dashboardBean.availablePairs}" var="p"
                                                     itemLabel="#{p.desc}" itemValue="#{p.pairName}" />
                                                 <p:ajax listener="#{dashboardBean.onBreakoutSymbolChange}"
-                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:activeBreakoutPair :aetherForm:breakoutTabView:breakoutChartHeaderTitle"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:activeBreakoutPair :aetherForm:breakoutTabView:breakoutChartHeaderTitle"
                                                     oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
@@ -240,7 +240,7 @@
                                                 <f:selectItem itemLabel="Nueva York (NY)" itemValue="NY" />
                                                 <f:selectItem itemLabel="Londres (LDN)" itemValue="LONDRES" />
                                                 <p:ajax listener="#{dashboardBean.onBreakoutSesionChange}" process="@this"
-                                                    update=":aetherForm:breakoutHoraInicio :aetherForm:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraInicio :aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
                                                     oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
@@ -276,7 +276,7 @@
                                                 <f:selectItem itemLabel="45 min (9 velas 5m)" itemValue="45" />
                                                 <f:selectItem itemLabel="60 min (12 velas 5m)" itemValue="60" />
                                                 <p:ajax listener="#{dashboardBean.onBreakoutSesionChange}" process="@this"
-                                                    update=":aetherForm:breakoutHoraInicio :aetherForm:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraInicio :aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
                                                     oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
@@ -312,7 +312,7 @@
                                                 <f:selectItem itemLabel="1.8 : 1" itemValue="1.8" />
                                                 <f:selectItem itemLabel="2.0 : 1" itemValue="2.0" />
                                                 <p:ajax listener="#{dashboardBean.onBreakoutSesionChange}" process="@this"
-                                                    update=":aetherForm:breakoutHoraInicio :aetherForm:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
+                                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraInicio :aetherForm:breakoutTabView:breakoutLeftAccordion:breakoutHoraFin :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData"
                                                     oncomplete="renderBreakoutChart();" />
                                             </p:selectOneMenu>
                                         </div>
@@ -395,7 +395,7 @@
                                         <p:commandButton value="Calibrar" icon="pi pi-cog"
                                             actionListener="#{dashboardBean.optimizarBreakoutPair}"
                                             disabled="#{dashboardBean.readOnly}" process="@this"
-                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
+                                            update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
                                             oncomplete="renderBreakoutChart();" styleClass="ui-button-warning"
                                             style="background: #f97316; border-color: #f97316; font-weight: 700; font-size: 0.85rem;"
                                             title="Auto-calibrar este par buscando su sesión y horario óptimos" />
@@ -418,7 +418,7 @@
                                     <p:commandButton value="Cerrar de Emergencia" icon="pi pi-power-off"
                                         actionListener="#{dashboardBean.cerrarPosicionBreakout(dashboardBean.selectedBreakoutPair)}"
                                         disabled="#{dashboardBean.readOnly}" process="@this"
-                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion:tabBreakoutActivePositions :aetherForm:growl"
+                                        update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:growl"
                                         styleClass="ui-button-danger"
                                         style="font-size: 0.82rem; padding: 4px 10px; font-weight: 700;" />
                                 </div>
@@ -665,7 +665,7 @@
                             <p:column headerText="Acción" style="width: 10%; text-align: center;">
                                 <p:commandButton icon="pi pi-check" value="Aplicar"
                                     actionListener="#{dashboardBean.aplicarRecomendacionBreakout(bo)}" process="@this"
-                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:growl"
+                                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:growl"
                                     oncomplete="renderBreakoutChart();" styleClass="ui-button-success ui-button-sm"
                                     style="font-size: 0.78rem; padding: 2px 8px;"
                                     title="Configurar y guardar esta emisora con sus parámetros óptimos recomendados" />
@@ -806,7 +806,7 @@
                     actionListener="#{dashboardBean.guardarBreakout}"
                     oncomplete="PF('dlgAgregarParBreakout').hide(); renderBreakoutChart();"
                     process="@this nuevoParBreakoutSelect"
-                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion:userBreakoutTable :aetherForm:breakoutTabView:breakoutLeftAccordion:tabCalibBreakout :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
+                    update=":aetherForm:breakoutTabView:breakoutLeftAccordion :aetherForm:breakoutHistoryJsonData :aetherForm:breakoutRangeJsonData :aetherForm:breakoutZoomJsonData :aetherForm:growl"
                     style="background: #ea580c; border-color: #ea580c; color: #fff; font-weight: 700;" />
             </div>
         </h:panelGrid>
