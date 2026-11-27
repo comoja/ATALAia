@@ -736,24 +736,31 @@
                 .aether-panel #tabCalibration .ui-selectonemenu,
                 .aether-panel #tabCartCalibration .ui-selectonemenu,
                 .aether-panel #tabCalibSniper .ui-selectonemenu,
+                .aether-panel #tabCalibBreakout .ui-selectonemenu,
                 .aether-panel #tabCalibration .ui-selectonemenu-label,
                 .aether-panel #tabCartCalibration .ui-selectonemenu-label,
                 .aether-panel #tabCalibSniper .ui-selectonemenu-label,
+                .aether-panel #tabCalibBreakout .ui-selectonemenu-label,
                 .aether-panel #tabCalibration .ui-inputnumber input,
                 .aether-panel #tabCartCalibration .ui-inputnumber input,
                 .aether-panel #tabCalibSniper .ui-inputnumber input,
+                .aether-panel #tabCalibBreakout .ui-inputnumber input,
                 .aether-panel #tabCalibration .aether-input,
                 .aether-panel #tabCartCalibration .aether-input,
                 .aether-panel #tabCalibSniper .aether-input,
+                .aether-panel #tabCalibBreakout .aether-input,
                 .aether-panel #tabCalibration .ui-inputfield,
                 .aether-panel #tabCartCalibration .ui-inputfield,
                 .aether-panel #tabCalibSniper .ui-inputfield,
+                .aether-panel #tabCalibBreakout .ui-inputfield,
                 .aether-panel #tabCalibration .ui-spinner input,
                 .aether-panel #tabCartCalibration .ui-spinner input,
                 .aether-panel #tabCalibSniper .ui-spinner input,
+                .aether-panel #tabCalibBreakout .ui-spinner input,
                 .aether-panel #tabCalibration .ui-calendar input,
                 .aether-panel #tabCartCalibration .ui-calendar input,
-                .aether-panel #tabCalibSniper .ui-calendar input {
+                .aether-panel #tabCalibSniper .ui-calendar input,
+                .aether-panel #tabCalibBreakout .ui-calendar input {
                     font-size: 1.12rem !important;
                     font-weight: 700 !important;
                     height: 32px !important;
@@ -763,7 +770,8 @@
 
                 .aether-panel #tabCalibration .ui-selectonebutton .ui-button .ui-button-text,
                 .aether-panel #tabCartCalibration .ui-selectonebutton .ui-button .ui-button-text,
-                .aether-panel #tabCalibSniper .ui-selectonebutton .ui-button .ui-button-text {
+                .aether-panel #tabCalibSniper .ui-selectonebutton .ui-button .ui-button-text,
+                .aether-panel #tabCalibBreakout .ui-selectonebutton .ui-button .ui-button-text {
                     font-size: 1.05rem !important;
                     font-weight: 700 !important;
                 }
@@ -771,12 +779,15 @@
                 .aether-panel #tabCalibration .ui-button .ui-button-text,
                 .aether-panel #tabCartCalibration .ui-button .ui-button-text,
                 .aether-panel #tabCalibSniper .ui-button .ui-button-text,
+                .aether-panel #tabCalibBreakout .ui-button .ui-button-text,
                 .aether-panel #tabCalibration .aether-btn-primary,
                 .aether-panel #tabCalibration .aether-btn-secondary,
                 .aether-panel #tabCartCalibration .aether-btn-primary,
                 .aether-panel #tabCartCalibration .aether-btn-secondary,
                 .aether-panel #tabCalibSniper .aether-btn-primary,
-                .aether-panel #tabCalibSniper .aether-btn-secondary {
+                .aether-panel #tabCalibSniper .aether-btn-secondary,
+                .aether-panel #tabCalibBreakout .aether-btn-primary,
+                .aether-panel #tabCalibBreakout .aether-btn-secondary {
                     font-size: 1.08rem !important;
                     font-weight: 700 !important;
                 }
@@ -785,9 +796,11 @@
                 .aether-panel #tabCalibration .control-label,
                 .aether-panel #tabCartCalibration .control-label,
                 .aether-panel #tabCalibSniper .control-label,
+                .aether-panel #tabCalibBreakout .control-label,
                 .aether-panel #tabCalibration label,
                 .aether-panel #tabCartCalibration label,
-                .aether-panel #tabCalibSniper label {
+                .aether-panel #tabCalibSniper label,
+                .aether-panel #tabCalibBreakout label {
                     font-size: 0.88rem !important;
                     font-weight: 700 !important;
                     color: var(--text-muted) !important;
@@ -1125,7 +1138,9 @@
                 .aether-panel #tabCalibration div[style*="grid-template-columns: 1fr 1fr"],
                 .aether-panel #tabCartCalibration div[style*="grid-template-columns: 1fr 1fr"],
                 .aether-panel #tabCalibSniper div[style*="grid-template-columns: 1fr 1fr"],
-                .aether-panel #tabCalibSniper div[style*="grid-template-columns: 1.35fr 1fr"] {
+                .aether-panel #tabCalibSniper div[style*="grid-template-columns: 1.35fr 1fr"],
+                .aether-panel #tabCalibBreakout div[style*="grid-template-columns: 1fr 1fr"],
+                .aether-panel #tabCalibBreakout div[style*="grid-template-columns: 1.35fr 1fr"] {
                     grid-template-columns: 1fr 1fr !important;
                     gap: 6px !important;
                 }
@@ -1462,7 +1477,8 @@
             .aether-panel .ui-selectonemenu.aether-input,
             #tabCalibration .ui-selectonemenu.aether-input,
             #tabCartCalibration .ui-selectonemenu.aether-input,
-            #tabCalibSniper .ui-selectonemenu.aether-input {
+            #tabCalibSniper .ui-selectonemenu.aether-input,
+            #tabCalibBreakout .ui-selectonemenu.aether-input {
                 height: 32px !important;
                 line-height: 30px !important;
                 width: 100% !important;
@@ -1474,7 +1490,8 @@
             .aether-panel .ui-selectonemenu.aether-input .ui-selectonemenu-label,
             #tabCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label,
             #tabCartCalibration .ui-selectonemenu.aether-input .ui-selectonemenu-label,
-            #tabCalibSniper .ui-selectonemenu.aether-input .ui-selectonemenu-label {
+            #tabCalibSniper .ui-selectonemenu.aether-input .ui-selectonemenu-label,
+            #tabCalibBreakout .ui-selectonemenu.aether-input .ui-selectonemenu-label {
                 height: 32px !important;
                 line-height: 30px !important;
                 padding: 0 24px 0 8px !important;
@@ -1499,7 +1516,8 @@
             .aether-panel .ui-inputnumber,
             #tabCalibration .ui-inputnumber,
             #tabCartCalibration .ui-inputnumber,
-            #tabCalibSniper .ui-inputnumber {
+            #tabCalibSniper .ui-inputnumber,
+            #tabCalibBreakout .ui-inputnumber {
                 width: 100% !important;
                 max-width: 100% !important;
                 display: block !important;
@@ -1516,7 +1534,9 @@
             #tabCartCalibration .ui-inputnumber input,
             #tabCartCalibration .aether-input,
             #tabCalibSniper .ui-inputnumber input,
-            #tabCalibSniper .aether-input {
+            #tabCalibSniper .aether-input,
+            #tabCalibBreakout .ui-inputnumber input,
+            #tabCalibBreakout .aether-input {
                 width: 100% !important;
                 max-width: 100% !important;
                 height: 32px !important;
@@ -1997,7 +2017,8 @@
             /* Tablas de Pares de la Sección 1 (Ratios, RIDER, SNIPER): Acomodo dinámico, ancho mínimo según texto del par */
             #userRatiosTable.ui-datatable,
             #userCartTable.ui-datatable,
-            #userSniperTable.ui-datatable {
+            #userSniperTable.ui-datatable,
+            #userBreakoutTable.ui-datatable {
                 width: 100% !important;
                 box-sizing: border-box !important;
             }
@@ -2007,7 +2028,9 @@
             #userCartTable .ui-datatable-table,
             #userCartTable table,
             #userSniperTable .ui-datatable-table,
-            #userSniperTable table {
+            #userSniperTable table,
+            #userBreakoutTable .ui-datatable-table,
+            #userBreakoutTable table {
                 width: 100% !important;
                 min-width: 100% !important;
                 border-collapse: separate !important;
@@ -2018,7 +2041,8 @@
 
             #userRatiosTable .ui-datatable-scrollable-body,
             #userCartTable .ui-datatable-scrollable-body,
-            #userSniperTable .ui-datatable-scrollable-body {
+            #userSniperTable .ui-datatable-scrollable-body,
+            #userBreakoutTable .ui-datatable-scrollable-body {
                 width: 100% !important;
                 overflow-x: auto !important;
                 overflow-y: auto !important;
@@ -2027,7 +2051,8 @@
 
             #userRatiosTable .ui-datatable-scrollable-header-box,
             #userCartTable .ui-datatable-scrollable-header-box,
-            #userSniperTable .ui-datatable-scrollable-header-box {
+            #userSniperTable .ui-datatable-scrollable-header-box,
+            #userBreakoutTable .ui-datatable-scrollable-header-box {
                 padding-right: 0px !important;
                 box-sizing: border-box !important;
             }
@@ -2204,7 +2229,8 @@
 
             #userRatiosTable thead th,
             #userCartTable thead th,
-            #userSniperTable thead th {
+            #userSniperTable thead th,
+            #userBreakoutTable thead th {
                 padding: 3px 2px !important;
                 border-radius: 4px !important;
                 line-height: 1.1 !important;
@@ -2213,7 +2239,8 @@
 
             #userRatiosTable .ui-datatable-data tr,
             #userCartTable .ui-datatable-data tr,
-            #userSniperTable .ui-datatable-data tr {
+            #userSniperTable .ui-datatable-data tr,
+            #userBreakoutTable .ui-datatable-data tr {
                 margin-bottom: 0px !important;
                 border-radius: 6px !important;
                 box-shadow: 0 1px 2px rgba(18, 32, 34, 0.05) !important;
@@ -2222,13 +2249,15 @@
 
             #userRatiosTable .ui-datatable-data tr:hover,
             #userCartTable .ui-datatable-data tr:hover,
-            #userSniperTable .ui-datatable-data tr:hover {
+            #userSniperTable .ui-datatable-data tr:hover,
+            #userBreakoutTable .ui-datatable-data tr:hover {
                 transform: none !important;
             }
 
             #userRatiosTable .ui-datatable-data td,
             #userCartTable .ui-datatable-data td,
-            #userSniperTable .ui-datatable-data td {
+            #userSniperTable .ui-datatable-data td,
+            #userBreakoutTable .ui-datatable-data td {
                 padding: 1px 2px !important;
                 line-height: 1.15 !important;
                 border-radius: 0 !important;
@@ -2240,23 +2269,27 @@
             #userRatiosTable .ui-datatable-data td span,
             #userCartTable .ui-datatable-data td span,
             #userSniperTable .ui-datatable-data td span,
+            #userBreakoutTable .ui-datatable-data td span,
             #userRatiosTable .ui-datatable-data td .badge,
             #userCartTable .ui-datatable-data td .badge,
-            #userSniperTable .ui-datatable-data td .badge {
+            #userSniperTable .ui-datatable-data td .badge,
+            #userBreakoutTable .ui-datatable-data td .badge {
                 font-size: 0.85rem !important;
                 font-weight: 700 !important;
             }
 
             #userRatiosTable .ui-datatable-data td:first-child,
             #userCartTable .ui-datatable-data td:first-child,
-            #userSniperTable .ui-datatable-data td:first-child {
+            #userSniperTable .ui-datatable-data td:first-child,
+            #userBreakoutTable .ui-datatable-data td:first-child {
                 border-top-left-radius: 6px !important;
                 border-bottom-left-radius: 6px !important;
             }
 
             #userRatiosTable .ui-datatable-data td:last-child,
             #userCartTable .ui-datatable-data td:last-child,
-            #userSniperTable .ui-datatable-data td:last-child {
+            #userSniperTable .ui-datatable-data td:last-child,
+            #userBreakoutTable .ui-datatable-data td:last-child {
                 border-top-right-radius: 6px !important;
                 border-bottom-right-radius: 6px !important;
                 text-align: center !important;

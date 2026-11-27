@@ -105,7 +105,7 @@
                             </div>
                         </f:facet>
 
-                        <p:accordionPanel id="breakoutLeftAccordion" multiple="false"
+                        <p:accordionPanel id="breakoutLeftAccordion" widgetVar="breakoutLeftAccordionWidget" multiple="false"
                             activeIndex="#{dashboardBean.activeBreakoutAccordionIndex}" styleClass="aether-accordion"
                             style="margin-top: 4px;">
                             <p:ajax event="tabChange" listener="#{dashboardBean.onBreakoutAccordionTabChange}"
@@ -173,6 +173,13 @@
                                                     title="Recomendación Óptima Nueva del Optimizador.">✨</span>
                                             </h:panelGroup>
                                         </div>
+                                    </p:column>
+                                    <p:column headerText="% G/P" style="text-align: center; width: 54px; min-width: 54px; max-width: 54px; padding: 1px 1px !important;">
+                                        <span class="badge"
+                                            style="font-size: 0.90rem; padding: 1px 3px; font-weight: 800; border-radius: 4px; display: inline-block; line-height: 1.1; #{ub.closedTrades gt 0 ? (ub.pnlPct gt 0 ? 'background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;' : (ub.pnlPct lt 0 ? 'background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #f87171;' : 'background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid #94a3b8;')) : 'background: rgba(100, 116, 139, 0.08); color: #64748b; border: 1px solid #cbd5e1;'}"
+                                            title="Retorno: #{ub.netProfit >= 0 ? '+' : ''}$#{ub.netProfit} USD | Efectividad: #{ub.winRate}% (#{ub.winningTrades} Ganadas / #{ub.closedTrades} Cerradas)#{ub.hasOpenTrades ? (' | PnL Flotante: ' += (ub.openPnl >= 0 ? '+' : '') += '$' += ub.openPnl += ' USD') : ''}">
+                                            #{ub.formattedPnlPct}
+                                        </span>
                                     </p:column>
                                     <p:column headerText="Sesión" style="text-align: center; padding: 1px 1px !important;">
                                         <span class="badge"
@@ -871,6 +878,26 @@
             return 'rgb(' + r + ',' + g + ',' + b + ')';
         }
 
+        function handleUserBreakoutSelected() {
+            setTimeout(function () {
+                syncBreakoutChartPlacement();
+                if (typeof PF !== 'undefined' && PF('breakoutLeftAccordionWidget')) {
+                    try {
+                        PF('breakoutLeftAccordionWidget').select(1);
+                    } catch (eAccordion) {
+                        console.warn("Aviso al expandir acordeón Sección 2 BREAKOUT:", eAccordion);
+                    }
+                }
+                var actPair = document.querySelector("[id$='activeBreakoutPair']");
+                var headerEl = document.getElementById("breakoutHeaderPairSpan");
+                if (headerEl && actPair && actPair.value) {
+                    headerEl.textContent = actPair.value;
+                }
+                renderBreakoutChart();
+            }, 60);
+        }
+        window.handleUserBreakoutSelected = handleUserBreakoutSelected;
+
         function syncBreakoutChartPlacement() {
             var chartCol = document.getElementById("breakoutRightChartColumn");
             var mobileMount = document.getElementById("mobileBreakoutChartMountPoint");
@@ -1424,13 +1451,6 @@
                                 if (xBoxRight > xScale.right) xBoxRight = xScale.right;
                                 var tBoxW = Math.max(25, xBoxRight - xBoxStart);
 
-                                // El cajón de TP/SL termina exactamente en la vela donde cierra la posición, o en la última vela actual si sigue abierta
-                                var xBoxRight = effEndTs ? xScale.getPixelForValue(effEndTs) : (xEnd ? xEnd + 60 : xScale.right);
-                                if (isNaN(xBoxRight)) xBoxRight = xScale.right;
-                                if (xBoxRight < xBoxStart + 25) xBoxRight = xBoxStart + 25;
-                                if (xBoxRight > xScale.right) xBoxRight = xScale.right;
-                                var tBoxW = Math.max(25, xBoxRight - xBoxStart);
-
                                 var yEnt = yScale.getPixelForValue(tradeBox.entry);
                                 var yTp = yScale.getPixelForValue(tradeBox.tp);
                                 var ySl = yScale.getPixelForValue(tradeBox.sl);
@@ -1515,6 +1535,10 @@
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
                         legend: { display: false },
+                        zoom: {
+                            pan: { enabled: true, mode: 'x' },
+                            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                        },
                         tooltip: {
                             callbacks: {
                                 title: function (items) {
@@ -1527,11 +1551,12 @@
                                     var hC = (d.getHours() < 10 ? '0' : '') + d.getHours();
                                     var minC = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
                                     var curSes = (rangeObj && rangeObj.session) ? String(rangeObj.session).toUpperCase() : 'NY';
+                                    var cityLabel = (curSes.indexOf('LON') !== -1 || curSes.indexOf('LDN') !== -1) ? 'LDN' : 'NY';
                                     var offsetMs = (curSes.indexOf('LON') !== -1 || curSes.indexOf('LDN') !== -1) ? (6 * 60 * 60 * 1000) : (60 * 60 * 1000);
                                     var dSes = new Date(d.getTime() + offsetMs);
                                     var hSes = (dSes.getHours() < 10 ? '0' : '') + dSes.getHours();
                                     var minSes = (dSes.getMinutes() < 10 ? '0' : '') + dSes.getMinutes();
-                                    return day + '/' + m + '/' + y + '  ' + hC + ':' + minC + '  |  ' + hSes + ':' + minSes;
+                                    return day + '/' + m + '/' + y + '  ' + hC + ':' + minC + ' CDMX  |  ' + hSes + ':' + minSes + ' ' + cityLabel;
                                 },
                                 label: function (ctx) {
                                     var pt = ctx.raw;
@@ -1571,12 +1596,13 @@
                                     var mC = d.getMinutes();
                                     var strLocal = (hC < 10 ? '0' : '') + hC + ':' + (mC < 10 ? '0' : '') + mC;
                                     var curSes = (rangeObj && rangeObj.session) ? String(rangeObj.session).toUpperCase() : 'NY';
+                                    var cityLabel = (curSes.indexOf('LON') !== -1 || curSes.indexOf('LDN') !== -1) ? 'LDN' : 'NY';
                                     var offsetMs = (curSes.indexOf('LON') !== -1 || curSes.indexOf('LDN') !== -1) ? (6 * 60 * 60 * 1000) : (60 * 60 * 1000);
                                     var dSes = new Date(d.getTime() + offsetMs);
                                     var hSes = dSes.getHours();
                                     var mSes = dSes.getMinutes();
                                     var strSes = (hSes < 10 ? '0' : '') + hSes + ':' + (mSes < 10 ? '0' : '') + mSes;
-                                    return [strLocal, strSes];
+                                    return [strLocal + ' CDMX', strSes + ' ' + cityLabel];
                                 }
                             }
                         },
@@ -1599,16 +1625,13 @@
                 };
 
                 // Aplicar auto-zoom de sesión si está disponible y el usuario no ha solicitado ver todo
-                if (!_breakoutZoomResetByUser && zoomObj && zoomObj.startTsMs && zoomObj.endTsMs) {
-                    chartOptions.scales.x.min = Number(zoomObj.startTsMs);
-                    var effMaxX = Number(zoomObj.endTsMs);
-                    if (pricePoints.length > 0) {
-                        var lastPtX = pricePoints[pricePoints.length - 1].x;
-                        if (lastPtX > effMaxX) {
-                            effMaxX = lastPtX + (15 * 60 * 1000);
-                        }
-                    }
-                    chartOptions.scales.x.max = effMaxX;
+                var nowMs = Date.now();
+                var cutoffValMs = (rangeObj && rangeObj.cutoffTimeMs) ? Number(rangeObj.cutoffTimeMs) : (zoomObj && zoomObj.endTsMs ? Number(zoomObj.endTsMs) : null);
+                var isSessionActive = cutoffValMs ? (nowMs <= cutoffValMs) : false;
+
+                if (!_breakoutZoomResetByUser && isSessionActive && rangeObj && (rangeObj.rangeStartMs || zoomObj.startTsMs) && cutoffValMs) {
+                    chartOptions.scales.x.min = Number(rangeObj.rangeStartMs || zoomObj.startTsMs);
+                    chartOptions.scales.x.max = Number(cutoffValMs);
 
                     // Encuadrar el eje Y visible a las velas dentro de la ventana de sesión y los niveles del rango
                     var visMinY = Infinity;
