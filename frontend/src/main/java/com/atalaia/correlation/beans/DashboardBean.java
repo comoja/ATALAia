@@ -2859,6 +2859,8 @@ public class DashboardBean implements Serializable {
                     loadUserCartList();
                 } else if ("SNIPER".equals(strat)) {
                     loadUserSniperList();
+                } else if ("BREAKOUT".equals(strat) || "BREAKOUTNY".equals(strat)) {
+                    loadUserBreakoutList();
                 }
 
                 org.primefaces.PrimeFaces.current().executeScript("PF('dlgCopiarEstrategia').hide();");
@@ -3527,9 +3529,9 @@ public class DashboardBean implements Serializable {
         private String recommendation = "NEUTRAL";
         private String recBadge = "badge-warning";
         private String sesion = "NY";
-        private String horaInicio = "08:30";
+        private String horaInicio = "09:30";
         private Integer duracionRangoMin = 15;
-        private String horaFin = "11:00";
+        private String horaFin = "12:00";
         private Double minRr = 1.0;
         private Boolean usarEma200 = true;
         private Double winRate = 0.0;
@@ -9143,8 +9145,6 @@ public class DashboardBean implements Serializable {
                         dto.setUsarBreakEven(item.path("usarBreakEven").asBoolean(true));
                         dto.setUsarTSL(item.path("usarTSL").asBoolean(false));
                         dto.setFiltroHorario(item.path("filtroHorario").asBoolean(true));
-                        dto.setHoraInicio(item.path("horaInicio").asText("08:00"));
-                        dto.setHoraFin(item.path("horaFin").asText("16:00"));
                         String rawH2 = item.path("horaInicio2").asText("");
                         dto.setHoraInicio2("null".equalsIgnoreCase(rawH2) ? "" : rawH2);
                         String rawHf2 = item.path("horaFin2").asText("");
@@ -10538,9 +10538,9 @@ public class DashboardBean implements Serializable {
     private String breakoutTimeframe = "5min";
     private Integer breakoutDaysBack = 60;
     private String breakoutSesion = "NY";
-    private String breakoutHoraInicio = "08:30";
+    private String breakoutHoraInicio = "09:30";
     private Integer breakoutDuracionRangoMin = 15;
-    private String breakoutHoraFin = "11:00";
+    private String breakoutHoraFin = "12:00";
     private Double breakoutMinRr = 1.0;
     private Double breakoutMaxRr = 2.0;
     private boolean breakoutOperar = true;
@@ -10635,13 +10635,32 @@ public class DashboardBean implements Serializable {
     public String getBreakoutSesion() { return breakoutSesion != null ? breakoutSesion : "NY"; }
     public void setBreakoutSesion(String breakoutSesion) { this.breakoutSesion = breakoutSesion; }
 
-    public String getBreakoutHoraInicio() { return breakoutHoraInicio != null ? breakoutHoraInicio : "08:30"; }
+    public void onBreakoutSesionChange() {
+        if ("LONDRES".equalsIgnoreCase(this.breakoutSesion)) {
+            if ("09:30".equals(this.breakoutHoraInicio) || "08:30".equals(this.breakoutHoraInicio)) {
+                this.breakoutHoraInicio = "08:00";
+            }
+            if ("12:00".equals(this.breakoutHoraFin) || "11:00".equals(this.breakoutHoraFin)) {
+                this.breakoutHoraFin = "11:30";
+            }
+        } else {
+            if ("08:00".equals(this.breakoutHoraInicio)) {
+                this.breakoutHoraInicio = "09:30";
+            }
+            if ("11:30".equals(this.breakoutHoraFin)) {
+                this.breakoutHoraFin = "12:00";
+            }
+        }
+        analyzeBreakoutPair();
+    }
+
+    public String getBreakoutHoraInicio() { return breakoutHoraInicio != null ? breakoutHoraInicio : "09:30"; }
     public void setBreakoutHoraInicio(String breakoutHoraInicio) { this.breakoutHoraInicio = breakoutHoraInicio; }
 
     public Integer getBreakoutDuracionRangoMin() { return breakoutDuracionRangoMin != null ? breakoutDuracionRangoMin : 15; }
     public void setBreakoutDuracionRangoMin(Integer breakoutDuracionRangoMin) { this.breakoutDuracionRangoMin = breakoutDuracionRangoMin; }
 
-    public String getBreakoutHoraFin() { return breakoutHoraFin != null ? breakoutHoraFin : "11:00"; }
+    public String getBreakoutHoraFin() { return breakoutHoraFin != null ? breakoutHoraFin : "12:00"; }
     public void setBreakoutHoraFin(String breakoutHoraFin) { this.breakoutHoraFin = breakoutHoraFin; }
 
     public Double getBreakoutMinRr() { return breakoutMinRr != null ? breakoutMinRr : 1.0; }
@@ -10753,9 +10772,9 @@ public class DashboardBean implements Serializable {
     public void setBreakoutOptimizerList(List<BreakoutOptimizerDto> breakoutOptimizerList) { this.breakoutOptimizerList = breakoutOptimizerList; }
 
     public String getBreakoutCalibrationTabTitle() {
-        return (this.selectedBreakoutPair != null && !this.selectedBreakoutPair.trim().isEmpty())
-                ? "Calibración: " + this.selectedBreakoutPair
-                : "Calibración BREAKOUT";
+        return (this.currentBreakoutId != null && this.currentBreakoutId > 0)
+                ? ("2. Calibración BREAKOUT " + this.currentBreakoutId + " (" + (this.selectedBreakoutPair != null ? this.selectedBreakoutPair : "") + ")")
+                : ("2. Calibración BREAKOUT (" + (this.selectedBreakoutPair != null ? this.selectedBreakoutPair : "") + ")");
     }
 
     public void initBreakoutState() {
@@ -10806,9 +10825,9 @@ public class DashboardBean implements Serializable {
                         dto.setTemporalidad(item.path("Temporalidad").asText("5min"));
                         dto.setPeriodo(item.path("periodo").asInt(180));
                         dto.setSesion(item.path("sesion").asText("NY"));
-                        dto.setHoraInicio(item.path("horaInicio").asText("08:30"));
+                        dto.setHoraInicio(item.path("horaInicio").asText("09:30"));
                         dto.setDuracionRangoMin(item.path("duracionRangoMin").asInt(15));
-                        dto.setHoraFin(item.path("horaFin").asText("11:00"));
+                        dto.setHoraFin(item.path("horaFin").asText("12:00"));
                         dto.setMinRr(item.path("minRr").asDouble(1.0));
                         dto.setMaxRr(item.path("maxRr").asDouble(2.0));
                         dto.setOperar(item.path("operar").asBoolean(true));
@@ -10876,6 +10895,7 @@ public class DashboardBean implements Serializable {
         this.breakoutHasActiveTradesInDb = Boolean.TRUE.equals(dto.getHasOpenTrades());
         this.breakoutActiveTradesJson = "[]";
         this.breakoutActiveCycleSummary = new ActiveCycleSummaryDto();
+        this.activeBreakoutAccordionIndex = "1";
 
         loadBreakoutActiveCycles();
         analyzeBreakoutPair();
@@ -10916,9 +10936,9 @@ public class DashboardBean implements Serializable {
                 this.breakoutTimeframe = node.path("Temporalidad").asText("5min");
                 this.breakoutDaysBack = node.path("periodo").asInt(180);
                 this.breakoutSesion = node.path("sesion").asText("NY");
-                this.breakoutHoraInicio = node.path("horaInicio").asText("08:30");
+                this.breakoutHoraInicio = node.path("horaInicio").asText("09:30");
                 this.breakoutDuracionRangoMin = node.path("duracionRangoMin").asInt(15);
-                this.breakoutHoraFin = node.path("horaFin").asText("11:00");
+                this.breakoutHoraFin = node.path("horaFin").asText("12:00");
                 this.breakoutMinRr = node.path("minRr").asDouble(1.0);
                 this.breakoutMaxRr = node.path("maxRr").asDouble(2.0);
                 this.breakoutOperar = node.path("operar").asBoolean(true);
@@ -11085,9 +11105,9 @@ public class DashboardBean implements Serializable {
 
                 if (!opt.isMissingNode() && !opt.isNull()) {
                     if (opt.has("sesion")) this.breakoutSesion = opt.path("sesion").asText("NY");
-                    if (opt.has("horaInicio")) this.breakoutHoraInicio = opt.path("horaInicio").asText("08:30");
+                    if (opt.has("horaInicio")) this.breakoutHoraInicio = opt.path("horaInicio").asText("09:30");
                     if (opt.has("duracionRangoMin")) this.breakoutDuracionRangoMin = opt.path("duracionRangoMin").asInt(15);
-                    if (opt.has("horaFin")) this.breakoutHoraFin = opt.path("horaFin").asText("11:00");
+                    if (opt.has("horaFin")) this.breakoutHoraFin = opt.path("horaFin").asText("12:00");
                     if (opt.has("minRr")) this.breakoutMinRr = opt.path("minRr").asDouble(1.0);
                     if (opt.has("usarEma200")) this.breakoutUsarEma200 = opt.path("usarEma200").asBoolean(true);
 
@@ -11148,9 +11168,9 @@ public class DashboardBean implements Serializable {
                         JsonNode opt = rn.path("optimal");
                         if (!opt.isMissingNode() && !opt.isNull()) {
                             item.setSesion(opt.path("sesion").asText("NY"));
-                            item.setHoraInicio(opt.path("horaInicio").asText("08:30"));
+                            item.setHoraInicio(opt.path("horaInicio").asText("09:30"));
                             item.setDuracionRangoMin(opt.path("duracionRangoMin").asInt(15));
-                            item.setHoraFin(opt.path("horaFin").asText("11:00"));
+                            item.setHoraFin(opt.path("horaFin").asText("12:00"));
                             item.setMinRr(opt.path("minRr").asDouble(1.0));
                             item.setUsarEma200(opt.path("usarEma200").asBoolean(true));
                             item.setScore(opt.path("score").asDouble(0.0));

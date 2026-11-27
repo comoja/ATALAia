@@ -160,10 +160,8 @@ class SystemMonitorService:
         {
             "id": "weekend_orchestrator",
             "name": "Orquestador Fin de Semana",
-            "unit": None,
+            "unit": "weekendOrchestrator",
             "is_system": False,
-            "is_process": True,
-            "process_match": "weekendOrchestrator.py",
             "port": None,
             "category": "Orquestación Sabatina",
             "icon": "pi pi-calendar-plus",
@@ -291,13 +289,14 @@ class SystemMonitorService:
                 # Para subcomponentes de la suite (FastAPI, MT5, Frontend)
                 if svc_id in ["backend", "mt5bridge", "frontend"]:
                     is_active = is_listening or unit_info["active"]
-                elif svc_id in ["microratio", "microcart", "microcart_optimizer", "microsniper", "microsniper_optimizer"] and not is_active:
+                elif svc_id in ["microratio", "microcart", "microcart_optimizer", "microsniper", "microsniper_optimizer", "weekend_orchestrator"] and not is_active:
                     proc_map = {
                         "microratio": "microRatio.py",
                         "microcart": "microCart.py",
                         "microcart_optimizer": "microCartOptimizer.py",
                         "microsniper": "microSniper.py",
-                        "microsniper_optimizer": "microSniperOptimizer.py"
+                        "microsniper_optimizer": "microSniperOptimizer.py",
+                        "weekend_orchestrator": "weekendOrchestrator.py"
                     }
                     proc_match = proc_map.get(svc_id, "")
                     proc_info = cls.check_process(proc_match)

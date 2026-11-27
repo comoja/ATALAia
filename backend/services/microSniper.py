@@ -38,6 +38,8 @@ if rootDir not in sys.path:
     sys.path.insert(0, rootDir)
 
 from backend.database.models import SessionLocal
+from cachetools import TTLCache
+_sniperCandlesCache = TTLCache(maxsize=128, ttl=8)
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from backend.services.microRatio import calculateSymbolNATR
 from backend.services.trade_executor import (
@@ -304,7 +306,12 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
     Obtiene velas OHLCV unificadas y en tiempo real para SNIPER (15min por defecto),
     complementando con velas recientes de 1min hasta el instante actual.
     Retorna columnas estándar: close, high, low, open, volume.
+    Incluye caché en memoria TTL de 8s para máxima velocidad.
     """
+    cacheKey = (str(symbol).upper().strip(), str(timeframe).lower().strip(), int(days), int(limitBars))
+    if cacheKey in _sniperCandlesCache:
+        return _sniperCandlesCache[cacheKey].copy()
+
     db = SessionLocal()
     try:
         conn = db.connection().connection
@@ -315,7 +322,7 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
 
         sqlExact = """
             SELECT timestamp, close, high, low, open, COALESCE(volume, 0.0) AS volume
-            FROM candles
+            FROM candles FORCE INDEX (idx_candles_sym_tf_ts)
             WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
             ORDER BY timestamp ASC
         """
@@ -331,7 +338,7 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
                 lastDt = dfExact.index[-1]
                 sqlRecent1m = """
                     SELECT timestamp, close, high, low, open, COALESCE(volume, 0.0) AS volume
-                    FROM candles
+                    FROM candles FORCE INDEX (idx_candles_sym_tf_ts)
                     WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s
                     ORDER BY timestamp ASC
                 """
@@ -360,7 +367,8 @@ def fetchSniperCandlesHistory(symbol: str, timeframe: str = "15min", days: int =
                             dfRes[col] = dfRes[col] + offset
             except Exception as eOffset:
                 logger.warning(f"Error aplicando priceOffset para {symbol} en fetchSniperCandlesHistory: {eOffset}")
-            return dfRes
+            _sniperCandlesCache[cacheKey] = dfRes
+            return dfRes.copy()
 
         # Fallback resampleando de 1min/5min
         sqlFallback = """
@@ -1103,8 +1111,47 @@ def evaluateSingleSniper(dbSession, sniperRecord: Dict[str, Any], botInstance: S
                 logger.info(f"🎖️ [SNIPER] Cuenta {idCuenta} | {symbol} ({timeframe}) | Px={currentPx:.5f} | Sin señal Sniper activa | Operar={operar}")
 
 
+def processSniperForAccount(idCuenta: int, botInstance: SniperBot) -> None:
+    """
+    Función de trabajo para el hilo asignado a una cuenta específica.
+    Abre su propia sesión de base de datos y evalúa todos los pares asignados a esa cuenta.
+    """
+    db = SessionLocal()
+    try:
+        sql = text("""
+            SELECT s.id, s.idUsuario, s.idCuenta, s.symbol, s.Temporalidad, s.periodo,
+                   s.minConfidence, s.minRr, s.maxRr, s.operar, s.accionCierre, s.tipoCierre,
+                   s.usarBreakEven, s.usarTSL, s.filtroHorario, s.horaInicio, s.horaFin,
+                   s.horaInicio2, s.horaFin2
+            FROM userSNIPER s
+            JOIN cuenta c ON s.idCuenta = c.idCuenta
+            WHERE s.idCuenta = :idc AND (s.borrado = 0 OR s.borrado IS NULL) AND c.Activo = 1
+              AND (s.operar = 1 OR EXISTS (
+                  SELECT 1 FROM trades t 
+                  WHERE t.idCuenta = s.idCuenta 
+                    AND t.strategy = 'SNIPER' 
+                    AND (t.symbol = s.symbol OR t.setup = s.symbol)
+                    AND t.status = 'OPEN'
+              ))
+            ORDER BY s.operar DESC, s.id ASC
+        """)
+        records = db.execute(sql, {"idc": idCuenta}).mappings().fetchall()
+        for rec in records:
+            try:
+                evaluateSingleSniper(db, dict(rec), botInstance)
+            except Exception as exSingle:
+                logger.error(f"❌ [SNIPER] Error evaluando {rec.get('symbol')} (Cuenta {idCuenta}): {exSingle}", exc_info=True)
+            time.sleep(0.3)
+    except Exception as exAcc:
+        logger.error(f"❌ [SNIPER] Error procesando Cuenta #{idCuenta}: {exAcc}", exc_info=True)
+    finally:
+        db.close()
+
+
 def main() -> None:
     import fcntl
+    from concurrent.futures import ThreadPoolExecutor
+
     lock_file = open('/tmp/microSniper.lock', 'w')
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1112,20 +1159,22 @@ def main() -> None:
         print("⚠️ Ya existe una instancia de microSniper en ejecución. Abortando para garantizar instancia única.")
         sys.exit(0)
 
-    logger.info("🚀 Iniciando Microservicio SNIPER (microSniper.py) con paleta Camel Militar y ML Adaptativo...")
+    logger.info("==========================================================")
+    logger.info("🚀 Iniciando Microservicio SNIPER (microSniper.py)")
+    logger.info("⚡ Arquitectura Concurrente: Pool de 5 Hilos por Cuenta")
+    logger.info("==========================================================")
     botInstance = getSniperBotInstance()
+
+    executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="SniperWorker")
 
     while True:
         db = SessionLocal()
         try:
-            sqlActive = text("""
-                SELECT s.id, s.idUsuario, s.idCuenta, s.symbol, s.Temporalidad, s.periodo,
-                       s.minConfidence, s.minRr, s.maxRr, s.operar, s.accionCierre, s.tipoCierre,
-                       s.usarBreakEven, s.usarTSL, s.filtroHorario, s.horaInicio, s.horaFin,
-                       s.horaInicio2, s.horaFin2
+            sqlAccounts = text("""
+                SELECT DISTINCT s.idCuenta
                 FROM userSNIPER s
                 JOIN cuenta c ON s.idCuenta = c.idCuenta
-                WHERE s.borrado = 0 AND c.Activo = 1
+                WHERE (s.borrado = 0 OR s.borrado IS NULL) AND c.Activo = 1
                   AND (s.operar = 1 OR EXISTS (
                       SELECT 1 FROM trades t 
                       WHERE t.idCuenta = s.idCuenta 
@@ -1133,23 +1182,26 @@ def main() -> None:
                         AND (t.symbol = s.symbol OR t.setup = s.symbol)
                         AND t.status = 'OPEN'
                   ))
-                ORDER BY s.operar DESC, s.id ASC
+                ORDER BY s.idCuenta ASC
             """)
-            records = db.execute(sqlActive).mappings().fetchall()
-
-            for rec in records:
-                try:
-                    evaluateSingleSniper(db, dict(rec), botInstance)
-                except Exception as exSingle:
-                    logger.error(f"❌ [SNIPER] Error evaluando {rec.get('symbol')} (Cuenta {rec.get('idCuenta')}): {exSingle}", exc_info=True)
-                time.sleep(0.5)
-
+            accountRows = db.execute(sqlAccounts).fetchall()
+            activeAccountIds = [int(r[0]) for r in accountRows]
         except Exception as exMain:
-            logger.error(f"❌ [SNIPER] Excepción general en ciclo de microSniper: {exMain}", exc_info=True)
+            logger.error(f"❌ [SNIPER] Excepción general consultando cuentas activas: {exMain}", exc_info=True)
+            activeAccountIds = []
         finally:
             db.close()
 
-        time.sleep(8.0)
+        if activeAccountIds:
+            # Despachar las cuentas en paralelo en el pool de 5 hilos
+            futures = [executor.submit(processSniperForAccount, accId, botInstance) for accId in activeAccountIds]
+            for f in futures:
+                try:
+                    f.result(timeout=60.0)
+                except Exception as exFut:
+                    logger.error(f"❌ [SNIPER] Excepción en hilo de cuenta: {exFut}")
+
+        time.sleep(6.0)
 
 
 if __name__ == "__main__":

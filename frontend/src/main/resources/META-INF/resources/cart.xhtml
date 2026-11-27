@@ -1622,6 +1622,15 @@
             if (typeof window.attachBalanceButtonsToTabs === 'function') {
                 setTimeout(window.attachBalanceButtonsToTabs, 50);
             }
+
+            // Auto-scroll suave en el carrusel táctil de estrategias
+            var targetBtnId = isCart ? 'btnStratCart' : (isSniper ? 'btnStratSniper' : (isBreakout ? 'btnStratBreakout' : 'btnStratRatios'));
+            var activeBtn = document.getElementById('aetherForm:' + targetBtnId) || document.getElementById(targetBtnId);
+            if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+                try {
+                    activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                } catch(e) {}
+            }
         }
 
         function syncCartChartPlacement() {

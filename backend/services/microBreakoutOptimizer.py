@@ -109,11 +109,11 @@ def optimizeBreakoutForSymbol(
     candidateRrs = [1.0, 1.2, 1.5, 2.0]
     candidateEma = [True, False]
 
-    # Horarios límite según sesión
-    # NY: apertura 08:30 -> límites 10:30, 11:00, 12:00
-    # Londres: apertura 08:00 (03:00 NY) -> límites 05:00, 06:00, 07:00
+    # Horarios límite según sesión (en horarios nativos de cada sesión)
+    # NY: apertura nativa 09:30 -> límites nativos 11:30, 12:00, 13:00
+    # Londres: apertura nativa 08:00 -> límites nativos 10:30, 11:30, 12:30
     cutoffMap = {
-        "NY": {"horaInicio": "08:30", "cutoffs": ["10:30", "11:00", "12:00"]},
+        "NY": {"horaInicio": "09:30", "cutoffs": ["11:30", "12:00", "13:00"]},
         "LONDRES": {"horaInicio": "08:00", "cutoffs": ["10:30", "11:30", "12:30"]}
     }
 

@@ -563,6 +563,40 @@
                     overflow-x: hidden !important;
                 }
 
+                /* Ajustes móviles para la barra de estrategias y riel táctil */
+                #strategySelectorBar {
+                    padding: 0 6px !important;
+                    gap: 6px !important;
+                    height: 50px !important;
+                    min-height: 50px !important;
+                    max-height: 50px !important;
+                    overflow: hidden !important;
+                }
+
+                #globalUserSelectorGroup {
+                    padding-right: 4px !important;
+                    gap: 4px !important;
+                    flex-shrink: 0 !important;
+                }
+
+                #globalUserSelectorGroup .ui-selectonemenu {
+                    min-width: 100px !important;
+                    max-width: 120px !important;
+                    font-size: 0.78em !important;
+                }
+
+                .strategies-swipe-container {
+                    gap: 8px !important;
+                    padding: 2px 2px !important;
+                }
+
+                .strategy-btn-circle {
+                    width: 40px !important;
+                    height: 40px !important;
+                    min-width: 40px !important;
+                    max-width: 40px !important;
+                }
+
                 /* Mostrar pestaña exclusiva de gráfica en celular */
                 .ui-tabs .ui-tabs-nav li.mobile-chart-tab-header {
                     display: inline-block !important;
@@ -2571,6 +2605,45 @@
                 border-left: 4px solid #ea580c !important;
             }
 
+            /* --- CONTENEDOR DESLIZABLE DE ESTRATEGIAS (SWIPE HORIZONTAL PARA MÓVIL Y DESKTOP) --- */
+            .strategies-swipe-container {
+                display: flex !important;
+                align-items: center !important;
+                gap: 10px !important;
+                height: 100% !important;
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: none !important;
+                -ms-overflow-style: none !important;
+                padding: 2px 4px !important;
+                scroll-behavior: smooth !important;
+            }
+
+            .strategies-swipe-container::-webkit-scrollbar {
+                display: none !important;
+                width: 0 !important;
+                height: 0 !important;
+            }
+
+            .strategy-btn-circle {
+                text-decoration: none !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                width: 44px !important;
+                height: 44px !important;
+                min-width: 44px !important;
+                max-width: 44px !important;
+                padding: 0 !important;
+                border-radius: 50% !important;
+                cursor: pointer !important;
+                transition: all 0.2s cubic-bezier(0.2, 0, 0, 1) !important;
+                flex-shrink: 0 !important;
+            }
+
             /* ========================================================================= */
             /* ESTILO DEDICADO UNIFICADO PARA TABLAS DE TRADES (BACKTEST Y HECHOS)      */
             /* ========================================================================= */
@@ -2691,10 +2764,10 @@
             <!-- BARRA SUPERIOR DE AGRUPACIÓN POR ESTRATEGIA (NIVEL 1: RATIOS | RIDER | SNIPER | BREAKOUT) -->
             <div id="strategySelectorBar"
                 class="#{dashboardBean.activeStrategy eq 'CART' ? 'strategy-bar-cart' : (dashboardBean.activeStrategy eq 'SNIPER' ? 'strategy-bar-sniper' : (dashboardBean.activeStrategy eq 'BREAKOUT' ? 'strategy-bar-breakout' : 'strategy-bar-ratios'))}"
-                style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 14px; height: 48px; min-height: 48px; max-height: 48px; box-sizing: border-box; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0; transition: all 0.25s ease;">
-                <div style="display: flex; align-items: center; gap: 10px; height: 100%;">
+                style="display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 0 10px; height: 50px; min-height: 50px; max-height: 50px; box-sizing: border-box; margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: 12px; box-shadow: var(--neu-shadow-flat); flex-shrink: 0; transition: all 0.25s ease; width: 100%; max-width: 100%; overflow: hidden;">
+                <div style="display: flex; align-items: center; gap: 8px; height: 100%; flex-shrink: 0;">
                     <h:panelGroup id="globalUserSelectorGroup" layout="block" rendered="#{securityBean.admin}"
-                        style="display: flex; align-items: center; gap: 6px; padding-right: 8px; border-right: 1px solid #cbd5e1; height: 32px;">
+                        style="display: flex; align-items: center; gap: 6px; padding-right: 8px; border-right: 1px solid #cbd5e1; height: 32px; flex-shrink: 0;">
                         <i class="pi pi-user" style="font-size: 1.25rem; color: #64748b;"></i>
                         <p:selectOneMenu id="globalUsuarioSelector" value="#{securityBean.selectedUserId}"
                             styleClass="aether-input" style="min-width: 145px; font-size: 0.85em; height: 32px;">
@@ -2710,7 +2783,7 @@
                     <p:commandLink id="btnBalanceGlobal" title="Balance General Global"
                         action="#{dashboardBean.loadBalanceGeneralGlobal}"
                         update=":balanceGlobalForm:balanceGlobalContent" oncomplete="PF('balanceGlobalDlg').show();"
-                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); background: var(--bg-surface); color: var(--color-primary); border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);">
+                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); background: var(--bg-surface); color: var(--color-primary); border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8); flex-shrink: 0 !important;">
                         <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
                             style="display: block; pointer-events: none;">
@@ -2721,12 +2794,16 @@
                             <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
                         </svg>
                     </p:commandLink>
+                </div>
 
+                <!-- Riel Deslizable de Estrategias con Swipe Táctil Horizontal Fluido -->
+                <div id="strategiesScrollTrack" class="strategies-swipe-container">
                     <!-- Botón Estrategia 1: RATIOS (Solo Icono Flotante Circular) -->
                     <p:commandLink id="btnStratRatios" action="#{dashboardBean.selectStrategy('RATIOS')}"
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('RATIOS');"
                         title="RATIOS: Ratio · BackTest · Hechos (2 Pares Normalizados)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(2, 132, 199, 0.45), 0 2px 4px rgba(2, 132, 199, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0284c7; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0284c7; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
+                        styleClass="strategy-btn-circle"
+                        style="#{dashboardBean.activeStrategy eq 'RATIOS' ? 'background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(2, 132, 199, 0.45), 0 2px 4px rgba(2, 132, 199, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0284c7; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0284c7; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
                         <span class="ratio-icon-btn"
                             style="display: inline-block; width: 33px; height: 33px; -webkit-mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; mask: url('#{request.contextPath}/resources/images/ratio.png') no-repeat center / contain; background-color: currentColor; vertical-align: middle; flex-shrink: 0; pointer-events: none;"></span>
                     </p:commandLink>
@@ -2735,7 +2812,8 @@
                     <p:commandLink id="btnStratCart" action="#{dashboardBean.selectStrategy('CART')}" process="@this"
                         update=":aetherForm" oncomplete="switchStrategyView('CART');"
                         title="RIDER: Rastreador de Impulso por Desviación, Expansión y Reingreso (1 Par · Precios Reales · CAR)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(13, 148, 136, 0.45), 0 2px 4px rgba(13, 148, 136, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0d9488; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0d9488; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
+                        styleClass="strategy-btn-circle"
+                        style="#{dashboardBean.activeStrategy eq 'CART' ? 'background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(13, 148, 136, 0.45), 0 2px 4px rgba(13, 148, 136, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #0d9488; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #0d9488; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="130 200 720 580"
                             fill="currentColor"
                             style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
@@ -2748,7 +2826,8 @@
                     <p:commandLink id="btnStratSniper" action="#{dashboardBean.selectStrategy('SNIPER')}"
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('SNIPER');"
                         title="SNIPER: Smart Order Block, Momentum &amp; Machine Learning Precision (Camel Militar · 15min)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(180, 123, 43, 0.45), 0 2px 4px rgba(180, 123, 43, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #b47b2b; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #b47b2b; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
+                        styleClass="strategy-btn-circle"
+                        style="#{dashboardBean.activeStrategy eq 'SNIPER' ? 'background: linear-gradient(135deg, #b47b2b 0%, #8c5d1e 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(180, 123, 43, 0.45), 0 2px 4px rgba(180, 123, 43, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #b47b2b; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #b47b2b; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
                             style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">
@@ -2767,7 +2846,8 @@
                     <p:commandLink id="btnStratBreakout" action="#{dashboardBean.selectStrategy('BREAKOUT')}"
                         process="@this" update=":aetherForm" oncomplete="switchStrategyView('BREAKOUT');"
                         title="BREAKOUT: Ruptura de Rango Apertura NY / Londres (Ember Flame · 5min)"
-                        style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: 44px !important; height: 44px !important; min-width: 44px !important; max-width: 44px !important; padding: 0 !important; border-radius: 50% !important; cursor: pointer; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); #{dashboardBean.activeStrategy eq 'BREAKOUT' ? 'background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(234, 88, 12, 0.45), 0 2px 4px rgba(234, 88, 12, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #ea580c; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #ea580c; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
+                        styleClass="strategy-btn-circle"
+                        style="#{dashboardBean.activeStrategy eq 'BREAKOUT' ? 'background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: #ffffff; box-shadow: 0 6px 16px rgba(234, 88, 12, 0.45), 0 2px 4px rgba(234, 88, 12, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.6); border: 1px solid #ea580c; transform: translateY(-2px);' : 'background: var(--bg-surface); color: #ea580c; border: 1px solid var(--border-soft); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);'}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
                             style="display: inline-block; vertical-align: middle; flex-shrink: 0; pointer-events: none;">

@@ -6267,6 +6267,9 @@ def api_restart_system_service(service_id: str):
             "microratio": ("microRatio", False),
             "microcart": ("microCart", False),
             "microcart_optimizer": ("microCartOptimizer", False),
+            "microsniper": ("microSniper", False),
+            "microsniper_optimizer": ("microSniperOptimizer", False),
+            "weekend_orchestrator": ("weekendOrchestrator", False),
             "ngrok": ("ngrok", False)
         }
         if service_id not in unit_map:
@@ -8898,6 +8901,15 @@ def getItemsCuentaEstrategia(estrategia: str, idCuenta: int, db: Session = Depen
                 sym = str(r.symbol or "").strip()
                 if sym and sym not in items:
                     items.append(sym)
+        elif strat in ["BREAKOUT", "BREAKOUTNY"]:
+            rows = db.query(UserBreakout).filter(
+                UserBreakout.idCuenta == idCuenta,
+                (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
+            ).order_by(UserBreakout.symbol.asc()).all()
+            for r in rows:
+                sym = str(r.symbol or "").strip()
+                if sym and sym not in items:
+                    items.append(sym)
         else:
             raise HTTPException(status_code=400, detail=f"Estrategia '{estrategia}' no soportada")
 
@@ -9221,15 +9233,33 @@ def copiarParametrizacionesEstrategia(payload: CopiarParametrizacionesRequest, d
                     insertedCount += 1
                 copiedCount += 1
         elif strat in ["BREAKOUT", "BREAKOUTNY"]:
-            sourceRows = db.query(UserBreakout).filter(
-                UserBreakout.idCuenta == payload.idCuentaOrigen,
-                (UserBreakout.borrado == False) | (UserBreakout.borrado == None)
-            ).all()
+            for itemStr in payload.items:
+                sym = itemStr.strip()
+                if not sym:
+                    continue
 
-            for sourceRow in sourceRows:
-                sym = sourceRow.symbol
-                if sym in openPositionsDest:
+                # Validar si el destino tiene posiciones abiertas en trades
+                openTradesCount = db.execute(text("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE idCuenta = :idc
+                      AND (strategy = 'BREAKOUT' OR strategy = 'BREAKOUTNY')
+                      AND (symbol = :sym OR setup = :sym)
+                      AND status = 'OPEN'
+                """), {"idc": payload.idCuentaDestino, "sym": sym}).scalar() or 0
+
+                if openTradesCount > 0:
+                    logger.warning(
+                        f"Omitiendo copia de BREAKOUT {sym} a cuenta #{payload.idCuentaDestino}: "
+                        f"tiene {openTradesCount} posición(es) abierta(s)."
+                    )
                     omittedItems.append(sym)
+                    continue
+
+                sourceRow = db.query(UserBreakout).filter(
+                    UserBreakout.idCuenta == payload.idCuentaOrigen,
+                    UserBreakout.symbol == sym
+                ).first()
+                if not sourceRow:
                     continue
 
                 destRow = db.query(UserBreakout).filter(

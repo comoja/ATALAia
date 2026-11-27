@@ -3171,13 +3171,68 @@ def processSingleUserRatio(dbSession, ratioRecord: Dict[str, Any]) -> None:
             logger.info(f"🔍 [{accHeader}] Sin señales de entrada (Triángulos/Cuadros) en la vela actual.")
 
 
+def processRatioForAccount(idCuenta: int, is_hourly_tick: bool = True) -> int:
+    """
+    Función de trabajo para el hilo asignado a una cuenta específica en RATIOS.
+    Abre su propia sesión de base de datos y evalúa todos los ratios asignados a esa cuenta.
+    """
+    processed = 0
+    with getDatabaseSession() as dbSession:
+        try:
+            sqlQuery = text("""
+                SELECT ur.id, ur.idUsuario, ur.idCuenta, ur.numerador, ur.denominador, ur.Temporalidad, ur.periodo, ur.EMARapida, ur.EMALenta, ur.operar,
+                       COALESCE(ur.cierreDivergencia, 2) AS cierreDivergencia, COALESCE(ur.tipoEntrada, 'Selectiva') AS tipoEntrada,
+                       ur.fixedMinA, ur.fixedMaxA, ur.fixedMinB, ur.fixedMaxB,
+                       COALESCE(ur.accionCierre, 'Continua') AS accionCierre, COALESCE(ur.tipoCierre, 'Diferencia') AS tipoCierre,
+                       COALESCE(ur.umbralDiferencia, 0.2000) AS umbralDiferencia, COALESCE(ur.salirBreakeven, 0) AS salirBreakeven
+                FROM user_ratios ur
+                JOIN cuenta c ON ur.idCuenta = c.idCuenta
+                WHERE ur.idCuenta = :idc AND (ur.borrado = 0 OR ur.borrado IS NULL) AND c.Activo = 1
+                  AND (
+                      ur.operar = 1 
+                      OR EXISTS (
+                          SELECT 1 FROM trades t 
+                          WHERE t.idCuenta = ur.idCuenta 
+                            AND (t.setup = CONCAT(ur.numerador, ' - ', ur.denominador) OR t.setup = CONCAT(ur.denominador, ' - ', ur.numerador))
+                            AND t.status = 'OPEN'
+                      )
+                  )
+                ORDER BY ur.operar DESC, ur.id ASC
+            """)
+            rows = dbSession.execute(sqlQuery, {"idc": idCuenta}).mappings().fetchall()
+            for r in rows:
+                tf = str(r.get("Temporalidad") or r.get("timeframe") or "1h").lower().strip()
+                is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
+
+                # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar
+                if not is_intraday and not is_hourly_tick:
+                    continue
+
+                try:
+                    processSingleUserRatio(dbSession, dict(r))
+                    processed += 1
+                except Exception as exRatio:
+                    try:
+                        dbSession.rollback()
+                    except Exception:
+                        pass
+                    logger.error(f"❌ Error procesando ratio ID #{r.get('id')} ({r.get('numerador')}/{r.get('denominador')}) en Cuenta #{idCuenta}: {exRatio}", exc_info=True)
+                time.sleep(0.3)
+        except Exception as exAcc:
+            logger.error(f"❌ [RATIOS] Error procesando Cuenta #{idCuenta}: {exAcc}", exc_info=True)
+    return processed
+
+
 def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
     """
-    Punto de entrada para la evaluación de ratios:
-    - Ratios en 1h (o menor): se evalúan en cada censo de 5 minutos.
+    Punto de entrada para la evaluación de ratios con ThreadPoolExecutor(max_workers=5):
+    - Ratios en 1h (o menor): se evalúan en cada censo de 1 minuto.
     - Ratios en 1d o mayor: solo se evalúan en el censo horario (is_hourly_tick=True).
+    - Evalúa en paralelo a nivel de Cuenta con un pool concurrente de 5 hilos.
     """
-    cycle_type = "HORARIO (1h y Diario)" if is_hourly_tick else "INTRA-HORA (5 min para 1h)"
+    from concurrent.futures import ThreadPoolExecutor
+
+    cycle_type = "HORARIO (1h y Diario)" if is_hourly_tick else "INTRA-HORA (1 min para intradía)"
 
     # Si el mercado tradicional está cerrado, verificar si hay ratios cripto activos que operen 24/7
     if is_market_closed():
@@ -3189,36 +3244,44 @@ def processAllActiveRatios(is_hourly_tick: bool = True) -> int:
             return 0
 
     logger.info("=================================================================")
-    logger.info(f"📡 [microRatio] INICIANDO CENSO {cycle_type} DE RATIOS...")
+    logger.info(f"📡 [microRatio] INICIANDO CENSO {cycle_type} DE RATIOS (Pool 5 Hilos por Cuenta)...")
     startTime = time.time()
     processedCount = 0
 
     with getDatabaseSession() as dbSession:
         try:
             ensureStrategyRegistered(dbSession)
-            activeRatios = fetchActiveUserRatios(dbSession)
-            logger.info(f"📋 Ratios activos totales con operar=1: {len(activeRatios)}")
-
-            for r in activeRatios:
-                tf = str(r.get("Temporalidad") or r.get("timeframe") or "1h").lower().strip()
-                is_intraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
-
-                # Si el ratio es diario o mayor y NO es el censo horario (:00), se omite para evitar sobre-operar
-                if not is_intraday and not is_hourly_tick:
-                    continue
-
-                try:
-                    processSingleUserRatio(dbSession, r)
-                    processedCount += 1
-                except Exception as exRatio:
-                    try:
-                        dbSession.rollback()
-                    except Exception:
-                        pass
-                    logger.error(f"❌ Error procesando ratio ID #{r.get('id')} ({r.get('numerador')}/{r.get('denominador')}): {exRatio}", exc_info=True)
-
+            sqlAccounts = text("""
+                SELECT DISTINCT ur.idCuenta
+                FROM user_ratios ur
+                JOIN cuenta c ON ur.idCuenta = c.idCuenta
+                WHERE (ur.borrado = 0 OR ur.borrado IS NULL) AND c.Activo = 1
+                  AND (
+                      ur.operar = 1 
+                      OR EXISTS (
+                          SELECT 1 FROM trades t 
+                          WHERE t.idCuenta = ur.idCuenta 
+                            AND (t.setup = CONCAT(ur.numerador, ' - ', ur.denominador) OR t.setup = CONCAT(ur.denominador, ' - ', ur.numerador))
+                            AND t.status = 'OPEN'
+                      )
+                  )
+                ORDER BY ur.idCuenta ASC
+            """)
+            accountRows = dbSession.execute(sqlAccounts).fetchall()
+            activeAccountIds = [int(r[0]) for r in accountRows]
+            logger.info(f"📋 Cuentas activas con ratios a evaluar: {len(activeAccountIds)}")
         except Exception as exGlobal:
-            logger.error(f"❌ Error global en ciclo de microRatio: {exGlobal}", exc_info=True)
+            logger.error(f"❌ Error consultando cuentas activas en microRatio: {exGlobal}", exc_info=True)
+            activeAccountIds = []
+
+    if activeAccountIds:
+        with ThreadPoolExecutor(max_workers=5, thread_name_prefix="RatioWorker") as executor:
+            futures = [executor.submit(processRatioForAccount, accId, is_hourly_tick) for accId in activeAccountIds]
+            for f in futures:
+                try:
+                    processedCount += f.result(timeout=120.0)
+                except Exception as exFut:
+                    logger.error(f"❌ [RATIOS] Excepción en hilo de cuenta: {exFut}")
 
     elapsed = time.time() - startTime
     logger.info(f"✅ [microRatio] CICLO COMPLETADO: {processedCount} ratios evaluados en {elapsed:.2f}s")

@@ -33,6 +33,8 @@ if rootDir not in sys.path:
     sys.path.insert(0, rootDir)
 
 from backend.database.models import SessionLocal
+from cachetools import TTLCache
+_cartCandlesCache = TTLCache(maxsize=128, ttl=8)
 from backend.core.pnl_calculator import calculate_unrealized_pnl, calculate_margin
 from backend.services.microRatio import calculateSymbolNATR
 from backend.services.trade_executor import (
@@ -1226,7 +1228,7 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
             # 1. Búsqueda primaria: consultar el timeframe exacto solicitado si ya existe en candles
             sqlExact = """
                 SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice, COALESCE(volume, 0.0) AS volume
-                FROM candles
+                FROM candles FORCE INDEX (idx_candles_sym_tf_ts)
                 WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
                 ORDER BY timestamp ASC
             """
@@ -1245,7 +1247,7 @@ def fetchCartPriceHistory(symbol: str, timeframe: str, days: int = 180) -> pd.Da
                     lastDt = dfExact.index[-1]
                     sqlRecent1m = """
                         SELECT timestamp, close AS closePrice, high AS highPrice, low AS lowPrice, open AS openPrice, COALESCE(volume, 0.0) AS volume
-                        FROM candles
+                        FROM candles FORCE INDEX (idx_candles_sym_tf_ts)
                         WHERE symbol = %s AND timeframe = '1min' AND timestamp >= %s
                         ORDER BY timestamp ASC
                     """
@@ -1934,52 +1936,111 @@ def evaluateSingleCart(dbSession, cartRecord: Dict[str, Any]) -> None:
             return
 
 
-def runCycle(isHourlyTick: bool = True) -> None:
+def processCartForAccount(idCuenta: int, isHourlyTick: bool = False) -> None:
     """
-    Ejecuta un ciclo de evaluación para todos los pares configurados en userCART:
-    - Censa cada 5 minutos para pares intradía (1h, 4h, 15m, etc.).
-    - En el minuto :00 (isHourlyTick=True), censa además los pares en temporalidad diaria (1d) o mayor.
+    Función de trabajo para el hilo asignado a una cuenta específica en CART/RIDER.
+    Abre su propia sesión de base de datos y evalúa todos los pares asignados a esa cuenta.
     """
     with SessionLocal() as dbSession:
-        rows = dbSession.execute(text("""
-            SELECT id, idUsuario, idCuenta, symbol, Temporalidad, periodo,
-                   EMARapida, EMALenta, carWindow, carMultiplier, operar,
-                   tipoCierre, umbralDiferencia, salirBreakeven, tipoEntrada, accionCierre,
-                   COALESCE(filtroHorario, 1) as filtroHorario,
-                   COALESCE(horaInicio, '08:00') as horaInicio,
-                   COALESCE(horaFin, '16:00') as horaFin,
-                   COALESCE(usarTSL, 1) as usarTSL
-            FROM userCART
-            WHERE (borrado = 0 OR borrado IS NULL)
-        """)).mappings().fetchall()
-        dbSession.commit()  # Liberar snapshot de lectura inmediatamente
+        try:
+            rows = dbSession.execute(text("""
+                SELECT c.id, c.idUsuario, c.idCuenta, c.symbol, c.Temporalidad, c.periodo,
+                       c.EMARapida, c.EMALenta, c.carWindow, c.carMultiplier, c.operar,
+                       c.tipoCierre, c.umbralDiferencia, c.salirBreakeven, c.tipoEntrada, c.accionCierre,
+                       COALESCE(c.filtroHorario, 1) as filtroHorario,
+                       COALESCE(c.horaInicio, '08:00') as horaInicio,
+                       COALESCE(c.horaFin, '16:00') as horaFin,
+                       COALESCE(c.usarTSL, 1) as usarTSL
+                FROM userCART c
+                JOIN cuenta acc ON c.idCuenta = acc.idCuenta
+                WHERE c.idCuenta = :idc AND (c.borrado = 0 OR c.borrado IS NULL) AND acc.Activo = 1
+                  AND (c.operar = 1 OR EXISTS (
+                      SELECT 1 FROM trades t 
+                      WHERE t.idCuenta = c.idCuenta 
+                        AND (t.strategy = 'RIDER' OR t.strategy LIKE '%CART%') 
+                        AND (t.symbol = c.symbol OR t.setup = c.symbol) 
+                        AND t.status = 'OPEN'
+                  ))
+                ORDER BY c.operar DESC, c.id ASC
+            """), {"idc": idCuenta}).mappings().fetchall()
+            dbSession.commit()
 
-        if not rows:
-            logger.info("ℹ️ Sin pares CART registrados en userCART.")
-            return
+            if not rows:
+                return
 
-        for rec in rows:
-            tf = str(rec.get("Temporalidad") or "1h").lower().strip()
-            isIntraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
-            if not isIntraday and not isHourlyTick:
-                # Si no es intradía ni tick horario, verificar si tiene trade OPEN para monitorear reingreso al CAR en vivo
-                cntOpen = dbSession.execute(text("""
-                    SELECT COUNT(*) FROM trades
-                    WHERE idCuenta = :idc AND (strategy = 'RIDER' OR strategy LIKE '%CART%') AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
-                """), {"idc": rec["idCuenta"], "sym": rec["symbol"]}).scalar()
-                dbSession.commit()
-                if not cntOpen or cntOpen == 0:
-                    continue
+            for rec in rows:
+                tf = str(rec.get("Temporalidad") or "1h").lower().strip()
+                isIntraday = tf in ["1h", "4h", "15min", "15m", "30min", "30m", "5min", "5m", "1min", "1m"]
+                if not isIntraday and not isHourlyTick:
+                    cntOpen = dbSession.execute(text("""
+                        SELECT COUNT(*) FROM trades
+                        WHERE idCuenta = :idc AND (strategy = 'RIDER' OR strategy LIKE '%CART%') AND (symbol = :sym OR setup = :sym) AND status = 'OPEN'
+                    """), {"idc": rec["idCuenta"], "sym": rec["symbol"]}).scalar()
+                    dbSession.commit()
+                    if not cntOpen or cntOpen == 0:
+                        continue
 
-            try:
-                evaluateSingleCart(dbSession, dict(rec))
-                dbSession.commit()
-            except Exception as ex:
                 try:
-                    dbSession.rollback()
-                except Exception:
-                    pass
-                logger.error(f"Error evaluando par CART {rec.get('symbol')}: {ex}", exc_info=True)
+                    evaluateSingleCart(dbSession, dict(rec))
+                    dbSession.commit()
+                except Exception as ex:
+                    try:
+                        dbSession.rollback()
+                    except Exception:
+                        pass
+                    logger.error(f"❌ [CART] Error evaluando par {rec.get('symbol')} (Cuenta #{idCuenta}): {ex}", exc_info=True)
+                time.sleep(0.3)
+        except Exception as exAcc:
+            logger.error(f"❌ [CART] Error procesando Cuenta #{idCuenta}: {exAcc}", exc_info=True)
+
+
+def runCycle(isHourlyTick: bool = True, executor=None) -> None:
+    """
+    Censo concurrente con ThreadPoolExecutor(max_workers=5) organizado a nivel de cuenta:
+    - Censa cada 5 segundos para pares intradía (1h, 4h, 15m, etc.).
+    - En el minuto :00 (isHourlyTick=True), censa además los pares en temporalidad diaria (1d) o mayor.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    with SessionLocal() as dbSession:
+        try:
+            accountRows = dbSession.execute(text("""
+                SELECT DISTINCT c.idCuenta
+                FROM userCART c
+                JOIN cuenta acc ON c.idCuenta = acc.idCuenta
+                WHERE (c.borrado = 0 OR c.borrado IS NULL) AND acc.Activo = 1
+                  AND (c.operar = 1 OR EXISTS (
+                      SELECT 1 FROM trades t 
+                      WHERE t.idCuenta = c.idCuenta 
+                        AND (t.strategy = 'RIDER' OR t.strategy LIKE '%CART%') 
+                        AND (t.symbol = c.symbol OR t.setup = c.symbol) 
+                        AND t.status = 'OPEN'
+                  ))
+                ORDER BY c.idCuenta ASC
+            """)).fetchall()
+            activeAccountIds = [int(r[0]) for r in accountRows]
+        except Exception as ex:
+            logger.error(f"❌ [CART] Error consultando cuentas activas: {ex}", exc_info=True)
+            activeAccountIds = []
+
+    if not activeAccountIds:
+        return
+
+    if executor is None:
+        with ThreadPoolExecutor(max_workers=5, thread_name_prefix="CartWorker") as localExec:
+            futures = [localExec.submit(processCartForAccount, accId, isHourlyTick) for accId in activeAccountIds]
+            for f in futures:
+                try:
+                    f.result(timeout=60.0)
+                except Exception as exFut:
+                    logger.error(f"❌ [CART] Excepción en hilo de cuenta: {exFut}")
+    else:
+        futures = [executor.submit(processCartForAccount, accId, isHourlyTick) for accId in activeAccountIds]
+        for f in futures:
+            try:
+                f.result(timeout=60.0)
+            except Exception as exFut:
+                logger.error(f"❌ [CART] Excepción en hilo de cuenta: {exFut}")
 
 
 def main() -> None:
@@ -1988,9 +2049,13 @@ def main() -> None:
     - Escanea cada 5 segundos evaluando cotizaciones en vivo directas de MT5 Bridge.
     - Reacciona de inmediato en el instante exacto en que el precio cruza el CAR o toca el Stop Loss.
     - Sincroniza pares diarios (1d) en el minuto :00 de cada hora.
+    - Arquitectura Concurrente: Pool de 5 Hilos por Cuenta.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     logger.info("==========================================================")
     logger.info("🚀 Iniciando Microservicio microCart.py (Estrategia CART)")
+    logger.info("⚡ Arquitectura Concurrente: Pool de 5 Hilos por Cuenta")
     logger.info("==========================================================")
     if "--once" in sys.argv:
         runCycle(isHourlyTick=True)
@@ -2000,6 +2065,8 @@ def main() -> None:
     logger.info(f"🚀 [microCart] Demonio de alta velocidad iniciado: sondeo cada {scanIntervalSec}s en vivo (MT5 Bridge).")
     lastHourlySync = None
 
+    executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="CartWorker")
+
     while True:
         now = datetime.now()
         currentHourKey = now.strftime("%Y-%m-%d %H:00")
@@ -2008,7 +2075,7 @@ def main() -> None:
             lastHourlySync = currentHourKey
 
         try:
-            runCycle(isHourlyTick=isHourlyTick)
+            runCycle(isHourlyTick=isHourlyTick, executor=executor)
         except Exception as e:
             logger.error(f"Error en ciclo principal de microCart: {e}", exc_info=True)
 
